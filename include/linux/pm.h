@@ -604,6 +604,7 @@ struct dev_pm_info {
 	bool			no_pm_callbacks:1;	/* Owned by the PM core */
 	unsigned int		must_resume:1;	/* Owned by the PM core */
 	unsigned int		may_skip_resume:1;	/* Set by subsystems */
+	bool			use_dark_resume:1;
 #else
 	unsigned int		should_wakeup:1;
 #endif
