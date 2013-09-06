@@ -451,7 +451,8 @@ int snd_usb_get_cur_mix_value(struct usb_mixer_elem_info *cval,
 				      cval->control, channel, err);
 		return err;
 	}
-	cval->cached |= 1 << channel;
+	if (!cval->cache_disabled)
+		cval->cached |= 1 << channel;
 	cval->cache_val[index] = *value;
 	return 0;
 }
@@ -542,7 +543,8 @@ int snd_usb_set_cur_mix_value(struct usb_mixer_elem_info *cval, int channel,
 					  value);
 	if (err < 0)
 		return err;
-	cval->cached |= 1 << channel;
+	if (!cval->cache_disabled)
+		cval->cached |= 1 << channel;
 	cval->cache_val[index] = value;
 	return 0;
 }
@@ -1091,6 +1093,15 @@ static void volume_control_quirks(struct usb_mixer_elem_info *cval,
 			cval->res = 384;
 		}
 		break;
+
+	case USB_ID(0x0b0e, 0x0412): /* Jabra Speakerphone 410 */
+	case USB_ID(0x0b0e, 0x0420): /* Jabra Speakerphone 510 */
+		if (strstr(kctl->id.name, "PCM Playback Volume") != NULL) {
+			cval->min = -8765; /* -36 dB + 1 step (0xdc00 - 451) */
+			cval->max = 1597;  /*  +8 dB - 1 step (0x0800 - 451) */
+			cval->res = 451;   /* 25 steps between -36 and +8 dB */
+		}
+		break;
 	}
 }
 
@@ -1290,7 +1301,7 @@ static int mixer_ctl_feature_put(struct snd_kcontrol *kcontrol,
 				return filter_error(cval, err);
 			val = ucontrol->value.integer.value[cnt];
 			val = get_abs_value(cval, val);
-			if (oval != val) {
+			if (cval->cache_disabled || (oval != val)) {
 				snd_usb_set_cur_mix_value(cval, c + 1, cnt, val);
 				changed = 1;
 			}
@@ -1303,7 +1314,7 @@ static int mixer_ctl_feature_put(struct snd_kcontrol *kcontrol,
 			return filter_error(cval, err);
 		val = ucontrol->value.integer.value[0];
 		val = get_abs_value(cval, val);
-		if (val != oval) {
+		if (cval->cache_disabled || (val != oval)) {
 			snd_usb_set_cur_mix_value(cval, 0, 0, val);
 			changed = 1;
 		}
