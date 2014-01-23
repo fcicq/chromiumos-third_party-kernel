@@ -130,6 +130,8 @@ static void check_hung_task(struct task_struct *t, unsigned long timeout)
 	if (sysctl_hung_task_panic) {
 		hung_task_show_lock = true;
 		hung_task_call_panic = true;
+		/* Dump all tasks. */
+		show_state_filter(TASK_UNINTERRUPTIBLE);
 	}
 }
 
