@@ -401,11 +401,11 @@ static int drm_dp_dpcd_access(struct drm_dp_aux *aux, u8 request,
 			return err;
 		}
 
-		if (err < size)
-			return -EPROTO;
 
 		switch (msg.reply & DP_AUX_NATIVE_REPLY_MASK) {
 		case DP_AUX_NATIVE_REPLY_ACK:
+			if (err < size)
+				return -EPROTO;
 			return err;
 
 		case DP_AUX_NATIVE_REPLY_NACK:
