@@ -256,6 +256,11 @@ static int write_ldt(void __user *ptr, unsigned long bytecount, int oldmode)
 	if (!new_ldt)
 		goto out_unlock;
 
+	if (!IS_ENABLED(CONFIG_X86_16BIT) && !ldt_info.seg_32bit) {
+		error = -EINVAL;
+		goto out_unlock;
+	}
+
 	if (old_ldt)
 		memcpy(new_ldt->entries, old_ldt->entries, oldsize * LDT_ENTRY_SIZE);
 	new_ldt->entries[ldt_info.entry_number] = ldt;
