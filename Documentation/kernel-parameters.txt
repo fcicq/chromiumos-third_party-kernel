@@ -1996,7 +1996,7 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 			will be sent.
 			The default is to send the implementation identification
 			information.
-	
+
 	nfs.recover_lost_locks =
 			[NFSv4] Attempt to recover locks that were lost due
 			to a lease timeout on the server. Please note that
@@ -2121,6 +2121,21 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 	noxsave		[BUGS=X86] Disables x86 extended register state save
 			and restore using xsave. The kernel will fallback to
 			enabling legacy floating-point and sse state.
+
+	noxsaveopt	[X86] Disables xsaveopt used in saving x86 extended
+			register states. The kernel will fall back to use
+			xsave to save the states. By using this parameter,
+			performance of saving the states is degraded because
+			xsave doesn't support modified optimization while
+			xsaveopt supports it on xsaveopt enabled systems.
+
+	noxsaves	[X86] Disables xsaves and xrstors used in saving and
+			restoring x86 extended register state in compacted
+			form of xsave area. The kernel will fall back to use
+			xsaveopt and xrstor to save and restore the states
+			in standard form of xsave area. By using this
+			parameter, xsave area per process might occupy more
+			memory on xsaves enabled systems.
 
 	eagerfpu=	[X86]
 			on	enable eager fpu restore
@@ -3314,7 +3329,7 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 			See also Documentation/input/joystick-parport.txt
 
 	udbg-immortal	[PPC] When debugging early kernel crashes that
-			happen after console_init() and before a proper 
+			happen after console_init() and before a proper
 			console driver takes over, this boot options might
 			help "seeing" what's going on.
 
