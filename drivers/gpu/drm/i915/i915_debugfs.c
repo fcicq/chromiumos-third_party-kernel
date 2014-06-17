@@ -407,7 +407,9 @@ static int i915_gem_object_info(struct seq_file *m, void* data)
 		struct task_struct *task;
 
 		memset(&stats, 0, sizeof(stats));
+		spin_lock(&file->table_lock);
 		idr_for_each(&file->object_idr, per_file_stats, &stats);
+		spin_unlock(&file->table_lock);
 		/*
 		 * Although we have a valid reference on file->pid, that does
 		 * not guarantee that the task_struct who called get_pid() is
