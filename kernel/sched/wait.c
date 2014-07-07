@@ -592,6 +592,15 @@ void wake_up_atomic_t(atomic_t *p)
 }
 EXPORT_SYMBOL(wake_up_atomic_t);
 
+__sched int bit_wait(void *word)
+{
+	if (signal_pending_state(current->state, current))
+		return 1;
+	schedule();
+	return 0;
+}
+EXPORT_SYMBOL(bit_wait);
+
 __sched int bit_wait_io(void *word)
 {
 	if (signal_pending_state(current->state, current))
