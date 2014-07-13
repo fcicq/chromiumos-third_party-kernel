@@ -46,14 +46,12 @@
  */
 #ifndef __ASSEMBLY__
 struct task_struct;
-struct exec_domain;
 typedef asmlinkage void (*ti_sys_call_ptr_t)(void);  /* from asm/syscall.h */
 #include <asm/processor.h>
 #include <linux/atomic.h>
 
 struct thread_info {
 	struct task_struct	*task;		/* main task structure */
-	struct exec_domain	*exec_domain;	/* execution domain */
 	__u32			flags;		/* low level flags */
 	__u32			status;		/* thread synchronous flags */
 	__u32			cpu;		/* current CPU */
@@ -99,7 +97,6 @@ extern const ti_sys_call_ptr_t ia32_sys_call_table[];
 #define INIT_THREAD_INFO(tsk)			\
 {						\
 	.task		= &tsk,			\
-	.exec_domain	= &default_exec_domain,	\
 	.flags		= 0,			\
 	.cpu		= 0,			\
 	.saved_preempt_count = INIT_PREEMPT_COUNT,	\
