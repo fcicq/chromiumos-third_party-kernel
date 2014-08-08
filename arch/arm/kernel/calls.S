@@ -393,7 +393,7 @@
 		CALL(sys_sched_getattr)
 		CALL(sys_ni_syscall)	/* sys_renameat2 */
 		CALL(sys_seccomp)
-		CALL(sys_ni_syscall) /* sys_getrandom */
+		CALL(sys_getrandom)
 /* 385 */	CALL(sys_memfd_create)
 #ifndef syscalls_counted
 .equ syscalls_padding, ((NR_syscalls + 3) & ~3) - NR_syscalls
