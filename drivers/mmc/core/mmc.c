@@ -23,10 +23,14 @@
 #include "mmc_ops.h"
 #include "sd_ops.h"
 
-#define CID_MANFID_SANDISK_2	0x45
+#define CID_MANFID_SANDISK_OLD	0x2
+#define CID_MANFID_SANDISK_NEW	0x45
 static const struct mmc_fixup early_fixups[] = {
-	MMC_FIXUP_PRV("SEM16G", CID_MANFID_SANDISK_2, CID_OEMID_ANY, 0x21,
+	MMC_FIXUP_PRV("SEM16G", CID_MANFID_SANDISK_NEW, CID_OEMID_ANY, 0x21,
 		      add_quirk_mmc, MMC_QUIRK_DISABLE_BROKEN_EMMC),
+	/* SEM16F in boot mode */
+	MMC_FIXUP("SDM032", CID_MANFID_SANDISK_OLD, CID_OEMID_ANY,
+		  add_quirk_mmc, MMC_QUIRK_DISABLE_BROKEN_EMMC),
 	END_FIXUP
 };
 
@@ -926,12 +930,18 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 		goto err;
 
 	if (oldcard) {
-		if (memcmp(cid, oldcard->raw_cid, sizeof(cid)) != 0) {
+		/*
+		 * During upgrade process, the CID of SEM16G changes
+		 * drasticially. Ignore it.
+		 */
+		if ((memcmp(cid, oldcard->raw_cid, sizeof(cid)) != 0) &&
+		    ((oldcard->quirks & MMC_QUIRK_DISABLE_BROKEN_EMMC) == 0)) {
 			err = -ENOENT;
 			goto err;
 		}
 
 		card = oldcard;
+		memcpy(card->raw_cid, cid, sizeof(cid));
 	} else {
 		/*
 		 * Allocate card structure.
@@ -969,11 +979,11 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 		err = mmc_decode_csd(card);
 		if (err)
 			goto free_card;
-		err = mmc_decode_cid(card);
-		if (err)
-			goto free_card;
-		mmc_fixup_device(card, early_fixups);
 	}
+	err = mmc_decode_cid(card);
+	if (err)
+		goto free_card;
+	mmc_fixup_device(card, early_fixups);
 
 	/*
 	 * Select card, as all following commands rely on that.
