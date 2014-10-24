@@ -19,6 +19,7 @@
 #include <asm/hypervisor.h>
 #include <asm/processor.h>
 #include <asm/virtext.h>
+#include <asm/tlbflush.h>
 #include <asm/debugreg.h>
 #include <asm/sections.h>
 #include <linux/topology.h>
@@ -1316,6 +1317,12 @@ void cpu_init(void)
 	unsigned long v;
 	int cpu;
 	int i;
+
+	/*
+	 * Initialize the CR4 shadow before doing anything that could
+	 * try to read it.
+	 */
+	cr4_init_shadow();
 
 	/*
 	 * Load microcode on this cpu if a valid microcode is available.
