@@ -1016,6 +1016,7 @@ static int uvc_video_decode_start(struct uvc_streaming *stream,
 		else
 			ktime_get_real_ts(&ts);
 
+		buf->buf.v4l2_buf.field = V4L2_FIELD_NONE;
 		buf->buf.v4l2_buf.sequence = stream->sequence;
 		buf->buf.v4l2_buf.timestamp.tv_sec = ts.tv_sec;
 		buf->buf.v4l2_buf.timestamp.tv_usec =
