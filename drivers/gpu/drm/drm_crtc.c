@@ -4657,6 +4657,8 @@ EXPORT_SYMBOL(drm_mode_connector_update_edid_property);
 bool drm_property_change_valid_get(struct drm_property *property,
 					 uint64_t value, struct drm_mode_object **ref)
 {
+	int i;
+
 	if (property->flags & DRM_MODE_PROP_IMMUTABLE)
 		return false;
 
@@ -4673,7 +4675,6 @@ bool drm_property_change_valid_get(struct drm_property *property,
 			return false;
 		return true;
 	} else if (drm_property_type_is(property, DRM_MODE_PROP_BITMASK)) {
-		int i;
 		uint64_t valid_mask = 0;
 		for (i = 0; i < property->num_values; i++)
 			valid_mask |= (1ULL << property->values[i]);
@@ -4709,13 +4710,12 @@ bool drm_property_change_valid_get(struct drm_property *property,
 		} else {
 			return _object_find(property->dev, value, property->values[0]) != NULL;
 		}
-	} else {
-		int i;
-		for (i = 0; i < property->num_values; i++)
-			if (property->values[i] == value)
-				return true;
-		return false;
 	}
+
+	for (i = 0; i < property->num_values; i++)
+		if (property->values[i] == value)
+			return true;
+	return false;
 }
 
 void drm_property_change_valid_put(struct drm_property *property,
