@@ -1206,7 +1206,7 @@ static int netlink_create(struct net *net, struct socket *sock, int protocol,
 	struct module *module = NULL;
 	struct mutex *cb_mutex;
 	struct netlink_sock *nlk;
-	void (*bind)(int group);
+	int (*bind)(struct net *net, int group);
 	int err = 0;
 
 	sock->state = SS_UNCONNECTED;
@@ -1527,7 +1527,7 @@ static int netlink_bind(struct socket *sock, struct sockaddr *addr,
 
 		for (i=0; i<nlk->ngroups; i++) {
 			if (test_bit(i, nlk->groups))
-				nlk->netlink_bind(i);
+				nlk->netlink_bind(sock_net(sk), i);
 		}
 	}
 
@@ -2173,8 +2173,9 @@ static int netlink_setsockopt(struct socket *sock, int level, int optname,
 					 optname == NETLINK_ADD_MEMBERSHIP);
 		netlink_table_ungrab();
 
+
 		if (nlk->netlink_bind)
-			nlk->netlink_bind(val);
+			nlk->netlink_bind(sock_net(sk), val);
 
 		err = 0;
 		break;
