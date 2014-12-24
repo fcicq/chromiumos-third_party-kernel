@@ -97,7 +97,9 @@ static void sync_print_pt(struct seq_file *s, struct fence *pt, bool fence)
 		seq_printf(s, "  pt %s", sync_status_str(status));
 
 	if (status <= 0) {
-		struct timespec64 ts64 = ktime_to_timespec64(pt->timestamp);
+		struct timespec64 ts64 =
+			ktime_to_timespec64(pt->timestamp);
+
 		seq_printf(s, "@%lld.%09ld", (s64)ts64.tv_sec, ts64.tv_nsec);
 	}
 
