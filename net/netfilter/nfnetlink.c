@@ -464,7 +464,7 @@ static int nfnetlink_bind(struct net *net, int group)
 	int type;
 
 	if (group <= NFNLGRP_NONE || group > NFNLGRP_MAX)
-		return -EINVAL;
+		return 0;
 
 	type = nfnl_group2type[group];
 
@@ -473,6 +473,7 @@ static int nfnetlink_bind(struct net *net, int group)
 	rcu_read_unlock();
 	if (!ss)
 		request_module("nfnetlink-subsys-%d", type);
+	return 0;
 }
 #endif
 
