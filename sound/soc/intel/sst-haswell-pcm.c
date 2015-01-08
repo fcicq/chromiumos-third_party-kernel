@@ -100,6 +100,7 @@ static const struct snd_pcm_hardware hsw_pcm_hardware = {
 
 struct hsw_pcm_module_map {
 	int dai_id;
+	int stream;
 	enum sst_hsw_module_id mod_id;
 };
 
@@ -691,11 +692,11 @@ static struct snd_pcm_ops hsw_pcm_ops = {
 
 /* static mappings between PCMs and modules - may be dynamic in future */
 static struct hsw_pcm_module_map mod_map[] = {
-	{HSW_PCM_DAI_ID_SYSTEM, SST_HSW_MODULE_PCM_SYSTEM},
-	{HSW_PCM_DAI_ID_OFFLOAD0, SST_HSW_MODULE_PCM},
-	{HSW_PCM_DAI_ID_OFFLOAD1, SST_HSW_MODULE_PCM},
-	{HSW_PCM_DAI_ID_LOOPBACK, SST_HSW_MODULE_PCM_REFERENCE},
-	{HSW_PCM_DAI_ID_CAPTURE, SST_HSW_MODULE_PCM_CAPTURE},
+	{HSW_PCM_DAI_ID_SYSTEM, 0, SST_HSW_MODULE_PCM_SYSTEM},
+	{HSW_PCM_DAI_ID_OFFLOAD0, 0, SST_HSW_MODULE_PCM},
+	{HSW_PCM_DAI_ID_OFFLOAD1, 0, SST_HSW_MODULE_PCM},
+	{HSW_PCM_DAI_ID_LOOPBACK, 1, SST_HSW_MODULE_PCM_REFERENCE},
+	{HSW_PCM_DAI_ID_CAPTURE, 1, SST_HSW_MODULE_PCM_CAPTURE},
 };
 
 static int hsw_pcm_create_modules(struct hsw_priv_data *pdata)
@@ -1081,7 +1082,7 @@ static void hsw_pcm_complete(struct device *dev)
 		return;
 	}
 
-	for (i = 0; i < HSW_PCM_DAI_ID_CAPTURE + 1; i++) {
+	for (i = 0; i < ARRAY_SIZE(mod_map); i++) {
 		pcm_data = &pdata->pcm[i];
 
 		if (!pcm_data->substream)
@@ -1116,7 +1117,7 @@ static int hsw_pcm_prepare(struct device *dev)
 		return 0;
 	else if (pdata->pm_state == HSW_PM_STATE_D0) {
 		/* suspend all active streams */
-		for (i = 0; i < HSW_PCM_DAI_ID_CAPTURE + 1; i++) {
+		for (i = 0; i < ARRAY_SIZE(mod_map); i++) {
 			pcm_data = &pdata->pcm[i];
 
 			if (!pcm_data->substream)
@@ -1129,7 +1130,7 @@ static int hsw_pcm_prepare(struct device *dev)
 		}
 
 		/* preserve persistent memory */
-		for (i = 0; i < HSW_PCM_DAI_ID_CAPTURE + 1; i++) {
+		for (i = 0; i < ARRAY_SIZE(mod_map); i++) {
 			pcm_data = &pdata->pcm[i];
 
 			if (!pcm_data->substream)
