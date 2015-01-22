@@ -706,7 +706,8 @@ int __lock_page_or_retry(struct page *page, struct mm_struct *mm,
  * Is there a pagecache struct page at the given (mapping, offset) tuple?
  * If yes, increment its refcount and return it; if no, return NULL.
  */
-struct page *find_get_page(struct address_space *mapping, pgoff_t offset)
+struct page *find_get_page_flags(struct address_space *mapping, pgoff_t offset,
+				 int fgp_flags)
 {
 	void **pagep;
 	struct page *page;
@@ -743,11 +744,13 @@ repeat:
 		}
 	}
 out:
+	if (page && (fgp_flags & FGP_ACCESSED))
+		mark_page_accessed(page);
 	rcu_read_unlock();
 
 	return page;
 }
-EXPORT_SYMBOL(find_get_page);
+EXPORT_SYMBOL(find_get_page_flags);
 
 /**
  * find_lock_page - locate, pin and lock a pagecache page
