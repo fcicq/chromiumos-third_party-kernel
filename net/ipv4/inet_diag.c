@@ -72,10 +72,10 @@ static inline void inet_diag_unlock_handler(
 }
 
 int inet_sk_diag_fill(struct sock *sk, struct inet_connection_sock *icsk,
-			      struct sk_buff *skb, struct inet_diag_req_v2 *req,
-			      struct user_namespace *user_ns,		      	
-			      u32 portid, u32 seq, u16 nlmsg_flags,
-			      const struct nlmsghdr *unlh)
+		      struct sk_buff *skb, const struct inet_diag_req_v2 *req,
+		      struct user_namespace *user_ns,
+		      u32 portid, u32 seq, u16 nlmsg_flags,
+		      const struct nlmsghdr *unlh)
 {
 	const struct inet_sock *inet = inet_sk(sk);
 	struct inet_diag_msg *r;
@@ -212,7 +212,8 @@ errout:
 EXPORT_SYMBOL_GPL(inet_sk_diag_fill);
 
 static int inet_csk_diag_fill(struct sock *sk,
-			      struct sk_buff *skb, struct inet_diag_req_v2 *req,
+			      struct sk_buff *skb,
+			      const struct inet_diag_req_v2 *req,
 			      struct user_namespace *user_ns,
 			      u32 portid, u32 seq, u16 nlmsg_flags,
 			      const struct nlmsghdr *unlh)
@@ -222,7 +223,8 @@ static int inet_csk_diag_fill(struct sock *sk,
 }
 
 static int inet_twsk_diag_fill(struct inet_timewait_sock *tw,
-			       struct sk_buff *skb, struct inet_diag_req_v2 *req,
+			       struct sk_buff *skb,
+			       const struct inet_diag_req_v2 *req,
 			       u32 portid, u32 seq, u16 nlmsg_flags,
 			       const struct nlmsghdr *unlh)
 {
@@ -275,7 +277,7 @@ static int inet_twsk_diag_fill(struct inet_timewait_sock *tw,
 }
 
 static int sk_diag_fill(struct sock *sk, struct sk_buff *skb,
-			struct inet_diag_req_v2 *r,
+			const struct inet_diag_req_v2 *r,
 			struct user_namespace *user_ns,
 			u32 portid, u32 seq, u16 nlmsg_flags,
 			const struct nlmsghdr *unlh)
@@ -288,8 +290,10 @@ static int sk_diag_fill(struct sock *sk, struct sk_buff *skb,
 				  nlmsg_flags, unlh);
 }
 
-int inet_diag_dump_one_icsk(struct inet_hashinfo *hashinfo, struct sk_buff *in_skb,
-		const struct nlmsghdr *nlh, struct inet_diag_req_v2 *req)
+int inet_diag_dump_one_icsk(struct inet_hashinfo *hashinfo,
+			    struct sk_buff *in_skb,
+			    const struct nlmsghdr *nlh,
+			    const struct inet_diag_req_v2 *req)
 {
 	int err;
 	struct sock *sk;
@@ -357,7 +361,7 @@ EXPORT_SYMBOL_GPL(inet_diag_dump_one_icsk);
 
 static int inet_diag_get_exact(struct sk_buff *in_skb,
 			       const struct nlmsghdr *nlh,
-			       struct inet_diag_req_v2 *req)
+			       const struct inet_diag_req_v2 *req)
 {
 	const struct inet_diag_handler *handler;
 	int err;
@@ -628,7 +632,7 @@ static int inet_diag_bc_audit(const void *bytecode, int bytecode_len)
 static int inet_csk_diag_dump(struct sock *sk,
 			      struct sk_buff *skb,
 			      struct netlink_callback *cb,
-			      struct inet_diag_req_v2 *r,
+			      const struct inet_diag_req_v2 *r,
 			      const struct nlattr *bc)
 {
 	if (!inet_diag_bc_sk(bc, sk))
@@ -643,7 +647,7 @@ static int inet_csk_diag_dump(struct sock *sk,
 static int inet_twsk_diag_dump(struct sock *sk,
 			       struct sk_buff *skb,
 			       struct netlink_callback *cb,
-			       struct inet_diag_req_v2 *r,
+			       const struct inet_diag_req_v2 *r,
 			       const struct nlattr *bc)
 {
 	struct inet_timewait_sock *tw = inet_twsk(sk);
@@ -763,7 +767,7 @@ static int inet_diag_fill_req(struct sk_buff *skb, struct sock *sk,
 
 static int inet_diag_dump_reqs(struct sk_buff *skb, struct sock *sk,
 			       struct netlink_callback *cb,
-			       struct inet_diag_req_v2 *r,
+			       const struct inet_diag_req_v2 *r,
 			       const struct nlattr *bc)
 {
 	struct inet_diag_entry entry;
@@ -835,7 +839,8 @@ out:
 }
 
 void inet_diag_dump_icsk(struct inet_hashinfo *hashinfo, struct sk_buff *skb,
-		struct netlink_callback *cb, struct inet_diag_req_v2 *r, struct nlattr *bc)
+			 struct netlink_callback *cb,
+			 const struct inet_diag_req_v2 *r, struct nlattr *bc)
 {
 	int i, num;
 	int s_i, s_num;
@@ -973,7 +978,8 @@ out:
 EXPORT_SYMBOL_GPL(inet_diag_dump_icsk);
 
 static int __inet_diag_dump(struct sk_buff *skb, struct netlink_callback *cb,
-		struct inet_diag_req_v2 *r, struct nlattr *bc)
+			    const struct inet_diag_req_v2 *r,
+			    struct nlattr *bc)
 {
 	const struct inet_diag_handler *handler;
 	int err = 0;
