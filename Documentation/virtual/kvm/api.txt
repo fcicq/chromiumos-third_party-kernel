@@ -994,7 +994,7 @@ for vm-wide capabilities.
 4.38 KVM_GET_MP_STATE
 
 Capability: KVM_CAP_MP_STATE
-Architectures: x86, ia64, s390
+Architectures: x86, s390, arm, arm64
 Type: vcpu ioctl
 Parameters: struct kvm_mp_state (out)
 Returns: 0 on success; -1 on error
@@ -1017,8 +1017,8 @@ Possible values are:
  - KVM_MP_STATE_HALTED:          the vcpu has executed a HLT instruction and
                                  is waiting for an interrupt [x86, ia64]
  - KVM_MP_STATE_SIPI_RECEIVED:   the vcpu has just received a SIPI (vector
-                                 accessible via KVM_GET_VCPU_EVENTS) [x86, ia64]
- - KVM_MP_STATE_STOPPED:         the vcpu is stopped [s390]
+                                 accessible via KVM_GET_VCPU_EVENTS) [x86]
+ - KVM_MP_STATE_STOPPED:         the vcpu is stopped [s390,arm/arm64]
  - KVM_MP_STATE_CHECK_STOP:      the vcpu is in a special error state [s390]
  - KVM_MP_STATE_OPERATING:       the vcpu is operating (running or halted)
                                  [s390]
@@ -1029,6 +1029,10 @@ On x86 and ia64, this ioctl is only useful after KVM_CREATE_IRQCHIP. Without an
 in-kernel irqchip, the multiprocessing state must be maintained by userspace on
 these architectures.
 
+For arm/arm64:
+
+The only states that are valid are KVM_MP_STATE_STOPPED and
+KVM_MP_STATE_RUNNABLE which reflect if the vcpu is paused or not.
 
 4.39 KVM_SET_MP_STATE
 
@@ -1045,6 +1049,10 @@ On x86 and ia64, this ioctl is only useful after KVM_CREATE_IRQCHIP. Without an
 in-kernel irqchip, the multiprocessing state must be maintained by userspace on
 these architectures.
 
+For arm/arm64:
+
+The only states that are valid are KVM_MP_STATE_STOPPED and
+KVM_MP_STATE_RUNNABLE which reflect if the vcpu should be paused or not.
 
 4.40 KVM_SET_IDENTITY_MAP_ADDR
 
