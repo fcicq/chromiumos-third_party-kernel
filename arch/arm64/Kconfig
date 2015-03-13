@@ -542,6 +542,10 @@ config HOTPLUG_CPU
 
 source kernel/Kconfig.preempt
 
+config UP_LATE_INIT
+       def_bool y
+       depends on !SMP
+
 source kernel/Kconfig.hz
 
 config ARCH_HAS_HOLES_MEMORYMODEL
