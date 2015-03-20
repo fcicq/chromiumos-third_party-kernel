@@ -1570,6 +1570,9 @@ static int cluster_changed(struct v4l2_ctrl *master)
 		if (ctrl == NULL)
 			continue;
 
+		if (ctrl->flags & V4L2_CTRL_FLAG_EXECUTE_ON_WRITE)
+			changed = ctrl_changed = true;
+
 		if (ctrl->flags & V4L2_CTRL_FLAG_VOLATILE) {
 			/*
 			 * Set has_changed to false to avoid generating
