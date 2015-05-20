@@ -750,7 +750,7 @@ EXPORT_SYMBOL_GPL(dma_buf_kunmap);
  * @dmabuf:	[in]	buffer that should back the vma
  * @vma:	[in]	vma for the mmap
  * @pgoff:	[in]	offset in pages where this mmap should start within the
- * 			dma-buf buffer.
+ *			dma-buf buffer.
  *
  * This function adjusts the passed in vma so that it points at the file of the
  * dma_buf operation. It also adjusts the starting pgoff and does bounds
