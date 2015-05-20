@@ -483,6 +483,8 @@ struct scsi_host_template {
 	 */
 	unsigned no_async_abort:1;
 
+	unsigned hack_avoid_rdwr:1;
+
 	/*
 	 * Countdown for host blocking with no commands outstanding.
 	 */
@@ -657,6 +659,7 @@ struct Scsi_Host {
 	unsigned unchecked_isa_dma:1;
 	unsigned use_clustering:1;
 	unsigned use_blk_tcq:1;
+	unsigned hack_avoid_rdwr:1;
 
 	/*
 	 * Host has requested that no further requests come through for the

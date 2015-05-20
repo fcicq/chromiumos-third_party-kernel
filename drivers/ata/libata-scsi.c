@@ -3339,6 +3339,9 @@ static unsigned int ata_scsi_mode_select_xlat(struct ata_queued_cmd *qc)
 
 static inline ata_xlat_func_t ata_get_xlat_func(struct ata_device *dev, u8 cmd)
 {
+	struct Scsi_Host *shost = dev->link->ap->scsi_host;
+	bool skip_rdwr = shost ? shost->hack_avoid_rdwr : false;
+
 	switch (cmd) {
 	case READ_6:
 	case READ_10:
@@ -3347,12 +3350,16 @@ static inline ata_xlat_func_t ata_get_xlat_func(struct ata_device *dev, u8 cmd)
 	case WRITE_6:
 	case WRITE_10:
 	case WRITE_16:
+		if (skip_rdwr)
+			return NULL;
 		return ata_scsi_rw_xlat;
 
 	case WRITE_SAME_16:
 		return ata_scsi_write_same_xlat;
 
 	case SYNCHRONIZE_CACHE:
+		if (skip_rdwr)
+			return NULL;
 		if (ata_try_flush_cache(dev))
 			return ata_scsi_flush_xlat;
 		break;

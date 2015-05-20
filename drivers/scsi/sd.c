@@ -2963,6 +2963,9 @@ static int sd_probe(struct device *dev)
 		goto out_free_index;
 	}
 
+	if (sdp->host->hack_avoid_rdwr)
+		gd->flags |= GENHD_FL_NO_PART_SCAN;
+
 	sdkp->device = sdp;
 	sdkp->driver = &sd_template;
 	sdkp->disk = gd;

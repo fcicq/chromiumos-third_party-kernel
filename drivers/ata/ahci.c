@@ -93,6 +93,7 @@ static int ahci_pci_device_resume(struct pci_dev *pdev);
 #endif
 
 static struct scsi_host_template ahci_sht = {
+	.hack_avoid_rdwr	= 1,
 	AHCI_SHT("ahci"),
 };
 

@@ -3950,6 +3950,11 @@ static int ata_dev_same_device(struct ata_device *dev, unsigned int new_class,
 	ata_id_c_string(old_id, serial[0], ATA_ID_SERNO, sizeof(serial[0]));
 	ata_id_c_string(new_id, serial[1], ATA_ID_SERNO, sizeof(serial[1]));
 
+#if 0
+	/*
+	 * During recovery the model and serial number changes, ignore these
+	 * errors.
+	 */
 	if (strcmp(model[0], model[1])) {
 		ata_dev_info(dev, "model number mismatch '%s' != '%s'\n",
 			     model[0], model[1]);
@@ -3961,6 +3966,7 @@ static int ata_dev_same_device(struct ata_device *dev, unsigned int new_class,
 			     serial[0], serial[1]);
 		return 0;
 	}
+#endif
 
 	return 1;
 }
@@ -4044,10 +4050,14 @@ int ata_dev_revalidate(struct ata_device *dev, unsigned int new_class,
 	if (rc)
 		goto fail;
 
+#if 0
 	/* verify n_sectors hasn't changed */
 	if (dev->class != ATA_DEV_ATA || !n_sectors ||
 	    dev->n_sectors == n_sectors)
 		return 0;
+#else
+	return 0;
+#endif
 
 	/* n_sectors has changed */
 	ata_dev_warn(dev, "n_sectors mismatch %llu != %llu\n",
