@@ -69,6 +69,7 @@ static const struct inet_diag_handler tcp_diag_handler = {
 #ifdef CONFIG_INET_DIAG_DESTROY
 	.destroy	 = tcp_diag_destroy,
 #endif
+	.idiag_info_size = sizeof(struct tcp_info),
 };
 
 static int __init tcp_diag_init(void)

@@ -241,6 +241,7 @@ static const struct inet_diag_handler udp_diag_handler = {
 #ifdef CONFIG_INET_DIAG_DESTROY
 	.destroy	 = udp_diag_destroy,
 #endif
+	.idiag_info_size = 0,
 };
 
 static void udplite_diag_dump(struct sk_buff *skb, struct netlink_callback *cb,
@@ -263,6 +264,7 @@ static const struct inet_diag_handler udplite_diag_handler = {
 #ifdef CONFIG_INET_DIAG_DESTROY
 	.destroy	 = udplite_diag_destroy,
 #endif
+	.idiag_info_size = 0,
 };
 
 static int __init udp_diag_init(void)
