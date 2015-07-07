@@ -136,6 +136,7 @@ extern char __save_vgic_v2_state[];
 extern char __restore_vgic_v2_state[];
 extern char __save_vgic_v3_state[];
 extern char __restore_vgic_v3_state[];
+extern u32 __kvm_get_mdcr_el2(void);
 
 #endif
 
