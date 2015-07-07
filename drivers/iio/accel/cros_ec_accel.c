@@ -636,7 +636,7 @@ static int configure_buffer(struct iio_dev *indio_dev)
 	indio_dev->setup_ops = &iio_simple_dummy_buffer_setup_ops;
 	indio_dev->pollfunc =
 		iio_alloc_pollfunc(NULL, &accel_capture, IRQF_ONESHOT,
-				   indio_dev, "");
+				   indio_dev, "cros-ec-accel");
 
 	if (indio_dev->pollfunc == NULL) {
 		ret = -ENOMEM;
