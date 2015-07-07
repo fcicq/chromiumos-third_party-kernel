@@ -600,6 +600,7 @@ __restore_sysregs:
 /* Save debug state */
 __save_debug:
 	// x2: ptr to CPU context
+	// x3: ptr to debug reg struct
 	// x4/x5/x6-22/x24-26: trashed
 
 	mrs	x26, id_aa64dfr0_el1
@@ -610,15 +611,15 @@ __save_debug:
 	sub	w25, w26, w25		// How many WPs to skip
 
 	mov	x5, x24
-	add	x4, x2, #CPU_SYSREG_OFFSET(DBGBCR0_EL1)
+	add	x4, x3, #DEBUG_BCR
 	save_debug dbgbcr
-	add	x4, x2, #CPU_SYSREG_OFFSET(DBGBVR0_EL1)
+	add	x4, x3, #DEBUG_BVR
 	save_debug dbgbvr
 
 	mov	x5, x25
-	add	x4, x2, #CPU_SYSREG_OFFSET(DBGWCR0_EL1)
+	add	x4, x3, #DEBUG_WCR
 	save_debug dbgwcr
-	add	x4, x2, #CPU_SYSREG_OFFSET(DBGWVR0_EL1)
+	add	x4, x3, #DEBUG_WVR
 	save_debug dbgwvr
 
 	mrs	x21, mdccint_el1
@@ -628,6 +629,7 @@ __save_debug:
 /* Restore debug state */
 __restore_debug:
 	// x2: ptr to CPU context
+	// x3: ptr to debug reg struct
 	// x4/x5/x6-22/x24-26: trashed
 
 	mrs	x26, id_aa64dfr0_el1
@@ -638,15 +640,15 @@ __restore_debug:
 	sub	w25, w26, w25		// How many WPs to skip
 
 	mov	x5, x24
-	add	x4, x2, #CPU_SYSREG_OFFSET(DBGBCR0_EL1)
+	add	x4, x3, #DEBUG_BCR
 	restore_debug dbgbcr
-	add	x4, x2, #CPU_SYSREG_OFFSET(DBGBVR0_EL1)
+	add	x4, x3, #DEBUG_BVR
 	restore_debug dbgbvr
 
 	mov	x5, x25
-	add	x4, x2, #CPU_SYSREG_OFFSET(DBGWCR0_EL1)
+	add	x4, x3, #DEBUG_WCR
 	restore_debug dbgwcr
-	add	x4, x2, #CPU_SYSREG_OFFSET(DBGWVR0_EL1)
+	add	x4, x3, #DEBUG_WVR
 	restore_debug dbgwvr
 
 	ldr	x21, [x2, #CPU_SYSREG_OFFSET(MDCCINT_EL1)]
@@ -686,6 +688,7 @@ ENTRY(__kvm_vcpu_run)
 	bl __save_sysregs
 
 	compute_debug_state 1f
+	add	x3, x0, #VCPU_HOST_DEBUG_STATE
 	bl	__save_debug
 1:
 	activate_traps
@@ -704,6 +707,8 @@ ENTRY(__kvm_vcpu_run)
 	bl __restore_fpsimd
 
 	skip_debug_state x3, 1f
+	ldr	x3, [x0, #VCPU_DEBUG_PTR]
+	kern_hyp_va x3
 	bl	__restore_debug
 1:
 	restore_guest_regs
@@ -723,6 +728,8 @@ __kvm_vcpu_return:
 	bl __save_sysregs
 
 	skip_debug_state x3, 1f
+	ldr	x3, [x0, #VCPU_DEBUG_PTR]
+	kern_hyp_va x3
 	bl	__save_debug
 1:
 	save_guest_32bit_state
@@ -745,6 +752,7 @@ __kvm_vcpu_return:
 	// already been saved. Note that we nuke the whole 64bit word.
 	// If we ever add more flags, we'll have to be more careful...
 	str	xzr, [x0, #VCPU_DEBUG_FLAGS]
+	add	x3, x0, #VCPU_HOST_DEBUG_STATE
 	bl	__restore_debug
 1:
 	restore_host_regs
