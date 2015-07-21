@@ -264,14 +264,15 @@ struct drm_atomic_state;
  * @crtc: backpointer to the CRTC
  * @enable: whether the CRTC should be enabled, gates all other state
  * @active: whether the CRTC is actively displaying (used for DPMS)
- * @mode_changed: for use by helpers and drivers when computing state updates
- * @active_changed: for use by helpers and drivers when computing state updates
+ * @planes_changed: planes on this crtc are updated
+ * @mode_changed: crtc_state->mode or crtc_state->enable has been changed
+ * @active_changed: crtc_state->active has been toggled.
+ * @connectors_changed: connectors to this crtc have been updated
  * @color_mgmt_changed: color management properties have changed (degamma or
  *	gamma LUT or CSC matrix)
  * @plane_mask: bitmask of (1 << drm_plane_index(plane)) of attached planes
  * @last_vblank_count: for helpers and drivers to capture the vblank of the
  * 	update to ensure framebuffer cleanup isn't done too early
- * @planes_changed: for use by helpers and drivers when computing state updates
  * @adjusted_mode: for use by helpers and drivers to compute adjusted mode timings
  * @mode: current mode timings
  * @degamma_lut: Lookup table for converting framebuffer pixel data
@@ -300,6 +301,7 @@ struct drm_crtc_state {
 	bool mode_changed : 1;
 	bool active_changed : 1;
 	bool color_mgmt_changed : 1;
+	bool connectors_changed : 1;
 
 	/* attached planes bitmask:
 	 * WARNING: transitional helpers do not maintain plane_mask so
