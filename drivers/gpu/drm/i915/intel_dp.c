@@ -2666,7 +2666,7 @@ static void vlv_steal_power_sequencer(struct drm_device *dev,
 		DRM_DEBUG_KMS("stealing pipe %c power sequencer from port %c\n",
 			      pipe_name(pipe), port_name(port));
 
-		WARN(encoder->connectors_active,
+		WARN(encoder->base.crtc,
 		     "stealing pipe %c power sequencer from active eDP port %c\n",
 		     pipe_name(pipe), port_name(port));
 
