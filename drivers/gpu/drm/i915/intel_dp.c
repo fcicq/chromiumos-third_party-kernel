@@ -4416,6 +4416,9 @@ static bool ibx_digital_port_connected(struct drm_i915_private *dev_priv,
 	case PORT_D:
 		bit = SDE_PORTD_HOTPLUG;
 		break;
+	case PORT_E:
+		bit = SDE_PORTE_HOTPLUG_SPT;
+		break;
 	default:
 		MISSING_CASE(port->port);
 		return false;
@@ -5984,6 +5987,9 @@ intel_dp_init_connector(struct intel_digital_port *intel_dig_port,
 		break;
 	case PORT_D:
 		intel_encoder->hpd_pin = HPD_PORT_D;
+		break;
+	case PORT_E:
+		intel_encoder->hpd_pin = HPD_PORT_E;
 		break;
 	default:
 		BUG();
