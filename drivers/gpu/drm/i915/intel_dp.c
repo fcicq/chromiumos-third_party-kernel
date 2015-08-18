@@ -95,9 +95,6 @@ static const int bxt_rates[] = { 162000, 216000, 243000, 270000,
 				  324000, 432000, 540000 };
 static const int skl_rates[] = { 162000, 216000, 270000,
 				  324000, 432000, 540000 };
-static const int chv_rates[] = { 162000, 202500, 210000, 216000,
-				 243000, 270000, 324000, 405000,
-				 420000, 432000, 540000 };
 static const int default_rates[] = { 162000, 270000, 540000 };
 
 /**
@@ -1201,9 +1198,6 @@ intel_dp_source_rates(struct drm_device *dev, const int **source_rates)
 	} else if (IS_SKYLAKE(dev)) {
 		*source_rates = skl_rates;
 		return ARRAY_SIZE(skl_rates);
-	} else if (IS_CHERRYVIEW(dev)) {
-		*source_rates = chv_rates;
-		return ARRAY_SIZE(chv_rates);
 	}
 
 	*source_rates = default_rates;
