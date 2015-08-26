@@ -351,6 +351,8 @@ int drm_dp_bw_code_to_link_rate(u8 link_bw)
 }
 EXPORT_SYMBOL(drm_dp_bw_code_to_link_rate);
 
+#define AUX_RETRY_INTERVAL 500 /* us */
+
 /**
  * DOC: dp helpers
  *
@@ -412,7 +414,7 @@ static int drm_dp_dpcd_access(struct drm_dp_aux *aux, u8 request,
 			return -EIO;
 
 		case DP_AUX_NATIVE_REPLY_DEFER:
-			usleep_range(400, 500);
+			usleep_range(AUX_RETRY_INTERVAL, AUX_RETRY_INTERVAL + 100);
 			break;
 		}
 	}
@@ -643,7 +645,7 @@ static int drm_dp_i2c_do_msg(struct drm_dp_aux *aux, struct drm_dp_aux_msg *msg)
 			 * For now just defer for long enough to hopefully be
 			 * safe for all use-cases.
 			 */
-			usleep_range(500, 600);
+			usleep_range(AUX_RETRY_INTERVAL, AUX_RETRY_INTERVAL + 100);
 			continue;
 
 		default:
@@ -673,7 +675,7 @@ static int drm_dp_i2c_do_msg(struct drm_dp_aux *aux, struct drm_dp_aux_msg *msg)
 			aux->i2c_defer_count++;
 			if (defer_i2c < 7)
 				defer_i2c++;
-			usleep_range(400, 500);
+			usleep_range(AUX_RETRY_INTERVAL, AUX_RETRY_INTERVAL + 100);
 			continue;
 
 		default:
