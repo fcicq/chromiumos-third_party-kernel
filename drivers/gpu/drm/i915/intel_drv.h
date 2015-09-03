@@ -815,7 +815,6 @@ struct intel_dp {
 	enum pipe pps_pipe;
 	struct edp_power_seq pps_delays;
 
-	bool use_tps3;
 	bool is_ps8617;
 	bool is_dellda200;
 	bool has_hdmi_sink;
