@@ -270,10 +270,18 @@ u32 intel_execlists_ctx_id(struct drm_i915_gem_object *ctx_obj)
 	return lrca >> 12;
 }
 
+static bool disable_lite_restore_wa(struct intel_engine_cs *ring)
+{
+	struct drm_device *dev = ring->dev;
+
+	return ((IS_SKYLAKE(dev) && INTEL_REVID(dev) <= SKL_REVID_B0) ||
+		(IS_BROXTON(dev) && INTEL_REVID(dev) == BXT_REVID_A0)) &&
+	       (ring->id == VCS || ring->id == VCS2);
+}
+
 static uint64_t execlists_ctx_descriptor(struct drm_i915_gem_request *rq)
 {
 	struct intel_engine_cs *ring = rq->ring;
-	struct drm_device *dev = ring->dev;
 	struct drm_i915_gem_object *ctx_obj = rq->ctx->engine[ring->id].state;
 	uint64_t desc;
 	uint64_t lrca = i915_gem_obj_ggtt_offset(ctx_obj);
@@ -281,7 +289,7 @@ static uint64_t execlists_ctx_descriptor(struct drm_i915_gem_request *rq)
 	WARN_ON(lrca & 0xFFFFFFFF00000FFFULL);
 
 	desc = GEN8_CTX_VALID;
-	desc |= GEN8_CTX_ADDRESSING_MODE(dev) << GEN8_CTX_ADDRESSING_MODE_SHIFT;
+	desc |= GEN8_CTX_ADDRESSING_MODE(ring->dev) << GEN8_CTX_ADDRESSING_MODE_SHIFT;
 	if (IS_GEN8(ctx_obj->base.dev))
 		desc |= GEN8_CTX_L3LLC_COHERENT;
 	desc |= GEN8_CTX_PRIVILEGE;
@@ -293,10 +301,8 @@ static uint64_t execlists_ctx_descriptor(struct drm_i915_gem_request *rq)
 	/* desc |= GEN8_CTX_FORCE_RESTORE; */
 
 	/* WaEnableForceRestoreInCtxtDescForVCS:skl */
-	if (IS_GEN9(dev) &&
-	    INTEL_REVID(dev) <= SKL_REVID_B0 &&
-	    (ring->id == BCS || ring->id == VCS ||
-	    ring->id == VECS || ring->id == VCS2))
+	/* WaEnableForceRestoreInCtxtDescForVCS:bxt */
+	if (disable_lite_restore_wa(ring))
 		desc |= GEN8_CTX_FORCE_RESTORE;
 
 	return desc;
@@ -487,7 +493,7 @@ void intel_lrc_irq_handler(struct intel_engine_cs *ring)
 	u32 status_pointer;
 	u8 read_pointer;
 	u8 write_pointer;
-	u32 status;
+	u32 status = 0;
 	u32 status_id;
 	u32 submit_contexts = 0;
 
@@ -522,8 +528,14 @@ void intel_lrc_irq_handler(struct intel_engine_cs *ring)
 		}
 	}
 
-	if (submit_contexts != 0)
+	if (disable_lite_restore_wa(ring)) {
+		/* Prevent a ctx to preempt itself */
+		if ((status & GEN8_CTX_STATUS_ACTIVE_IDLE) &&
+		    (submit_contexts != 0))
+			execlists_context_unqueue(ring);
+	} else if (submit_contexts != 0) {
 		execlists_context_unqueue(ring);
+	}
 
 	spin_unlock(&ring->execlist_lock);
 
