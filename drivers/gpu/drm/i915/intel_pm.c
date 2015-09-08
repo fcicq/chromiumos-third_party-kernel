@@ -2097,7 +2097,7 @@ hsw_compute_linetime_wm(struct drm_device *dev, struct drm_crtc *crtc)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	struct intel_crtc *intel_crtc = to_intel_crtc(crtc);
-	struct drm_display_mode *adjusted_mode = &intel_crtc->config->base.adjusted_mode;
+	const struct drm_display_mode *adjusted_mode = &intel_crtc->config->base.adjusted_mode;
 	u32 linetime, ips_linetime;
 
 	if (!intel_crtc->active)
