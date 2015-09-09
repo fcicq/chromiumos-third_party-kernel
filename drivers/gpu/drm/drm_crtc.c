@@ -3368,7 +3368,7 @@ int drm_mode_rmfb(struct drm_device *dev,
 	mutex_unlock(&dev->mode_config.fb_lock);
 	mutex_unlock(&file_priv->fbs_lock);
 
-	drm_framebuffer_remove(fb);
+	drm_framebuffer_unreference(fb);
 
 	return 0;
 
@@ -3558,7 +3558,7 @@ void drm_fb_release(struct drm_file *priv)
 		list_del_init(&fb->filp_head);
 
 		/* This will also drop the fpriv->fbs reference. */
-		drm_framebuffer_remove(fb);
+		drm_framebuffer_unreference(fb);
 	}
 }
 
