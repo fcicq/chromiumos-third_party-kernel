@@ -2623,7 +2623,6 @@ static void intel_enable_dp(struct intel_encoder *encoder)
 
 	intel_dp_sink_dpms(intel_dp, DRM_MODE_DPMS_ON);
 	intel_dp_start_link_train(intel_dp);
-	intel_dp_complete_link_train(intel_dp);
 	intel_dp_stop_link_train(intel_dp);
 
 	if (crtc->config->has_audio) {
@@ -3715,8 +3714,8 @@ static void intel_dp_set_idle_link_train(struct intel_dp *intel_dp)
 }
 
 /* Enable corresponding port and start training pattern 1 */
-void
-intel_dp_start_link_train(struct intel_dp *intel_dp)
+static void
+intel_dp_link_training_clock_recovery(struct intel_dp *intel_dp)
 {
 	struct drm_encoder *encoder = &dp_to_dig_port(intel_dp)->base.base;
 	struct drm_device *dev = encoder->dev;
@@ -3829,8 +3828,8 @@ intel_dp_start_link_train(struct intel_dp *intel_dp)
 	intel_dp->DP = DP;
 }
 
-void
-intel_dp_complete_link_train(struct intel_dp *intel_dp)
+static void
+intel_dp_link_training_channel_equalization(struct intel_dp *intel_dp)
 {
 	struct intel_digital_port *dig_port = dp_to_dig_port(intel_dp);
 	struct drm_device *dev = dig_port->base.base.dev;
@@ -3883,7 +3882,7 @@ intel_dp_complete_link_train(struct intel_dp *intel_dp)
 		if (!drm_dp_clock_recovery_ok(link_status,
 					      intel_dp->lane_count)) {
 			intel_dp->train_set_valid = false;
-			intel_dp_start_link_train(intel_dp);
+			intel_dp_link_training_clock_recovery(intel_dp);
 			intel_dp_set_link_train(intel_dp, &DP,
 						training_pattern |
 						DP_LINK_SCRAMBLING_DISABLE);
@@ -3900,7 +3899,7 @@ intel_dp_complete_link_train(struct intel_dp *intel_dp)
 		/* Try 5 times, then try clock recovery if that fails */
 		if (tries > 5) {
 			intel_dp->train_set_valid = false;
-			intel_dp_start_link_train(intel_dp);
+			intel_dp_link_training_clock_recovery(intel_dp);
 			intel_dp_set_link_train(intel_dp, &DP,
 						training_pattern |
 						DP_LINK_SCRAMBLING_DISABLE);
@@ -3931,6 +3930,13 @@ void intel_dp_stop_link_train(struct intel_dp *intel_dp)
 {
 	intel_dp_set_link_train(intel_dp, &intel_dp->DP,
 				DP_TRAINING_PATTERN_DISABLE);
+}
+
+void
+intel_dp_start_link_train(struct intel_dp *intel_dp)
+{
+	intel_dp_link_training_clock_recovery(intel_dp);
+	intel_dp_link_training_channel_equalization(intel_dp);
 }
 
 static void
@@ -4379,7 +4385,6 @@ go_again:
 			    !drm_dp_channel_eq_ok(&esi[10], intel_dp->lane_count)) {
 				DRM_DEBUG_KMS("channel EQ not ok, retraining\n");
 				intel_dp_start_link_train(intel_dp);
-				intel_dp_complete_link_train(intel_dp);
 				intel_dp_stop_link_train(intel_dp);
 			}
 
