@@ -98,11 +98,12 @@ static int read_mmp_block(struct super_block *sb, struct buffer_head **bh,
 	}
 
 	mmp = (struct mmp_struct *)((*bh)->b_data);
-	if (le32_to_cpu(mmp->mmp_magic) != EXT4_MMP_MAGIC ||
-	    !ext4_mmp_csum_verify(sb, mmp))
-		return -EINVAL;
-
-	return 0;
+	if (le32_to_cpu(mmp->mmp_magic) != EXT4_MMP_MAGIC)
+		return -EFSCORRUPTED;
+	else if (!ext4_mmp_csum_verify(sb, mmp))
+		return -EFSBADCRC;
+	else
+		return 0;
 }
 
 /*
