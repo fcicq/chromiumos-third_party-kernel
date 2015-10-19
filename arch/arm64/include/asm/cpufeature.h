@@ -157,6 +157,8 @@ void check_cpu_capabilities(const struct arm64_cpu_capabilities *caps,
 void check_local_cpu_errata(void);
 void check_local_cpu_features(void);
 
+u64 read_system_reg(u32 id);
+
 #endif /* __ASSEMBLY__ */
 
 #endif
