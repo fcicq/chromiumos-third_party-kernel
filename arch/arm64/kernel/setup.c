@@ -85,7 +85,6 @@ unsigned int compat_elf_hwcap2 __read_mostly;
 
 DECLARE_BITMAP(cpu_hwcaps, ARM64_NCAPS);
 
-static const char *cpu_name;
 phys_addr_t __fdt_pointer __initdata;
 
 /*
@@ -209,30 +208,12 @@ static void __init smp_build_mpidr_hash(void)
 }
 #endif
 
-static void __init setup_processor(void)
+void __init setup_cpu_features(void)
 {
-	struct cpu_info *cpu_info;
 	u64 features;
 	s64 block;
 	u32 cwg;
 	int cls;
-
-	cpu_info = lookup_processor_type(read_cpuid_id());
-	if (!cpu_info) {
-		printk("CPU configuration botched (ID %08x), unable to continue.\n",
-		       read_cpuid_id());
-		while (1);
-	}
-
-	cpu_name = cpu_info->cpu_name;
-
-	printk("CPU: %s [%08x] revision %d\n",
-	       cpu_name, read_cpuid_id(), read_cpuid_id() & 15);
-
-	sprintf(init_utsname()->machine, ELF_PLATFORM);
-	elf_hwcap = 0;
-
-	cpuinfo_store_boot_cpu();
 
 	/*
 	 * Check for sane CTR_EL0.CWG value.
@@ -316,6 +297,13 @@ static void __init setup_processor(void)
 	if (cpuid_feature_extract_field(features, 16) > 0)
 		compat_elf_hwcap2 |= COMPAT_HWCAP2_CRC32;
 #endif
+}
+
+static void __init setup_processor(void)
+{
+	pr_info("Boot CPU: AArch64 Processor [%08x]\n", read_cpuid_id());
+	sprintf(init_utsname()->machine, ELF_PLATFORM);
+	cpuinfo_store_boot_cpu();
 }
 
 static void __init setup_machine_fdt(phys_addr_t dt_phys)
