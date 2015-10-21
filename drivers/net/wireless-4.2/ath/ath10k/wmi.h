@@ -799,6 +799,7 @@ struct wmi_cmd_map {
 	u32 set_cca_params_cmdid;
 	u32 pdev_bss_chan_info_request_cmdid;
 	u32 pdev_set_smart_ant_cmdid;
+	u32 pdev_enable_adaptive_cca_cmdid;
 #ifdef CONFIG_ATH10K_SMART_ANTENNA
 	u32 pdev_set_rx_ant_cmdid;
 	u32 peer_set_smart_tx_ant_cmdid;
@@ -6174,6 +6175,15 @@ enum wmi_txbf_conf {
 	WMI_TXBF_CONF_BEFORE_ASSOC,
 	WMI_TXBF_CONF_AFTER_ASSOC,
 };
+
+#define	WMI_CCA_DETECT_LEVEL_AUTO	0
+#define	WMI_CCA_DETECT_MARGIN_AUTO	0
+
+struct wmi_pdev_set_adaptive_cca_params {
+	__le32 enable;
+	__le32 cca_detect_level;
+	__le32 cca_detect_margin;
+} __packed;
 
 #define WMI_SMART_ANT_DISABLED_ANT_SEL	2
 #define WMI_SMART_ANT_DISABLED_MODE_PARALLEL	1

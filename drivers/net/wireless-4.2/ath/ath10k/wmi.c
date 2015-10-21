@@ -149,6 +149,7 @@ static struct wmi_cmd_map wmi_cmd_map = {
 	.gpio_config_cmdid = WMI_GPIO_CONFIG_CMDID,
 	.gpio_output_cmdid = WMI_GPIO_OUTPUT_CMDID,
 	.pdev_get_temperature_cmdid = WMI_CMD_UNSUPPORTED,
+	.pdev_enable_adaptive_cca_cmdid = WMI_CMD_UNSUPPORTED,
 	.scan_update_request_cmdid = WMI_CMD_UNSUPPORTED,
 	.vdev_standby_response_cmdid = WMI_CMD_UNSUPPORTED,
 	.vdev_resume_response_cmdid = WMI_CMD_UNSUPPORTED,
@@ -321,6 +322,7 @@ static struct wmi_cmd_map wmi_10x_cmd_map = {
 	.gpio_config_cmdid = WMI_10X_GPIO_CONFIG_CMDID,
 	.gpio_output_cmdid = WMI_10X_GPIO_OUTPUT_CMDID,
 	.pdev_get_temperature_cmdid = WMI_CMD_UNSUPPORTED,
+	.pdev_enable_adaptive_cca_cmdid = WMI_CMD_UNSUPPORTED,
 	.scan_update_request_cmdid = WMI_CMD_UNSUPPORTED,
 	.vdev_standby_response_cmdid = WMI_CMD_UNSUPPORTED,
 	.vdev_resume_response_cmdid = WMI_CMD_UNSUPPORTED,
@@ -493,6 +495,7 @@ static struct wmi_cmd_map wmi_10_2_4_cmd_map = {
 	.gpio_output_cmdid = WMI_10_2_GPIO_OUTPUT_CMDID,
 	.pdev_get_temperature_cmdid = WMI_10_2_PDEV_GET_TEMPERATURE_CMDID,
 	.pdev_chan_survey_update_cmdid = WMI_10_2_PDEV_CHAN_SURVEY_UPDATE_CMDID,
+	.pdev_enable_adaptive_cca_cmdid = WMI_10_2_SET_CCA_PARAMS_CMDID,
 	.scan_update_request_cmdid = WMI_CMD_UNSUPPORTED,
 	.vdev_standby_response_cmdid = WMI_CMD_UNSUPPORTED,
 	.vdev_resume_response_cmdid = WMI_CMD_UNSUPPORTED,
@@ -1433,6 +1436,7 @@ static struct wmi_cmd_map wmi_10_2_cmd_map = {
 	.gpio_config_cmdid = WMI_10_2_GPIO_CONFIG_CMDID,
 	.gpio_output_cmdid = WMI_10_2_GPIO_OUTPUT_CMDID,
 	.pdev_get_temperature_cmdid = WMI_CMD_UNSUPPORTED,
+	.pdev_enable_adaptive_cca_cmdid = WMI_CMD_UNSUPPORTED,
 	.scan_update_request_cmdid = WMI_CMD_UNSUPPORTED,
 	.vdev_standby_response_cmdid = WMI_CMD_UNSUPPORTED,
 	.vdev_resume_response_cmdid = WMI_CMD_UNSUPPORTED,
@@ -7351,6 +7355,28 @@ unlock:
 		buf[len] = 0;
 }
 
+static struct sk_buff *
+ath10k_wmi_op_gen_pdev_enable_adaptive_cca(struct ath10k *ar, u8 enable,
+					   u32 detect_level, u32 detect_margin)
+{
+	struct wmi_pdev_set_adaptive_cca_params *cmd;
+	struct sk_buff *skb;
+
+	skb = ath10k_wmi_alloc_skb(ar, sizeof(*cmd));
+	if (!skb)
+		return ERR_PTR(-ENOMEM);
+
+	cmd = (struct wmi_pdev_set_adaptive_cca_params *)skb->data;
+	cmd->enable = __cpu_to_le32(enable);
+	cmd->cca_detect_level = __cpu_to_le32(detect_level);
+	cmd->cca_detect_margin = __cpu_to_le32(detect_margin);
+
+	ath10k_dbg(ar, ATH10K_DBG_WMI,
+		   "wmi pdev set adaptive cca params enable:%d detection level:%d detection margin:%d\n",
+		   enable, detect_level, detect_margin);
+	return skb;
+}
+
 static int
 ath10k_wmi_get_smart_ant_gpio_dt(struct ath10k *ar, u32 *gpio, u32 *gpio_func)
 {
@@ -7658,6 +7684,7 @@ static const struct wmi_ops wmi_ops = {
 	/* .gen_peer_cfg_smart_ant_fb not implemented */
 	/* .gen_peer_set_smart_ant_train_info not implemented */
 	/* .gen_pdev_sa_disabled_ant_sel not implemented */
+	/* .gen_pdev_enable_adaptive_cca not implemented */
 };
 
 static const struct wmi_ops wmi_10_1_ops = {
@@ -7730,6 +7757,7 @@ static const struct wmi_ops wmi_10_1_ops = {
 	/* .gen_peer_cfg_smart_ant_fb not implemented */
 	/* .gen_peer_set_smart_ant_train_info not implemented */
 	/* .gen_pdev_sa_disabled_ant_sel not implemented */
+	/* .gen_pdev_enable_adaptive_cca not implemented */
 };
 
 static const struct wmi_ops wmi_10_2_ops = {
@@ -7793,6 +7821,7 @@ static const struct wmi_ops wmi_10_2_ops = {
 	.gen_addba_set_resp = ath10k_wmi_op_gen_addba_set_resp,
 	.gen_delba_send = ath10k_wmi_op_gen_delba_send,
 	.fw_stats_fill = ath10k_wmi_10x_op_fw_stats_fill,
+	/* .gen_pdev_enable_adaptive_cca not implemented */
 #ifdef CONFIG_ATH10K_SMART_ANTENNA
 	.gen_pdev_enable_smart_ant  = ath10k_wmi_op_gen_pdev_enable_smart_ant,
 	.gen_peer_set_smart_tx_ant = ath10k_wmi_op_gen_peer_set_smart_tx_ant,
@@ -7868,6 +7897,8 @@ static const struct wmi_ops wmi_10_2_4_ops = {
 	.gen_chan_survey_send = ath10k_wmi_op_gen_chan_survey_send,
 	.gen_pdev_get_tpc_config = ath10k_wmi_10_2_4_op_gen_pdev_get_tpc_config,
 	.fw_stats_fill = ath10k_wmi_10x_op_fw_stats_fill,
+	.gen_pdev_enable_adaptive_cca =
+		ath10k_wmi_op_gen_pdev_enable_adaptive_cca,
 	/* .gen_bcn_tmpl not implemented */
 	/* .gen_prb_tmpl not implemented */
 	/* .gen_p2p_go_bcn_ie not implemented */
