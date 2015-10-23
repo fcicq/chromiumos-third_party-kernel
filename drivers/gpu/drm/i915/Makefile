@@ -73,6 +73,7 @@ i915-y += dvo_ch7017.o \
 	  intel_atomic_plane.o \
 	  intel_crt.o \
 	  intel_ddi.o \
+	  intel_dp_link_training.o \
 	  intel_dp.o \
 	  intel_dp_mst.o \
 	  intel_dsi.o \
