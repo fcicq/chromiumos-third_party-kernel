@@ -5295,7 +5295,7 @@ static void intel_update_max_cdclk(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
 
-	if (IS_SKYLAKE(dev)) {
+	if (IS_SKYLAKE(dev) || IS_KABYLAKE(dev)) {
 		u32 limit = I915_READ(SKL_DFSM) & SKL_DFSM_CDCLK_LIMIT_MASK;
 
 		if (limit == SKL_DFSM_CDCLK_LIMIT_675)
@@ -9709,7 +9709,7 @@ static void haswell_get_ddi_port_state(struct intel_crtc *crtc,
 
 	port = (tmp & TRANS_DDI_PORT_MASK) >> TRANS_DDI_PORT_SHIFT;
 
-	if (IS_SKYLAKE(dev))
+	if (IS_SKYLAKE(dev) || IS_KABYLAKE(dev))
 		skylake_get_ddi_pll(dev_priv, port, pipe_config);
 	else if (IS_BROXTON(dev))
 		bxt_get_ddi_pll(dev_priv, port, pipe_config);
@@ -12027,7 +12027,7 @@ static void intel_dump_pipe_config(struct intel_crtc *crtc,
 			      pipe_config->dpll_hw_state.pll9,
 			      pipe_config->dpll_hw_state.pll10,
 			      pipe_config->dpll_hw_state.pcsdw12);
-	} else if (IS_SKYLAKE(dev)) {
+	} else if (IS_SKYLAKE(dev) || IS_KABYLAKE(dev)) {
 		DRM_DEBUG_KMS("ddi_pll_sel: %u; dpll_hw_state: "
 			      "ctrl1: 0x%x, cfgcr1: 0x%x, cfgcr2: 0x%x\n",
 			      pipe_config->ddi_pll_sel,
@@ -14251,7 +14251,8 @@ static void intel_setup_outputs(struct drm_device *dev)
 		found = I915_READ(DDI_BUF_CTL_A) & DDI_INIT_DISPLAY_DETECTED;
 		/* WaIgnoreDDIAStrap: skl */
 		if (found ||
-		    (IS_SKYLAKE(dev) && INTEL_REVID(dev) < SKL_REVID_D0))
+		    (IS_SKYLAKE(dev) && INTEL_REVID(dev) < SKL_REVID_D0) ||
+		     IS_KABYLAKE(dev))
 			intel_ddi_init(dev, PORT_A);
 
 		/* DDI B, C and D detection is indicated by the SFUSE_STRAP
@@ -14704,7 +14705,7 @@ static void intel_init_display(struct drm_device *dev)
 	}
 
 	/* Returns the core display clock speed */
-	if (IS_SKYLAKE(dev))
+	if (IS_SKYLAKE(dev) || IS_KABYLAKE(dev))
 		dev_priv->display.get_display_clock_speed =
 			skylake_get_display_clock_speed;
 	else if (IS_BROXTON(dev))

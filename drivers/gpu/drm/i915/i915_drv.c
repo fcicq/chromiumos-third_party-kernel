@@ -404,6 +404,36 @@ static const struct intel_device_info intel_broxton_info = {
 	BDW_COLORS,
 };
 
+static const struct intel_device_info intel_kabylake_info = {
+	.is_preliminary = 1,
+	.is_kabylake = 1,
+	.gen = 9,
+	.num_pipes = 3,
+	.need_gfx_hws = 1, .has_hotplug = 1,
+	.ring_mask = RENDER_RING | BSD_RING | BLT_RING | VEBOX_RING,
+	.has_llc = 1,
+	.has_ddi = 1,
+	.has_fpga_dbg = 1,
+	.has_fbc = 1,
+	GEN_DEFAULT_PIPEOFFSETS,
+	IVB_CURSOR_OFFSETS,
+};
+
+static const struct intel_device_info intel_kabylake_gt3_info = {
+	.is_preliminary = 1,
+	.is_kabylake = 1,
+	.gen = 9,
+	.num_pipes = 3,
+	.need_gfx_hws = 1, .has_hotplug = 1,
+	.ring_mask = RENDER_RING | BSD_RING | BLT_RING | VEBOX_RING | BSD2_RING,
+	.has_llc = 1,
+	.has_ddi = 1,
+	.has_fpga_dbg = 1,
+	.has_fbc = 1,
+	GEN_DEFAULT_PIPEOFFSETS,
+	IVB_CURSOR_OFFSETS,
+};
+
 /*
  * Make sure any device matches here are from most specific to most
  * general.  For example, since the Quanta match is based on the subsystem
@@ -505,11 +535,13 @@ void intel_detect_pch(struct drm_device *dev)
 			} else if (id == INTEL_PCH_SPT_DEVICE_ID_TYPE) {
 				dev_priv->pch_type = PCH_SPT;
 				DRM_DEBUG_KMS("Found SunrisePoint PCH\n");
-				WARN_ON(!IS_SKYLAKE(dev));
+				WARN_ON(!IS_SKYLAKE(dev) &&
+					!IS_KABYLAKE(dev));
 			} else if (id == INTEL_PCH_SPT_LP_DEVICE_ID_TYPE) {
 				dev_priv->pch_type = PCH_SPT;
 				DRM_DEBUG_KMS("Found SunrisePoint LP PCH\n");
-				WARN_ON(!IS_SKYLAKE(dev));
+				WARN_ON(!IS_SKYLAKE(dev) &&
+					!IS_KABYLAKE(dev));
 			} else
 				continue;
 
