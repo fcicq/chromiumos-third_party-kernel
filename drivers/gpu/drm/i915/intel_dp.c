@@ -4150,13 +4150,6 @@ static void intel_dp_handle_test_request(struct intel_dp *intel_dp)
 	uint8_t rxdata = 0;
 	int status = 0;
 
-	intel_dp->compliance_test_active = 0;
-	intel_dp->compliance_test_type = 0;
-	intel_dp->compliance_test_data = 0;
-
-	intel_dp->aux.i2c_nack_count = 0;
-	intel_dp->aux.i2c_defer_count = 0;
-
 	status = drm_dp_dpcd_read(&intel_dp->aux, DP_TEST_REQUEST, &rxdata, 1);
 	if (status <= 0) {
 		DRM_DEBUG_KMS("Could not read test request from sink\n");
@@ -4267,6 +4260,14 @@ intel_dp_check_link_status(struct intel_dp *intel_dp)
 		DRM_ERROR("Failed to get link status\n");
 		return;
 	}
+
+	/*
+	 * Clearing compliance test variables to allow capturing
+	 * of values for next automated test request.
+	 */
+	intel_dp->compliance_test_active = 0;
+	intel_dp->compliance_test_type = 0;
+	intel_dp->compliance_test_data = 0;
 
 	if (!intel_encoder->base.crtc)
 		return;
@@ -4664,8 +4665,14 @@ intel_dp_long_pulse(struct intel_connector *intel_connector)
 		status = ironlake_dp_detect(intel_dp);
 	else
 		status = g4x_dp_detect(intel_dp);
-	if (status != connector_status_connected)
+	if (status != connector_status_connected) {
+		intel_dp->compliance_test_active = 0;
+		intel_dp->compliance_test_type = 0;
+		intel_dp->compliance_test_data = 0;
+
 		goto out;
+	}
+
 	if (intel_encoder->type != INTEL_OUTPUT_EDP)
 		intel_encoder->type = INTEL_OUTPUT_DISPLAYPORT;
 
@@ -4691,6 +4698,14 @@ intel_dp_long_pulse(struct intel_connector *intel_connector)
 		drm_modeset_unlock(&dev->mode_config.connection_mutex);
 		goto out;
 	}
+
+	/*
+	 * Clearing NACK and defer counts to get their exact values
+	 * while reading EDID which are required by Compliance tests
+	 * 4.2.2.4 and 4.2.2.5
+	 */
+	intel_dp->aux.i2c_nack_count = 0;
+	intel_dp->aux.i2c_defer_count = 0;
 
 	intel_dp_set_edid(intel_dp);
 
