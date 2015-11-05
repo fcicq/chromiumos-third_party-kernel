@@ -238,7 +238,7 @@ struct rt5645_priv {
 	struct snd_soc_jack *hp_jack;
 	struct snd_soc_jack *mic_jack;
 	struct snd_soc_jack *btn_jack;
-	struct delayed_work jack_detect_work;
+	struct delayed_work jack_detect_work, rcclock_work;
 	struct regulator_bulk_data supplies[ARRAY_SIZE(rt5645_supply_names)];
 
 	int codec_type;
@@ -470,12 +470,33 @@ static unsigned int bst_tlv[] = {
 	8, 8, TLV_DB_SCALE_ITEM(5200, 0, 0),
 };
 
+static int rt5645_spk_put_volsw(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct rt5645_priv *rt5645 = snd_soc_component_get_drvdata(component);
+	int ret;
+
+	cancel_delayed_work_sync(&rt5645->rcclock_work);
+
+	regmap_update_bits(rt5645->regmap, RT5645_MICBIAS,
+		RT5645_PWR_CLK25M_MASK, RT5645_PWR_CLK25M_PU);
+
+	ret = snd_soc_put_volsw(kcontrol, ucontrol);
+
+	queue_delayed_work(system_power_efficient_wq, &rt5645->rcclock_work,
+		msecs_to_jiffies(200));
+
+	return ret;
+}
+
 static const struct snd_kcontrol_new rt5645_snd_controls[] = {
 	/* Speaker Output Volume */
 	SOC_DOUBLE("Speaker Channel Switch", RT5645_SPK_VOL,
 		RT5645_VOL_L_SFT, RT5645_VOL_R_SFT, 1, 1),
-	SOC_DOUBLE_TLV("Speaker Playback Volume", RT5645_SPK_VOL,
-		RT5645_L_VOL_SFT, RT5645_R_VOL_SFT, 39, 1, out_vol_tlv),
+	SOC_DOUBLE_EXT_TLV("Speaker Playback Volume", RT5645_SPK_VOL,
+		RT5645_L_VOL_SFT, RT5645_R_VOL_SFT, 39, 1, snd_soc_get_volsw,
+		rt5645_spk_put_volsw, out_vol_tlv),
 
 	/* Headphone Output Volume */
 	SOC_DOUBLE("Headphone Channel Switch", RT5645_HP_VOL,
@@ -2997,6 +3018,15 @@ static void rt5645_jack_detect_work(struct work_struct *work)
 				SND_JACK_BTN_2 | SND_JACK_BTN_3);
 }
 
+static void rt5645_rcclock_work(struct work_struct *work)
+{
+	struct rt5645_priv *rt5645 =
+		container_of(work, struct rt5645_priv, rcclock_work.work);
+
+	regmap_update_bits(rt5645->regmap, RT5645_MICBIAS,
+		RT5645_PWR_CLK25M_MASK, RT5645_PWR_CLK25M_PD);
+}
+
 static irqreturn_t rt5645_irq(int irq, void *data)
 {
 	struct rt5645_priv *rt5645 = data;
@@ -3443,6 +3473,7 @@ static int rt5645_i2c_probe(struct i2c_client *i2c,
 	}
 
 	INIT_DELAYED_WORK(&rt5645->jack_detect_work, rt5645_jack_detect_work);
+	INIT_DELAYED_WORK(&rt5645->rcclock_work, rt5645_rcclock_work);
 
 	if (rt5645->i2c->irq) {
 		ret = request_threaded_irq(rt5645->i2c->irq, NULL, rt5645_irq,
@@ -3477,6 +3508,7 @@ static int rt5645_i2c_remove(struct i2c_client *i2c)
 		free_irq(i2c->irq, rt5645);
 
 	cancel_delayed_work_sync(&rt5645->jack_detect_work);
+	cancel_delayed_work_sync(&rt5645->rcclock_work);
 
 	snd_soc_unregister_codec(&i2c->dev);
 	regulator_bulk_disable(ARRAY_SIZE(rt5645->supplies), rt5645->supplies);
