@@ -807,6 +807,11 @@ bool pm_wakeup_pending(void)
 	return ret;
 }
 
+void pm_set_wakeup_type(enum wakeup_type type)
+{
+	wakeup_source_type = type;
+}
+
 /**
  * pm_get_wakeup_count - Read the number of registered wakeup events.
  * @count: Address to store the value at.
