@@ -786,6 +786,7 @@ enum link_m_n_set {
 struct intel_dp {
 	uint32_t output_reg;
 	uint32_t aux_ch_ctl_reg;
+	uint32_t aux_ch_data_reg[5];
 	uint32_t DP;
 	int link_rate;
 	uint8_t lane_count;
