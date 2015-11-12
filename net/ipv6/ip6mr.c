@@ -700,7 +700,7 @@ static netdev_tx_t reg_vif_xmit(struct sk_buff *skb,
 	struct mr6_table *mrt;
 	struct flowi6 fl6 = {
 		.flowi6_oif	= dev->ifindex,
-		.flowi6_iif	= skb->skb_iif,
+		.flowi6_iif	= skb->skb_iif ? : LOOPBACK_IFINDEX,
 		.flowi6_mark	= skb->mark,
 	};
 	int err;
@@ -2376,8 +2376,8 @@ static int ip6mr_fill_mroute(struct mr6_table *mrt, struct sk_buff *skb,
 		rtm->rtm_protocol = RTPROT_MROUTED;
 	rtm->rtm_flags    = 0;
 
-	if (nla_put(skb, RTA_SRC, 16, &c->mf6c_origin) ||
-	    nla_put(skb, RTA_DST, 16, &c->mf6c_mcastgrp))
+	if (nla_put_in6_addr(skb, RTA_SRC, &c->mf6c_origin) ||
+	    nla_put_in6_addr(skb, RTA_DST, &c->mf6c_mcastgrp))
 		goto nla_put_failure;
 	err = __ip6mr_fill_mroute(mrt, skb, c, rtm);
 	/* do not break the dump if cache is unresolved */

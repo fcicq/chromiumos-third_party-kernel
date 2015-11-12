@@ -390,8 +390,10 @@
 		clock-names = "tsadc", "apb_pclk";
 		resets = <&cru SRST_TSADC>;
 		reset-names = "tsadc-apb";
-		pinctrl-names = "otp_out";
-		pinctrl-0 = <&otp_out>;
+		pinctrl-names = "init", "default", "sleep";
+		pinctrl-0 = <&otp_gpio>;
+		pinctrl-1 = <&otp_out>;
+		pinctrl-2 = <&otp_gpio>;
 		#thermal-sensor-cells = <1>;
 		hw-shut-temp = <125000>;
 		status = "disabled";
@@ -437,6 +439,9 @@
 		dr_mode = "host";
 		phys = <&usbphy2>;
 		phy-names = "usb2-phy";
+		resets = <&cru SRST_USBHOST1_PHY>;
+		reset-names = "phy-full-reset";
+		snps,need-phy-full-reset-on-wake;
 		status = "disabled";
 	};
 
@@ -454,6 +459,8 @@
 		g-use-dma;
 		phys = <&usbphy0>;
 		phy-names = "usb2-phy";
+		resets = <&cru SRST_USBOTG_PHY>;
+		reset-names = "phy-full-reset";
 		status = "disabled";
 	};
 
@@ -1367,6 +1374,10 @@
 		};
 
 		tsadc {
+			otp_gpio: otp-gpio {
+				rockchip,pins = <0 10 RK_FUNC_GPIO &pcfg_pull_none>;
+			};
+
 			otp_out: otp-out {
 				rockchip,pins = <0 10 RK_FUNC_1 &pcfg_pull_none>;
 			};

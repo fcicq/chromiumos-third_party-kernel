@@ -75,8 +75,6 @@ struct dwc2_qh;
  *                      (micro)frame
  * @xfer_buf:           Pointer to current transfer buffer position
  * @xfer_dma:           DMA address of xfer_buf
- * @align_buf:          In Buffer DMA mode this will be used if xfer_buf is not
- *                      DWORD aligned
  * @xfer_len:           Total number of bytes to transfer
  * @xfer_count:         Number of bytes transferred so far
  * @start_pkt_count:    Packet count at start of transfer
@@ -132,7 +130,6 @@ struct dwc2_host_chan {
 
 	u8 *xfer_buf;
 	dma_addr_t xfer_dma;
-	dma_addr_t align_buf;
 	u32 xfer_len;
 	u32 xfer_count;
 	u16 start_pkt_count;
@@ -241,10 +238,6 @@ enum dwc2_transaction_type {
  * @frame_usecs:        Internal variable used by the microframe scheduler
  * @start_split_frame:  (Micro)frame at which last start split was initialized
  * @ntd:                Actual number of transfer descriptors in a list
- * @dw_align_buf:       Used instead of original buffer if its physical address
- *                      is not dword-aligned
- * @dw_align_buf_size:  Size of dw_align_buf
- * @dw_align_buf_dma:   DMA address for dw_align_buf
  * @qtd_list:           List of QTDs for this QH
  * @channel:            Host channel currently processing transfers for this QH
  * @qh_list_entry:      Entry for QH in either the periodic or non-periodic
@@ -276,9 +269,6 @@ struct dwc2_qh {
 	u16 frame_usecs[8];
 	u16 start_split_frame;
 	u16 ntd;
-	u8 *dw_align_buf;
-	int dw_align_buf_size;
-	dma_addr_t dw_align_buf_dma;
 	struct list_head qtd_list;
 	struct dwc2_host_chan *channel;
 	struct list_head qh_list_entry;
@@ -371,10 +361,10 @@ static inline struct usb_hcd *dwc2_hsotg_to_hcd(struct dwc2_hsotg *hsotg)
  */
 static inline void disable_hc_int(struct dwc2_hsotg *hsotg, int chnum, u32 intr)
 {
-	u32 mask = readl(hsotg->regs + HCINTMSK(chnum));
+	u32 mask = dwc2_readl(hsotg->regs + HCINTMSK(chnum));
 
 	mask &= ~intr;
-	writel(mask, hsotg->regs + HCINTMSK(chnum));
+	dwc2_writel(mask, hsotg->regs + HCINTMSK(chnum));
 }
 
 /*
@@ -382,11 +372,11 @@ static inline void disable_hc_int(struct dwc2_hsotg *hsotg, int chnum, u32 intr)
  */
 static inline int dwc2_is_host_mode(struct dwc2_hsotg *hsotg)
 {
-	return (readl(hsotg->regs + GINTSTS) & GINTSTS_CURMODE_HOST) != 0;
+	return (dwc2_readl(hsotg->regs + GINTSTS) & GINTSTS_CURMODE_HOST) != 0;
 }
 static inline int dwc2_is_device_mode(struct dwc2_hsotg *hsotg)
 {
-	return (readl(hsotg->regs + GINTSTS) & GINTSTS_CURMODE_HOST) == 0;
+	return (dwc2_readl(hsotg->regs + GINTSTS) & GINTSTS_CURMODE_HOST) == 0;
 }
 
 /*
@@ -395,7 +385,7 @@ static inline int dwc2_is_device_mode(struct dwc2_hsotg *hsotg)
  */
 static inline u32 dwc2_read_hprt0(struct dwc2_hsotg *hsotg)
 {
-	u32 hprt0 = readl(hsotg->regs + HPRT0);
+	u32 hprt0 = dwc2_readl(hsotg->regs + HPRT0);
 
 	hprt0 &= ~(HPRT0_ENA | HPRT0_CONNDET | HPRT0_ENACHG | HPRT0_OVRCURRCHG);
 	return hprt0;
@@ -580,7 +570,8 @@ static inline u16 dwc2_micro_frame_num(u16 frame)
  */
 static inline u32 dwc2_read_core_intr(struct dwc2_hsotg *hsotg)
 {
-	return readl(hsotg->regs + GINTSTS) & readl(hsotg->regs + GINTMSK);
+	return dwc2_readl(hsotg->regs + GINTSTS) &
+	       dwc2_readl(hsotg->regs + GINTMSK);
 }
 
 static inline u32 dwc2_hcd_urb_get_status(struct dwc2_hcd_urb *dwc2_urb)
@@ -732,7 +723,7 @@ do {									\
 			   qtd_list_entry);				\
 	if (usb_pipeint(_qtd_->urb->pipe) &&				\
 	    (_qh_)->start_split_frame != 0 && !_qtd_->complete_split) {	\
-		_hfnum_.d32 = readl((_hcd_)->regs + HFNUM);		\
+		_hfnum_.d32 = dwc2_readl((_hcd_)->regs + HFNUM);	\
 		switch (_hfnum_.b.frnum & 0x7) {			\
 		case 7:							\
 			(_hcd_)->hfnum_7_samples_##_letter_++;		\

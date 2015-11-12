@@ -1363,7 +1363,6 @@ static void ipip6_tunnel_setup(struct net_device *dev)
 static int ipip6_tunnel_init(struct net_device *dev)
 {
 	struct ip_tunnel *tunnel = netdev_priv(dev);
-	int i;
 
 	tunnel->dev = dev;
 	tunnel->net = dev_net(dev);
@@ -1372,15 +1371,9 @@ static int ipip6_tunnel_init(struct net_device *dev)
 	memcpy(dev->broadcast, &tunnel->parms.iph.daddr, 4);
 
 	ipip6_tunnel_bind_dev(dev);
-	dev->tstats = alloc_percpu(struct pcpu_sw_netstats);
+	dev->tstats = netdev_alloc_pcpu_stats(struct pcpu_sw_netstats);
 	if (!dev->tstats)
 		return -ENOMEM;
-
-	for_each_possible_cpu(i) {
-		struct pcpu_sw_netstats *ipip6_tunnel_stats;
-		ipip6_tunnel_stats = per_cpu_ptr(dev->tstats, i);
-		u64_stats_init(&ipip6_tunnel_stats->syncp);
-	}
 
 	tunnel->dst_cache = alloc_percpu(struct ip_tunnel_dst);
 	if (!tunnel->dst_cache) {
@@ -1397,7 +1390,6 @@ static int __net_init ipip6_fb_tunnel_init(struct net_device *dev)
 	struct iphdr *iph = &tunnel->parms.iph;
 	struct net *net = dev_net(dev);
 	struct sit_net *sitn = net_generic(net, sit_net_id);
-	int i;
 
 	tunnel->dev = dev;
 	tunnel->net = dev_net(dev);
@@ -1408,15 +1400,9 @@ static int __net_init ipip6_fb_tunnel_init(struct net_device *dev)
 	iph->ihl		= 5;
 	iph->ttl		= 64;
 
-	dev->tstats = alloc_percpu(struct pcpu_sw_netstats);
+	dev->tstats = netdev_alloc_pcpu_stats(struct pcpu_sw_netstats);
 	if (!dev->tstats)
 		return -ENOMEM;
-
-	for_each_possible_cpu(i) {
-		struct pcpu_sw_netstats *ipip6_fb_stats;
-		ipip6_fb_stats = per_cpu_ptr(dev->tstats, i);
-		u64_stats_init(&ipip6_fb_stats->syncp);
-	}
 
 	tunnel->dst_cache = alloc_percpu(struct ip_tunnel_dst);
 	if (!tunnel->dst_cache) {
@@ -1500,8 +1486,7 @@ static bool ipip6_netlink_6rd_parms(struct nlattr *data[],
 
 	if (data[IFLA_IPTUN_6RD_PREFIX]) {
 		ret = true;
-		nla_memcpy(&ip6rd->prefix, data[IFLA_IPTUN_6RD_PREFIX],
-			   sizeof(struct in6_addr));
+		ip6rd->prefix = nla_get_in6_addr(data[IFLA_IPTUN_6RD_PREFIX]);
 	}
 
 	if (data[IFLA_IPTUN_6RD_RELAY_PREFIX]) {
@@ -1629,8 +1614,8 @@ static int ipip6_fill_info(struct sk_buff *skb, const struct net_device *dev)
 	struct ip_tunnel_parm *parm = &tunnel->parms;
 
 	if (nla_put_u32(skb, IFLA_IPTUN_LINK, parm->link) ||
-	    nla_put_be32(skb, IFLA_IPTUN_LOCAL, parm->iph.saddr) ||
-	    nla_put_be32(skb, IFLA_IPTUN_REMOTE, parm->iph.daddr) ||
+	    nla_put_in_addr(skb, IFLA_IPTUN_LOCAL, parm->iph.saddr) ||
+	    nla_put_in_addr(skb, IFLA_IPTUN_REMOTE, parm->iph.daddr) ||
 	    nla_put_u8(skb, IFLA_IPTUN_TTL, parm->iph.ttl) ||
 	    nla_put_u8(skb, IFLA_IPTUN_TOS, parm->iph.tos) ||
 	    nla_put_u8(skb, IFLA_IPTUN_PMTUDISC,
@@ -1640,10 +1625,10 @@ static int ipip6_fill_info(struct sk_buff *skb, const struct net_device *dev)
 		goto nla_put_failure;
 
 #ifdef CONFIG_IPV6_SIT_6RD
-	if (nla_put(skb, IFLA_IPTUN_6RD_PREFIX, sizeof(struct in6_addr),
-		    &tunnel->ip6rd.prefix) ||
-	    nla_put_be32(skb, IFLA_IPTUN_6RD_RELAY_PREFIX,
-			 tunnel->ip6rd.relay_prefix) ||
+	if (nla_put_in6_addr(skb, IFLA_IPTUN_6RD_PREFIX,
+			     &tunnel->ip6rd.prefix) ||
+	    nla_put_in_addr(skb, IFLA_IPTUN_6RD_RELAY_PREFIX,
+			    tunnel->ip6rd.relay_prefix) ||
 	    nla_put_u16(skb, IFLA_IPTUN_6RD_PREFIXLEN,
 			tunnel->ip6rd.prefixlen) ||
 	    nla_put_u16(skb, IFLA_IPTUN_6RD_RELAY_PREFIXLEN,

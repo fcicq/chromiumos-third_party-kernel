@@ -1558,6 +1558,16 @@ typedef struct drm_i915_private {
 	struct drm_property *force_audio_property;
 	struct drm_property *psr_property;
 
+	/**
+	 * av_mutex - mutex for audio/video sync
+	 *
+	 */
+	struct mutex av_mutex;
+	/*
+	 * @aud_sample_rate: the array of audio sample rate per port
+	 */
+	int aud_sample_rate[I915_MAX_PORTS];
+
 	uint32_t hw_context_size;
 	struct list_head context_list;
 

@@ -39,8 +39,8 @@
 #define RT5645_STO1_ADC_DIG_VOL			0x1c
 #define RT5645_MONO_ADC_DIG_VOL			0x1d
 #define RT5645_ADC_BST_VOL1			0x1e
-/* Mixer - D-D */
 #define RT5645_ADC_BST_VOL2			0x20
+/* Mixer - D-D */
 #define RT5645_STO1_ADC_MIXER			0x27
 #define RT5645_MONO_ADC_MIXER			0x28
 #define RT5645_AD_DA_MIXER			0x29
@@ -315,12 +315,14 @@
 #define RT5645_STO1_ADC_R_BST_SFT		12
 #define RT5645_STO1_ADC_COMP_MASK		(0x3 << 10)
 #define RT5645_STO1_ADC_COMP_SFT		10
-#define RT5645_STO2_ADC_L_BST_MASK		(0x3 << 8)
-#define RT5645_STO2_ADC_L_BST_SFT		8
-#define RT5645_STO2_ADC_R_BST_MASK		(0x3 << 6)
-#define RT5645_STO2_ADC_R_BST_SFT		6
-#define RT5645_STO2_ADC_COMP_MASK		(0x3 << 4)
-#define RT5645_STO2_ADC_COMP_SFT		4
+
+/* ADC Boost Volume Control (0x20) */
+#define RT5645_MONO_ADC_L_BST_MASK		(0x3 << 14)
+#define RT5645_MONO_ADC_L_BST_SFT		14
+#define RT5645_MONO_ADC_R_BST_MASK		(0x3 << 12)
+#define RT5645_MONO_ADC_R_BST_SFT		12
+#define RT5645_MONO_ADC_COMP_MASK		(0x3 << 10)
+#define RT5645_MONO_ADC_COMP_SFT		10
 
 /* Stereo2 ADC Mixer Control (0x26) */
 #define RT5645_STO2_ADC_SRC_MASK		(0x1 << 15)
@@ -777,8 +779,6 @@
 #define RT5645_PWR_CLS_D_R_BIT			9
 #define RT5645_PWR_CLS_D_L			(0x1 << 8)
 #define RT5645_PWR_CLS_D_L_BIT			8
-#define RT5645_PWR_ADC_R			(0x1 << 1)
-#define RT5645_PWR_ADC_R_BIT			1
 #define RT5645_PWR_DAC_L2			(0x1 << 7)
 #define RT5645_PWR_DAC_L2_BIT			7
 #define RT5645_PWR_DAC_R2			(0x1 << 6)
@@ -2119,6 +2119,7 @@ enum {
 #define RT5645_JD_PSV_MODE			(0x1 << 12)
 #define RT5645_IRQ_CLK_GATE_CTRL		(0x1 << 11)
 #define RT5645_MICINDET_MANU			(0x1 << 7)
+#define RT5645_RING2_SLEEVE_GND			(0x1 << 5)
 
 /* Vendor ID (0xfd) */
 #define RT5645_VER_C				0x2
@@ -2208,6 +2209,7 @@ struct rt5645_priv {
 
 	int jack_type;
 	bool en_button_func;
+	bool hp_on;
 };
 
 int rt5645_set_jack_detect(struct snd_soc_codec *codec,
