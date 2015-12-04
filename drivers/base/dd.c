@@ -284,6 +284,9 @@ int device_bind_driver(struct device *dev)
 	ret = driver_sysfs_add(dev);
 	if (!ret)
 		driver_bound(dev);
+	else if (dev->bus)
+		blocking_notifier_call_chain(&dev->bus->p->bus_notifier,
+					     BUS_NOTIFY_DRIVER_NOT_BOUND, dev);
 	return ret;
 }
 EXPORT_SYMBOL_GPL(device_bind_driver);
@@ -306,7 +309,7 @@ static int really_probe(struct device *dev, struct device_driver *drv)
 	/* If using pinctrl, bind pins now before probing */
 	ret = pinctrl_bind_pins(dev);
 	if (ret)
-		goto probe_failed;
+		goto pinctrl_bind_failed;
 
 	if (driver_sysfs_add(dev)) {
 		printk(KERN_ERR "%s: driver_sysfs_add(%s) failed\n",
@@ -350,6 +353,10 @@ static int really_probe(struct device *dev, struct device_driver *drv)
 	goto done;
 
 probe_failed:
+	if (dev->bus)
+		blocking_notifier_call_chain(&dev->bus->p->bus_notifier,
+					     BUS_NOTIFY_DRIVER_NOT_BOUND, dev);
+pinctrl_bind_failed:
 	devres_release_all(dev);
 	driver_sysfs_remove(dev);
 	dev->driver = NULL;
@@ -719,7 +726,6 @@ static void __device_release_driver(struct device *dev)
 			blocking_notifier_call_chain(&dev->bus->p->bus_notifier,
 						     BUS_NOTIFY_UNBOUND_DRIVER,
 						     dev);
-
 	}
 }
 
