@@ -327,7 +327,7 @@ ext4_file_write(struct kiocb *iocb, const struct iovec *iov,
 }
 
 static const struct vm_operations_struct ext4_file_vm_ops = {
-	.fault		= filemap_fault,
+	.fault		= ext4_filemap_fault,
 #if 0
 	.map_pages	= filemap_map_pages,
 #endif
