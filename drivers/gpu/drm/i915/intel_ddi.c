@@ -438,6 +438,10 @@ static void intel_prepare_ddi_buffers(struct drm_device *dev, enum port port,
 		if (dev_priv->vbt.ddi_port_info[port].hdmi_boost_level ||
 		    dev_priv->vbt.ddi_port_info[port].dp_boost_level)
 			iboost_bit = 1<<31;
+
+		if (WARN_ON(port != PORT_A &&
+			    port != PORT_E && n_edp_entries > 9))
+			n_edp_entries = 9;
 	} else if (IS_BROADWELL(dev)) {
 		ddi_translations_fdi = bdw_ddi_translations_fdi;
 		ddi_translations_dp = bdw_ddi_translations_dp;
@@ -2101,6 +2105,11 @@ static void skl_ddi_set_iboost(struct drm_device *dev, u32 level,
 			iboost = dp_iboost;
 		} else {
 			ddi_translations = skl_get_buf_trans_edp(dev, &n_entries);
+
+			if (WARN_ON(port != PORT_A &&
+				    port != PORT_E && n_entries > 9))
+				n_entries = 9;
+
 			iboost = ddi_translations[level].i_boost;
 		}
 	} else if (type == INTEL_OUTPUT_HDMI) {
