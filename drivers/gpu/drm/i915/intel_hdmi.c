@@ -2036,6 +2036,11 @@ void intel_hdmi_init_connector(struct intel_digital_port *intel_dig_port,
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	enum port port = intel_dig_port->port;
 
+	if (WARN(intel_dig_port->max_lanes < 4,
+		 "Not enough lanes (%d) for HDMI on port %c\n",
+		 intel_dig_port->max_lanes, port_name(port)))
+		return;
+
 	drm_connector_init(dev, connector, &intel_hdmi_connector_funcs,
 			   DRM_MODE_CONNECTOR_HDMIA);
 	drm_connector_helper_add(connector, &intel_hdmi_connector_helper_funcs);
@@ -2195,6 +2200,7 @@ void intel_hdmi_init(struct drm_device *dev, int hdmi_reg, enum port port)
 	dev_priv->dig_port_map[port] = intel_encoder;
 	intel_dig_port->hdmi.hdmi_reg = hdmi_reg;
 	intel_dig_port->dp.output_reg = 0;
+	intel_dig_port->max_lanes = 4;
 
 	intel_hdmi_init_connector(intel_dig_port, intel_connector);
 }
