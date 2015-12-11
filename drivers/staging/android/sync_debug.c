@@ -90,11 +90,11 @@ static void sync_print_pt(struct seq_file *s, struct fence *pt, bool fence)
 	if (fence_is_signaled_locked(pt))
 		status = pt->status;
 
-	if (fence)
-		seq_printf(s, "  %d_pt %s", pt->context,
-			   sync_status_str(status));
-	else
-		seq_printf(s, "  pt %s", sync_status_str(status));
+	seq_printf(s, "  %s%spt %s",
+		   fence && pt->ops->get_timeline_name ?
+		   pt->ops->get_timeline_name(pt) : "",
+		   fence ? "_" : "",
+		   sync_status_str(status));
 
 	if (status <= 0) {
 		struct timespec64 ts64 =
@@ -103,25 +103,24 @@ static void sync_print_pt(struct seq_file *s, struct fence *pt, bool fence)
 		seq_printf(s, "@%lld.%09ld", (s64)ts64.tv_sec, ts64.tv_nsec);
 	}
 
-	if (pt->ops->timeline_value_str &&
+	if ((!fence || pt->ops->timeline_value_str) &&
 	    pt->ops->fence_value_str) {
 		char value[64];
+		bool success;
+
 		pt->ops->fence_value_str(pt, value, sizeof(value));
-		seq_printf(s, ": %s", value);
-		if (fence) {
-			pt->ops->timeline_value_str(pt, value,
-						    sizeof(value));
-			seq_printf(s, " / %s", value);
+		success = strlen(value);
+
+		if (success)
+			seq_printf(s, ": %s", value);
+
+		if (success && fence) {
+			pt->ops->timeline_value_str(pt, value, sizeof(value));
+
+			if (strlen(value))
+				seq_printf(s, " / %s", value);
 		}
 	}
-
-	if (pt->ops->get_driver_name)
-		seq_printf(s, " drv %s", pt->ops->get_driver_name(pt));
-
-	if (pt->ops->get_timeline_name)
-		seq_printf(s, " tl %s", pt->ops->get_timeline_name(pt));
-
-	seq_printf(s, " [%p]", pt);
 
 	seq_puts(s, "\n");
 }
@@ -131,8 +130,7 @@ static void sync_print_obj(struct seq_file *s, struct sync_timeline *obj)
 	struct list_head *pos;
 	unsigned long flags;
 
-	seq_printf(s, "%d %s %s", obj->context, obj->name,
-		   obj->ops->driver_name);
+	seq_printf(s, "%s %s", obj->name, obj->ops->driver_name);
 
 	if (obj->ops->timeline_value_str) {
 		char value[64];
