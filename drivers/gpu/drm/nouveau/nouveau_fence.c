@@ -663,7 +663,7 @@ nouveau_fence_install(struct fence *fence, const char *name, int *fd_out)
 	if (fd < 0)
 		return fd;
 
-	f = sync_fence_create(name, fence);
+	f = sync_fence_create_dma(name, fence);
 	if (!f) {
 		put_unused_fd(fd);
 		return -ENOMEM;
