@@ -153,14 +153,18 @@ int kbase_device_init(struct kbase_device * const kbdev)
 	err = kbase_hw_set_issues_mask(kbdev);
 	if (err)
 		goto fail;
+
 	/* Set the list of features available on the current HW
 	 * (identified by the GPU_ID register)
 	 */
 	kbase_hw_set_features_mask(kbdev);
 
-#if defined(CONFIG_ARM64)
+	kbase_gpuprops_set_features(kbdev);
+
+	/* On Linux 4.0+, dma coherency is determined from device tree */
+#if defined(CONFIG_ARM64) && LINUX_VERSION_CODE < KERNEL_VERSION(4, 0, 0)
 	set_dma_ops(kbdev->dev, &noncoherent_swiotlb_dma_ops);
-#endif /* CONFIG_ARM64 */
+#endif
 
 	/* Workaround a pre-3.13 Linux issue, where dma_mask is NULL when our
 	 * device structure was created by device-tree
@@ -178,15 +182,11 @@ int kbase_device_init(struct kbase_device * const kbdev)
 	if (err)
 		goto dma_set_mask_failed;
 
-	err = kbase_mem_lowlevel_init(kbdev);
-	if (err)
-		goto mem_lowlevel_init_failed;
-
 	kbdev->nr_hw_address_spaces = kbdev->gpu_props.num_address_spaces;
 
 	err = kbase_device_all_as_init(kbdev);
 	if (err)
-		goto term_lowlevel_mem;
+		goto as_init_failed;
 
 	spin_lock_init(&kbdev->hwcnt.lock);
 
@@ -208,7 +208,7 @@ int kbase_device_init(struct kbase_device * const kbdev)
 	for (i = 0; i < FBDUMP_CONTROL_MAX; i++)
 		kbdev->kbase_profiling_controls[i] = 0;
 
-		kbase_debug_assert_register_hook(&kbasep_trace_hook_wrapper, kbdev);
+	kbase_debug_assert_register_hook(&kbasep_trace_hook_wrapper, kbdev);
 
 	atomic_set(&kbdev->ctx_num, 0);
 
@@ -222,14 +222,16 @@ int kbase_device_init(struct kbase_device * const kbdev)
 
 	kbdev->mmu_mode = kbase_mmu_mode_get_lpae();
 
+#ifdef CONFIG_MALI_DEBUG
+	init_waitqueue_head(&kbdev->driver_inactive_wait);
+#endif /* CONFIG_MALI_DEBUG */
+
 	return 0;
 term_trace:
 	kbasep_trace_term(kbdev);
 term_as:
 	kbase_device_all_as_term(kbdev);
-term_lowlevel_mem:
-	kbase_mem_lowlevel_term(kbdev);
-mem_lowlevel_init_failed:
+as_init_failed:
 dma_set_mask_failed:
 fail:
 	return err;
@@ -248,8 +250,6 @@ void kbase_device_term(struct kbase_device *kbdev)
 	kbasep_trace_term(kbdev);
 
 	kbase_device_all_as_term(kbdev);
-
-	kbase_mem_lowlevel_term(kbdev);
 }
 
 void kbase_device_free(struct kbase_device *kbdev)
@@ -257,12 +257,19 @@ void kbase_device_free(struct kbase_device *kbdev)
 	kfree(kbdev);
 }
 
-void kbase_device_trace_buffer_install(struct kbase_context *kctx, u32 *tb, size_t size)
+int kbase_device_trace_buffer_install(
+		struct kbase_context *kctx, u32 *tb, size_t size)
 {
 	unsigned long flags;
 
 	KBASE_DEBUG_ASSERT(kctx);
 	KBASE_DEBUG_ASSERT(tb);
+
+	/* Interface uses 16-bit value to track last accessed entry. Each entry
+	 * is composed of two 32-bit words.
+	 * This limits the size that can be handled without an overflow. */
+	if (0xFFFF * (2 * sizeof(u32)) < size)
+		return -EINVAL;
 
 	/* set up the header */
 	/* magic number in the first 4 bytes */
@@ -278,6 +285,8 @@ void kbase_device_trace_buffer_install(struct kbase_context *kctx, u32 *tb, size
 	kctx->jctx.tb_wrap_offset = size / 8;
 	kctx->jctx.tb = tb;
 	spin_unlock_irqrestore(&kctx->jctx.tb_lock, flags);
+
+	return 0;
 }
 
 void kbase_device_trace_buffer_uninstall(struct kbase_context *kctx)

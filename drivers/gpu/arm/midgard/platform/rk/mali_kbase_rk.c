@@ -293,8 +293,6 @@ static int gpufreq_thermal_notifier(struct notifier_block *nb,
 	return 0;
 }
 
-#ifdef CONFIG_MALI_MIDGARD_DEBUG_SYS
-
 static ssize_t show_available_frequencies(struct device *dev,
 					  struct device_attribute *attr,
 					  char *buf)
@@ -421,19 +419,6 @@ void kbase_rk_remove_sysfs(struct kbase_device *kbdev)
 {
 	sysfs_remove_group(&kbdev->dev->kobj, &mali_kbase_rk_attr_group);
 }
-
-#else
-
-static inline int kbase_rk_create_sysfs(struct kbase_device *kbdev)
-{
-	return 0;
-}
-
-static inline void kbase_rk_remove_sysfs(struct kbase_device *kbdev)
-{
-}
-
-#endif
 
 static int kbase_rk_freq_init(struct kbase_device *kbdev)
 {

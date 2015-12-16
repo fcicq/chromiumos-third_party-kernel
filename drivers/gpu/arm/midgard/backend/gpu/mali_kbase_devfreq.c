@@ -1,6 +1,6 @@
 /*
  *
- * (C) COPYRIGHT 2014 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2014-2015 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -13,12 +13,16 @@
  *
  */
 
+
+
 #include <mali_kbase.h>
 #include <mali_kbase_config_defaults.h>
 #include <backend/gpu/mali_kbase_pm_internal.h>
+#ifdef CONFIG_DEVFREQ_THERMAL
+#include <backend/gpu/mali_kbase_power_model_simple.h>
+#endif
 
 #include <linux/clk.h>
-#include <linux/regulator/consumer.h>
 #include <linux/devfreq.h>
 #ifdef CONFIG_DEVFREQ_THERMAL
 #include <linux/devfreq_cooling.h>
@@ -128,6 +132,12 @@ kbase_devfreq_status(struct device *dev, struct devfreq_dev_status *stat)
 
 	stat->private_data = NULL;
 
+#ifdef CONFIG_DEVFREQ_THERMAL
+	if (kbdev->devfreq_cooling)
+		memcpy(&kbdev->devfreq_cooling->last_status, stat,
+				sizeof(*stat));
+#endif
+
 	return 0;
 }
 
@@ -187,13 +197,8 @@ static void kbase_devfreq_exit(struct device *dev)
 
 int kbase_devfreq_init(struct kbase_device *kbdev)
 {
-#ifdef CONFIG_DEVFREQ_THERMAL
-	struct devfreq_cooling_ops *callbacks = POWER_MODEL_CALLBACKS;
-#endif
 	struct devfreq_dev_profile *dp;
 	int err;
-
-	dev_dbg(kbdev->dev, "Init Mali devfreq\n");
 
 	if (!kbdev->clock)
 		return -ENODEV;
@@ -227,16 +232,29 @@ int kbase_devfreq_init(struct kbase_device *kbdev)
 	}
 
 #ifdef CONFIG_DEVFREQ_THERMAL
-	kbdev->devfreq_cooling = of_devfreq_cooling_register_power(
-			kbdev->dev->of_node,
-			kbdev->devfreq,
-			callbacks);
-	if (IS_ERR_OR_NULL(kbdev->devfreq_cooling)) {
-		err = PTR_ERR(kbdev->devfreq_cooling);
+	err = kbase_power_model_simple_init(kbdev);
+	if (err && err != -ENODEV && err != -EPROBE_DEFER) {
 		dev_err(kbdev->dev,
-			"Failed to register cooling device (%d)\n",
+			"Failed to initialize simple power model (%d)\n",
 			err);
 		goto cooling_failed;
+	}
+	if (err == -EPROBE_DEFER)
+		goto cooling_failed;
+	if (err != -ENODEV) {
+		kbdev->devfreq_cooling = of_devfreq_cooling_register_power(
+				kbdev->dev->of_node,
+				kbdev->devfreq,
+				&power_model_simple_ops);
+		if (IS_ERR_OR_NULL(kbdev->devfreq_cooling)) {
+			err = PTR_ERR(kbdev->devfreq_cooling);
+			dev_err(kbdev->dev,
+				"Failed to register cooling device (%d)\n",
+				err);
+			goto cooling_failed;
+		}
+	} else {
+		err = 0;
 	}
 #endif
 
@@ -247,8 +265,7 @@ cooling_failed:
 	devfreq_unregister_opp_notifier(kbdev->dev, kbdev->devfreq);
 #endif /* CONFIG_DEVFREQ_THERMAL */
 opp_notifier_failed:
-	err = devfreq_remove_device(kbdev->devfreq);
-	if (err)
+	if (devfreq_remove_device(kbdev->devfreq))
 		dev_err(kbdev->dev, "Failed to terminate devfreq (%d)\n", err);
 	else
 		kbdev->devfreq = NULL;
@@ -263,7 +280,8 @@ void kbase_devfreq_term(struct kbase_device *kbdev)
 	dev_dbg(kbdev->dev, "Term Mali devfreq\n");
 
 #ifdef CONFIG_DEVFREQ_THERMAL
-	devfreq_cooling_unregister(kbdev->devfreq_cooling);
+	if (kbdev->devfreq_cooling)
+		devfreq_cooling_unregister(kbdev->devfreq_cooling);
 #endif
 
 	devfreq_unregister_opp_notifier(kbdev->dev, kbdev->devfreq);
