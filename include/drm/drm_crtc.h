@@ -271,6 +271,7 @@ struct drm_atomic_state;
  * @color_mgmt_changed: color management properties have changed (degamma or
  *	gamma LUT or CSC matrix)
  * @plane_mask: bitmask of (1 << drm_plane_index(plane)) of attached planes
+ * @connector_mask: bitmask of (1 << drm_connector_index(connector)) of attached connectors
  * @last_vblank_count: for helpers and drivers to capture the vblank of the
  * 	update to ensure framebuffer cleanup isn't done too early
  * @adjusted_mode: for use by helpers and drivers to compute adjusted mode timings
@@ -309,6 +310,8 @@ struct drm_crtc_state {
 	 * on plane_mask being accurate!
 	 */
 	u32 plane_mask;
+
+	u32 connector_mask;
 
 	/* last_vblank_count: for vblank waits before cleanup */
 	u32 last_vblank_count;
