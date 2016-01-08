@@ -135,7 +135,7 @@ int sst_post_message_mrfld(struct intel_sst_drv *sst_drv_ctx,
 	header.full = sst_shim_read64(sst_drv_ctx->shim, SST_IPCX);
 	if (sync) {
 		while (header.p.header_high.part.busy) {
-			if (loop_count > 25) {
+			if (loop_count > 250) {
 				dev_err(sst_drv_ctx->dev,
 					"sst: Busy wait failed, cant send this msg\n");
 				retval = -EBUSY;
