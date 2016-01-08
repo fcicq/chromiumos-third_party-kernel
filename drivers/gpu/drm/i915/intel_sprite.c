@@ -717,12 +717,14 @@ intel_update_plane(struct drm_plane *plane, struct drm_crtc *crtc,
 	/* Don't modify another pipe's plane */
 	if (intel_plane->pipe != intel_crtc->pipe) {
 		DRM_DEBUG_KMS("Wrong plane <-> crtc mapping\n");
+		atomic_inc(&intel_crtc->error_count);
 		return -EINVAL;
 	}
 
 	/* FIXME check all gen limits */
 	if (fb->width < 3 || fb->height < 3 || fb->pitches[0] > 16384) {
 		DRM_DEBUG_KMS("Unsuitable framebuffer for plane\n");
+		atomic_inc(&intel_crtc->error_count);
 		return -EINVAL;
 	}
 
@@ -733,6 +735,7 @@ intel_update_plane(struct drm_plane *plane, struct drm_crtc *crtc,
 			break;
 		default:
 			DRM_DEBUG_KMS("Unsupported tiling mode\n");
+			atomic_inc(&intel_crtc->error_count);
 			return -EINVAL;
 	}
 
@@ -765,6 +768,7 @@ intel_update_plane(struct drm_plane *plane, struct drm_crtc *crtc,
 			drm_rect_debug_print(&src, true);
 			drm_rect_debug_print(&dst, false);
 
+			atomic_inc(&intel_crtc->error_count);
 			return hscale;
 		}
 
@@ -774,6 +778,7 @@ intel_update_plane(struct drm_plane *plane, struct drm_crtc *crtc,
 			drm_rect_debug_print(&src, true);
 			drm_rect_debug_print(&dst, false);
 
+			atomic_inc(&intel_crtc->error_count);
 			return vscale;
 		}
 
@@ -834,6 +839,7 @@ intel_update_plane(struct drm_plane *plane, struct drm_crtc *crtc,
 		if (src_w > 2048 || src_h > 2048 ||
 		    width_bytes > 4096 || fb->pitches[0] > 4096) {
 			DRM_DEBUG_KMS("Source dimensions exceed hardware limits\n");
+			atomic_inc(&intel_crtc->error_count);
 			return -EINVAL;
 		}
 	}
@@ -861,8 +867,10 @@ intel_update_plane(struct drm_plane *plane, struct drm_crtc *crtc,
 
 	mutex_unlock(&dev->struct_mutex);
 
-	if (ret)
+	if (ret) {
+		atomic_inc(&intel_crtc->error_count);
 		return ret;
+	}
 
 	intel_plane->crtc_x = orig.crtc_x;
 	intel_plane->crtc_y = orig.crtc_y;
