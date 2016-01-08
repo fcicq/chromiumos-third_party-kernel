@@ -285,7 +285,7 @@ void kvm_apic_set_version(struct kvm_vcpu *vcpu)
 	struct kvm_cpuid_entry2 *feat;
 	u32 v = APIC_VERSION;
 
-	if (!kvm_vcpu_has_lapic(vcpu))
+	if (!lapic_in_kernel(vcpu))
 		return;
 
 	/*
@@ -1267,7 +1267,7 @@ void wait_lapic_expire(struct kvm_vcpu *vcpu)
 	struct kvm_lapic *apic = vcpu->arch.apic;
 	u64 guest_tsc, tsc_deadline;
 
-	if (!kvm_vcpu_has_lapic(vcpu))
+	if (!lapic_in_kernel(vcpu))
 		return;
 
 	if (apic->lapic_timer.expired_tscdeadline == 0)
@@ -1593,7 +1593,7 @@ u64 kvm_get_lapic_tscdeadline_msr(struct kvm_vcpu *vcpu)
 {
 	struct kvm_lapic *apic = vcpu->arch.apic;
 
-	if (!kvm_vcpu_has_lapic(vcpu) || apic_lvtt_oneshot(apic) ||
+	if (!lapic_in_kernel(vcpu) || apic_lvtt_oneshot(apic) ||
 			apic_lvtt_period(apic))
 		return 0;
 
@@ -1604,7 +1604,7 @@ void kvm_set_lapic_tscdeadline_msr(struct kvm_vcpu *vcpu, u64 data)
 {
 	struct kvm_lapic *apic = vcpu->arch.apic;
 
-	if (!kvm_vcpu_has_lapic(vcpu) || apic_lvtt_oneshot(apic) ||
+	if (!lapic_in_kernel(vcpu) || apic_lvtt_oneshot(apic) ||
 			apic_lvtt_period(apic))
 		return;
 
@@ -1943,7 +1943,7 @@ void __kvm_migrate_apic_timer(struct kvm_vcpu *vcpu)
 {
 	struct hrtimer *timer;
 
-	if (!kvm_vcpu_has_lapic(vcpu))
+	if (!lapic_in_kernel(vcpu))
 		return;
 
 	timer = &vcpu->arch.apic->lapic_timer.timer;
@@ -2116,7 +2116,7 @@ int kvm_hv_vapic_msr_write(struct kvm_vcpu *vcpu, u32 reg, u64 data)
 {
 	struct kvm_lapic *apic = vcpu->arch.apic;
 
-	if (!kvm_vcpu_has_lapic(vcpu))
+	if (!lapic_in_kernel(vcpu))
 		return 1;
 
 	/* if this is ICR write vector before command */
@@ -2130,7 +2130,7 @@ int kvm_hv_vapic_msr_read(struct kvm_vcpu *vcpu, u32 reg, u64 *data)
 	struct kvm_lapic *apic = vcpu->arch.apic;
 	u32 low, high = 0;
 
-	if (!kvm_vcpu_has_lapic(vcpu))
+	if (!lapic_in_kernel(vcpu))
 		return 1;
 
 	if (apic_reg_read(apic, reg, 4, &low))
@@ -2162,7 +2162,7 @@ void kvm_apic_accept_events(struct kvm_vcpu *vcpu)
 	u8 sipi_vector;
 	unsigned long pe;
 
-	if (!kvm_vcpu_has_lapic(vcpu) || !apic->pending_events)
+	if (!lapic_in_kernel(vcpu) || !apic->pending_events)
 		return;
 
 	/*
