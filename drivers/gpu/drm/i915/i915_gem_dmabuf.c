@@ -198,25 +198,22 @@ static void i915_gem_dmabuf_kunmap(struct dma_buf *dma_buf, unsigned long page_n
 static int i915_gem_dmabuf_mmap(struct dma_buf *dma_buf, struct vm_area_struct *vma)
 {
 	struct drm_i915_gem_object *obj = dma_buf_to_obj(dma_buf);
-	struct drm_device *dev = obj->base.dev;
 	int ret;
 
 	if (obj->base.size < vma->vm_end - vma->vm_start)
 		return -EINVAL;
 
-	/* On non-LLC machines we'd need to be careful cause CPU and GPU don't
-	 * share the CPU's L3 cache and coherency may hurt when CPU mapping. */
-	if (!HAS_LLC(dev))
-		return -EINVAL;
-
 	if (!obj->base.filp)
-		return -EINVAL;
+		return -ENODEV;
 
 	ret = obj->base.filp->f_op->mmap(obj->base.filp, vma);
+	if (ret)
+		return ret;
+
 	fput(vma->vm_file);
 	vma->vm_file = get_file(obj->base.filp);
 
-	return ret;
+	return 0;
 }
 
 static int i915_gem_begin_cpu_access(struct dma_buf *dma_buf, enum dma_data_direction direction)
