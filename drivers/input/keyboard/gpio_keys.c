@@ -658,6 +658,8 @@ gpio_keys_get_devtree_pdata(struct device *dev)
 
 	pdata->rep = !!of_get_property(node, "autorepeat", NULL);
 
+	of_property_read_string(node, "label", &pdata->name);
+
 	i = 0;
 	for_each_available_child_of_node(node, pp) {
 		enum of_gpio_flags flags;
