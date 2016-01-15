@@ -589,7 +589,6 @@ static int rk3288_vpu_probe(struct platform_device *pdev)
 {
 	struct rk3288_vpu_dev *vpu = NULL;
 	DEFINE_DMA_ATTRS(attrs_novm);
-	DEFINE_DMA_ATTRS(attrs_nohugepage);
 	struct video_device *vfd;
 	int ret = 0;
 
@@ -612,12 +611,6 @@ static int rk3288_vpu_probe(struct platform_device *pdev)
 		goto err_hw_probe;
 	}
 
-	/*
-	 * We'll do mostly sequential access, so sacrifice TLB efficiency for
-	 * faster allocation.
-	 */
-	dma_set_attr(DMA_ATTR_NOHUGEPAGE, &attrs_novm);
-
 	dma_set_attr(DMA_ATTR_NO_KERNEL_MAPPING, &attrs_novm);
 	vpu->alloc_ctx = vb2_dma_contig_init_ctx_attrs(&pdev->dev,
 								&attrs_novm);
@@ -626,9 +619,7 @@ static int rk3288_vpu_probe(struct platform_device *pdev)
 		goto err_dma_contig;
 	}
 
-	dma_set_attr(DMA_ATTR_NOHUGEPAGE, &attrs_nohugepage);
-	vpu->alloc_ctx_vm = vb2_dma_contig_init_ctx_attrs(&pdev->dev,
-							  &attrs_nohugepage);
+	vpu->alloc_ctx_vm = vb2_dma_contig_init_ctx(&pdev->dev);
 	if (IS_ERR(vpu->alloc_ctx_vm)) {
 		ret = PTR_ERR(vpu->alloc_ctx_vm);
 		goto err_dma_contig_vm;
