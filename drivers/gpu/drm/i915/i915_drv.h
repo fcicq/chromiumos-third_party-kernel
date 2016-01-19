@@ -3228,6 +3228,7 @@ unsigned long i915_gem_shrink(struct drm_i915_private *dev_priv,
 #define I915_SHRINK_BOUND 0x4
 unsigned long i915_gem_shrink_all(struct drm_i915_private *dev_priv);
 void i915_gem_shrinker_init(struct drm_i915_private *dev_priv);
+void i915_gem_shrinker_cleanup(struct drm_i915_private *dev_priv);
 
 
 /* i915_gem_tiling.c */
