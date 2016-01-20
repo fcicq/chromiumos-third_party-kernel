@@ -88,8 +88,9 @@ static struct drm_encoder *evdi_best_single_encoder(struct drm_connector
 }
 
 static int evdi_connector_set_property(struct drm_connector *connector,
+				       struct drm_atomic_state *state,
 				       struct drm_property *property,
-				       uint64_t val)
+				       uint64_t val, void *blob_data)
 {
 	return 0;
 }

@@ -11,6 +11,7 @@
  */
 
 #include <drm/drmP.h>
+#include <drm/drm_atomic.h>
 #include <drm/drm_crtc.h>
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_plane_helper.h>
@@ -94,6 +95,7 @@ static struct drm_crtc_helper_funcs evdi_helper_funcs = {
 
 static const struct drm_crtc_funcs evdi_crtc_funcs = {
 	.set_config = drm_crtc_helper_set_config,
+	.set_property = drm_atomic_crtc_set_property,
 	.destroy = evdi_crtc_destroy,
 };
 

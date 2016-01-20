@@ -7,11 +7,12 @@
  * more details.
  */
 
+#include <drm/drmP.h>
+#include <drm/drm_atomic.h>
+#include <drm/drm_crtc_helper.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
 
-#include <drm/drmP.h>
-#include <drm/drm_crtc_helper.h>
 #include "evdi_drv.h"
 #include <uapi/drm/evdi_drm.h>
 #include "evdi_debug.h"
@@ -80,6 +81,13 @@ static struct drm_driver driver = {
 
 	.prime_fd_to_handle = drm_gem_prime_fd_to_handle,
 	.gem_prime_import = evdi_gem_prime_import,
+
+	.atomic_begin     = drm_atomic_begin,
+	.atomic_set_event = drm_atomic_set_event,
+	.atomic_check     = drm_atomic_check,
+	.atomic_commit    = drm_atomic_commit,
+	.atomic_end       = drm_atomic_end,
+	.atomic_funcs     = &drm_atomic_funcs,
 
 	.name = DRIVER_NAME,
 	.desc = DRIVER_DESC,
