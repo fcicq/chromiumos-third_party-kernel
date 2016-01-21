@@ -2534,6 +2534,13 @@ static int dw_hdmi_register(struct drm_device *drm, struct dw_hdmi *hdmi)
 	drm_connector_init(drm, &hdmi->connector, &dw_hdmi_connector_funcs,
 			   DRM_MODE_CONNECTOR_HDMIA);
 
+	ret = drm_connector_register(&hdmi->connector);
+	if (ret) {
+		DRM_ERROR("Failed to register connector\n");
+		drm_connector_cleanup(&hdmi->connector);
+		return ret;
+	}
+
 	mode_config = &hdmi->connector.dev->mode_config;
 	drm_object_attach_property(&hdmi->connector.base,
 				   mode_config->content_protection_property,
