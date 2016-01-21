@@ -35,7 +35,7 @@ struct rockchip_hdmi {
 	struct drm_encoder encoder;
 };
 
-#define CLK_SLOP(clk)		((clk) / 333)
+#define CLK_SLOP(clk)		((clk) / 1000)
 #define CLK_PLUS_SLOP(clk)	((clk) + CLK_SLOP(clk))
 
 #define to_rockchip_hdmi(x)	container_of(x, struct rockchip_hdmi, x)
