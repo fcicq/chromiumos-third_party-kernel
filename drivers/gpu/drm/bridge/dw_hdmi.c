@@ -2509,6 +2509,7 @@ static int dw_hdmi_register(struct drm_device *drm, struct dw_hdmi *hdmi)
 	struct drm_encoder *encoder = hdmi->encoder;
 	struct drm_mode_config *mode_config;
 	struct drm_bridge *bridge;
+	char name[48];
 	int ret;
 
 	bridge = devm_kzalloc(drm->dev, sizeof(*bridge), GFP_KERNEL);
@@ -2549,6 +2550,13 @@ static int dw_hdmi_register(struct drm_device *drm, struct dw_hdmi *hdmi)
 	hdmi->connector.encoder = encoder;
 
 	drm_mode_connector_attach_encoder(&hdmi->connector, encoder);
+
+	snprintf(name, sizeof(name), "i2c-%d", hdmi->ddc->nr);
+
+	ret = sysfs_create_link(&hdmi->connector.kdev->kobj, &hdmi->ddc->dev.kobj, name);
+
+	if (ret)
+		DRM_ERROR("Cannot create sysfs symlink (%d)\n", ret);
 
 	return 0;
 }
