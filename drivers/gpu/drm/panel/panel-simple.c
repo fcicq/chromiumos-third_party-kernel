@@ -355,15 +355,15 @@ static const struct panel_desc auo_b101aw03 = {
 };
 
 static const struct drm_display_mode auo_b101ean01_mode = {
-	.clock = 72500,
+	.clock = 66667,
 	.hdisplay = 1280,
-	.hsync_start = 1280 + 119,
-	.hsync_end = 1280 + 119 + 32,
-	.htotal = 1280 + 119 + 32 + 21,
+	.hsync_start = 1280 + 18,
+	.hsync_end = 1280 + 18 + 32,
+	.htotal = 1280 + 18 + 32 + 21,
 	.vdisplay = 800,
 	.vsync_start = 800 + 4,
-	.vsync_end = 800 + 4 + 20,
-	.vtotal = 800 + 4 + 20 + 8,
+	.vsync_end = 800 + 4 + 18,
+	.vtotal = 800 + 4 + 18 + 8,
 	.vrefresh = 60,
 };
 
