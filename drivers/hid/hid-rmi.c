@@ -553,6 +553,9 @@ static int rmi_suspend(struct hid_device *hdev, pm_message_t message)
 	int ret = 0;
 	struct rmi_data *data = hid_get_drvdata(hdev);
 
+	if (!(data->device_flags & RMI_DEVICE))
+		return 0;
+
 	mutex_lock(&data->inhibit_mutex);
 	if (!device_may_wakeup(hdev->dev.parent) && !data->inhibited)
 		ret = rmi_set_sleep_mode(hdev, RMI_SLEEP_DEEP_SLEEP);
@@ -565,6 +568,9 @@ static int rmi_post_reset(struct hid_device *hdev)
 {
 	struct rmi_data *data = hid_get_drvdata(hdev);
 	int ret;
+
+	if (!(data->device_flags & RMI_DEVICE))
+		return 0;
 
 	ret = rmi_set_mode(hdev, RMI_MODE_ATTN_REPORTS);
 	if (ret) {
@@ -585,6 +591,11 @@ static int rmi_post_reset(struct hid_device *hdev)
 
 static int rmi_post_resume(struct hid_device *hdev)
 {
+	struct rmi_data *data = hid_get_drvdata(hdev);
+
+	if (!(data->device_flags & RMI_DEVICE))
+		return 0;
+
 	return rmi_set_mode(hdev, RMI_MODE_ATTN_REPORTS);
 }
 #endif /* CONFIG_PM */
@@ -1099,9 +1110,6 @@ static int rmi_input_configured(struct hid_device *hdev, struct hid_input *hi)
 
 	data->input = input;
 
-	input->inhibit = rmi_inhibit;
-	input->uninhibit = rmi_uninhibit;
-
 	hid_dbg(hdev, "Opening low level driver\n");
 	ret = hid_hw_open(hdev);
 	if (ret)
@@ -1160,6 +1168,9 @@ static int rmi_input_configured(struct hid_device *hdev, struct hid_input *hi)
 		if (data->button_count == 1)
 			__set_bit(INPUT_PROP_BUTTONPAD, input->propbit);
 	}
+
+	input->inhibit = rmi_inhibit;
+	input->uninhibit = rmi_uninhibit;
 
 	set_bit(RMI_STARTED, &data->flags);
 
