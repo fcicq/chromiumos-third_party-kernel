@@ -2911,11 +2911,20 @@ static int ath10k_wmi_10_2_4_op_pull_fw_stats(struct ath10k *ar,
 	/* fw doesn't implement vdev stats */
 
 	for (i = 0; i < num_peer_stats; i++) {
-		const struct wmi_10_2_4_peer_stats *src;
+		const struct wmi_10_2_4_ext_peer_stats *src;
 		struct ath10k_fw_stats_peer *dst;
+		int stats_len;
+		bool ext_peer_stats_support;
+
+		ext_peer_stats_support = test_bit(WMI_SERVICE_PEER_STATS,
+						  ar->wmi.svc_map);
+		if (ext_peer_stats_support)
+			stats_len = sizeof(struct wmi_10_2_4_ext_peer_stats);
+		else
+			stats_len = sizeof(struct wmi_10_2_4_peer_stats);
 
 		src = (void *)skb->data;
-		if (!skb_pull(skb, sizeof(*src)))
+		if (!skb_pull(skb, stats_len))
 			return -EPROTO;
 
 		dst = kzalloc(sizeof(*dst), GFP_ATOMIC);
@@ -2925,6 +2934,9 @@ static int ath10k_wmi_10_2_4_op_pull_fw_stats(struct ath10k *ar,
 		ath10k_wmi_pull_peer_stats(&src->common.old, dst);
 
 		dst->peer_rx_rate = __le32_to_cpu(src->common.peer_rx_rate);
+
+		if (ext_peer_stats_support)
+			dst->rx_duration = __le32_to_cpu(src->rx_duration);
 		/* FIXME: expose 10.2 specific values */
 
 		list_add_tail(&dst->list, &stats->peers);
@@ -5704,6 +5716,9 @@ static struct sk_buff *ath10k_wmi_10_2_op_gen_init(struct ath10k *ar)
 	if (test_bit(WMI_SERVICE_BSS_CHANNEL_INFO_64, ar->wmi.svc_map))
 		features |= WMI_10_2_CHAN_SURVEY;
 
+	if (test_bit(WMI_SERVICE_PEER_STATS, ar->wmi.svc_map))
+		features |= WMI_10_2_PEER_STATS;
+
 	cmd->resource_config.feature_mask = __cpu_to_le32(features);
 
 #ifdef CONFIG_ATH10K_SMART_ANTENNA
@@ -7297,6 +7312,9 @@ ath10k_wmi_fw_peer_stats_fill(const struct ath10k_fw_stats_peer *peer,
 			"Peer TX rate", peer->peer_tx_rate);
 	len += scnprintf(buf + len, buf_len - len, "%30s %u\n",
 			"Peer RX rate", peer->peer_rx_rate);
+	len += scnprintf(buf + len, buf_len - len, "%30s %u\n",
+			"Peer RX duration", peer->rx_duration);
+
 	len += scnprintf(buf + len, buf_len - len, "\n");
 	*length = len;
 }
