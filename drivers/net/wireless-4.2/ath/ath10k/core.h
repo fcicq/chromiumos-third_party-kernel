@@ -311,6 +311,7 @@ struct ath10k_sta {
 #ifdef CONFIG_MAC80211_DEBUGFS
 	/* protected by conf_mutex */
 	bool aggr_mode;
+	u64 rx_duration;
 #endif
 	struct ath10k_smart_ant_sta *smart_ant_sta;
 };
