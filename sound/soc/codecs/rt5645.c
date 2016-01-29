@@ -2775,6 +2775,8 @@ static void rt5645_enable_push_button_irq(struct snd_soc_codec *codec,
 							"Mic Det Power");
 		snd_soc_dapm_sync_unlocked(&codec->dapm);
 		snd_soc_update_bits(codec,
+					RT5650_4BTN_IL_CMD1, 0x3, 0x3);
+		snd_soc_update_bits(codec,
 					RT5645_INT_IRQ_ST, 0x8, 0x8);
 		snd_soc_update_bits(codec,
 					RT5650_4BTN_IL_CMD2, 0x8000, 0x8000);
