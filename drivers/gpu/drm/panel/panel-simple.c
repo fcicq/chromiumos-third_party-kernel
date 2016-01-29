@@ -447,7 +447,7 @@ static const struct panel_desc chunghwa_claa101wb01 = {
 };
 
 static const struct drm_display_mode cmn_n116bgeea2_mode = {
-	.clock = 76420,
+	.clock = 74250,
 	.hdisplay = 1366,
 	.hsync_start = 1366 + 136,
 	.hsync_end = 1366 + 136 + 30,
@@ -456,7 +456,7 @@ static const struct drm_display_mode cmn_n116bgeea2_mode = {
 	.vsync_start = 768 + 8,
 	.vsync_end = 768 + 8 + 12,
 	.vtotal = 768 + 8 + 12 + 12,
-	.vrefresh = 60,
+	.vrefresh = 58,
 };
 
 static const struct panel_desc cmn_n116bgeea2 = {
