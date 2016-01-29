@@ -17,6 +17,8 @@
 
 #define to_rockchip_obj(x) container_of(x, struct rockchip_gem_object, base)
 
+struct sg_table;
+
 struct rockchip_gem_object {
 	struct drm_gem_object base;
 	unsigned int flags;
@@ -24,6 +26,8 @@ struct rockchip_gem_object {
 	void *kvaddr;
 	dma_addr_t dma_addr;
 	struct dma_attrs dma_attrs;
+
+	struct sg_table *sg;
 
 #ifdef CONFIG_DRM_DMA_SYNC
 	struct fence *acquire_fence;
@@ -46,7 +50,7 @@ struct rockchip_gem_object_node {
 struct sg_table *rockchip_gem_prime_get_sg_table(struct drm_gem_object *obj);
 struct drm_gem_object *
 rockchip_gem_prime_import_sg_table(struct drm_device *dev, size_t size,
-				   struct sg_table *sgt);
+				   struct sg_table *sg);
 void *rockchip_gem_prime_vmap(struct drm_gem_object *obj);
 void rockchip_gem_prime_vunmap(struct drm_gem_object *obj, void *vaddr);
 

@@ -110,13 +110,11 @@ int rockchip_gem_mmap(struct file *filp, struct vm_area_struct *vma)
 	return rockchip_drm_gem_object_mmap(obj, vma);
 }
 
-struct rockchip_gem_object *
-	rockchip_gem_create_object(struct drm_device *drm, unsigned int size,
-				   bool alloc_kmap)
+static struct rockchip_gem_object *
+rockchip_gem_alloc_object(struct drm_device *drm, unsigned int size)
 {
 	struct rockchip_gem_object *rk_obj;
 	struct drm_gem_object *obj;
-	int ret;
 
 	size = round_up(size, PAGE_SIZE);
 
@@ -127,6 +125,20 @@ struct rockchip_gem_object *
 	obj = &rk_obj->base;
 
 	drm_gem_private_object_init(drm, obj, size);
+
+	return rk_obj;
+}
+
+struct rockchip_gem_object *
+	rockchip_gem_create_object(struct drm_device *drm, unsigned int size,
+				   bool alloc_kmap)
+{
+	struct rockchip_gem_object *rk_obj;
+	int ret;
+
+	rk_obj = rockchip_gem_alloc_object(drm, size);
+	if (IS_ERR(rk_obj))
+		return rk_obj;
 
 	ret = rockchip_gem_alloc_buf(rk_obj, alloc_kmap);
 	if (ret)
@@ -145,13 +157,19 @@ err_free_rk_obj:
  */
 void rockchip_gem_free_object(struct drm_gem_object *obj)
 {
-	struct rockchip_gem_object *rk_obj;
+	struct drm_device *drm = obj->dev;
+	struct rockchip_gem_object *rk_obj = to_rockchip_obj(obj);
 
 	drm_gem_free_mmap_offset(obj);
 
-	rk_obj = to_rockchip_obj(obj);
 
-	rockchip_gem_free_buf(rk_obj);
+	if (rk_obj->sg) {
+		dma_unmap_sg(drm->dev, rk_obj->sg->sgl, rk_obj->sg->nents,
+			     DMA_BIDIRECTIONAL);
+		drm_prime_gem_destroy(obj, rk_obj->sg);
+	} else {
+		rockchip_gem_free_buf(rk_obj);
+	}
 
 #ifdef CONFIG_DRM_DMA_SYNC
 	drm_fence_signal_and_put(&rk_obj->acquire_fence);
@@ -529,6 +547,62 @@ struct sg_table *rockchip_gem_prime_get_sg_table(struct drm_gem_object *obj)
 	}
 
 	return sgt;
+}
+
+static unsigned long rockchip_sg_get_contiguous_size(struct sg_table *sgt,
+						     int count)
+{
+	struct scatterlist *s;
+	dma_addr_t expected = sg_dma_address(sgt->sgl);
+	unsigned int i;
+	unsigned long size = 0;
+
+	for_each_sg(sgt->sgl, s, count, i) {
+		if (sg_dma_address(s) != expected)
+			break;
+		expected = sg_dma_address(s) + sg_dma_len(s);
+		size += sg_dma_len(s);
+	}
+	return size;
+}
+
+
+struct drm_gem_object *
+rockchip_gem_prime_import_sg_table(struct drm_device *drm, size_t size,
+				   struct sg_table *sg)
+{
+	struct rockchip_gem_object *rk_obj;
+	int count;
+	int ret;
+
+	rk_obj = rockchip_gem_alloc_object(drm, size);
+	if (IS_ERR(rk_obj))
+		return ERR_CAST(rk_obj);
+
+	count = dma_map_sg(drm->dev, sg->sgl, sg->nents,
+			   DMA_BIDIRECTIONAL);
+
+	if (!count) {
+		ret = -EINVAL;
+		goto err_free_rk_obj;
+	}
+
+	if (rockchip_sg_get_contiguous_size(sg, count) < size) {
+		DRM_ERROR("failed to map sg_table to contiguous linear address.\n");
+		dma_unmap_sg(drm->dev, sg->sgl, sg->nents,
+			     DMA_BIDIRECTIONAL);
+		ret = -EINVAL;
+		goto err_free_rk_obj;
+	}
+
+	rk_obj->dma_addr = sg_dma_address(sg->sgl);
+	rk_obj->sg = sg;
+
+	return &rk_obj->base;
+
+err_free_rk_obj:
+	kfree(rk_obj);
+	return ERR_PTR(ret);
 }
 
 void *rockchip_gem_prime_vmap(struct drm_gem_object *obj)
