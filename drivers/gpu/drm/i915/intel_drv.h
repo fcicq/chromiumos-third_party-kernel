@@ -576,7 +576,6 @@ struct intel_crtc_atomic_commit {
 	/* Sleepable operations to perform before commit */
 	bool disable_fbc;
 	bool disable_ips;
-	bool pre_disable_primary;
 
 	/* Sleepable operations to perform after commit */
 	unsigned fb_bits;
