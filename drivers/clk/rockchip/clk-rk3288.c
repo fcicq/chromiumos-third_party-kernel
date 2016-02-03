@@ -101,6 +101,7 @@ struct rockchip_pll_rate_table rk3288_pll_rates[] = {
 	RK3066_PLL_RATE_NB( 324000000, 1, 189, 14, 1), /* Fvco = 4.536 GHz */
 	RK3066_PLL_RATE( 312000000, 1, 52, 4),
 	RK3066_PLL_RATE_NB( 308000000, 1, 154, 12, 1), /* Fvco = 3.696 GHz */
+	RK3066_PLL_RATE_NB( 303000000, 1, 202, 16, 1), /* Fvco = 4.848 GHz */
 	RK3066_PLL_RATE( 300000000, 1, 75, 6),
 	RK3066_PLL_RATE_NB( 297750000, 2, 397, 16, 1), /* Fvco = 4.764 GHz */
 	RK3066_PLL_RATE_NB( 293250000, 2, 391, 16, 1), /* Fvco = 4.692 GHz */
