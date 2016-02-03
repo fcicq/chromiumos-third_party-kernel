@@ -41,7 +41,7 @@ struct rockchip_hdmi {
 #define to_rockchip_hdmi(x)	container_of(x, struct rockchip_hdmi, x)
 
 static const int dw_hdmi_rates[] = {
-	25170732,	/* for 25.175 MHz, 0.017% off */
+	25176471,	/* for 25.175 MHz, 0.006% off */
 	25200000,
 	27000000,
 	28320000,
@@ -94,8 +94,8 @@ static const int dw_hdmi_rates[] = {
  * right clock rate.
  */
 static const struct dw_hdmi_audio_tmds_n rockchip_werid_tmds_n_table[] = {
-	/* 25170732 for 25.175 MHz */
-	{ .tmds = 25171000, .n_32k = 5248, .n_44k1 = 6027, .n_48k = 6560, },
+	/* 25176471 for 25.175 MHz = 428000000 / 17. */
+	{ .tmds = 25177000, .n_32k = 4352, .n_44k1 = 14994, .n_48k = 6528, },
 	/* 57290323 for 57.284 MHz */
 	{ .tmds = 57291000, .n_32k = 3968, .n_44k1 = 4557, .n_48k = 5952, },
 	/* 73263158 for 73.25 MHz */
