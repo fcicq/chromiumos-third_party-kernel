@@ -904,6 +904,19 @@ static inline bool ath10k_smart_ant_enabled(struct ath10k *ar)
 }
 #endif
 
+extern bool ath10k_enable_tx_stats;
+
+static inline bool ath10k_tx_stats_enabled(struct ath10k *ar)
+{
+	if (!test_bit(WMI_SERVICE_PEER_STATS, ar->wmi.svc_map))
+		return false;
+
+	if (!ath10k_enable_tx_stats)
+		return false;
+
+	return true;
+}
+
 struct ath10k *ath10k_core_create(size_t priv_size, struct device *dev,
 				  enum ath10k_bus bus,
 				  enum ath10k_hw_rev hw_rev,

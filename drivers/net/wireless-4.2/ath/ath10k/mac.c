@@ -4461,6 +4461,19 @@ static int ath10k_add_interface(struct ieee80211_hw *hw,
 		goto err_peer_delete;
 	}
 
+	if (ath10k_tx_stats_enabled(ar)) {
+		ar->debug.pktlog_filter |= ATH10K_PKTLOG_PEER_STATS;
+		/* This is used for per peer tx stats */
+		ret = ath10k_wmi_pdev_pktlog_enable(ar,
+						    ar->debug.pktlog_filter);
+		if (ret) {
+			ath10k_warn(ar,
+				    "failed to enable peer stats pktlog: %d\n",
+				     ret);
+			goto err_peer_delete;
+		}
+	}
+
 #ifdef CONFIG_ATH10K_SMART_ANTENNA
 	ret = ath10k_smart_ant_enable(ar, arvif);
 	if (ret) {

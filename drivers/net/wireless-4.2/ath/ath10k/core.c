@@ -37,6 +37,7 @@ static bool uart_print;
 static bool skip_otp;
 static bool rawmode;
 static bool hw_csum = true;
+bool ath10k_enable_tx_stats = true;
 #ifdef CONFIG_ATH10K_SMART_ANTENNA
 bool ath10k_enable_smart_antenna = 1;
 #endif
@@ -49,6 +50,7 @@ module_param(uart_print, bool, 0644);
 module_param(skip_otp, bool, 0644);
 module_param(rawmode, bool, 0644);
 module_param(hw_csum, bool, 0644);
+module_param_named(enable_tx_stats, ath10k_enable_tx_stats, bool, 0644);
 #ifdef CONFIG_ATH10K_SMART_ANTENNA
 module_param_named(enable_smart_antenna, ath10k_enable_smart_antenna,
 		   bool, 0644);
@@ -62,6 +64,7 @@ MODULE_PARM_DESC(skip_otp, "Skip otp failure for calibration in testmode");
 MODULE_PARM_DESC(cryptmode, "Crypto mode: 0-hardware, 1-software");
 MODULE_PARM_DESC(rawmode, "Use raw 802.11 frame datapath");
 MODULE_PARM_DESC(hw_csum, "Enable HW checksum offload (default: on)");
+MODULE_PARM_DESC(enable_tx_stats, "Enable tx stats support");
 #ifdef CONFIG_ATH10K_SMART_ANTENNA
 MODULE_PARM_DESC(enable_smart_antenna, "Enable smart antenna supprot in fw");
 #endif
@@ -1533,6 +1536,12 @@ static int ath10k_core_init_firmware_features(struct ath10k *ar)
 		ar->max_num_peers = TARGET_10X_NUM_PEERS;
 		ar->max_num_stations = TARGET_10X_NUM_STATIONS;
 #endif
+		if (ath10k_enable_tx_stats) {
+			ar->max_num_peers -=
+					TARGET_10_2_TX_STATS_PEERS_OVERHEAD;
+			ar->max_num_stations -=
+					TARGET_10_2_TX_STATS_PEERS_OVERHEAD;
+		}
 		ar->max_num_vdevs = TARGET_10X_NUM_VDEVS;
 		ar->htt.max_num_pending_tx = TARGET_10X_NUM_MSDU_DESC;
 		ar->fw_stats_req_mask = WMI_STAT_PEER;
