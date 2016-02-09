@@ -10,6 +10,7 @@
 #include <drm/drm_edid.h>
 #include <uapi/drm/evdi_drm.h>
 #include "evdi_drv.h"
+#include "evdi_cursor.h"
 #include <linux/mutex.h>
 #include <linux/compiler.h>
 
@@ -108,7 +109,10 @@ static void collapse_dirty_rects(struct drm_clip_rect *rects, int *count)
 static int copy_pixels(struct evdi_framebuffer *ufb,
 			char __user *buffer,
 			int buf_byte_stride,
-			int num_rects, struct drm_clip_rect *rects)
+			int num_rects, struct drm_clip_rect *rects,
+			int const max_x,
+			int const max_y,
+			struct evdi_cursor *cursor_copy)
 {
 	struct drm_framebuffer *fb = &ufb->base;
 	struct drm_clip_rect *r;
@@ -136,7 +140,11 @@ static int copy_pixels(struct evdi_framebuffer *ufb,
 		}
 	}
 
-	return 0;
+	return evdi_cursor_composing_and_copy(cursor_copy,
+				       ufb,
+				       buffer,
+				       buf_byte_stride,
+				       max_x, max_y);
 }
 
 static void painter_lock(struct evdi_painter *painter)
@@ -517,6 +525,7 @@ int evdi_painter_grabpix_ioctl(struct drm_device *drm_dev, void *data,
 	struct evdi_painter *painter = evdi->painter;
 	struct drm_evdi_grabpix *cmd = data;
 	struct drm_framebuffer *fb = NULL;
+	struct evdi_cursor *cursor_copy = NULL;
 	int err = 0;
 
 	EVDI_CHECKPT();
@@ -527,6 +536,10 @@ int evdi_painter_grabpix_ioctl(struct drm_device *drm_dev, void *data,
 	if (!painter->recent_fb)
 		return -EAGAIN;
 
+	mutex_lock(&drm_dev->struct_mutex);
+	if (evdi_cursor_alloc(&cursor_copy) == 0)
+		evdi_cursor_copy(cursor_copy, evdi->cursor);
+	mutex_unlock(&drm_dev->struct_mutex);
 	painter_lock(evdi->painter);
 
 	if (painter->was_update_requested) {
@@ -562,13 +575,19 @@ int evdi_painter_grabpix_ioctl(struct drm_device *drm_dev, void *data,
 						  cmd->buffer,
 						  cmd->buf_byte_stride,
 						  painter->num_dirts,
-						  painter->dirty_rects);
+						  painter->dirty_rects,
+						  cmd->buf_width,
+						  cmd->buf_height,
+						  cursor_copy);
 
 			painter->num_dirts = 0;
 		}
 	}
 
 	painter_unlock(evdi->painter);
+	if (cursor_copy)
+		evdi_cursor_free(cursor_copy);
+
 	return err;
 }
 

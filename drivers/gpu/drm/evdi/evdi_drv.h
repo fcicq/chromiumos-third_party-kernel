@@ -35,7 +35,7 @@ struct evdi_flip_queue;
 struct evdi_device {
 	struct device *dev;
 	struct drm_device *ddev;
-
+	struct evdi_cursor *cursor;
 	int sku_pixel_limit;
 
 	struct evdi_fbdev *fbdev;

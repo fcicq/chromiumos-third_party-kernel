@@ -17,6 +17,11 @@
 #include <drm/drm_plane_helper.h>
 #include <uapi/drm/evdi_drm.h>
 #include "evdi_drv.h"
+#include "evdi_cursor.h"
+
+#define EVDI_CURSOR_W 64
+#define EVDI_CURSOR_H 64
+#define EVDI_CURSOR_BUF (EVDI_CURSOR_W * EVDI_CURSOR_H)
 
 struct evdi_flip_queue {
 	struct mutex lock;
@@ -41,6 +46,7 @@ static bool evdi_crtc_mode_fixup(struct drm_crtc *crtc,
 {
 	return true;
 }
+
 
 static int evdi_crtc_mode_set(struct drm_crtc *crtc,
 			      struct drm_display_mode *mode,
@@ -185,6 +191,52 @@ static int evdi_crtc_page_flip(struct drm_crtc *crtc,
 	return 0;
 }
 
+static int evdi_crtc_cursor_set(struct drm_crtc *crtc,
+				struct drm_file *file,
+				uint32_t handle,
+				uint32_t width,
+				uint32_t height)
+{
+	struct drm_device *dev = crtc->dev;
+	struct evdi_device *evdi = dev->dev_private;
+	int ret;
+
+	EVDI_CHECKPT();
+	mutex_lock(&dev->struct_mutex);
+	ret = evdi_cursor_set(crtc, file, handle, width, height, evdi->cursor);
+	mutex_unlock(&dev->struct_mutex);
+	EVDI_DEBUG("evdi_crtc_cursor_set unlock\n");
+	if (ret) {
+		DRM_ERROR("Failed to set evdi cursor\n");
+		return ret;
+	}
+
+	/* For now we don't care whether the application wanted the mouse set,
+	   or not. */
+	return evdi_crtc_page_flip(crtc, NULL, NULL, 0);
+}
+
+static int evdi_crtc_cursor_move(struct drm_crtc *crtc, int x, int y)
+{
+	struct drm_device *dev = crtc->dev;
+	struct evdi_device *evdi = dev->dev_private;
+	int ret = 0;
+
+	mutex_lock(&dev->struct_mutex);
+	if (!evdi_cursor_enabled(evdi->cursor))
+		goto error;
+		ret = evdi_cursor_move(crtc, x, y, evdi->cursor);
+		if (ret) {
+			DRM_ERROR("Failed to move evdi cursor\n");
+			goto error;
+		}
+	mutex_unlock(&dev->struct_mutex);
+	return evdi_crtc_page_flip(crtc, NULL, NULL, 0);
+error:
+	mutex_unlock(&dev->struct_mutex);
+	return ret;
+}
+
 static void evdi_crtc_prepare(struct drm_crtc *crtc)
 {
 }
@@ -211,6 +263,8 @@ static const struct drm_crtc_funcs evdi_crtc_funcs = {
 	.set_property = drm_atomic_crtc_set_property,
 	.destroy = evdi_crtc_destroy,
 	.page_flip = evdi_crtc_page_flip,
+	.cursor_set = evdi_crtc_cursor_set,
+	.cursor_move = evdi_crtc_cursor_move,
 };
 
 static int evdi_crtc_init(struct drm_device *dev)
