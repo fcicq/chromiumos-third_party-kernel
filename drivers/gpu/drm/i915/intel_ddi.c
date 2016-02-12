@@ -2482,11 +2482,13 @@ static bool hsw_ddi_spll_get_hw_state(struct drm_i915_private *dev_priv,
 {
 	uint32_t val;
 
-	if (!intel_display_power_is_enabled(dev_priv, POWER_DOMAIN_PLLS))
+	if (!intel_display_power_get_if_enabled(dev_priv, POWER_DOMAIN_PLLS))
 		return false;
 
 	val = I915_READ(SPLL_CTL);
 	hw_state->spll = val;
+
+	intel_display_power_put(dev_priv, POWER_DOMAIN_PLLS);
 
 	return val & SPLL_PLL_ENABLE;
 }
