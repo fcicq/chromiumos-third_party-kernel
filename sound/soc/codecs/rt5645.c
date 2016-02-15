@@ -3195,6 +3195,12 @@ static struct dmi_system_id dmi_platform_intel_braswell[] = {
 			DMI_MATCH(DMI_SYS_VENDOR, "GOOGLE"),
 		},
 	},
+	{
+		.ident = "Google Setzer",
+		.matches = {
+			DMI_MATCH(DMI_PRODUCT_NAME, "Setzer"),
+		},
+	},
 	{ }
 };
 
