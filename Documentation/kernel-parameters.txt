@@ -3466,6 +3466,10 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 			debug-uart get routed to the D+ and D- pins of the usb
 			port and the regular usb controller gets disabled.
 
+	rodata=		[KNL]
+		on	Mark read-only kernel memory as read-only (default).
+		off	Leave read-only kernel memory writable for debugging.
+
 	root=		[KNL] Root filesystem
 			See name_to_dev_t comment in init/do_mounts.c.
 
