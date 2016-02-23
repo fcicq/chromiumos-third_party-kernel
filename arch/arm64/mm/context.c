@@ -29,13 +29,32 @@
 #include <asm/alternative.h>
 
 
-#define asid_bits(reg) \
-	(((read_cpuid(SYS_ID_AA64MMFR0_EL1) & 0xf0) >> 2) + 8)
-
 #define ASID_FIRST_VERSION	(1 << MAX_ASID_BITS)
 
 static DEFINE_RAW_SPINLOCK(cpu_asid_lock);
 unsigned int cpu_last_asid = ASID_FIRST_VERSION;
+
+/* Get the ASIDBits supported by the current CPU */
+static u32 get_cpu_asid_bits(void)
+{
+	u32 asid;
+	int fld = cpuid_feature_extract_field(read_cpuid(SYS_ID_AA64MMFR0_EL1),
+						ID_AA64MMFR0_ASID_SHIFT);
+
+	switch (fld) {
+	default:
+		pr_warn("CPU%d: Unknown ASID size (%d); assuming 8-bit\n",
+					smp_processor_id(),  fld);
+		/* Fallthrough */
+	case 0:
+		asid = 8;
+		break;
+	case 2:
+		asid = 16;
+	}
+
+	return asid;
+}
 
 /*
  * We fork()ed a process, and we need a new context for the child to run in.
@@ -135,7 +154,7 @@ asmlinkage void post_ttbr_update_workaround(void)
 void __new_context(struct mm_struct *mm)
 {
 	unsigned int asid;
-	unsigned int bits = asid_bits();
+	unsigned int bits = get_cpu_asid_bits();
 
 	raw_spin_lock(&cpu_asid_lock);
 #ifdef CONFIG_SMP
