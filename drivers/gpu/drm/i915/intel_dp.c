@@ -6038,7 +6038,6 @@ intel_dp_init(struct drm_device *dev, int output_reg, enum port port)
 	}
 
 	intel_dig_port->port = port;
-	dev_priv->dig_port_map[port] = intel_encoder;
 	intel_dig_port->dp.output_reg = output_reg;
 	intel_dig_port->max_lanes = 4;
 
