@@ -906,8 +906,8 @@ static int vop_win_update_sync(struct vop_win *vop_win,
 		DRM_ERROR("Adding reservation to callback failed: %d.\n", ret);
 		goto err_fence;
 	}
-	drm_reservation_cb_done(&vop_win->rcb);
 	reservation_object_add_shared_fence(resv, vop_win->pending_fence);
+	drm_reservation_cb_done(&vop_win->rcb);
 	ww_mutex_unlock(&resv->lock);
 	return 0;
 err_fence:
