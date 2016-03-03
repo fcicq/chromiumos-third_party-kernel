@@ -152,6 +152,7 @@ struct ath10k_wmi {
 	struct wmi_vdev_param_map *vdev_param;
 	struct wmi_pdev_param_map *pdev_param;
 	const struct wmi_ops *ops;
+	const struct wmi_peer_flags_map *peer_flags;
 
 	u32 num_mem_chunks;
 	u32 rx_decap_mode;
@@ -165,6 +166,7 @@ struct ath10k_fw_stats_peer {
 	u32 peer_rssi;
 	u32 peer_tx_rate;
 	u32 peer_rx_rate; /* 10x only */
+	u32 rx_duration;
 };
 
 struct ath10k_fw_stats_vdev {
@@ -295,6 +297,81 @@ struct ath10k_peer {
 	struct ieee80211_key_conf *keys[WMI_MAX_KEY_INDEX + 1];
 };
 
+struct ath10k_tx_stats {
+	u64 total_bytes_mcs[VHT_MCS_NUM];
+	u64 total_bytes_bw[VHT_BW_NUM];
+	u64 total_bytes_nss[VHT_NSS_NUM];
+	u64 total_bytes_legacy_rates[LEGACY_RATE_NUM];
+	u64 total_bytes_gi[VHT_GI_NUM];
+	u64 total_bytes_rate_num[VHT_RATE_NUM];
+
+	u64 total_pkts_mcs[VHT_MCS_NUM];
+	u64 total_pkts_bw[VHT_BW_NUM];
+	u64 total_pkts_nss[VHT_NSS_NUM];
+	u64 total_pkts_legacy_rates[LEGACY_RATE_NUM];
+	u64 total_pkts_gi[VHT_GI_NUM];
+	u64 total_pkts_rate_num[VHT_RATE_NUM];
+
+	u64 succ_bytes_mcs[VHT_MCS_NUM];
+	u64 succ_bytes_bw[VHT_BW_NUM];
+	u64 succ_bytes_nss[VHT_NSS_NUM];
+	u64 succ_bytes_legacy_rates[LEGACY_RATE_NUM];
+	u64 succ_bytes_gi[VHT_GI_NUM];
+	u64 succ_bytes_rate_num[VHT_RATE_NUM];
+
+	u64 succ_pkts_mcs[VHT_MCS_NUM];
+	u64 succ_pkts_bw[VHT_BW_NUM];
+	u64 succ_pkts_nss[VHT_NSS_NUM];
+	u64 succ_pkts_legacy_rates[LEGACY_RATE_NUM];
+	u64 succ_pkts_gi[VHT_GI_NUM];
+	u64 succ_pkts_rate_num[VHT_RATE_NUM];
+
+	u64 fail_bytes_mcs[VHT_MCS_NUM];
+	u64 fail_bytes_bw[VHT_BW_NUM];
+	u64 fail_bytes_nss[VHT_NSS_NUM];
+	u64 fail_bytes_legacy_rates[LEGACY_RATE_NUM];
+	u64 fail_bytes_gi[VHT_GI_NUM];
+	u64 fail_bytes_rate_num[VHT_RATE_NUM];
+
+	u64 fail_pkts_mcs[VHT_MCS_NUM];
+	u64 fail_pkts_bw[VHT_BW_NUM];
+	u64 fail_pkts_nss[VHT_NSS_NUM];
+	u64 fail_pkts_legacy_rates[LEGACY_RATE_NUM];
+	u64 fail_pkts_gi[VHT_GI_NUM];
+	u64 fail_pkts_rate_num[VHT_RATE_NUM];
+
+	u64 ampdu_bytes_mcs[VHT_MCS_NUM];
+	u64 ampdu_bytes_bw[VHT_BW_NUM];
+	u64 ampdu_bytes_nss[VHT_NSS_NUM];
+	u64 ampdu_bytes_legacy_rates[LEGACY_RATE_NUM];
+	u64 ampdu_bytes_gi[VHT_GI_NUM];
+	u64 ampdu_bytes_rate_num[VHT_RATE_NUM];
+
+	u64 ampdu_pkts_mcs[VHT_MCS_NUM];
+	u64 ampdu_pkts_bw[VHT_BW_NUM];
+	u64 ampdu_pkts_nss[VHT_NSS_NUM];
+	u64 ampdu_pkts_legacy_rates[LEGACY_RATE_NUM];
+	u64 ampdu_pkts_gi[VHT_GI_NUM];
+	u64 ampdu_pkts_rate_num[VHT_RATE_NUM];
+
+	u64 retry_bytes_mcs[VHT_MCS_NUM];
+	u64 retry_bytes_bw[VHT_BW_NUM];
+	u64 retry_bytes_nss[VHT_NSS_NUM];
+	u64 retry_bytes_legacy_rates[LEGACY_RATE_NUM];
+	u64 retry_bytes_gi[VHT_GI_NUM];
+	u64 retry_bytes_rate_num[VHT_RATE_NUM];
+
+	u64 retry_pkts_mcs[VHT_MCS_NUM];
+	u64 retry_pkts_bw[VHT_BW_NUM];
+	u64 retry_pkts_nss[VHT_NSS_NUM];
+	u64 retry_pkts_legacy_rates[LEGACY_RATE_NUM];
+	u64 retry_pkts_gi[VHT_GI_NUM];
+	u64 retry_pkts_rate_num[VHT_RATE_NUM];
+
+	u64 tx_duration;
+	u64 ba_fails;
+};
+
 struct ath10k_sta {
 	struct ath10k_vif *arvif;
 
@@ -309,6 +386,8 @@ struct ath10k_sta {
 #ifdef CONFIG_MAC80211_DEBUGFS
 	/* protected by conf_mutex */
 	bool aggr_mode;
+	u64 rx_duration;
+	struct ath10k_tx_stats tx_stats;
 #endif
 	struct ath10k_smart_ant_sta *smart_ant_sta;
 };
@@ -500,6 +579,12 @@ enum ath10k_fw_features {
 	 */
 	ATH10K_FW_FEATURE_RAW_MODE_SUPPORT = 10,
 
+	/* Firmware Supports Adaptive CCA*/
+	ATH10K_FW_FEATURE_SUPPORTS_ADAPTIVE_CCA = 11,
+
+	/* Firmware supports management frame protection */
+	ATH10K_FW_FEATURE_MFP_SUPPORT = 12,
+
 	/* keep last */
 	ATH10K_FW_FEATURE_COUNT,
 };
@@ -522,6 +607,9 @@ enum ath10k_dev_flags {
 
 	/* Disable HW crypto engine */
 	ATH10K_FLAG_HW_CRYPTO_DISABLED,
+
+	/* Do not use checksum offload */
+	ATH10K_FLAG_HW_CSUM_DISABLED,
 };
 
 enum ath10k_cal_mode {
@@ -857,6 +945,7 @@ struct ath10k {
 	struct ath10k_smart_ant_info smart_ant_info;
 #endif
 
+	struct ath10k_per_peer_tx_stats peer_tx_stats;
 	struct completion chan_survey_completed;
 	/* cycle count for operating channel */
 	u64 last_tx_cycle_count;
@@ -891,6 +980,19 @@ static inline bool ath10k_smart_ant_enabled(struct ath10k *ar)
 	return false;
 }
 #endif
+
+extern bool ath10k_enable_tx_stats;
+
+static inline bool ath10k_tx_stats_enabled(struct ath10k *ar)
+{
+	if (!test_bit(WMI_SERVICE_PEER_STATS, ar->wmi.svc_map))
+		return false;
+
+	if (!ath10k_enable_tx_stats)
+		return false;
+
+	return true;
+}
 
 struct ath10k *ath10k_core_create(size_t priv_size, struct device *dev,
 				  enum ath10k_bus bus,

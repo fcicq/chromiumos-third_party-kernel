@@ -44,6 +44,26 @@
 #include <linux/usb/phy.h>
 #include "hw.h"
 
+/*
+ * Suggested defines for tracers:
+ * - no_printk:    Disable tracing
+ * - pr_info:      Print this info to the console
+ * - trace_printk: Print this info to trace buffer (good for verbose logging)
+ */
+
+#define DWC2_TRACE_SCHEDULER		no_printk
+#define DWC2_TRACE_SCHEDULER_VB		no_printk
+
+/* Detailed scheduler tracing, but won't overwhelm console */
+#define dwc2_sch_dbg(hsotg, fmt, ...)					\
+	DWC2_TRACE_SCHEDULER(pr_fmt("%s: SCH: " fmt),			\
+			     dev_name(hsotg->dev), ##__VA_ARGS__)
+
+/* Verbose scheduler tracing */
+#define dwc2_sch_vdbg(hsotg, fmt, ...)					\
+	DWC2_TRACE_SCHEDULER_VB(pr_fmt("%s: SCH: " fmt),		\
+				dev_name(hsotg->dev), ##__VA_ARGS__)
+
 static inline u32 dwc2_readl(const void __iomem *addr)
 {
 	u32 value = __raw_readl(addr);
@@ -246,6 +266,13 @@ enum dwc2_ep0_state {
  *                      value for this if none is specified.
  *                       0 - Address DMA
  *                       1 - Descriptor DMA (default, if available)
+ * @dma_desc_fs_enable: When DMA mode is enabled, specifies whether to use
+ *                      address DMA mode or descriptor DMA mode for accessing
+ *                      the data FIFOs in Full Speed mode only. The driver
+ *                      will automatically detect the value for this if none is
+ *                      specified.
+ *                       0 - Address DMA
+ *                       1 - Descriptor DMA in FS (default, if available)
  * @speed:              Specifies the maximum speed of operation in host and
  *                      device mode. The actual speed depends on the speed of
  *                      the attached device and the value of phy_type.
@@ -375,6 +402,7 @@ struct dwc2_core_params {
 	int otg_ver;
 	int dma_enable;
 	int dma_desc_enable;
+	int dma_desc_fs_enable;
 	int speed;
 	int enable_dynamic_fifo;
 	int en_multiple_tx_fifo;
@@ -456,6 +484,7 @@ struct dwc2_hw_params {
 	unsigned op_mode:3;
 	unsigned arch:2;
 	unsigned dma_desc_enable:1;
+	unsigned dma_desc_fs_enable:1;
 	unsigned enable_dynamic_fifo:1;
 	unsigned en_multiple_tx_fifo:1;
 	unsigned host_rx_fifo_size:16;
@@ -651,6 +680,7 @@ struct dwc2_hregs_backup {
  *                      periodic_sched_ready because it must be rescheduled for
  *                      the next frame. Otherwise, the item moves to
  *                      periodic_sched_inactive.
+ * @split_order:        List keeping track of channels doing splits, in order.
  * @periodic_usecs:     Total bandwidth claimed so far for periodic transfers.
  *                      This value is in microseconds per (micro)frame. The
  *                      assumption is that all periodic transfers may occur in
@@ -682,6 +712,9 @@ struct dwc2_hregs_backup {
  * @otg_port:           OTG port number
  * @frame_list:         Frame list
  * @frame_list_dma:     Frame list DMA address
+ * @frame_list_sz:      Frame list size
+ * @desc_gen_cache:     Kmem cache for generic descriptors
+ * @desc_hsisoc_cache:  Kmem cache for hs isochronous descriptors
  *
  * These are for peripheral mode:
  *
@@ -775,11 +808,13 @@ struct dwc2_hsotg {
 	struct list_head periodic_sched_ready;
 	struct list_head periodic_sched_assigned;
 	struct list_head periodic_sched_queued;
+	struct list_head split_order;
 	u16 periodic_usecs;
 	u16 frame_usecs[8];
 	u16 frame_number;
 	u16 periodic_qh_count;
 	bool bus_suspended;
+	bool new_connection;
 
 #ifdef CONFIG_USB_DWC2_TRACK_MISSED_SOFS
 #define FRAME_NUM_ARRAY_SIZE 1000
@@ -804,6 +839,9 @@ struct dwc2_hsotg {
 	u8 otg_port;
 	u32 *frame_list;
 	dma_addr_t frame_list_dma;
+	u32 frame_list_sz;
+	struct kmem_cache *desc_gen_cache;
+	struct kmem_cache *desc_hsisoc_cache;
 
 #ifdef DEBUG
 	u32 frrem_samples;
@@ -951,6 +989,16 @@ extern void dwc2_set_param_dma_enable(struct dwc2_hsotg *hsotg, int val);
  * 1 - DMA Descriptor(default, if available)
  */
 extern void dwc2_set_param_dma_desc_enable(struct dwc2_hsotg *hsotg, int val);
+
+/*
+ * When DMA mode is enabled specifies whether to use
+ * address DMA or DMA Descritor mode with full speed devices
+ * for accessing the data FIFOs in host mode.
+ * 0 - address DMA
+ * 1 - FS DMA Descriptor(default, if available)
+ */
+extern void dwc2_set_param_dma_desc_fs_enable(struct dwc2_hsotg *hsotg,
+					      int val);
 
 /*
  * Specifies the maximum speed of operation in host and device mode.
@@ -1166,13 +1214,13 @@ static inline int dwc2_hsotg_set_test_mode(struct dwc2_hsotg *hsotg,
 #if IS_ENABLED(CONFIG_USB_DWC2_HOST) || IS_ENABLED(CONFIG_USB_DWC2_DUAL_ROLE)
 extern int dwc2_hcd_get_frame_number(struct dwc2_hsotg *hsotg);
 extern void dwc2_hcd_connect(struct dwc2_hsotg *hsotg);
-extern void dwc2_hcd_disconnect(struct dwc2_hsotg *hsotg);
+extern void dwc2_hcd_disconnect(struct dwc2_hsotg *hsotg, bool force);
 extern void dwc2_hcd_start(struct dwc2_hsotg *hsotg);
 #else
 static inline int dwc2_hcd_get_frame_number(struct dwc2_hsotg *hsotg)
 { return 0; }
 static inline void dwc2_hcd_connect(struct dwc2_hsotg *hsotg) {}
-static inline void dwc2_hcd_disconnect(struct dwc2_hsotg *hsotg) {}
+static inline void dwc2_hcd_disconnect(struct dwc2_hsotg *hsotg, bool force) {}
 static inline void dwc2_hcd_start(struct dwc2_hsotg *hsotg) {}
 static inline void dwc2_hcd_remove(struct dwc2_hsotg *hsotg) {}
 static inline int dwc2_hcd_init(struct dwc2_hsotg *hsotg, int irq)

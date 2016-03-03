@@ -105,6 +105,8 @@ struct dwc2_qh;
  * @qh:                 QH for the transfer being processed by this channel
  * @hc_list_entry:      For linking to list of host channels
  * @desc_list_addr:     Current QH's descriptor list DMA address
+ * @desc_list_sz:       Current QH's descriptor list size
+ * @split_order_list_entry: List entry for keeping track of the order of splits
  *
  * This structure represents the state of a single host channel when acting in
  * host mode. It contains the data items needed to transfer packets to an
@@ -156,6 +158,8 @@ struct dwc2_host_chan {
 	struct dwc2_qh *qh;
 	struct list_head hc_list_entry;
 	dma_addr_t desc_list_addr;
+	u32 desc_list_sz;
+	struct list_head split_order_list_entry;
 };
 
 struct dwc2_hcd_pipe_info {
@@ -211,6 +215,7 @@ enum dwc2_transaction_type {
 /**
  * struct dwc2_qh - Software queue head structure
  *
+ * @hsotg:              The HCD state structure for the DWC OTG controller
  * @ep_type:            Endpoint type. One of the following values:
  *                       - USB_ENDPOINT_XFER_CONTROL
  *                       - USB_ENDPOINT_XFER_BULK
@@ -244,16 +249,20 @@ enum dwc2_transaction_type {
  *                      schedule
  * @desc_list:          List of transfer descriptors
  * @desc_list_dma:      Physical address of desc_list
+ * @desc_list_sz:       Size of descriptors list
  * @n_bytes:            Xfer Bytes array. Each element corresponds to a transfer
  *                      descriptor and indicates original XferSize value for the
  *                      descriptor
+ * @unreserve_timer:    Timer for releasing periodic reservation.
  * @tt_buffer_dirty     True if clear_tt_buffer_complete is pending
+ * @unreserve_pending:  True if we planned to unreserve but haven't yet.
  *
  * A Queue Head (QH) holds the static characteristics of an endpoint and
  * maintains a list of transfers (QTDs) for that endpoint. A QH structure may
  * be entered in either the non-periodic or periodic schedule.
  */
 struct dwc2_qh {
+	struct dwc2_hsotg *hsotg;
 	u8 ep_type;
 	u8 ep_is_in;
 	u16 maxp;
@@ -274,8 +283,11 @@ struct dwc2_qh {
 	struct list_head qh_list_entry;
 	struct dwc2_hcd_dma_desc *desc_list;
 	dma_addr_t desc_list_dma;
+	u32 desc_list_sz;
 	u32 *n_bytes;
+	struct timer_list unreserve_timer;
 	unsigned tt_buffer_dirty:1;
+	unsigned unreserve_pending:1;
 };
 
 /**
@@ -330,6 +342,8 @@ struct dwc2_qtd {
 	u8 isoc_split_pos;
 	u16 isoc_frame_index;
 	u16 isoc_split_offset;
+	u16 isoc_td_last;
+	u16 isoc_td_first;
 	u32 ssplit_out_xfer_count;
 	u8 error_count;
 	u8 n_desc;
@@ -525,6 +539,19 @@ static inline bool dbg_perio(void) { return false; }
 #define dwc2_max_packet(wmaxpacketsize) ((wmaxpacketsize) & 0x07ff)
 
 /*
+ * Returns true if frame1 index is greater than frame2 index. The comparison
+ * is done modulo FRLISTEN_64_SIZE. This accounts for the rollover of the
+ * frame number when the max index frame number is reached.
+ */
+static inline bool dwc2_frame_idx_num_gt(u16 fr_idx1, u16 fr_idx2)
+{
+	u16 diff = fr_idx1 - fr_idx2;
+	u16 sign = diff & (FRLISTEN_64_SIZE >> 1);
+
+	return diff && !sign;
+}
+
+/*
  * Returns true if frame1 is less than or equal to frame2. The comparison is
  * done modulo HFNUM_MAX_FRNUM. This accounts for the rollover of the
  * frame number when the max frame number is reached.
@@ -552,6 +579,11 @@ static inline int dwc2_frame_num_gt(u16 frame1, u16 frame2)
 static inline u16 dwc2_frame_num_inc(u16 frame, u16 inc)
 {
 	return (frame + inc) & HFNUM_MAX_FRNUM;
+}
+
+static inline u16 dwc2_frame_num_dec(u16 frame, u16 dec)
+{
+	return (frame + HFNUM_MAX_FRNUM + 1 - dec) & HFNUM_MAX_FRNUM;
 }
 
 static inline u16 dwc2_full_frame_num(u16 frame)

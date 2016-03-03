@@ -396,6 +396,8 @@ struct intel_crtc {
 		/* watermarks currently being used  */
 		struct intel_pipe_wm active;
 	} wm;
+
+	atomic_t error_count;
 };
 
 struct intel_plane_wm_parameters {

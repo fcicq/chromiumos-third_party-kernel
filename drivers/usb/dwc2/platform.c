@@ -62,6 +62,7 @@ static const struct dwc2_core_params params_bcm2835 = {
 	.otg_ver			= 0,	/* 1.3 */
 	.dma_enable			= 1,
 	.dma_desc_enable		= 0,
+	.dma_desc_fs_enable		= 0,
 	.speed				= 0,	/* High Speed */
 	.enable_dynamic_fifo		= 1,
 	.en_multiple_tx_fifo		= 1,
@@ -92,10 +93,11 @@ static const struct dwc2_core_params params_rk3066 = {
 	.otg_ver			= -1,
 	.dma_enable			= -1,
 	.dma_desc_enable		= 0,
+	.dma_desc_fs_enable		= 0,
 	.speed				= -1,
 	.enable_dynamic_fifo		= 1,
 	.en_multiple_tx_fifo		= -1,
-	.host_rx_fifo_size		= 520,	/* 520 DWORDs */
+	.host_rx_fifo_size		= 525,	/* 525 DWORDs */
 	.host_nperio_tx_fifo_size	= 128,	/* 128 DWORDs */
 	.host_perio_tx_fifo_size	= 256,	/* 256 DWORDs */
 	.max_transfer_size		= -1,
@@ -123,6 +125,7 @@ static const struct dwc2_core_params params_pistachio = {
 	.otg_ver			= 0,	/* 1.3 */
 	.dma_enable			= -1,
 	.dma_desc_enable		= -1,
+	.dma_desc_fs_enable		= -1,
 	.speed				= -1,
 	.enable_dynamic_fifo		= -1,
 	.en_multiple_tx_fifo		= -1,
@@ -156,9 +159,11 @@ static int __dwc2_lowlevel_hw_enable(struct dwc2_hsotg *hsotg)
 	if (ret)
 		return ret;
 
-	ret = clk_prepare_enable(hsotg->clk);
-	if (ret)
-		return ret;
+	if (hsotg->clk) {
+		ret = clk_prepare_enable(hsotg->clk);
+		if (ret)
+			return ret;
+	}
 
 	if (hsotg->uphy)
 		ret = usb_phy_init(hsotg->uphy);
@@ -206,7 +211,8 @@ static int __dwc2_lowlevel_hw_disable(struct dwc2_hsotg *hsotg)
 	if (ret)
 		return ret;
 
-	clk_disable_unprepare(hsotg->clk);
+	if (hsotg->clk)
+		clk_disable_unprepare(hsotg->clk);
 
 	ret = regulator_bulk_disable(ARRAY_SIZE(hsotg->supplies),
 				     hsotg->supplies);
@@ -243,13 +249,40 @@ static int dwc2_lowlevel_hw_init(struct dwc2_hsotg *hsotg)
 	 */
 	hsotg->phy = devm_phy_get(hsotg->dev, "usb2-phy");
 	if (IS_ERR(hsotg->phy)) {
-		hsotg->phy = NULL;
-		hsotg->uphy = devm_usb_get_phy(hsotg->dev, USB_PHY_TYPE_USB2);
-		if (IS_ERR(hsotg->uphy))
-			hsotg->uphy = NULL;
-		else
-			hsotg->plat = dev_get_platdata(hsotg->dev);
+		ret = PTR_ERR(hsotg->phy);
+		switch (ret) {
+		case -ENODEV:
+		case -ENOSYS:
+			hsotg->phy = NULL;
+			break;
+		case -EPROBE_DEFER:
+			return ret;
+		default:
+			dev_err(hsotg->dev, "error getting phy %d\n", ret);
+			return ret;
+		}
 	}
+
+	if (!hsotg->phy) {
+		hsotg->uphy = devm_usb_get_phy(hsotg->dev, USB_PHY_TYPE_USB2);
+		if (IS_ERR(hsotg->uphy)) {
+			ret = PTR_ERR(hsotg->uphy);
+			switch (ret) {
+			case -ENODEV:
+			case -ENXIO:
+				hsotg->uphy = NULL;
+				break;
+			case -EPROBE_DEFER:
+				return ret;
+			default:
+				dev_err(hsotg->dev, "error getting usb phy %d\n",
+					ret);
+				return ret;
+			}
+		}
+	}
+
+	hsotg->plat = dev_get_platdata(hsotg->dev);
 
 	if (hsotg->phy) {
 		/*
@@ -258,11 +291,6 @@ static int dwc2_lowlevel_hw_init(struct dwc2_hsotg *hsotg)
 		 */
 		if (phy_get_bus_width(hsotg->phy) == 8)
 			hsotg->phyif = GUSBCFG_PHYIF8;
-	}
-
-	if (!hsotg->phy && !hsotg->uphy && !hsotg->plat) {
-		dev_err(hsotg->dev, "no platform data or transceiver defined\n");
-		return -EPROBE_DEFER;
 	}
 
 	/* Clock */
@@ -355,8 +383,10 @@ static int dwc2_driver_probe(struct platform_device *dev)
 		/*
 		 * Disable descriptor dma mode by default as the HW can support
 		 * it, but does not support it for SPLIT transactions.
+		 * Disable it for FS devices as well.
 		 */
 		defparams.dma_desc_enable = 0;
+		defparams.dma_desc_fs_enable = 0;
 	}
 
 	hsotg = devm_kzalloc(&dev->dev, sizeof(*hsotg), GFP_KERNEL);

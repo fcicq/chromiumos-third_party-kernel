@@ -1908,5 +1908,6 @@ int ath10k_smart_ant_enable(struct ath10k *ar, struct ath10k_vif *arvif)
 	info->enabled = true;
 
 	/* Enable tx feedback through packetlog */
-	return ath10k_wmi_pdev_pktlog_enable(ar, ATH10K_PKTLOG_SMART_ANT);
+	return ath10k_wmi_pdev_pktlog_enable(ar, (ar->debug.pktlog_filter |
+						  ATH10K_PKTLOG_SMART_ANT));
 }

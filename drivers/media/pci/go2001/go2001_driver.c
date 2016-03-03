@@ -150,14 +150,6 @@ static struct go2001_fmt formats[] = {
 		.hw_format = GO2001_FMT_VP8,
 		.codec_modes = CODEC_MODE_DECODER | CODEC_MODE_ENCODER,
 	},
-	{
-		.type = FMT_TYPE_CODED,
-		.desc = "VP9 raw stream",
-		.pixelformat = V4L2_PIX_FMT_VP9,
-		.num_planes = 1,
-		.hw_format = GO2001_FMT_VP9,
-		.codec_modes = CODEC_MODE_DECODER,
-	},
 };
 
 static struct go2001_ctrl go2001_dec_ctrls[] = {
@@ -194,7 +186,7 @@ static struct go2001_ctrl go2001_enc_ctrls[] = {
 		.min = V4L2_MPEG_MFC51_VIDEO_FORCE_FRAME_TYPE_DISABLED,
 		.max = V4L2_MPEG_MFC51_VIDEO_FORCE_FRAME_TYPE_I_FRAME,
 		.def = V4L2_MPEG_MFC51_VIDEO_FORCE_FRAME_TYPE_DISABLED,
-		.flags = V4L2_CTRL_FLAG_VOLATILE,
+		.flags = V4L2_CTRL_FLAG_EXECUTE_ON_WRITE,
 	},
 };
 
@@ -243,7 +235,7 @@ static int go2001_querycap(struct file *file, void *priv,
 	snprintf(cap->bus_info, sizeof(cap->bus_info), "PCI:%s",
 			pci_name(gdev->pdev));
 
-	cap->device_caps = V4L2_CAP_VIDEO_M2M | V4L2_CAP_STREAMING
+	cap->device_caps = V4L2_CAP_VIDEO_M2M_MPLANE | V4L2_CAP_STREAMING
 			 | V4L2_CAP_VIDEO_CAPTURE_MPLANE
 			 | V4L2_CAP_VIDEO_OUTPUT_MPLANE;
 	cap->capabilities = cap->device_caps | V4L2_CAP_DEVICE_CAPS;
