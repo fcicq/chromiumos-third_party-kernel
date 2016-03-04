@@ -106,7 +106,7 @@
 
 #define read_cpuid(reg) ({						\
 	u64 __val;							\
-	asm("mrs_s	%0, " __stringify(reg) : "=r" (__val));		\
+	asm("mrs_s	%0, " __stringify(SYS_ ## reg) : "=r" (__val));	\
 	__val;								\
 })
 
@@ -117,12 +117,12 @@
  */
 static inline u32 __attribute_const__ read_cpuid_id(void)
 {
-	return read_cpuid(SYS_MIDR_EL1);
+	return read_cpuid(MIDR_EL1);
 }
 
 static inline u64 __attribute_const__ read_cpuid_mpidr(void)
 {
-	return read_cpuid(SYS_MPIDR_EL1);
+	return read_cpuid(MPIDR_EL1);
 }
 
 static inline unsigned int __attribute_const__ read_cpuid_implementor(void)
@@ -137,7 +137,7 @@ static inline unsigned int __attribute_const__ read_cpuid_part_number(void)
 
 static inline u32 __attribute_const__ read_cpuid_cachetype(void)
 {
-	return read_cpuid(SYS_CTR_EL0);
+	return read_cpuid(CTR_EL0);
 }
 #endif /* __ASSEMBLY__ */
 
