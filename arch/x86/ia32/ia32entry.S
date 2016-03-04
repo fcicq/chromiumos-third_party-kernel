@@ -468,6 +468,7 @@ ENTRY(ia32_syscall)
 	/*CFI_REL_OFFSET	cs,CS-RIP*/
 	CFI_REL_OFFSET	rip,RIP-RIP
 	PARAVIRT_ADJUST_EXCEPTION_FRAME
+	ASM_CLAC			/* Do this early to minimize exposure */
 	SWAPGS
 	SWITCH_KERNEL_CR3_NO_STACK
 	/*
