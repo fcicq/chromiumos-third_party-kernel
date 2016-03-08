@@ -51,6 +51,7 @@ i915-y += intel_audio.o \
 	  intel_bios.o \
 	  intel_color.o \
 	  intel_display.o \
+	  intel_dpll_mgr.o \
 	  intel_fbc.o \
 	  intel_fifo_underrun.o \
 	  intel_frontbuffer.o \
