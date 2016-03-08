@@ -47,17 +47,23 @@ struct rk3288_resume_params rk3288_resume_params
  */
 static void __noreturn rk3288_resume_c(void)
 {
+	u32 tmp;
+
 	if (rk3288_resume_params.l2ctlr_f)
 		asm("mcr p15, 1, %0, c9, c0, 2" : :
 			"r" (rk3288_resume_params.l2ctlr));
 
 	/* We will have lost this when the CPU powered off */
 	if (IS_ENABLED(CONFIG_ARM_ERRATA_818325_852422)) {
-		u32 diag_reg;
-
-		asm volatile("mrc p15, 0, %0, c15, c0, 1" : "=r" (diag_reg));
-		diag_reg |= (1 << 12);
-		asm volatile("mcr p15, 0, %0, c15, c0, 1" : : "r" (diag_reg));
+		asm volatile("mrc p15, 0, %0, c15, c0, 1" : "=r" (tmp));
+		tmp |= (1 << 12);
+		asm volatile("mcr p15, 0, %0, c15, c0, 1" : : "r" (tmp));
+		asm volatile("isb");
+	}
+	if (IS_ENABLED(CONFIG_ARM_ERRATA_821420)) {
+		asm volatile("mrc p15, 0, %0, c15, c0, 2" : "=r" (tmp));
+		tmp |= (1 << 1);
+		asm volatile("mcr p15, 0, %0, c15, c0, 2" : : "r" (tmp));
 		asm volatile("isb");
 	}
 
