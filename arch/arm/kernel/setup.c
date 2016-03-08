@@ -999,21 +999,17 @@ static int arm_coprocessor_show(struct seq_file *s, void *data)
 
 	part_number = read_cpuid_part_number();
 
-	/*
-	 * I don't have official docs for this register, but errata code
-	 * submitted by Rockchip calls it a "diagnostic register" and the
-	 * ARM errata calls it the "feature register".  Since ARM docs have
-	 * other registers also called "feature register", I'll go with the
-	 * Rockchip name.
-	 *
-	 * As far as I know this register is only present on A12 and A17.
-	 */
 	if (part_number == ARM_CPU_PART_CORTEX_A12 ||
 	    part_number == ARM_CPU_PART_CORTEX_A17) {
+		/* As far as I know these are only present on A12 / A17 */
 		asm volatile("mrc p15, 0, %0, c15, c0, 1" : "=r" (tmp));
-
 		seq_printf(s,
 			"CPU %u: diag register: (p15, 0, c15, c0, 1): %#010x\n",
+			processor_id, tmp);
+
+		asm volatile("mrc p15, 0, %0, c15, c0, 2" : "=r" (tmp));
+		seq_printf(s,
+			"CPU %u: int feat reg: (p15, 0, c15, c0, 2): %#010x\n",
 			processor_id, tmp);
 	}
 
