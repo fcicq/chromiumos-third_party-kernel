@@ -3915,7 +3915,7 @@ skl_compute_wm(struct drm_atomic_state *state)
 			/* This pipe's WM's did not change */
 			continue;
 
-		intel_cstate->wm_changed = true;
+		intel_cstate->update_wm_pre = true;
 		skl_compute_wm_results(crtc->dev, pipe_wm, results, intel_crtc);
 	}
 
