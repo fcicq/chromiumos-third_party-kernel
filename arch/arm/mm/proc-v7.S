@@ -354,12 +354,23 @@ __v7_setup:
 	orr	r10, r10, #1 << 1		@ set bit #1
 	mcr	p15, 0, r10, c15, c0, 2		@ write internal feature reg
 #endif
+#ifdef CONFIG_ARM_ERRATA_825619
+	mrc	p15, 0, r10, c15, c0, 1		@ read diagnostic register
+	orr	r10, r10, #1 << 24		@ set bit #24
+	mcr	p15, 0, r10, c15, c0, 1		@ write diagnostic register
+#endif
 	b	6f
 
 	/* Cortex-A17 Errata */
 4:	ldr	r10, =0x00000c0e		@ Cortex-A17 primary part number
 	teq	r0, r10
 	bne	5f
+#ifdef CONFIG_ARM_ERRATA_852421
+	cmp	r6, #0x12			@ only present up to r1p2
+	mrcle	p15, 0, r10, c15, c0, 1		@ read diagnostic register
+	orrle	r10, r10, #1 << 24		@ set bit #24
+	mcrle	p15, 0, r10, c15, c0, 1		@ write diagnostic register
+#endif
 #ifdef CONFIG_ARM_ERRATA_852423
 	cmp	r6, #0x12			@ only present up to r1p2
 	mrcle	p15, 0, r10, c15, c0, 1		@ read diagnostic register
