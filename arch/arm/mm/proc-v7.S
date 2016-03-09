@@ -349,6 +349,11 @@ __v7_setup:
 	orr	r10, r10, #1 << 12		@ set bit #12
 	mcr	p15, 0, r10, c15, c0, 1		@ write diagnostic register
 #endif
+#ifdef CONFIG_ARM_ERRATA_821420
+	mrc	p15, 0, r10, c15, c0, 2		@ read internal feature reg
+	orr	r10, r10, #1 << 1		@ set bit #1
+	mcr	p15, 0, r10, c15, c0, 2		@ write internal feature reg
+#endif
 	b	6f
 
 	/* Cortex-A17 Errata */
