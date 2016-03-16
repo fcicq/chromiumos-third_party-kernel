@@ -5274,6 +5274,30 @@ init_ring_lists(struct intel_engine_cs *ring)
 }
 
 void
+i915_gem_load_init_fences(struct drm_i915_private *dev_priv)
+{
+	struct drm_device *dev = dev_priv->dev;
+
+	if (INTEL_INFO(dev_priv)->gen >= 7 && !IS_VALLEYVIEW(dev_priv) &&
+	    !IS_CHERRYVIEW(dev_priv))
+		dev_priv->num_fence_regs = 32;
+	else if (INTEL_INFO(dev_priv)->gen >= 4 || IS_I945G(dev_priv) ||
+		 IS_I945GM(dev_priv) || IS_G33(dev_priv))
+		dev_priv->num_fence_regs = 16;
+	else
+		dev_priv->num_fence_regs = 8;
+
+	if (intel_vgpu_active(dev))
+		dev_priv->num_fence_regs =
+				I915_READ(vgtif_reg(avail_rs.fence_num));
+
+	/* Initialize fence registers to zero */
+	i915_gem_restore_fences(dev);
+
+	i915_gem_detect_bit_6_swizzle(dev);
+}
+
+void
 i915_gem_load_init(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
@@ -5312,22 +5336,8 @@ i915_gem_load_init(struct drm_device *dev)
 
 	dev_priv->relative_constants_mode = I915_EXEC_CONSTANTS_REL_GENERAL;
 
-	if (INTEL_INFO(dev)->gen >= 7 && !IS_VALLEYVIEW(dev))
-		dev_priv->num_fence_regs = 32;
-	else if (INTEL_INFO(dev)->gen >= 4 || IS_I945G(dev) || IS_I945GM(dev) || IS_G33(dev))
-		dev_priv->num_fence_regs = 16;
-	else
-		dev_priv->num_fence_regs = 8;
-
-	if (intel_vgpu_active(dev))
-		dev_priv->num_fence_regs =
-				I915_READ(vgtif_reg(avail_rs.fence_num));
-
-	/* Initialize fence registers to zero */
 	INIT_LIST_HEAD(&dev_priv->mm.fence_list);
-	i915_gem_restore_fences(dev);
 
-	i915_gem_detect_bit_6_swizzle(dev);
 	init_waitqueue_head(&dev_priv->pending_flip_queue);
 
 	dev_priv->mm.interruptible = true;
