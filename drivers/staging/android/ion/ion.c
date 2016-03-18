@@ -1069,14 +1069,16 @@ static int ion_dma_buf_begin_cpu_access(struct dma_buf *dmabuf,
 	return 0;
 }
 
-static void ion_dma_buf_end_cpu_access(struct dma_buf *dmabuf,
-				       enum dma_data_direction direction)
+static int ion_dma_buf_end_cpu_access(struct dma_buf *dmabuf,
+				      enum dma_data_direction direction)
 {
 	struct ion_buffer *buffer = dmabuf->priv;
 
 	mutex_lock(&buffer->lock);
 	ion_buffer_kmap_put(buffer);
 	mutex_unlock(&buffer->lock);
+
+	return 0;
 }
 
 static struct dma_buf_ops dma_buf_ops = {
