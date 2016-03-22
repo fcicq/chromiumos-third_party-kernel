@@ -133,6 +133,13 @@ static int qcom_watchdog_probe(struct platform_device *pdev)
 	wdt->wdd.ops = &qcom_wdt_ops;
 	wdt->wdd.min_timeout = 1;
 	wdt->wdd.max_timeout = 0x10000000U / wdt->freq;
+
+	/*
+	 * If 'timeout-sec' unspecified in devicetree, assume a 30 second
+	 * default, unless the max timeout is less than 30 seconds, then use
+	 * the max instead.
+	 */
+	wdt->wdd.timeout = min(wdt->wdd.max_timeout, 30U);
 	watchdog_init_timeout(&wdt->wdd, 0, &pdev->dev);
 
 	ret = watchdog_register_device(&wdt->wdd);
