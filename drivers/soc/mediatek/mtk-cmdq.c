@@ -251,6 +251,7 @@ struct cmdq {
 	spinlock_t		exec_lock;	/* for exec task */
 
 	/* suspend */
+	bool			suspending;
 	bool			suspended;
 
 	/* command buffer pool */
@@ -1554,7 +1555,6 @@ static void cmdq_core_handle_error(struct cmdq *cqctx, int tid, int value)
 		if (thread->cur_task[inner]) {
 			task = thread->cur_task[inner];
 			task->irq_flag = 0;	/* don't know irq flag */
-			/* still call isr_cb to prevent lock */
 			if (task->cb.isr_cb)
 				task->cb.isr_cb(task->cb.isr_data);
 			cmdq_thread_remove_task_by_index(
@@ -1678,19 +1678,12 @@ static void cmdq_core_handle_irq(struct cmdq *cqctx, int tid)
 
 static int cmdq_core_resumed_notifier(struct cmdq *cqctx)
 {
-	unsigned long flags = 0L;
-
-	spin_lock_irqsave(&cqctx->thread_lock, flags);
-	cqctx->suspended = false;
-
 	/*
-	 * during suspending, there may be queued tasks.
+	 * after suspended, there may be queued tasks.
 	 * we should process them if any.
 	 */
 	queue_work(cqctx->task_consume_wq,
 		   &cqctx->task_consume_wait_queue_item);
-
-	spin_unlock_irqrestore(&cqctx->thread_lock, flags);
 
 	return 0;
 }
@@ -1727,12 +1720,11 @@ static void cmdq_core_consume_waiting_list(struct work_struct *work)
 			     task_consume_wait_queue_item);
 	dev = cqctx->dev;
 
-	/*
-	 * when we're suspending,
-	 * do not execute any tasks. delay & hold them.
-	 */
-	if (cqctx->suspended)
+	/* do not execute any task after suspended */
+	if (cqctx->suspended) {
+		dev_warn(dev, "task is consumed after suspended\n");
 		return;
+	}
 
 	consume_time = ktime_get();
 
@@ -2068,6 +2060,12 @@ static int cmdq_task_wait_result(struct cmdq_task *task, int tid, int wait_q)
 	 */
 	spin_lock_irqsave(&cqctx->exec_lock, flags);
 
+	/* suspend, so just return */
+	if (cqctx->suspending && task->task_state == TASK_STATE_KILLED) {
+		spin_unlock_irqrestore(&cqctx->exec_lock, flags);
+		return 0;
+	}
+
 	if (task->task_state != TASK_STATE_DONE)
 		status = cmdq_task_handle_error_result(
 				task, tid, wait_q, &error_report);
@@ -2104,6 +2102,18 @@ static int cmdq_task_wait_result(struct cmdq_task *task, int tid, int wait_q)
 	return status;
 }
 
+static void cmdq_lock_task_mutex(struct cmdq *cmdq)
+{
+	if (!cmdq->suspending)
+		mutex_lock(&cmdq->task_mutex);
+}
+
+static void cmdq_unlock_task_mutex(struct cmdq *cmdq)
+{
+	if (!cmdq->suspending)
+		mutex_unlock(&cmdq->task_mutex);
+}
+
 static int cmdq_task_wait_done(struct cmdq_task *task)
 {
 	struct cmdq *cqctx = task->cqctx;
@@ -2122,7 +2132,7 @@ static int cmdq_task_wait_done(struct cmdq_task *task)
 			(task->thread != CMDQ_INVALID_THREAD), timeout);
 
 	if (!wait_q) {
-		mutex_lock(&cqctx->task_mutex);
+		cmdq_lock_task_mutex(cqctx);
 
 		/*
 		 * it's possible that the task was just consumed now.
@@ -2143,12 +2153,12 @@ static int cmdq_task_wait_done(struct cmdq_task *task)
 			 */
 			list_del_init(&task->list_entry);
 
-			mutex_unlock(&cqctx->task_mutex);
+			cmdq_unlock_task_mutex(cqctx);
 			return -EINVAL;
 		}
 
 		/* valid thread, so we keep going */
-		mutex_unlock(&cqctx->task_mutex);
+		cmdq_unlock_task_mutex(cqctx);
 	}
 
 	tid = task->thread;
@@ -2191,23 +2201,28 @@ static int cmdq_task_wait_and_release(struct cmdq_task *task)
 
 	/* release */
 	cmdq_task_remove_thread(task);
-	cmdq_task_release_internal(task);
+	if (!(cqctx->suspending && task->task_state == TASK_STATE_KILLED))
+		cmdq_task_release_internal(task);
 
 	return status;
 }
 
 static void cmdq_core_auto_release_work(struct work_struct *work_item)
 {
-	struct cmdq_task *task;
+	struct cmdq_task *task = container_of(work_item, struct cmdq_task,
+					      auto_release_work);
+	struct cmdq *cqctx = task->cqctx;
+	struct cmdq_task_cb cb = task->cb;
 	int status;
-	struct cmdq_task_cb cb;
 
-	task = container_of(work_item, struct cmdq_task, auto_release_work);
-	cb = task->cb;
 	status = cmdq_task_wait_and_release(task);
 
-	/* isr fail, so call isr_cb here to prevent lock */
-	if (status && cb.isr_cb)
+	/*
+	 * If isr fail, task is timeout, or task is killed,
+	 * call isr_cb here to prevent lock.
+	 */
+	if (cb.isr_cb && (status || (cqctx->suspending &&
+			task->task_state == TASK_STATE_KILLED)))
 		cb.isr_cb(cb.isr_data);
 
 	if (cb.done_cb)
@@ -2639,6 +2654,13 @@ int cmdq_rec_flush(struct cmdq_rec *handle)
 	int ret;
 	struct cmdq_command desc;
 
+	/* do not allow flush after suspending or suspended */
+	if (handle->cqctx->suspending || handle->cqctx->suspended) {
+		dev_err(handle->cqctx->dev,
+			"%s is called after suspending\n", __func__);
+		return -EPERM;
+	}
+
 	ret = cmdq_rec_fill_cmd_desc(handle, &desc);
 	if (ret)
 		return ret;
@@ -2657,6 +2679,13 @@ static int cmdq_rec_flush_async_cb(struct cmdq_rec *handle,
 	struct cmdq_command desc;
 	struct cmdq_task *task;
 	struct cmdq_task_cb cb;
+
+	/* do not allow flush after suspending or suspended */
+	if (handle->cqctx->suspending || handle->cqctx->suspended) {
+		dev_err(handle->cqctx->dev,
+			"%s is called after suspending\n", __func__);
+		return -EPERM;
+	}
 
 	ret = cmdq_rec_fill_cmd_desc(handle, &desc);
 	if (ret)
@@ -2737,13 +2766,19 @@ static int cmdq_pm_notifier_cb(struct notifier_block *nb, unsigned long event,
 
 static int cmdq_suspend(struct device *dev)
 {
-	struct cmdq *cqctx;
-	unsigned long flags;
+	struct cmdq *cqctx = dev_get_drvdata(dev);
 	u32 exec_threads;
-	int ref_count;
-	int i;
+	unsigned long flags;
+	int ref_count, i;
 
-	cqctx = dev_get_drvdata(dev);
+	cqctx->suspending = true;
+
+	/*
+	 * lock to prevent cmdq_core_consume_waiting_list() and
+	 * cmdq_core_acquire_task(), i.e. no new active tasks
+	 */
+	mutex_lock(&cqctx->task_mutex);
+
 	exec_threads = readl(cqctx->base + CMDQ_CURR_LOADED_THR_OFFSET);
 	ref_count = cqctx->thread_usage;
 
@@ -2764,18 +2799,39 @@ static int cmdq_suspend(struct device *dev)
 		list_for_each_entry_safe(task, tmp, &cqctx->task_active_list,
 					 list_entry) {
 			if (task->thread != CMDQ_INVALID_THREAD) {
+				bool already_done = false;
+
 				dev_err(dev, "suspend: thread=%d\n",
 					task->thread);
 
 				spin_lock_irqsave(&cqctx->exec_lock, flags);
-				cmdq_thread_force_remove_task(
-						task, task->thread);
-				task->task_state = TASK_STATE_KILLED;
+
+				if (task->task_state == TASK_STATE_BUSY) {
+					/* still wait_event */
+					cmdq_thread_force_remove_task(
+							task, task->thread);
+					task->task_state = TASK_STATE_KILLED;
+				} else {
+					/* almost finish its work */
+					already_done = true;
+				}
 				spin_unlock_irqrestore(
 						&cqctx->exec_lock, flags);
 
-				cmdq_task_remove_thread(task);
-				cmdq_task_release_internal(task);
+				/*
+				 * TASK_STATE_KILLED will unlock
+				 * wait_event_timeout in cmdq_task_wait_done(),
+				 * so flush_work to wait auto release flow.
+				 *
+				 * We don't know processes running order,
+				 * so call cmdq_task_release_unlocked() here to
+				 * prevent releasing task before flush_work, and
+				 * also to prevent deadlock of task_mutex.
+				 */
+				if (!already_done) {
+					flush_work(&task->auto_release_work);
+					cmdq_task_release_unlocked(task);
+				}
 			}
 		}
 		dev_err(dev, "suspend: ref:%d AL empty:%d\n",
@@ -2794,6 +2850,8 @@ static int cmdq_suspend(struct device *dev)
 	spin_lock_irqsave(&cqctx->thread_lock, flags);
 	cqctx->suspended = true;
 	spin_unlock_irqrestore(&cqctx->thread_lock, flags);
+	mutex_unlock(&cqctx->task_mutex);
+	cqctx->suspending = false;
 
 	/* ALWAYS allow suspend */
 	return 0;
@@ -2801,6 +2859,9 @@ static int cmdq_suspend(struct device *dev)
 
 static int cmdq_resume(struct device *dev)
 {
+	struct cmdq *cqctx = dev_get_drvdata(dev);
+
+	cqctx->suspended = false;
 	return 0;
 }
 
