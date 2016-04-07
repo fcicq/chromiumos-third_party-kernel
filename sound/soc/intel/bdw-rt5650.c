@@ -98,11 +98,21 @@ static int bdw_rt5650_hw_params(struct snd_pcm_substream *substream,
 	struct snd_soc_dai *codec_dai = rtd->codec_dai;
 	int ret;
 
+	/* Workaround: set codec PLL to 19.2MHz that PLL source is
+	 * from MCLK(24MHz) to conform 2.4MHz DMIC clock.
+	 */
+	ret = snd_soc_dai_set_pll(codec_dai, 0, RT5645_PLL1_S_MCLK,
+		24000000, 19200000);
+	if (ret < 0) {
+		dev_err(rtd->dev, "can't set codec pll: %d\n", ret);
+		return ret;
+	}
+
 	/* The actual MCLK freq is 24MHz. The codec is told that MCLK is
 	 * 24.576MHz to satisfy the requirement of rl6231_get_clk_info.
 	 * ASRC is enabled on AD and DA filters to ensure good audio quality.
 	 */
-	ret = snd_soc_dai_set_sysclk(codec_dai, RT5645_SCLK_S_MCLK, 24576000,
+	ret = snd_soc_dai_set_sysclk(codec_dai, RT5645_SCLK_S_PLL1, 24576000,
 		SND_SOC_CLOCK_IN);
 	if (ret < 0) {
 		dev_err(rtd->dev, "can't set codec sysclk configuration\n");
