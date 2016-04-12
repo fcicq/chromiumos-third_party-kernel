@@ -3762,7 +3762,7 @@ intel_dp_get_dpcd(struct intel_dp *intel_dp)
 	 * downstream port information. So, an early return here saves
 	 * time from performing other operations which are not required.
 	 */
-	if (!intel_dp->sink_count)
+	if (!is_edp(intel_dp) && !intel_dp->sink_count)
 		return false;
 
 	/* Check if the panel supports PSR */
@@ -4252,6 +4252,9 @@ intel_dp_detect_dpcd(struct intel_dp *intel_dp)
 		return connector_status_disconnected;
 
 	intel_dp_probe_oui(intel_dp);
+
+	if (is_edp(intel_dp))
+		return connector_status_connected;
 
 	/* if there's no downstream port, we're done */
 	if (!(dpcd[DP_DOWNSTREAMPORT_PRESENT] & DP_DWN_STRM_PORT_PRESENT))
