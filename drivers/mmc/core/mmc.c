@@ -351,6 +351,9 @@ static int mmc_decode_ext_csd(struct mmc_card *card, u8 *ext_csd)
 	struct device_node *np;
 	bool broken_hpi = false;
 
+	/* Reset partition, they will be rescanned. */
+	card->nr_parts = 0;
+
 	/* Version is coded in the CSD_STRUCTURE byte in the EXT_CSD register */
 	card->ext_csd.raw_ext_csd_structure = ext_csd[EXT_CSD_STRUCTURE];
 	if (card->csd.structure == 3) {
@@ -1563,18 +1566,17 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 		mmc_set_bus_mode(host, MMC_BUSMODE_PUSHPULL);
 	}
 
-	if (!oldcard) {
-		/*
-		 * Fetch CSD from card.
-		 */
-		err = mmc_send_csd(card, card->raw_csd);
-		if (err)
-			goto free_card;
+	/*
+	 * Fetch CSD from card.
+	 */
+	err = mmc_send_csd(card, card->raw_csd);
+	if (err)
+		goto free_card;
 
-		err = mmc_decode_csd(card);
-		if (err)
-			goto free_card;
-	}
+	err = mmc_decode_csd(card);
+	if (err)
+		goto free_card;
+
 	err = mmc_decode_cid(card);
 	if (err)
 		goto free_card;
@@ -1595,12 +1597,12 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 			goto free_card;
 	}
 
-	if (!oldcard) {
-		/* Read extended CSD. */
-		err = mmc_read_ext_csd(card);
-		if (err)
-			goto free_card;
+	/* Read extended CSD. */
+	err = mmc_read_ext_csd(card);
+	if (err)
+		goto free_card;
 
+	if (!oldcard) {
 		/* If doing byte addressing, check if required to do sector
 		 * addressing.  Handle the case of <2GB cards needing sector
 		 * addressing.  See section 8.1 JEDEC Standard JED84-A441;
