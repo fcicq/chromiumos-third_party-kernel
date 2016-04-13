@@ -259,9 +259,11 @@ static int mmc_ffu_install(struct mmc_card *card)
 
 	/* check mode operation */
 	if (!card->ext_csd.ffu_mode_op) {
-		/* host switch back to work in normal MMC Read/Write commands */
-		err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
-				EXT_CSD_MODE_CONFIG, 0,
+		/*
+		 * Host switch back to work in normal MMC Read/Write commands.
+		 * For Hynix, be sure the command set is 0.
+		 */
+		err = mmc_switch(card, 0, EXT_CSD_MODE_CONFIG, 0,
 				card->ext_csd.generic_cmd6_time);
 		if (err) {
 			dev_err(mmc_dev(card->host),
