@@ -57,6 +57,22 @@ struct mmc_ffu_area {
 };
 
 /*
+ * Get hack value
+ */
+static const struct mmc_ffu_hack *mmc_get_hack(
+		const struct mmc_ffu_args *args,
+		enum mmc_ffu_hack_type type)
+{
+	int i;
+
+	for (i = 0; i < args->ack_nb; i++) {
+		if (args->hack[i].type == type)
+			return &args->hack[i];
+	}
+	return NULL;
+}
+
+/*
  * Map memory into a scatterlist.
  */
 static unsigned int mmc_ffu_map_sg(struct mmc_ffu_mem *mem, int size,
@@ -296,13 +312,15 @@ static int mmc_ffu_install(struct mmc_card *card)
 	return 0;
 }
 
-int mmc_ffu_invoke(struct mmc_card *card, const char *name)
+int mmc_ffu_invoke(struct mmc_card *card, const struct mmc_ffu_args *args)
 {
 	u8 *ext_csd = NULL;
 	int err;
 	u32 arg;
 	u32 fw_prog_bytes;
 	const struct firmware *fw;
+	const struct mmc_ffu_hack *hack;
+
 
 	/* Check if FFU is supported */
 	if (!card->ext_csd.ffu_capable) {
@@ -313,15 +331,15 @@ int mmc_ffu_invoke(struct mmc_card *card, const char *name)
 		return -EOPNOTSUPP;
 	}
 
-	if (strlen(name) > 512) {
+	if (strlen(args->name) > 512) {
 		dev_err(mmc_dev(card->host),
 			"FFU: %s: name %.20s is too long.\n",
-			mmc_hostname(card->host), name);
+			mmc_hostname(card->host), args->name);
 		return -EINVAL;
 	}
 
 	/* setup FW data buffer */
-	err = request_firmware(&fw, name, &card->dev);
+	err = request_firmware(&fw, args->name, &card->dev);
 	if (err) {
 		dev_err(mmc_dev(card->host),
 			"FFU: %s: Firmware request failed %d\n",
@@ -346,6 +364,14 @@ int mmc_ffu_invoke(struct mmc_card *card, const char *name)
 		goto exit;
 	}
 
+	/* set CMD ARG */
+	hack = mmc_get_hack(args, MMC_OVERRIDE_FFU_ARG);
+	if (hack == NULL) {
+		arg = card->ext_csd.ffu_arg;
+	} else {
+		arg = cpu_to_le32(hack->value);
+	}
+
 	/* set device to FFU mode */
 	err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
 			 EXT_CSD_MODE_CONFIG, 0x1,
@@ -357,7 +383,7 @@ int mmc_ffu_invoke(struct mmc_card *card, const char *name)
 		goto exit;
 	}
 
-	err = mmc_ffu_write(card, fw->data, card->ext_csd.ffu_arg, fw->size);
+	err = mmc_ffu_write(card, fw->data, arg, fw->size);
 	if (err) {
 		dev_err(mmc_dev(card->host),
 			"FFU: %s: write error %d\n",

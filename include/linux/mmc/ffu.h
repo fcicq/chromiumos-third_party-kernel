@@ -26,10 +26,29 @@
  */
 #define MMC_FFU_INVOKE_OP	302
 
+#define FFU_NAME_LEN		80  /* Firmware file name udev should find */
+
+enum mmc_ffu_hack_type {
+	MMC_OVERRIDE_FFU_ARG = 0,
+	MMC_HACK_LEN,
+};
+
+struct mmc_ffu_hack {
+	enum mmc_ffu_hack_type type;
+	u64 value;
+};
+
+struct mmc_ffu_args {
+	char name[FFU_NAME_LEN];
+	u32 ack_nb;
+	struct mmc_ffu_hack hack[0];
+};
+
 #ifdef CONFIG_MMC_FFU
-int mmc_ffu_invoke(struct mmc_card *card, const char *name);
+int mmc_ffu_invoke(struct mmc_card *card, const struct mmc_ffu_args *args);
 #else
-static inline int mmc_ffu_invoke(struct mmc_card *card, const char *name)
+static inline int mmc_ffu_invoke(struct mmc_card *card,
+		const struct mmc_ffu_args *args)
 {
 	return -EOPNOTSUPP;
 }
