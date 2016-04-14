@@ -936,6 +936,10 @@ late_initcall(hpet_insert_resource);
 
 static int __init acpi_parse_fadt(struct acpi_table_header *table)
 {
+	if (!(acpi_gbl_FADT.boot_flags & ACPI_FADT_LEGACY_DEVICES)) {
+		pr_debug("ACPI: no legacy devices present\n");
+		x86_platform.legacy.devices.pnpbios = 0;
+	}
 
 	if (acpi_gbl_FADT.header.revision >= FADT2_REVISION_ID &&
 	    !(acpi_gbl_FADT.boot_flags & ACPI_FADT_8042) &&
