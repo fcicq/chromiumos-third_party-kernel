@@ -58,6 +58,7 @@
 #include <linux/miscdevice.h>
 #include <linux/list.h>
 #include <linux/semaphore.h>
+#include <linux/suspend.h>
 #include <linux/fs.h>
 #include <linux/uaccess.h>
 #include <linux/interrupt.h>
@@ -67,9 +68,7 @@
 #include <linux/mman.h>
 #include <linux/version.h>
 #include <linux/security.h>
-#ifdef CONFIG_MALI_PLATFORM_DEVICETREE
 #include <linux/pm_runtime.h>
-#endif /* CONFIG_MALI_PLATFORM_DEVICETREE */
 #include <mali_kbase_hw.h>
 #include <platform/mali_kbase_platform_common.h>
 #ifdef CONFIG_MALI_PLATFORM_FAKE
@@ -3581,6 +3580,8 @@ static const struct attribute_group kbase_attr_group = {
 };
 
 static int kbase_common_device_remove(struct kbase_device *kbdev);
+static int kbase_pm_notifier(struct notifier_block *nb, unsigned long action,
+		void *data);
 
 static int kbase_platform_device_probe(struct platform_device *pdev)
 {
@@ -3715,6 +3716,14 @@ static int kbase_platform_device_probe(struct platform_device *pdev)
 		goto out_sysfs;
 	}
 
+	kbdev->pm_nb.notifier_call = kbase_pm_notifier;
+	kbdev->pm_nb.priority = 0;
+	err = register_pm_notifier(&kbdev->pm_nb);
+	if (err) {
+		dev_err(kbdev->dev, "Couldn't register pm notifier\n");
+		goto out_pm_nb;
+	}
+
 #ifdef CONFIG_MALI_FPGA_BUS_LOGGER
 	err = bl_core_client_register(kbdev->devname,
 						kbase_logging_started_cb,
@@ -3731,9 +3740,10 @@ static int kbase_platform_device_probe(struct platform_device *pdev)
 
 #ifdef CONFIG_MALI_FPGA_BUS_LOGGER
 out_bl_core_register:
-	sysfs_remove_group(&kbdev->dev->kobj, &kbase_attr_group);
+	unregister_pm_notifier(&kbdev->pm_nb);
 #endif
-
+out_pm_nb:
+	sysfs_remove_group(&kbdev->dev->kobj, &kbase_attr_group);
 out_sysfs:
 	kbase_common_device_remove(kbdev);
 out_common_init:
@@ -3840,6 +3850,23 @@ static int kbase_platform_device_remove(struct platform_device *pdev)
 		return -ENODEV;
 
 	return kbase_common_device_remove(kbdev);
+}
+
+static int kbase_pm_notifier(struct notifier_block *nb, unsigned long action,
+		void *data)
+{
+	struct kbase_device *kbdev = container_of(nb, struct kbase_device,
+			pm_nb);
+	struct device *dev = kbdev->dev;
+
+	switch (action) {
+	case PM_SUSPEND_PREPARE:
+		return pm_runtime_get_sync(dev);
+	case PM_POST_SUSPEND:
+		return pm_runtime_put(dev);
+	}
+
+	return 0;
 }
 
 /** Suspend callback from the OS.

@@ -37,6 +37,7 @@
 
 #include <linux/atomic.h>
 #include <linux/mempool.h>
+#include <linux/notifier.h>
 #include <linux/slab.h>
 #include <linux/file.h>
 
@@ -1062,6 +1063,9 @@ struct kbase_device {
 	 */
 	struct bus_logger_client *buslogger;
 #endif
+	/* Notifier block to runtime resume the kbase_device on suspend. */
+	struct notifier_block pm_nb;
+
 	/* Boolean indicating if an IRQ flush during reset is in progress. */
 	bool irq_reset_flush;
 };
