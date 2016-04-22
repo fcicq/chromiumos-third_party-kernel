@@ -223,28 +223,38 @@ static codel_time_t codel_control_law(codel_time_t t,
 	return t + reciprocal_scale(interval, rec_inv_sqrt << REC_INV_SQRT_SHIFT);
 }
 
+typedef u32 (*codel_skb_len_t)(const struct sk_buff *skb);
+typedef codel_time_t (*codel_skb_time_t)(const struct sk_buff *skb);
+typedef void (*codel_skb_drop_t)(struct sk_buff *skb, void *ctx);
+typedef struct sk_buff * (*codel_skb_dequeue_t)(struct codel_vars *vars,
+						void *ctx);
+
 static bool codel_should_drop(const struct sk_buff *skb,
-			      struct Qdisc *sch,
+			      void *ctx,
 			      struct codel_vars *vars,
 			      struct codel_params *params,
 			      struct codel_stats *stats,
+			      codel_skb_len_t skb_len_func,
+			      codel_skb_time_t skb_time_func,
+			      u32 *backlog,
 			      codel_time_t now)
 {
 	bool ok_to_drop;
+	u32 skb_len;
 
 	if (!skb) {
 		vars->first_above_time = 0;
 		return false;
 	}
 
-	vars->ldelay = now - codel_get_enqueue_time(skb);
-	sch->qstats.backlog -= qdisc_pkt_len(skb);
+	skb_len = skb_len_func(skb);
+	vars->ldelay = now - skb_time_func(skb);
 
-	if (unlikely(qdisc_pkt_len(skb) > stats->maxpacket))
-		stats->maxpacket = qdisc_pkt_len(skb);
+	if (unlikely(skb_len > stats->maxpacket))
+		stats->maxpacket = skb_len;
 
 	if (codel_time_before(vars->ldelay, params->target) ||
-	    sch->qstats.backlog <= params->mtu) {
+	    *backlog <= params->mtu) {
 		/* went below - stay below for at least interval */
 		vars->first_above_time = 0;
 		return false;
@@ -261,16 +271,17 @@ static bool codel_should_drop(const struct sk_buff *skb,
 	return ok_to_drop;
 }
 
-typedef struct sk_buff * (*codel_skb_dequeue_t)(struct codel_vars *vars,
-						struct Qdisc *sch);
-
-static struct sk_buff *codel_dequeue(struct Qdisc *sch,
+static struct sk_buff *codel_dequeue(void *ctx,
+				     u32 *backlog,
 				     struct codel_params *params,
 				     struct codel_vars *vars,
 				     struct codel_stats *stats,
+				     codel_skb_len_t skb_len_func,
+				     codel_skb_time_t skb_time_func,
+				     codel_skb_drop_t drop_func,
 				     codel_skb_dequeue_t dequeue_func)
 {
-	struct sk_buff *skb = dequeue_func(vars, sch);
+	struct sk_buff *skb = dequeue_func(vars, ctx);
 	codel_time_t now;
 	bool drop;
 
@@ -279,7 +290,8 @@ static struct sk_buff *codel_dequeue(struct Qdisc *sch,
 		return skb;
 	}
 	now = codel_get_time();
-	drop = codel_should_drop(skb, sch, vars, params, stats, now);
+	drop = codel_should_drop(skb, ctx, vars, params, stats,
+				 skb_len_func, skb_time_func, backlog, now);
 	if (vars->dropping) {
 		if (!drop) {
 			/* sojourn time below target - leave dropping state */
@@ -307,11 +319,14 @@ static struct sk_buff *codel_dequeue(struct Qdisc *sch,
 								  vars->rec_inv_sqrt);
 					goto end;
 				}
-				qdisc_drop(skb, sch);
+				drop_func(skb, ctx);
 				stats->drop_count++;
-				skb = dequeue_func(vars, sch);
-				if (!codel_should_drop(skb, sch,
-						       vars, params, stats, now)) {
+				skb = dequeue_func(vars, ctx);
+				if (!codel_should_drop(skb, ctx,
+						       vars, params, stats,
+						       skb_len_func,
+						       skb_time_func,
+						       backlog, now)) {
 					/* leave dropping state */
 					vars->dropping = false;
 				} else {
@@ -329,12 +344,13 @@ static struct sk_buff *codel_dequeue(struct Qdisc *sch,
 		if (params->ecn && INET_ECN_set_ce(skb)) {
 			stats->ecn_mark++;
 		} else {
-			qdisc_drop(skb, sch);
+			drop_func(skb, ctx);
 			stats->drop_count++;
 
-			skb = dequeue_func(vars, sch);
-			drop = codel_should_drop(skb, sch, vars, params,
-						 stats, now);
+			skb = dequeue_func(vars, ctx);
+			drop = codel_should_drop(skb, ctx, vars, params,
+						 stats, skb_len_func,
+						 skb_time_func, backlog, now);
 		}
 		vars->dropping = true;
 		/* if min went above target close to when we last went below it
