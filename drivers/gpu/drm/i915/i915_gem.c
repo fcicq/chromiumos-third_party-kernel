@@ -3509,10 +3509,12 @@ i915_gem_object_set_to_gtt_domain(struct drm_i915_gem_object *obj, bool write)
 					    old_write_domain);
 
 	/* And bump the LRU for this access */
-	vma = i915_gem_obj_to_ggtt(obj);
-	if (vma && drm_mm_node_allocated(&vma->node) && !obj->active)
-		list_move_tail(&vma->mm_list,
-			       &to_i915(obj->base.dev)->gtt.base.inactive_list);
+	if (!list_empty(&obj->vma_list)) {
+		vma = i915_gem_obj_to_ggtt(obj);
+		if (vma && drm_mm_node_allocated(&vma->node) && !obj->active)
+			list_move_tail(&vma->mm_list,
+					&to_i915(obj->base.dev)->gtt.base.inactive_list);
+	}
 
 	return 0;
 }
