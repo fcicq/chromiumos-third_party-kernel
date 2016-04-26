@@ -41,6 +41,8 @@
 #include <soc/rockchip/dmc-sync.h>
 
 #define VOP_GAMMA_LUT_SIZE 1024
+#define VOP_WIN_MAX_WIDTH 3840
+#define VOP_WIN_DEFAULT_SCALE_FACTOR 0x1000
 
 #define VOP_REG(off, _mask, s) \
 		{.offset = off, \
@@ -71,6 +73,18 @@
 #define to_vop(x) container_of(x, struct vop, crtc)
 #define to_vop_win(x) container_of(x, struct vop_win, base)
 
+struct vop_scl_params {
+	uint32_t hor_scl_mode;
+	uint32_t hsd_mode;
+	uint32_t hor_scl_factor;
+	uint32_t ver_scl_mode;
+	uint32_t vsd_mode;
+	uint32_t vsu_mode;
+	uint32_t vsd_gt2;
+	uint32_t vsd_gt4;
+	uint32_t ver_scl_factor;
+};
+
 struct vop_win {
 	struct drm_plane base;
 	const struct vop_win_data *data;
@@ -81,9 +95,12 @@ struct vop_win {
 	bool pending;
 	struct drm_framebuffer *pending_fb; /* NULL for pending win disable */
 	dma_addr_t pending_yrgb_mst;
+	dma_addr_t pending_uv_mst;
 	uint32_t pending_dsp_st;
 	uint32_t pending_dsp_info;
 	uint32_t pending_lb_mode;
+	struct vop_scl_params pending_uv_scl;
+	struct vop_scl_params pending_yrgb_scl;
 	struct drm_pending_vblank_event *pending_event;
 	struct completion completion;
 
@@ -161,12 +178,23 @@ enum vop_data_format {
 };
 
 enum vop_data_lb_mode {
-	VOP_LB_RGB_3840X5 = 0x0,
-	VOP_LB_RGB_2560X8 = 0x1,
+	VOP_LB_YUV_3840X5 = 0x0,
+	VOP_LB_YUV_2560X8 = 0x1,
 	VOP_LB_RGB_3840X2 = 0x2,
 	VOP_LB_RGB_2560X4 = 0x3,
 	VOP_LB_RGB_1920X5 = 0x4,
 	VOP_LB_RGB_1280X8 = 0x5,
+};
+
+enum vop_data_scale_mode {
+	VOP_NO_SCALE = 0x0,
+	VOP_SCALE_UP = 0x1,
+	VOP_SCALE_DOWN = 0x2,
+};
+
+enum vop_data_scale_filter_mode {
+	VOP_SCALE_BILINEAR = 0x0,
+	VOP_SCALE_BICUBIC = 0x1,
 };
 
 struct vop_reg_data {
@@ -210,6 +238,7 @@ struct vop_win_phy {
 	struct vop_reg enable;
 	struct vop_reg format;
 	struct vop_reg lb_mode;
+	struct vop_reg csc_mode;
 	struct vop_reg rb_swap;
 	struct vop_reg act_info;
 	struct vop_reg dsp_info;
@@ -221,6 +250,26 @@ struct vop_win_phy {
 
 	struct vop_reg dst_alpha_ctl;
 	struct vop_reg src_alpha_ctl;
+
+	struct vop_reg uv_vsd_mode;
+	struct vop_reg uv_vsu_mode;
+	struct vop_reg uv_hsd_mode;
+	struct vop_reg uv_hor_scl_mode;
+	struct vop_reg uv_ver_scl_mode;
+	struct vop_reg uv_vsd_gt2;
+	struct vop_reg uv_vsd_gt4;
+	struct vop_reg uv_hor_scl_factor;
+	struct vop_reg uv_ver_scl_factor;
+
+	struct vop_reg yrgb_vsd_mode;
+	struct vop_reg yrgb_vsu_mode;
+	struct vop_reg yrgb_hsd_mode;
+	struct vop_reg yrgb_hor_scl_mode;
+	struct vop_reg yrgb_ver_scl_mode;
+	struct vop_reg yrgb_vsd_gt2;
+	struct vop_reg yrgb_vsd_gt4;
+	struct vop_reg yrgb_hor_scl_factor;
+	struct vop_reg yrgb_ver_scl_factor;
 };
 
 struct vop_win_data {
@@ -268,6 +317,7 @@ static const struct vop_win_phy win01_data = {
 	.enable = VOP_REG(WIN0_CTRL0, 0x1, 0),
 	.format = VOP_REG(WIN0_CTRL0, 0x7, 1),
 	.lb_mode = VOP_REG(WIN0_CTRL0, 0x7, 5),
+	.csc_mode = VOP_REG(WIN0_CTRL0, 0x3, 10),
 	.rb_swap = VOP_REG(WIN0_CTRL0, 0x1, 12),
 	.act_info = VOP_REG(WIN0_ACT_INFO, 0x1fff1fff, 0),
 	.dsp_info = VOP_REG(WIN0_DSP_INFO, 0x0fff0fff, 0),
@@ -278,6 +328,24 @@ static const struct vop_win_phy win01_data = {
 	.uv_vir = VOP_REG(WIN0_VIR, 0x3fff, 16),
 	.src_alpha_ctl = VOP_REG(WIN0_SRC_ALPHA_CTRL, 0xff, 0),
 	.dst_alpha_ctl = VOP_REG(WIN0_DST_ALPHA_CTRL, 0xff, 0),
+	.uv_vsd_mode = VOP_REG(WIN0_CTRL1, 0x1, 31),
+	.uv_vsu_mode = VOP_REG(WIN0_CTRL1, 0x1, 30),
+	.uv_hsd_mode = VOP_REG(WIN0_CTRL1, 0x3, 28),
+	.uv_hor_scl_mode = VOP_REG(WIN0_CTRL1, 0x3, 24),
+	.uv_ver_scl_mode = VOP_REG(WIN0_CTRL1, 0x3, 26),
+	.uv_vsd_gt2 = VOP_REG(WIN0_CTRL1, 0x1, 7),
+	.uv_vsd_gt4 = VOP_REG(WIN0_CTRL1, 0x1, 6),
+	.uv_hor_scl_factor = VOP_REG(WIN0_SCL_FACTOR_CBR, 0xffff, 0),
+	.uv_ver_scl_factor = VOP_REG(WIN0_SCL_FACTOR_CBR, 0xffff, 16),
+	.yrgb_vsd_mode = VOP_REG(WIN0_CTRL1, 0x1, 23),
+	.yrgb_vsu_mode = VOP_REG(WIN0_CTRL1, 0x1, 22),
+	.yrgb_hsd_mode = VOP_REG(WIN0_CTRL1, 0x3, 20),
+	.yrgb_hor_scl_mode = VOP_REG(WIN0_CTRL1, 0x3, 16),
+	.yrgb_ver_scl_mode = VOP_REG(WIN0_CTRL1, 0x3, 18),
+	.yrgb_vsd_gt2 = VOP_REG(WIN0_CTRL1, 0x1, 5),
+	.yrgb_vsd_gt4 = VOP_REG(WIN0_CTRL1, 0x1, 4),
+	.yrgb_hor_scl_factor = VOP_REG(WIN0_SCL_FACTOR_YRGB, 0xffff, 0),
+	.yrgb_ver_scl_factor = VOP_REG(WIN0_SCL_FACTOR_YRGB, 0xffff, 16),
 };
 
 static const struct vop_win_phy win23_data = {
@@ -461,14 +529,18 @@ static enum vop_data_format vop_convert_format(uint32_t format)
 	}
 }
 
-static enum vop_data_lb_mode vop_width_to_lb_mode(unsigned int width)
+static enum vop_data_lb_mode calc_lb_mode(unsigned int width, bool is_yuv)
 {
 	if (width > 2560)
 		return VOP_LB_RGB_3840X2;
 	else if (width > 1920)
 		return VOP_LB_RGB_2560X4;
-	else
+	else if (!is_yuv)
 		return VOP_LB_RGB_1920X5;
+	else if (width > 1280)
+		return VOP_LB_YUV_3840X5;
+	else
+		return VOP_LB_YUV_2560X8;
 }
 
 static bool is_alpha_support(uint32_t format)
@@ -480,6 +552,160 @@ static bool is_alpha_support(uint32_t format)
 	default:
 		return false;
 	}
+}
+
+static bool is_yuv_format(uint32_t format)
+{
+	switch (format) {
+	case DRM_FORMAT_NV12:
+	case DRM_FORMAT_NV16:
+	case DRM_FORMAT_NV24:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static uint32_t calc_scl_mode(uint32_t src, uint32_t dst)
+{
+	if (src > dst)
+		return VOP_SCALE_DOWN;
+	else if (src < dst)
+		return VOP_SCALE_UP;
+	else
+		return VOP_NO_SCALE;
+}
+
+static inline int calc_vskiplines(uint32_t src_h, uint32_t dst_h)
+{
+	if (src_h >= 4 * dst_h)
+		return 4;
+	if (src_h >= 2 * dst_h)
+		return 2;
+	return 1;
+}
+
+static inline uint32_t calc_scl_factor_fixed_point(uint32_t src, uint32_t dst,
+						   uint32_t shift)
+{
+	return ((src * 2 - 3) << (shift - 1)) / (dst - 1);
+}
+
+static inline uint32_t calc_scl_factor_down_bilinear(uint32_t src, uint32_t dst)
+{
+	return calc_scl_factor_fixed_point(src, dst, 12);
+}
+
+static inline uint32_t calc_scl_factor_up_bilinear(uint32_t src, uint32_t dst)
+{
+	return calc_scl_factor_fixed_point(src, dst, 16);
+}
+
+static inline uint32_t calc_scl_factor_bicubic(uint32_t src, uint32_t dst)
+{
+	return calc_scl_factor_fixed_point(src, dst, 16);
+}
+
+static uint32_t calc_hor_scl_factor(uint32_t src_w, uint32_t dst_w)
+{
+	if (src_w < dst_w)
+		return calc_scl_factor_bicubic(src_w, dst_w);
+	else if (src_w > dst_w)
+		return calc_scl_factor_down_bilinear(src_w, dst_w);
+	return VOP_WIN_DEFAULT_SCALE_FACTOR;
+}
+
+static uint32_t calc_ver_scl_factor(uint32_t src_h, uint32_t dst_h,
+				    int vskiplines, uint32_t vsu_mode)
+{
+	if (src_h < dst_h) {
+		if (vsu_mode == VOP_SCALE_BILINEAR)
+			return calc_scl_factor_up_bilinear(src_h, dst_h);
+		else
+			return calc_scl_factor_bicubic(src_h, dst_h);
+	} else if (src_h > dst_h) {
+		return calc_scl_factor_down_bilinear(DIV_ROUND_UP(src_h,
+								  vskiplines),
+						     dst_h);
+	}
+
+	return VOP_WIN_DEFAULT_SCALE_FACTOR;
+}
+
+static int calc_scl_params(uint32_t format, uint32_t src_w, uint32_t src_h,
+			   uint32_t dst_w, uint32_t dst_h, uint32_t *lb_mode,
+			   struct vop_scl_params *uv_scl,
+			   struct vop_scl_params *yrgb_scl)
+{
+	int hsub = drm_format_horz_chroma_subsampling(format);
+	int vsub = drm_format_vert_chroma_subsampling(format);
+	uint32_t uv_src_w = src_w / hsub;
+	uint32_t uv_src_h = src_h / vsub;
+	bool is_yuv = is_yuv_format(format);
+	int yrgb_vskiplines = calc_vskiplines(src_h, dst_h);
+	int uv_vskiplines;
+
+
+	if (dst_w > VOP_WIN_MAX_WIDTH) {
+		DRM_ERROR("Maximum window width (%u) exceeded: %u\n",
+			   VOP_WIN_MAX_WIDTH, dst_w);
+		return -EINVAL;
+	}
+
+	yrgb_scl->hor_scl_mode = calc_scl_mode(src_w, dst_w);
+	yrgb_scl->ver_scl_mode = calc_scl_mode(src_h, dst_h);
+	yrgb_scl->vsd_gt2 = (yrgb_vskiplines == 2);
+	yrgb_scl->vsd_gt4 = (yrgb_vskiplines == 4);
+	yrgb_scl->hsd_mode = VOP_SCALE_BILINEAR;
+	yrgb_scl->vsd_mode = VOP_SCALE_BILINEAR;
+
+	if (is_yuv) {
+		uv_vskiplines = calc_vskiplines(uv_src_h, dst_h);
+		uv_scl->vsd_gt2 = (uv_vskiplines == 2);
+		uv_scl->vsd_gt4 = (uv_vskiplines == 4);
+		uv_scl->hsd_mode = VOP_SCALE_BILINEAR;
+		uv_scl->vsd_mode = VOP_SCALE_BILINEAR;
+		uv_scl->hor_scl_mode = calc_scl_mode(uv_src_w, dst_w);
+		uv_scl->ver_scl_mode = calc_scl_mode(uv_src_h, dst_h);
+		if (uv_scl->hor_scl_mode == VOP_SCALE_DOWN)
+			*lb_mode = calc_lb_mode(dst_w, is_yuv);
+		else
+			*lb_mode = calc_lb_mode(uv_src_w, is_yuv);
+	} else {
+		if (yrgb_scl->hor_scl_mode == VOP_SCALE_DOWN)
+			*lb_mode = calc_lb_mode(dst_w, is_yuv);
+		else
+			*lb_mode = calc_lb_mode(src_w, is_yuv);
+	}
+
+	if (*lb_mode == VOP_LB_RGB_3840X2) {
+		if (yrgb_scl->ver_scl_mode != VOP_NO_SCALE) {
+			DRM_ERROR("Failed to scale yrgb framebuffer\n");
+			return 1;
+		}
+		if (uv_scl->ver_scl_mode != VOP_NO_SCALE) {
+			DRM_ERROR("Failed to scale cbcr framebuffer\n");
+			return 1;
+		}
+		yrgb_scl->vsu_mode = uv_scl->vsu_mode = VOP_SCALE_BILINEAR;
+	} else if (*lb_mode == VOP_LB_RGB_2560X4) {
+		yrgb_scl->vsu_mode = uv_scl->vsu_mode = VOP_SCALE_BILINEAR;
+	} else {
+		yrgb_scl->vsu_mode = uv_scl->vsu_mode = VOP_SCALE_BICUBIC;
+	}
+
+	yrgb_scl->hor_scl_factor = calc_hor_scl_factor(src_w, dst_w);
+	yrgb_scl->ver_scl_factor = calc_ver_scl_factor(src_h, dst_h, yrgb_vskiplines,
+						       yrgb_scl->vsu_mode);
+
+	if (is_yuv) {
+		uv_scl->hor_scl_factor = calc_hor_scl_factor(uv_src_w, dst_w);
+		uv_scl->ver_scl_factor = calc_ver_scl_factor(uv_src_h, dst_h,
+							     uv_vskiplines,
+							     uv_scl->vsu_mode);
+	}
+
+	return 0;
 }
 
 static void vop_dsp_hold_valid_irq_enable(struct vop *vop)
@@ -773,10 +999,9 @@ static bool vop_win_update_needs_vblank(struct vop_win *vop_win,
  * This function should be only called after wait for vop_win completion.
  */
 static bool vop_win_update_needs_sync(struct vop_win *vop_win,
-				      struct drm_framebuffer *fb,
-				      struct dma_buf *dma_buf)
+				      struct drm_framebuffer *fb)
 {
-	return (fb && fb != vop_win->front_fb) && (dma_buf && dma_buf->resv);
+	return fb && fb != vop_win->front_fb;
 }
 
 static void vop_win_update(struct vop_win *vop_win)
@@ -819,14 +1044,30 @@ static void vop_win_update_commit(struct vop_win *vop_win, bool needs_vblank)
 	struct drm_framebuffer *fb = vop_win->pending_fb;
 	uint32_t val;
 	unsigned int y_vir_stride;
+	unsigned int uv_vir_stride = 0;
 	enum vop_data_format format;
 	bool is_alpha;
+	bool is_yuv;
 	bool rb_swap;
 
 	is_alpha = is_alpha_support(fb->pixel_format);
+	is_yuv = is_yuv_format(fb->pixel_format);
 	rb_swap = has_rb_swapped(fb->pixel_format);
 	format = vop_convert_format(fb->pixel_format);
-	y_vir_stride = fb->pitches[0] / (fb->bits_per_pixel >> 3);
+	switch (format) {
+	case VOP_FMT_YUV420SP:
+		y_vir_stride = fb->pitches[0] >> 2;
+		uv_vir_stride = fb->pitches[1] >> 2;
+		break;
+	case VOP_FMT_ARGB8888:
+	case VOP_FMT_RGB888:
+	case VOP_FMT_RGB565:
+		y_vir_stride = fb->pitches[0] / (fb->bits_per_pixel >> 3);
+		break;
+	default:
+		DRM_ERROR("unsupported format[%08x]\n", format);
+		return;
+	}
 
 	if (needs_vblank) {
 		smp_wmb(); /* make sure all pending_* writes are complete */
@@ -844,6 +1085,59 @@ static void vop_win_update_commit(struct vop_win *vop_win, bool needs_vblank)
 	VOP_WIN_SET(vop, win, dsp_info, vop_win->pending_dsp_info);
 	VOP_WIN_SET(vop, win, dsp_st, vop_win->pending_dsp_st);
 	VOP_WIN_SET(vop, win, rb_swap, rb_swap);
+
+	if (win->phy->uv_mst.mask) {
+		VOP_WIN_SET(vop, win, uv_vir, uv_vir_stride);
+		VOP_WIN_SET(vop, win, uv_mst, vop_win->pending_uv_mst);
+	}
+
+	if (win->phy->uv_hor_scl_mode.mask) {
+		VOP_WIN_SET(vop, win, uv_hor_scl_mode,
+			    vop_win->pending_uv_scl.hor_scl_mode);
+		VOP_WIN_SET(vop, win, uv_hsd_mode,
+			    vop_win->pending_uv_scl.hsd_mode);
+		VOP_WIN_SET(vop, win, uv_hor_scl_factor,
+			    vop_win->pending_uv_scl.hor_scl_factor);
+	}
+
+	if (win->phy->uv_ver_scl_mode.mask) {
+		VOP_WIN_SET(vop, win, uv_ver_scl_mode,
+			    vop_win->pending_uv_scl.ver_scl_mode);
+		VOP_WIN_SET(vop, win, uv_vsd_mode,
+			    vop_win->pending_uv_scl.vsd_mode);
+		VOP_WIN_SET(vop, win, uv_vsu_mode,
+			    vop_win->pending_uv_scl.vsu_mode);
+		VOP_WIN_SET(vop, win, uv_vsd_gt2,
+			    vop_win->pending_uv_scl.vsd_gt2);
+		VOP_WIN_SET(vop, win, uv_vsd_gt4,
+			    vop_win->pending_uv_scl.vsd_gt4);
+		VOP_WIN_SET(vop, win, uv_ver_scl_factor,
+			    vop_win->pending_uv_scl.ver_scl_factor);
+	}
+
+	if (win->phy->yrgb_hor_scl_mode.mask) {
+		VOP_WIN_SET(vop, win, yrgb_hor_scl_mode,
+			    vop_win->pending_yrgb_scl.hor_scl_mode);
+		VOP_WIN_SET(vop, win, yrgb_hsd_mode,
+			    vop_win->pending_yrgb_scl.hsd_mode);
+		VOP_WIN_SET(vop, win, yrgb_hor_scl_factor,
+			    vop_win->pending_yrgb_scl.hor_scl_factor);
+	}
+
+	if (win->phy->yrgb_ver_scl_mode.mask) {
+		VOP_WIN_SET(vop, win, yrgb_ver_scl_mode,
+			    vop_win->pending_yrgb_scl.ver_scl_mode);
+		VOP_WIN_SET(vop, win, yrgb_vsd_mode,
+			    vop_win->pending_yrgb_scl.vsd_mode);
+		VOP_WIN_SET(vop, win, yrgb_vsu_mode,
+			    vop_win->pending_yrgb_scl.vsu_mode);
+		VOP_WIN_SET(vop, win, yrgb_vsd_gt2,
+			    vop_win->pending_yrgb_scl.vsd_gt2);
+		VOP_WIN_SET(vop, win, yrgb_vsd_gt4,
+			    vop_win->pending_yrgb_scl.vsd_gt4);
+		VOP_WIN_SET(vop, win, yrgb_ver_scl_factor,
+			    vop_win->pending_yrgb_scl.ver_scl_factor);
+	}
 
 	/* this completion doesn't need to protect the pending_* vars anymore */
 	if (!needs_vblank)
@@ -879,22 +1173,34 @@ static void vop_win_update_cb(struct drm_reservation_cb *rcb, void *params)
 }
 
 static int vop_win_update_sync(struct vop_win *vop_win,
-			       struct reservation_object *resv,
+			       struct reservation_object **resvs,
+			       unsigned int num_resvs,
 			       bool needs_vblank)
 {
 	struct fence *fence;
+	struct ww_acquire_ctx ticket;
+	unsigned int i;
 	int ret;
 
 	BUG_ON(vop_win->pending_fence);
 
 	vop_win->pending_needs_vblank = needs_vblank;
-	ww_mutex_lock(&resv->lock, NULL);
-	ret = reservation_object_reserve_shared(resv);
+
+	ret = drm_lock_reservations(resvs, num_resvs, &ticket);
 	if (ret < 0) {
-		DRM_ERROR("Reserving space for shared fence failed: %d.\n",
-			ret);
-		goto err_mutex;
+		DRM_ERROR("failed to lock all reservation objects: %d.\n", ret);
+		return ret;
 	}
+
+	for (i = 0; i < num_resvs; i++) {
+		ret = reservation_object_reserve_shared(resvs[i]);
+		if (ret < 0) {
+			DRM_ERROR("Reserving space for shared fence failed: %d.\n",
+				ret);
+			goto err_mutex;
+		}
+	}
+
 	fence = drm_sw_fence_new(vop_win->fence_context,
 				 atomic_add_return(1, &vop_win->fence_seqno));
 	if (IS_ERR(fence)) {
@@ -903,27 +1209,35 @@ static int vop_win_update_sync(struct vop_win *vop_win,
 		goto err_mutex;
 	}
 	vop_win->pending_fence = fence;
+
 	drm_reservation_cb_init(&vop_win->rcb, vop_win_update_cb, vop_win);
-	ret = drm_reservation_cb_add(&vop_win->rcb, resv, false);
-	if (ret < 0) {
-		DRM_ERROR("Adding reservation to callback failed: %d.\n", ret);
-		goto err_fence;
+
+	for (i = 0; i < num_resvs; i++) {
+		ret = drm_reservation_cb_add(&vop_win->rcb, resvs[i], false);
+		if (ret < 0) {
+			DRM_ERROR("Adding reservation to callback failed: %d.\n",
+				  ret);
+			goto err_fence;
+		}
+		reservation_object_add_shared_fence(resvs[i],
+						    vop_win->pending_fence);
 	}
-	reservation_object_add_shared_fence(resv, vop_win->pending_fence);
+
 	drm_reservation_cb_done(&vop_win->rcb);
-	ww_mutex_unlock(&resv->lock);
+	drm_unlock_reservations(resvs, num_resvs, &ticket);
 	return 0;
 err_fence:
+	drm_reservation_cb_fini(&vop_win->rcb);
 	fence_put(vop_win->pending_fence);
 	vop_win->pending_fence = NULL;
 err_mutex:
-	ww_mutex_unlock(&resv->lock);
+	drm_unlock_reservations(resvs, num_resvs, &ticket);
 
 	return ret;
 }
 #else
 static int vop_win_update_sync(struct vop_win *vop_win,
-			       struct reservation_object *resv,
+			       struct reservation_object **resv,
 			       bool needs_vblank)
 {
 	vop_win_update_commit(vop_win, needs_vblank);
@@ -942,19 +1256,31 @@ static int vop_update_plane_event(struct drm_plane *plane,
 {
 	struct vop_win *vop_win = to_vop_win(plane);
 	struct vop *vop = to_vop(crtc);
-	struct drm_gem_object *obj;
-	struct rockchip_gem_object *rk_obj;
+	int num_resvs = 0;
+	struct rockchip_gem_object *rk_objs[ROCKCHIP_MAX_FB_BUFFER];
+	struct reservation_object *resvs[ROCKCHIP_MAX_FB_BUFFER];
 	enum vop_data_format format;
+	int hsub;
+	int vsub;
+	int num_planes;
+	bool is_yuv;
 	unsigned long offset;
 	unsigned int actual_w;
 	unsigned int actual_h;
 	unsigned int dsp_stx;
 	unsigned int dsp_sty;
+	uint32_t lb_mode;
 	dma_addr_t yrgb_mst;
+	dma_addr_t uv_mst = 0;
+	struct vop_scl_params uv_scl = { .hor_scl_mode = VOP_NO_SCALE,
+					 .ver_scl_mode = VOP_NO_SCALE };
+	struct vop_scl_params yrgb_scl = { .hor_scl_mode = VOP_NO_SCALE,
+					   .ver_scl_mode = VOP_NO_SCALE };
 	uint32_t dsp_st;
 	uint32_t dsp_info;
 	bool visible;
 	bool needs_vblank;
+	int i;
 	int ret;
 	struct drm_rect dest = {
 		.x1 = crtc_x,
@@ -990,13 +1316,33 @@ static int vop_update_plane_event(struct drm_plane *plane,
 	if (format < 0)
 		return format;
 
-	obj = rockchip_fb_get_gem_obj(fb, 0);
-	if (!obj) {
-		DRM_ERROR("fail to get rockchip gem object from framebuffer\n");
+	hsub = drm_format_horz_chroma_subsampling(format);
+	vsub = drm_format_vert_chroma_subsampling(format);
+	BUG_ON(hsub < 1);
+	BUG_ON(vsub < 1);
+
+	is_yuv = is_yuv_format(fb->pixel_format);
+
+	num_planes = drm_format_num_planes(fb->pixel_format);
+	if (num_planes <= 0) {
+		DRM_ERROR("invalid pixel format with no planes\n");
 		return -EINVAL;
 	}
 
-	rk_obj = to_rockchip_obj(obj);
+	for (i = 0; i < num_planes; i++) {
+		struct drm_gem_object *obj = rockchip_fb_get_gem_obj(fb, i);
+
+		if (!obj) {
+			DRM_ERROR("fail to get rockchip gem object from framebuffer\n");
+			return -EINVAL;
+		}
+
+		if (obj->dma_buf) {
+			resvs[num_resvs] = obj->dma_buf->resv;
+			num_resvs++;
+		}
+		rk_objs[i] = to_rockchip_obj(obj);
+	}
 
 	actual_w = (src.x2 - src.x1) >> 16;
 	actual_h = (src.y2 - src.y1) >> 16;
@@ -1008,9 +1354,27 @@ static int vop_update_plane_event(struct drm_plane *plane,
 	dsp_sty = crtc_y + crtc->mode.vtotal - crtc->mode.vsync_start;
 	dsp_st = (dsp_sty << 16) | (dsp_stx & 0xffff);
 
-	offset = (src.x1 >> 16) * (fb->bits_per_pixel >> 3);
-	offset += (src.y1 >> 16) * fb->pitches[0];
-	yrgb_mst = rk_obj->dma_addr + offset;
+	ret = calc_scl_params(fb->pixel_format, (src.x2 - src.x1) >> 16,
+			      (src.y2 - src.y1) >> 16, (dest.x2 - dest.x1),
+			      (dest.y2 - dest.y1), &lb_mode, &uv_scl,
+			      &yrgb_scl);
+	if (ret)
+		return ret;
+
+	if (is_yuv) {
+		offset = (src.x1 >> 16) * drm_format_plane_cpp(format, 0);
+		offset += (src.y1 >> 16) * fb->pitches[0];
+		yrgb_mst = rk_objs[0]->dma_addr + offset + fb->offsets[0];
+		offset = (src.x1 >> 16) / hsub *
+			 drm_format_plane_cpp(format, 1);
+		offset += ((src.y1 >> 16) / vsub) * fb->pitches[1];
+		uv_mst = rk_objs[1]->dma_addr + offset + fb->offsets[1];
+	} else {
+		offset = (src.x1 >> 16) * (fb->bits_per_pixel >> 3);
+		offset += (src.y1 >> 16) * fb->pitches[0];
+		yrgb_mst = rk_objs[0]->dma_addr + offset + fb->offsets[0];
+
+	}
 
 	wait_for_completion(&vop_win->completion);
 	needs_vblank = vop_win_update_needs_vblank(vop_win, fb, event);
@@ -1031,12 +1395,16 @@ static int vop_update_plane_event(struct drm_plane *plane,
 	 * yrgb_mst write has been consumed by hardware during vblank.
 	 */
 	vop_win->pending_yrgb_mst = yrgb_mst;
+	vop_win->pending_uv_mst = uv_mst;
 	vop_win->pending_dsp_st = dsp_st;
 	vop_win->pending_dsp_info = dsp_info;
-	vop_win->pending_lb_mode = vop_width_to_lb_mode(actual_w);
+	vop_win->pending_lb_mode = lb_mode;
 
-	if (vop_win_update_needs_sync(vop_win, fb, obj->dma_buf)) {
-		ret = vop_win_update_sync(vop_win, obj->dma_buf->resv,
+	vop_win->pending_uv_scl = uv_scl;
+	vop_win->pending_yrgb_scl = yrgb_scl;
+
+	if (vop_win_update_needs_sync(vop_win, fb) && num_resvs > 0) {
+		ret = vop_win_update_sync(vop_win, resvs, num_resvs,
 					  needs_vblank);
 		if (ret) {
 			vop_win->pending_fb = NULL;
@@ -1094,6 +1462,7 @@ static int vop_disable_plane(struct drm_plane *plane)
 
 	/* other pending_* are cleared to NULL already */
 	vop_win->pending_yrgb_mst = 0;
+	vop_win->pending_uv_mst = 0;
 
 	/* If VOP is enabled, schedule vop_win_update() at next vblank. */
 	if (vop_win->vop->is_enabled &&
