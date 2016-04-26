@@ -2504,6 +2504,7 @@ enum nl80211_sta_bss_param {
  *	attributes carrying the actual values.
  * @NL80211_STA_INFO_RX_DURATION: aggregate PPDU duration for all frames
  *	received from the station (u64, usec)
+ * @NL80211_STA_INFO_PAD: attribute used for padding for 64-bit alignment
  * @__NL80211_STA_INFO_AFTER_LAST: internal
  * @NL80211_STA_INFO_MAX: highest possible station info attribute
  */
@@ -2541,6 +2542,7 @@ enum nl80211_sta_info {
 	NL80211_STA_INFO_BEACON_SIGNAL_AVG,
 	NL80211_STA_INFO_TID_STATS,
 	NL80211_STA_INFO_RX_DURATION,
+	NL80211_STA_INFO_PAD,
 
 	/* keep last */
 	__NL80211_STA_INFO_AFTER_LAST,
@@ -2557,6 +2559,7 @@ enum nl80211_sta_info {
  *	transmitted MSDUs (not counting the first attempt; u64)
  * @NL80211_TID_STATS_TX_MSDU_FAILED: number of failed transmitted
  *	MSDUs (u64)
+ * @NL80211_TID_STATS_PAD: attribute used for padding for 64-bit alignment
  * @NUM_NL80211_TID_STATS: number of attributes here
  * @NL80211_TID_STATS_MAX: highest numbered attribute here
  */
@@ -2566,6 +2569,7 @@ enum nl80211_tid_stats {
 	NL80211_TID_STATS_TX_MSDU,
 	NL80211_TID_STATS_TX_MSDU_RETRIES,
 	NL80211_TID_STATS_TX_MSDU_FAILED,
+	NL80211_TID_STATS_PAD,
 
 	/* keep last */
 	NUM_NL80211_TID_STATS,
