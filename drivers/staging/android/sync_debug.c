@@ -27,7 +27,7 @@
 #include <linux/anon_inodes.h>
 #include <linux/ratelimit.h>
 #include <linux/time64.h>
-#include "sync_file.h"
+#include <linux/sync_file.h>
 #include "sw_sync.h"
 
 #ifdef CONFIG_DEBUG_FS
