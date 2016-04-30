@@ -3534,6 +3534,8 @@ __init int intel_pmu_init(void)
 		pr_cont("Broadwell events, ");
 		break;
 
+	case 142: /* 14nm Kabylake Mobile */
+	case 158: /* 14nm Kabylake Desktop */
 	case 78: /* 14nm Skylake Mobile */
 	case 94: /* 14nm Skylake Desktop */
 		x86_pmu.late_ack = true;
