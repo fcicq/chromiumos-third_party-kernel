@@ -3934,16 +3934,6 @@ static int ath10k_start(struct ieee80211_hw *hw)
 		}
 	}
 
-	param = ar->wmi.pdev_param->ani_enable;
-	ret = ath10k_wmi_pdev_set_param(ar, param, 1);
-	if (ret) {
-		ath10k_warn(ar, "failed to enable ani by default: %d\n",
-			    ret);
-		goto err_core_stop;
-	}
-
-	ar->ani_enabled = true;
-
 	if (test_bit(WMI_SERVICE_SMART_ANTENNA_HW_SUPPORT, ar->wmi.svc_map)) {
 		u32 default_antenna_config = ath10k_default_antenna_5g;
 		/*
