@@ -1260,8 +1260,6 @@ static int vop_update_plane_event(struct drm_plane *plane,
 	struct rockchip_gem_object *rk_objs[ROCKCHIP_MAX_FB_BUFFER];
 	struct reservation_object *resvs[ROCKCHIP_MAX_FB_BUFFER];
 	enum vop_data_format format;
-	int hsub;
-	int vsub;
 	int num_planes;
 	bool is_yuv;
 	unsigned long offset;
@@ -1316,11 +1314,6 @@ static int vop_update_plane_event(struct drm_plane *plane,
 	if (format < 0)
 		return format;
 
-	hsub = drm_format_horz_chroma_subsampling(format);
-	vsub = drm_format_vert_chroma_subsampling(format);
-	BUG_ON(hsub < 1);
-	BUG_ON(vsub < 1);
-
 	is_yuv = is_yuv_format(fb->pixel_format);
 
 	num_planes = drm_format_num_planes(fb->pixel_format);
@@ -1362,11 +1355,15 @@ static int vop_update_plane_event(struct drm_plane *plane,
 		return ret;
 
 	if (is_yuv) {
-		offset = (src.x1 >> 16) * drm_format_plane_cpp(format, 0);
+		int hsub = drm_format_horz_chroma_subsampling(fb->pixel_format);
+		int vsub = drm_format_vert_chroma_subsampling(fb->pixel_format);
+
+		offset = (src.x1 >> 16) *
+			 drm_format_plane_cpp(fb->pixel_format, 0);
 		offset += (src.y1 >> 16) * fb->pitches[0];
 		yrgb_mst = rk_objs[0]->dma_addr + offset + fb->offsets[0];
 		offset = (src.x1 >> 16) / hsub *
-			 drm_format_plane_cpp(format, 1);
+			 drm_format_plane_cpp(fb->pixel_format, 1);
 		offset += ((src.y1 >> 16) / vsub) * fb->pitches[1];
 		uv_mst = rk_objs[1]->dma_addr + offset + fb->offsets[1];
 	} else {
