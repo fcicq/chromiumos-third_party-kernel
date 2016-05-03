@@ -141,17 +141,19 @@ int drm_atomic_check(struct drm_device *dev, struct drm_atomic_state *state)
 		if (a->planes[i]) {
 			ret = drm_atomic_check_plane_state(a->planes[i], a->pstates[i]);
 			if (ret)
-				break;
+				goto out;
 		}
 	}
+
 	for (i = 0; i < ncrtcs; i++) {
 		if (a->crtcs[i]) {
 			ret = drm_atomic_check_crtc_state(a->crtcs[i], a->cstates[i]);
 			if (ret)
-				break;
+				goto out;
 		}
 	}
 
+out:
 	a->acquire_ctx.frozen = true;
 
 	return ret;
