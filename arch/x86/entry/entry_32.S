@@ -210,8 +210,6 @@ ENTRY(ret_from_fork)
 	call	schedule_tail
 	GET_THREAD_INFO(%ebp)
 	popl	%eax
-	pushl	$0x0202				# Reset kernel eflags
-	popfl
 
 	/* When we fork, we trace the syscall return in the child, too. */
 	movl    %esp, %eax
@@ -224,8 +222,6 @@ ENTRY(ret_from_kernel_thread)
 	call	schedule_tail
 	GET_THREAD_INFO(%ebp)
 	popl	%eax
-	pushl	$0x0202				# Reset kernel eflags
-	popfl
 	movl	PT_EBP(%esp), %eax
 	movl	PT_EBX(%esp), %edx
 	CALL_NOSPEC %edx

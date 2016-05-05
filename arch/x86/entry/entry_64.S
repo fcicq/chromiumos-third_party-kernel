@@ -522,9 +522,6 @@ ENTRY(ret_from_fork)
 
 	LOCK ; btr $TIF_FORK, TI_flags(%r8)
 
-	pushq	$0x0002
-	popfq					/* reset kernel eflags */
-
 	call	schedule_tail			/* rdi: 'prev' task parameter */
 
 	RESTORE_EXTRA_REGS
