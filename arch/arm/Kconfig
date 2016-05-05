@@ -1412,6 +1412,14 @@ config ARM_ERRATA_825619
 	  DMB NSHST or DMB ISHST instruction followed by a mix of Cacheable
 	  and Device/Strongly-Ordered loads and stores might cause deadlock
 
+config ARM_ERRATA_FOOBAR
+	bool "ARM errata: A12: some set of instructions sometimes leads to a CPU hang"
+	depends on CPU_V7
+	help
+	  This option enables the workaround for a Cortex-A12 errata without a number
+	  The workaround causes a very slight performance impact, but we weren't able to
+	  measure it in practice.
+
 config ARM_ERRATA_852421
 	bool "ARM errata: A17: DMB ST might fail to create order between stores"
 	depends on CPU_V7

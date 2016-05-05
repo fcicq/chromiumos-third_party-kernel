@@ -72,6 +72,12 @@ static void __noreturn rk3288_resume_c(void)
 		asm volatile("mcr p15, 0, %0, c15, c0, 1" : : "r" (tmp));
 		asm volatile("isb");
 	}
+	if (IS_ENABLED(CONFIG_ARM_ERRATA_FOOBAR)) {
+		asm volatile("mrc p15, 0, %0, c15, c0, 1" : "=r" (tmp));
+		tmp |= (1 << 10);
+		asm volatile("mcr p15, 0, %0, c15, c0, 1" : : "r" (tmp));
+		asm volatile("isb");
+	}
 
 	if (rk3288_resume_params.ddr_resume_f)
 		rk3288_ddr_resume_early(&rk3288_resume_params.ddr_save_data);
