@@ -43,6 +43,8 @@
 #define VOP_GAMMA_LUT_SIZE 1024
 #define VOP_WIN_MAX_WIDTH 3840
 #define VOP_WIN_DEFAULT_SCALE_FACTOR 0x1000
+#define VOP_WIN_MIN_SCALE (0xFFFF / 8)
+#define VOP_WIN_MAX_SCALE (8 << 16)
 
 #define VOP_REG(off, _mask, s) \
 		{.offset = off, \
@@ -97,6 +99,7 @@ struct vop_win {
 	dma_addr_t pending_yrgb_mst;
 	dma_addr_t pending_uv_mst;
 	uint32_t pending_dsp_st;
+	uint32_t pending_act_info;
 	uint32_t pending_dsp_info;
 	uint32_t pending_lb_mode;
 	struct vop_scl_params pending_uv_scl;
@@ -1081,7 +1084,7 @@ static void vop_win_update_commit(struct vop_win *vop_win, bool needs_vblank)
 	VOP_WIN_SET(vop, win, yrgb_vir, y_vir_stride);
 	VOP_WIN_SET(vop, win, lb_mode, vop_win->pending_lb_mode);
 	VOP_WIN_SET(vop, win, yrgb_mst, vop_win->pending_yrgb_mst);
-	VOP_WIN_SET(vop, win, act_info, vop_win->pending_dsp_info);
+	VOP_WIN_SET(vop, win, act_info, vop_win->pending_act_info);
 	VOP_WIN_SET(vop, win, dsp_info, vop_win->pending_dsp_info);
 	VOP_WIN_SET(vop, win, dsp_st, vop_win->pending_dsp_st);
 	VOP_WIN_SET(vop, win, rb_swap, rb_swap);
@@ -1245,6 +1248,27 @@ static int vop_win_update_sync(struct vop_win *vop_win,
 }
 #endif /* CONFIG_DRM_DMA_SYNC */
 
+static uint32_t calc_hacked_height(uint32_t src_h, uint32_t dst_h)
+{
+	/*
+	 * HACK: the vertical down scalar can't handle scale factors of close to
+	 * 2, 4, or 8.
+	 */
+	src_h >>= 16;
+	if (src_h > dst_h) {
+		uint32_t rem = src_h % dst_h;
+		uint32_t ratio = DIV_ROUND_UP(src_h, dst_h);
+
+		if ((rem == 0 || (dst_h - rem) < ratio / 2) &&
+		    (ratio == 2 || ratio == 4 || ratio == 8)) {
+			DRM_DEBUG("plane src_h reduced to work around 2/4/8 vertical down scale factor\n");
+			src_h = ratio * dst_h - ratio / 2;
+		}
+	}
+
+	return src_h << 16;
+}
+
 static int vop_update_plane_event(struct drm_plane *plane,
 				  struct drm_crtc *crtc,
 				  struct drm_framebuffer *fb, int crtc_x,
@@ -1263,8 +1287,10 @@ static int vop_update_plane_event(struct drm_plane *plane,
 	int num_planes;
 	bool is_yuv;
 	unsigned long offset;
-	unsigned int actual_w;
-	unsigned int actual_h;
+	unsigned int active_w;
+	unsigned int active_h;
+	unsigned int dsp_w;
+	unsigned int dsp_h;
 	unsigned int dsp_stx;
 	unsigned int dsp_sty;
 	uint32_t lb_mode;
@@ -1275,6 +1301,7 @@ static int vop_update_plane_event(struct drm_plane *plane,
 	struct vop_scl_params yrgb_scl = { .hor_scl_mode = VOP_NO_SCALE,
 					   .ver_scl_mode = VOP_NO_SCALE };
 	uint32_t dsp_st;
+	uint32_t act_info;
 	uint32_t dsp_info;
 	bool visible;
 	bool needs_vblank;
@@ -1301,14 +1328,17 @@ static int vop_update_plane_event(struct drm_plane *plane,
 
 	ret = drm_plane_helper_check_update(plane, crtc, fb,
 					    &src, &dest, &clip,
-					    DRM_PLANE_HELPER_NO_SCALING,
-					    DRM_PLANE_HELPER_NO_SCALING,
-					    can_position, false, &visible);
+					    VOP_WIN_MIN_SCALE,
+					    VOP_WIN_MAX_SCALE, can_position,
+					    false, &visible);
 	if (ret)
 		return ret;
 
 	if (!visible)
 		return 0;
+
+	src.y2 = src.y1 + calc_hacked_height(src.y2 - src.y1,
+					     dest.y2 - dest.y1);
 
 	format = vop_convert_format(fb->pixel_format);
 	if (format < 0)
@@ -1337,9 +1367,13 @@ static int vop_update_plane_event(struct drm_plane *plane,
 		rk_objs[i] = to_rockchip_obj(obj);
 	}
 
-	actual_w = (src.x2 - src.x1) >> 16;
-	actual_h = (src.y2 - src.y1) >> 16;
-	dsp_info = ((actual_h - 1) << 16) | ((actual_w - 1) & 0xffff);
+	active_w = (src.x2 - src.x1) >> 16;
+	active_h = (src.y2 - src.y1) >> 16;
+	dsp_w = dest.x2 - dest.x1;
+	dsp_h = dest.y2 - dest.y1;
+
+	act_info = ((active_h - 1) << 16) | ((active_w - 1) & 0xffff);
+	dsp_info = ((dsp_h - 1) << 16) | ((dsp_w - 1) & 0xffff);
 
 	crtc_x = max(0, crtc_x);
 	crtc_y = max(0, crtc_y);
@@ -1395,6 +1429,7 @@ static int vop_update_plane_event(struct drm_plane *plane,
 	vop_win->pending_uv_mst = uv_mst;
 	vop_win->pending_dsp_st = dsp_st;
 	vop_win->pending_dsp_info = dsp_info;
+	vop_win->pending_act_info = act_info;
 	vop_win->pending_lb_mode = lb_mode;
 
 	vop_win->pending_uv_scl = uv_scl;
