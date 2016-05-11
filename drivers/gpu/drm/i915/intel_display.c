@@ -5817,9 +5817,6 @@ static int valleyview_modeset_calc_cdclk(struct drm_atomic_state *state)
 	struct intel_atomic_state *intel_state =
 		to_intel_atomic_state(state);
 
-	if (max_pixclk < 0)
-		return max_pixclk;
-
 	intel_state->cdclk = intel_state->dev_cdclk =
 		valleyview_calc_cdclk(dev_priv, max_pixclk);
 
@@ -5836,9 +5833,6 @@ static int broxton_modeset_calc_cdclk(struct drm_atomic_state *state)
 	int max_pixclk = intel_mode_max_pixclk(dev, state);
 	struct intel_atomic_state *intel_state =
 		to_intel_atomic_state(state);
-
-	if (max_pixclk < 0)
-		return max_pixclk;
 
 	intel_state->cdclk = intel_state->dev_cdclk =
 		broxton_calc_cdclk(dev_priv, max_pixclk);
