@@ -116,6 +116,7 @@ static void intel_pre_disable_primary_noatomic(struct drm_crtc *crtc);
 typedef struct {
 	int	min, max;
 } intel_range_t;
+static int ilk_max_pixel_rate(struct drm_atomic_state *state);
 
 typedef struct {
 	int	dot_limit;
@@ -5827,8 +5828,7 @@ static int valleyview_modeset_calc_cdclk(struct drm_atomic_state *state)
 
 static int broxton_modeset_calc_cdclk(struct drm_atomic_state *state)
 {
-	struct drm_device *dev = state->dev;
-	int max_pixclk = intel_mode_max_pixclk(dev, state);
+	int max_pixclk = ilk_max_pixel_rate(state);
 	struct intel_atomic_state *intel_state =
 		to_intel_atomic_state(state);
 
