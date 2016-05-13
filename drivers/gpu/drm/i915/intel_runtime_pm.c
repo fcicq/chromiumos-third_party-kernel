@@ -1996,6 +1996,28 @@ static void intel_power_domains_sync_hw(struct drm_i915_private *dev_priv)
 	mutex_unlock(&power_domains->lock);
 }
 
+static void gen9_dbuf_enable(struct drm_i915_private *dev_priv)
+{
+	I915_WRITE(DBUF_CTL, I915_READ(DBUF_CTL) | DBUF_POWER_REQUEST);
+	POSTING_READ(DBUF_CTL);
+
+	udelay(10);
+
+	if (!(I915_READ(DBUF_CTL) & DBUF_POWER_STATE))
+		DRM_ERROR("DBuf power enable timeout\n");
+}
+
+static void gen9_dbuf_disable(struct drm_i915_private *dev_priv)
+{
+	I915_WRITE(DBUF_CTL, I915_READ(DBUF_CTL) & ~DBUF_POWER_REQUEST);
+	POSTING_READ(DBUF_CTL);
+
+	udelay(10);
+
+	if (I915_READ(DBUF_CTL) & DBUF_POWER_STATE)
+		DRM_ERROR("DBuf power disable timeout!\n");
+}
+
 static void skl_display_core_init(struct drm_i915_private *dev_priv,
 				  bool resume)
 {
@@ -2015,6 +2037,8 @@ static void skl_display_core_init(struct drm_i915_private *dev_priv,
 
 	skl_init_cdclk(dev_priv);
 
+	gen9_dbuf_enable(dev_priv);
+
 	if (resume && dev_priv->csr.dmc_payload)
 		intel_csr_load_program(dev_priv);
 }
@@ -2024,6 +2048,8 @@ static void skl_display_core_uninit(struct drm_i915_private *dev_priv)
 	struct i915_power_domains *power_domains = &dev_priv->power_domains;
 
 	gen9_set_dc_state(dev_priv, DC_STATE_DISABLE);
+
+	gen9_dbuf_disable(dev_priv);
 
 	skl_uninit_cdclk(dev_priv);
 
