@@ -1627,6 +1627,11 @@ static void intel_ddi_pll_init(struct drm_device *dev)
 	if (IS_SKYLAKE(dev) || IS_KABYLAKE(dev)) {
 		if (skl_sanitize_cdclk(dev_priv))
 			DRM_DEBUG_KMS("Sanitized cdclk programmed by pre-os\n");
+
+		/* We'll want to keep using the current vco from now on */
+		if (dev_priv->skl_vco_freq != 0)
+			skl_set_preferred_cdclk_vco(dev_priv,
+						    dev_priv->skl_vco_freq);
 	} else if (IS_BROXTON(dev)) {
 		broxton_init_cdclk(dev);
 		broxton_ddi_phy_init(dev);
