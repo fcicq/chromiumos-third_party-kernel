@@ -54,42 +54,32 @@ static int kbase_rk_power_on_callback(struct kbase_device *kbdev)
 	int error;
 
 	if (kbase_rk->is_powered) {
-		dev_warn(kbdev->dev,
+		dev_dbg(kbdev->dev,
 			 "called %s for already powered device\n", __func__);
 		return 0;
 	}
 
 	dev_dbg(kbdev->dev, "%s: powering on\n", __func__);
 
-	if (pm_runtime_enabled(kbdev->dev)) {
-		error = pm_runtime_get_sync(kbdev->dev);
-		if (error < 0) {
-			dev_err(kbdev->dev,
-				"failed to runtime resume device: %d\n",
-				error);
-			return error;
-		} else if (error == 1) {
-			/*
-			 * Let core know that the chip has not been
-			 * powered off, so we can save on re-initialization.
-			 */
-			ret = 0;
-		}
-	} else {
-		error = kbase_rk_rt_power_on_callback(kbdev);
-		if (error)
-			return error;
+	error = pm_runtime_get_sync(kbdev->dev);
+	if (error < 0 && error != -EACCES) {
+		dev_err(kbdev->dev,
+			"failed to runtime resume device: %d\n",
+			error);
+		pm_runtime_put_sync(kbdev->dev);
+		return error;
+	} else if (error == 1) {
+		/*
+		 * Let core know that the chip has not been
+		 * powered off, so we can save on re-initialization.
+		 */
+		ret = 0;
 	}
 
 	error = clk_enable(kbase_rk->clk);
 	if (error) {
 		dev_err(kbdev->dev, "failed to enable clock: %d\n", error);
-
-		if (pm_runtime_enabled(kbdev->dev))
-			pm_runtime_put_sync(kbdev->dev);
-		else
-			kbase_rk_rt_power_off_callback(kbdev);
-
+		pm_runtime_put_sync(kbdev->dev);
 		return error;
 	}
 
@@ -104,7 +94,7 @@ static void kbase_rk_power_off_callback(struct kbase_device *kbdev)
 	struct kbase_rk *kbase_rk = kbdev->platform_context;
 
 	if (!kbase_rk->is_powered) {
-		dev_warn(kbdev->dev,
+		dev_dbg(kbdev->dev,
 			 "called %s for powered off device\n", __func__);
 		return;
 	}
@@ -116,12 +106,8 @@ static void kbase_rk_power_off_callback(struct kbase_device *kbdev)
 
 	clk_disable(kbase_rk->clk);
 
-	if (pm_runtime_enabled(kbdev->dev)) {
-		pm_runtime_mark_last_busy(kbdev->dev);
-		pm_runtime_put_autosuspend(kbdev->dev);
-	} else {
-		kbase_rk_rt_power_off_callback(kbdev);
-	}
+	pm_runtime_mark_last_busy(kbdev->dev);
+	pm_runtime_put_autosuspend(kbdev->dev);
 }
 
 static int kbase_rk_power_runtime_init_callback(
@@ -145,9 +131,33 @@ static void kbase_rk_power_runtime_term_callback(
 	pm_runtime_disable(kbdev->dev);
 }
 
+static void kbase_rk_power_suspend_callback(struct kbase_device *kbdev)
+{
+	/*
+	 * Depending on power policy, the GPU might not be powered off at this
+	 * point. We have to call kbase_rk_power_off_callback() here to make
+	 * sure it is before turning off the regulator. The function can be
+	 * called safely even if the GPU is already powered off.
+	 */
+	kbase_rk_power_off_callback(kbdev);
+	kbase_rk_rt_power_off_callback(kbdev);
+}
+
+static void kbase_rk_power_resume_callback(struct kbase_device *kbdev)
+{
+	kbase_rk_rt_power_on_callback(kbdev);
+	/*
+	 * Core will call kbase_rk_power_on_callback() itself before attempting
+	 * to access the GPU, so no need to do it here.
+	 */
+}
+
 struct kbase_pm_callback_conf kbase_rk_pm_callbacks = {
 	.power_on_callback = kbase_rk_power_on_callback,
 	.power_off_callback = kbase_rk_power_off_callback,
+
+	.power_suspend_callback = kbase_rk_power_suspend_callback,
+	.power_resume_callback = kbase_rk_power_resume_callback,
 
 	.power_runtime_init_callback = kbase_rk_power_runtime_init_callback,
 	.power_runtime_term_callback = kbase_rk_power_runtime_term_callback,
