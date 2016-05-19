@@ -409,6 +409,7 @@ struct ath10k_sta {
 	/* protected by conf_mutex */
 	bool aggr_mode;
 #endif
+	u8 tpc;
 };
 
 #define ATH10K_VDEV_SETUP_TIMEOUT_HZ (5 * HZ)
