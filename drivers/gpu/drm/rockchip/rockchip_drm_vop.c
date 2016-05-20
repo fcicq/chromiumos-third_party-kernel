@@ -1490,6 +1490,9 @@ static int vop_disable_plane(struct drm_plane *plane)
 
 	vop = to_vop(plane->crtc);
 
+	/* Kick off pending callbacks */
+	drm_reservation_cb_done(&vop_win->rcb);
+
 	wait_for_completion(&vop_win->completion);
 
 	/* other pending_* are cleared to NULL already */
