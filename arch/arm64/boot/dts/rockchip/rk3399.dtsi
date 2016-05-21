@@ -1126,6 +1126,11 @@
 		reg = <0x0 0xff320000 0x0 0x1000>;
 		#address-cells = <1>;
 		#size-cells = <1>;
+
+		pmu_io_domains: io-domains {
+			compatible = "rockchip,rk3399-pmu-io-voltage-domain";
+			status = "disabled";
+		};
 	};
 
 	spi3: spi@ff350000 {
@@ -1363,13 +1368,8 @@
 		#address-cells = <1>;
 		#size-cells = <1>;
 
-		pcie_phy: pcie-phy {
-			compatible = "rockchip,rk3399-pcie-phy";
-			clocks = <&cru SCLK_PCIEPHY_REF>;
-			clock-names = "refclk";
-			resets = <&cru SRST_PCIEPHY>;
-			reset-names = "phy";
-			#phy-cells = <1>;
+		io_domains: io-domains {
+			compatible = "rockchip,rk3399-io-voltage-domain";
 			status = "disabled";
 		};
 
@@ -1433,6 +1433,16 @@
 			clocks = <&sdhci>;
 			clock-names = "emmcclk";
 			#phy-cells = <0>;
+			status = "disabled";
+		};
+
+		pcie_phy: pcie-phy {
+			compatible = "rockchip,rk3399-pcie-phy";
+			clocks = <&cru SCLK_PCIEPHY_REF>;
+			clock-names = "refclk";
+			#phy-cells = <1>;
+			resets = <&cru SRST_PCIEPHY>;
+			reset-names = "phy";
 			status = "disabled";
 		};
 	};
