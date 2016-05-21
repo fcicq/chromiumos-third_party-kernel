@@ -164,6 +164,11 @@
 			regulator-name = "vcc33_ccd";
 			regulator-suspend-mem-disabled;
 		};
+
+		vcc33_lan: SWITCH_REG2 {
+			regulator-name = "vcc33_lan";
+			regulator-suspend-mem-disabled;
+		};
 	};
 };
 
@@ -184,6 +189,10 @@
 &edp {
 	pinctrl-names = "default";
 	pinctrl-0 = <&edp_hpd>;
+};
+
+&gmac {
+	phy-supply = <&vcc33_lan>;
 };
 
 &pinctrl {
