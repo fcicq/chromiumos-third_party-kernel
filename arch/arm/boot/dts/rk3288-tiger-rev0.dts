@@ -10,10 +10,10 @@
 
 /dts-v1/;
 #include "rk3288-veyron.dtsi"
-#include "rk3288-veyron-lpddr.dtsi"
 #include "rk3288-veyron-analog-audio.dtsi"
 #include "rk3288-veyron-edp.dtsi"
 #include "rk3288-veyron-ethernet.dtsi"
+#include "rk3288-veyron-lpddr.dtsi"
 
 / {
 	model = "Google Tiger";
@@ -50,6 +50,15 @@
 		regulator-name = "backlight_regulator";
 		vin-supply = <&vccsys>;
 		startup-delay-us = <15000>;
+	};
+
+	/* vcc33_pmuio and vcc33_io is sourced directly from vcc33_sys,
+	 * enabled by vcc_18 */
+	vcc33_io: vcc33-io {
+		compatible = "regulator-fixed";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-name = "vcc33_io";
 	};
 
 	vcc5_host1: vcc5-host1-regulator {
@@ -155,7 +164,34 @@
 	dvs-gpios = <&gpio7 12 GPIO_ACTIVE_HIGH>,
 		    <&gpio7 15 GPIO_ACTIVE_HIGH>;
 
+	vcc6-supply = <&vcc33_sys>;
+	vcc10-supply = <&vcc33_sys>;
+	vcc11-supply = <&vcc_5v>;
+	vcc12-supply = <&vcc33_sys>;
+
 	regulators {
+		/delete-node/ LDO_REG1;
+
+		vcc18_lcdt: LDO_REG2 {
+			regulator-always-on;
+			regulator-boot-on;
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			regulator-name = "vdd18_lcdt";
+			regulator-suspend-mem-disabled;
+		};
+
+		/* This is not a pwren anymore, but the real power supply */
+		vdd10_lcd: LDO_REG7 {
+			regulator-always-on;
+			regulator-boot-on;
+			regulator-min-microvolt = <1000000>;
+			regulator-max-microvolt = <1000000>;
+			regulator-name = "vdd10_lcd";
+			regulator-suspend-mem-disabled;
+		};
+
+		/* for usb camera */
 		vcc33_ccd: LDO_REG8 {
 			regulator-always-on;
 			regulator-boot-on;
@@ -196,6 +232,28 @@
 };
 
 &pinctrl {
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <
+		/* Common for sleep and wake, but no owners */
+		&ddr0_retention
+		&ddrio_pwroff
+		&global_pwroff
+
+		/* Wake only */
+		&bt_dev_wake_awake
+		&pwr_led1_on
+	>;
+	pinctrl-1 = <
+		/* Common for sleep and wake, but no owners */
+		&ddr0_retention
+		&ddrio_pwroff
+		&global_pwroff
+
+		/* Sleep only */
+		&bt_dev_wake_sleep
+		&pwr_led1_off
+	>;
+
 	backlight {
 		bl_pwr_en: bl_pwr_en {
 			rockchip,pins = <2 12 RK_FUNC_GPIO &pcfg_pull_none>;
@@ -209,7 +267,7 @@
 	};
 
 	edp {
-		edp_hpd: edp_hpd {
+		edp_hpd: edp-hpd {
 			rockchip,pins = <7 11 RK_FUNC_2 &pcfg_pull_down>;
 		};
 	};
@@ -223,6 +281,16 @@
 	lcd {
 		lcd_enable_h: lcd-en {
 			rockchip,pins = <7 14 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+
+	leds {
+		pwr_led1_on: pwr-led1-on {
+			rockchip,pins = <7 3 RK_FUNC_GPIO &pcfg_output_high>;
+		};
+
+		pwr_led1_off: pwr-led1-off {
+			rockchip,pins = <7 3 RK_FUNC_GPIO &pcfg_output_low>;
 		};
 	};
 
