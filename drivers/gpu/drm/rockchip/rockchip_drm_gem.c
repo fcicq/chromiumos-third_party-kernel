@@ -14,7 +14,6 @@
 
 #include <drm/drm.h>
 #include <drm/drmP.h>
-#include <drm/drm_sync_helper.h>
 #include <drm/drm_vma_manager.h>
 #include <drm/rockchip_drm.h>
 
@@ -176,10 +175,6 @@ void rockchip_gem_free_object(struct drm_gem_object *obj)
 	} else {
 		rockchip_gem_free_buf(rk_obj);
 	}
-
-#ifdef CONFIG_DRM_DMA_SYNC
-	drm_fence_signal_and_put(&rk_obj->acquire_fence);
-#endif
 
 	kfree(rk_obj);
 }

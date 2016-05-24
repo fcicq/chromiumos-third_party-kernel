@@ -28,12 +28,6 @@ struct rockchip_gem_object {
 	struct dma_attrs dma_attrs;
 
 	struct sg_table *sg;
-
-#ifdef CONFIG_DRM_DMA_SYNC
-	struct fence *acquire_fence;
-	atomic_t acquire_shared_count;
-	bool acquire_exclusive;
-#endif
 };
 
 /*
@@ -84,16 +78,5 @@ int rockchip_gem_create_ioctl(struct drm_device *dev, void *data,
 /* get buffer offset to map to user space. */
 int rockchip_gem_map_offset_ioctl(struct drm_device *dev, void *data,
 				  struct drm_file *file_priv);
-
-/*
- * acquire gem object for CPU access.
- */
-int rockchip_gem_cpu_acquire_ioctl(struct drm_device *dev, void* data,
-				   struct drm_file *file_priv);
-/*
- * release gem object after CPU access.
- */
-int rockchip_gem_cpu_release_ioctl(struct drm_device *dev, void* data,
-				   struct drm_file *file_priv);
 
 #endif /* _ROCKCHIP_DRM_GEM_H */
