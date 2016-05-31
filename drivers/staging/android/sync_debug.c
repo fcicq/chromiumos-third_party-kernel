@@ -15,23 +15,7 @@
  */
 
 #include <linux/debugfs.h>
-#include <linux/export.h>
-#include <linux/file.h>
-#include <linux/fs.h>
-#include <linux/kernel.h>
-#include <linux/poll.h>
-#include <linux/sched.h>
-#include <linux/seq_file.h>
-#include <linux/slab.h>
-#include <linux/uaccess.h>
-#include <linux/anon_inodes.h>
 #include <linux/ratelimit.h>
-#include <linux/time64.h>
-#include <linux/sync_file.h>
-#include <linux/types.h>
-#include <linux/kconfig.h>
-
-#include "uapi/sw_sync.h"
 #include "sync.h"
 
 #ifdef CONFIG_DEBUG_FS
