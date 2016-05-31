@@ -28,7 +28,11 @@
 #include <linux/ratelimit.h>
 #include <linux/time64.h>
 #include <linux/sync_file.h>
-#include "sw_sync.h"
+#include <linux/types.h>
+#include <linux/kconfig.h>
+
+#include "uapi/sw_sync.h"
+#include "sync.h"
 
 #ifdef CONFIG_DEBUG_FS
 
@@ -201,6 +205,7 @@ static const struct file_operations sync_info_debugfs_fops = {
 	.release        = single_release,
 };
 
+#if IS_ENABLED(CONFIG_SW_SYNC)
 /*
  * *WARNING*
  *
@@ -215,7 +220,7 @@ static int sw_sync_debugfs_open(struct inode *inode, struct file *file)
 
 	get_task_comm(task_comm, current);
 
-	obj = sw_sync_timeline_create(task_comm);
+	obj = sync_timeline_create(sizeof(*obj), "sw_sync", task_comm);
 	if (!obj)
 		return -ENOMEM;
 
@@ -249,7 +254,7 @@ static long sw_sync_ioctl_create_fence(struct sync_timeline *obj,
 		goto err;
 	}
 
-	fence = sw_sync_pt_create(obj, data.value);
+	fence = sync_pt_create(obj, sizeof(*fence), data.value);
 	if (!fence) {
 		err = -ENOMEM;
 		goto err;
@@ -285,7 +290,7 @@ static long sw_sync_ioctl_inc(struct sync_timeline *obj, unsigned long arg)
 	if (copy_from_user(&value, (void __user *)arg, sizeof(value)))
 		return -EFAULT;
 
-	sw_sync_timeline_inc(obj, value);
+	sync_timeline_signal(obj, value);
 
 	return 0;
 }
@@ -313,14 +318,18 @@ static const struct file_operations sw_sync_debugfs_fops = {
 	.unlocked_ioctl = sw_sync_ioctl,
 	.compat_ioctl = sw_sync_ioctl,
 };
+#endif
 
 static __init int sync_debugfs_init(void)
 {
 	dbgfs = debugfs_create_dir("sync", NULL);
 
 	debugfs_create_file("info", 0444, dbgfs, NULL, &sync_info_debugfs_fops);
+
+#if IS_ENABLED(CONFIG_SW_SYNC)
 	debugfs_create_file("sw_sync", 0644, dbgfs, NULL,
 			    &sw_sync_debugfs_fops);
+#endif
 
 	return 0;
 }
