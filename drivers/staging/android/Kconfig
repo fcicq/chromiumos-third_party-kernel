@@ -109,18 +109,8 @@ config ANDROID_BCB
 	  defined in its configuration, it will boot once into that label. The
 	  device and partition number are specified on the kernel command line.
 
-config SYNC
-	bool "Synchronization framework"
-	default n
-	select ANON_INODES
-	select DMA_SHARED_BUFFER
-	---help---
-	  This option enables the framework for synchronization between multiple
-	  drivers.  Sync implementations can take advantage of hardware
-	  synchronization built into devices like GPUs.
-
 config SW_SYNC
-	bool "Software synchronization objects"
+	bool "Software synchronization framework"
 	default n
 	depends on SYNC
 	depends on SYNC_FILE
@@ -128,6 +118,9 @@ config SW_SYNC
 	  A sync object driver that uses a 32bit counter to coordinate
 	  synchronization.  Useful when there is no hardware primitive backing
 	  the synchronization.
+
+	  WARNING: improper use of this can result in deadlocking kernel
+	  drivers from userspace. Intended for test and debug only.
 
 source "drivers/staging/android/ion/Kconfig"
 
