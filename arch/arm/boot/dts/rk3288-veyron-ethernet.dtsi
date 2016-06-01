@@ -56,10 +56,9 @@
 	resets = <&cru SRST_MAC>;
 	reset-names = "stmmaceth";
 
-	/* These properties are not actually used in rgmii mode,
-	 * but the documentation states they're still required
-	 * (including the active-low flag). */
+	/* Reset for the RTL8211 PHY which requires a 10-ms reset pulse (low)
+	 * with a 30ms settling time. */
 	snps,reset-gpio = <&gpio4 8 0>;
 	snps,reset-active-low;
-	snps,reset-delays-us = <0 10000 1000000>;
+	snps,reset-delays-us = <0 10000 30000>;
 };

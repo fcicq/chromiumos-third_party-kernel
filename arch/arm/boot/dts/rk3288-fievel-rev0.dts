@@ -99,7 +99,6 @@
 
 		vcc33_lan: SWITCH_REG2 {
 			regulator-name = "vcc33_lan";
-			regulator-suspend-mem-disabled;
 		};
 	};
 };
@@ -120,6 +119,7 @@
 
 &gmac {
 	phy-supply = <&vcc33_lan>;
+	wakeup-source;
 };
 
 &pinctrl {
