@@ -569,8 +569,8 @@ static struct pci_platform_pm_ops *pci_platform_pm;
 
 int pci_set_platform_pm(struct pci_platform_pm_ops *ops)
 {
-	if (!ops->is_manageable || !ops->set_state || !ops->choose_state
-	    || !ops->sleep_wake)
+	if (!ops->is_manageable || !ops->set_state || !ops->choose_state ||
+	    !ops->sleep_wake || !ops->run_wake || !ops->need_resume)
 		return -EINVAL;
 	pci_platform_pm = ops;
 	return 0;
