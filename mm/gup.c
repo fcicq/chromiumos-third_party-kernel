@@ -611,6 +611,7 @@ retry:
 	}
 	return 0;
 }
+EXPORT_SYMBOL_GPL(fixup_user_fault);
 
 /*
  * get_user_pages() - pin user pages in memory
