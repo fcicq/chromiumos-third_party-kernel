@@ -573,8 +573,8 @@ static int cirrus_crtc_cursor_move(struct drm_crtc *crtc, int x, int y)
  * use this for 8-bit mode so can't perform smooth fades on deeper modes,
  * but it's a requirement that we provide the function
  */
-static void cirrus_crtc_gamma_set(struct drm_crtc *crtc, u16 *red, u16 *green,
-				  u16 *blue, uint32_t start, uint32_t size)
+static int cirrus_crtc_gamma_set(struct drm_crtc *crtc, u16 *red, u16 *green,
+				 u16 *blue, uint32_t size)
 {
 	struct cirrus_crtc *cirrus_crtc = to_cirrus_crtc(crtc);
 	int i;
@@ -585,6 +585,8 @@ static void cirrus_crtc_gamma_set(struct drm_crtc *crtc, u16 *red, u16 *green,
 		cirrus_crtc->lut_b[i] = blue[i];
 	}
 	cirrus_crtc_load_lut(crtc);
+
+	return 0;
 }
 
 /* Simple cleanup function */
