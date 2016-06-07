@@ -2160,6 +2160,9 @@ struct ec_response_rtc {
 #define EC_CMD_RTC_SET_VALUE 0x46
 #define EC_CMD_RTC_SET_ALARM 0x47
 
+/* PLACEHOLDER FROM SMBARBER - REPLACE ONCE EC CHANGES LAND */
+#define EC_RTC_ALARM_CLEAR 0
+
 /*****************************************************************************/
 /* Port80 log access */
 
