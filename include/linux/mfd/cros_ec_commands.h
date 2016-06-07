@@ -2160,6 +2160,9 @@ struct ec_response_rtc {
 #define EC_CMD_RTC_SET_VALUE 0x46
 #define EC_CMD_RTC_SET_ALARM 0x47
 
+/* PLACEHOLDER FROM SMBARBER - REPLACE ONCE EC CHANGES LAND */
+#define EC_RTC_ALARM_CLEAR 0
+
 /*****************************************************************************/
 /* Port80 log access */
 
@@ -3256,10 +3259,8 @@ struct ec_params_entering_mode {
 #define VBOOT_MODE_RECOVERY  2
 
 /*****************************************************************************/
-/*
- * I2C passthru protection command: Protects I2C tunnels against access on
- * certain addresses (board-specific).
- */
+/* I2C passthru protection command: Protects I2C tunnels against access on
+ * certain addresses (board-specific). */
 #define EC_CMD_I2C_PASSTHRU_PROTECT 0xb7
 
 enum ec_i2c_passthru_protect_subcmd {
@@ -3703,8 +3704,6 @@ struct ec_params_pd_write_log_entry {
 	uint8_t port; /* port#, or 0 for events unrelated to a given port */
 } __packed;
 
-<<<<<<< HEAD
-=======
 /* Get info about USB-C SS muxes */
 #define EC_CMD_USB_PD_MUX_INFO 0x11a
 
@@ -3722,7 +3721,6 @@ struct ec_response_usb_pd_mux_info {
 } __packed;
 
 #endif  /* !__ACPI__ */
->>>>>>> af53b61... TEST-ONLY: support rk3399 type-c extcon
 
 /* Control USB-PD chip */
 #define EC_CMD_PD_CONTROL 0x119
@@ -3756,6 +3754,21 @@ struct ec_response_usb_pd_mux_info {
 } __packed;
 
 #endif  /* !__ACPI__ */
+
+/* Control USB-PD chip */
+#define EC_CMD_PD_CONTROL 0x119
+
+enum ec_pd_control_cmd {
+	PD_SUSPEND = 0,      /* Suspend the PD chip (EC: stop talking to PD) */
+	PD_RESUME,           /* Resume the PD chip (EC: start talking to PD) */
+	PD_RESET,            /* Force reset the PD chip */
+	PD_CONTROL_DISABLE   /* Disable further calls to this command */
+};
+
+struct ec_params_pd_control {
+	uint8_t chip;         /* chip id (should be 0) */
+	uint8_t subcmd;
+} __packed;
 
 /*****************************************************************************/
 /*
