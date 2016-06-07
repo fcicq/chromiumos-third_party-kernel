@@ -184,7 +184,7 @@ ap_i2c_dig: &i2c2 {
 };
 
 &edp {
-	status = "okay";
+	status = "disabled";
 
 	ports {
 		edp_out: port@1 {

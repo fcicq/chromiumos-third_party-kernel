@@ -512,10 +512,6 @@
 	status = "okay";
 };
 
-&edp {
-	status = "okay";
-};
-
 &emmc_phy {
 	status = "okay";
 };
@@ -651,6 +647,10 @@ ap_i2c_audio: &i2c8 {
 	status = "okay";
 };
 
+&i2s2 {
+	status = "okay";
+};
+
 &pwm0 {
 	status = "okay";
 };
@@ -710,6 +710,11 @@ ap_i2c_audio: &i2c8 {
 
 	vmmc-supply = <&pp3000_sd_slot>;
 	vqmmc-supply = <&ppvar_sd_card_io>;
+};
+
+&spdif {
+	status = "okay";
+	#sound-dai-cells = <0>;
 };
 
 &spi0 {
@@ -782,6 +787,30 @@ ap_i2c_audio: &i2c8 {
 	rockchip,hw-tshut-mode = <1>; /* tshut mode 0:CRU 1:GPIO */
 	rockchip,hw-tshut-polarity = <1>; /* tshut polarity 0:LOW 1:HIGH */
 };
+
+&tcphy0{
+	status = "okay";
+	extcon = <&usbc_extcon0>;
+};
+
+&tcphy1{
+	status = "okay";
+	extcon = <&usbc_extcon1>;
+};
+
+&cdn_dp {
+	status = "okay";
+	extcon = <&usbc_extcon0>;
+};
+
+&cdn_dp_sound {
+	status = "okay";
+};
+
+&display_subsystem {
+	status = "okay";
+};
+
 
 &uart2 {
 	status = "okay";
