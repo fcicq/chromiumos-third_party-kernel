@@ -253,6 +253,8 @@ static void ps8640_pre_enable(struct drm_bridge *bridge)
 		msleep(20);
 	} while ((retry_cnt++ < 10) && ((set_vdo_done & PS_GPIO9) != PS_GPIO9));
 
+	usleep_range(3000, 3500);
+
 	if (ps_bridge->info.version == 0)
 		ps8640_get_mcu_fw_version(ps_bridge);
 	/* Switch access edp panel's edid through i2c */
