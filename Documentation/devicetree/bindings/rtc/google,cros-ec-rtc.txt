@@ -1,0 +1,23 @@
+* Chromium OS EC RTC
+
+The Chromium OS EC can function as an RTC in systems that lack a discrete
+RTC device. The RTC supports basic time and alarm functions, including alarms
+that can wake up the device from suspend.
+
+An EC RTC node should be only found as a sub-node of the EC node (see
+Documentation/devicetree/bindings/mfd/cros-ec.txt).
+
+Required properties:
+- compatible: Must contain "google,cros-ec-rtc"
+
+Example:
+	cros-ec@0 {
+		compatible = "google,cros-ec-spi";
+
+		...
+
+		cros_ec_rtc: ec-rtc {
+			compatible = "google,cros-ec-rtc";
+		};
+	};
+
