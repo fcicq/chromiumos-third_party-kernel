@@ -974,6 +974,7 @@ static const struct drm_connector_helper_funcs intel_dsi_connector_helper_funcs 
 static const struct drm_connector_funcs intel_dsi_connector_funcs = {
 	.dpms = drm_atomic_helper_connector_dpms,
 	.detect = intel_dsi_detect,
+	.early_unregister = intel_connector_unregister,
 	.destroy = intel_dsi_connector_destroy,
 	.fill_modes = drm_helper_probe_single_connector_modes,
 	.atomic_get_property = intel_connector_atomic_get_property,
@@ -1036,7 +1037,6 @@ void intel_dsi_init(struct drm_device *dev)
 	intel_encoder->get_config = intel_dsi_get_config;
 
 	intel_connector->get_hw_state = intel_connector_get_hw_state;
-	intel_connector->unregister = intel_connector_unregister;
 
 	/* Pipe A maps to MIPI DSI port A, pipe B maps to MIPI DSI port C */
 	if (dev_priv->vbt.dsi.config->dual_link) {
