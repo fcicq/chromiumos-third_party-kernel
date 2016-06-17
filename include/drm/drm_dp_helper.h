@@ -865,6 +865,7 @@ int drm_dp_link_choose(struct drm_dp_link *link,
 
 int drm_dp_link_train(struct drm_dp_link *link);
 
+void drm_dp_aux_init(struct drm_dp_aux *aux);
 int drm_dp_aux_register(struct drm_dp_aux *aux);
 void drm_dp_aux_unregister(struct drm_dp_aux *aux);
 

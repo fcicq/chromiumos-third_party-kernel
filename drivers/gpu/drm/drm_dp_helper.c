@@ -1236,8 +1236,30 @@ static const struct i2c_algorithm drm_dp_i2c_algo = {
 };
 
 /**
+ * drm_dp_aux_init() - minimally initialise an aux channel
+ * @aux: DisplayPort AUX channel
+ *
+ * If you need to use the drm_dp_aux's i2c adapter prior to registering it
+ * with the outside world, call drm_dp_aux_init() first. You must still
+ * call drm_dp_aux_register() once the connector has been registered to
+ * allow userspace access to the auxiliary DP channel.
+ */
+void drm_dp_aux_init(struct drm_dp_aux *aux)
+{
+	mutex_init(&aux->hw_mutex);
+
+	aux->ddc.algo = &drm_dp_i2c_algo;
+	aux->ddc.algo_data = aux;
+	aux->ddc.retries = 3;
+
+}
+EXPORT_SYMBOL(drm_dp_aux_init);
+
+/**
  * drm_dp_aux_register() - initialise and register aux channel
  * @aux: DisplayPort AUX channel
+ *
+ * Automatically calls drm_dp_aux_init() if this hasn't been done yet.
  *
  * Returns 0 on success or a negative error code on failure.
  */
@@ -1245,11 +1267,8 @@ int drm_dp_aux_register(struct drm_dp_aux *aux)
 {
 	int ret;
 
-	mutex_init(&aux->hw_mutex);
-
-	aux->ddc.algo = &drm_dp_i2c_algo;
-	aux->ddc.algo_data = aux;
-	aux->ddc.retries = 3;
+	if (!aux->ddc.algo)
+		drm_dp_aux_init(aux);
 
 	aux->ddc.class = I2C_CLASS_DDC;
 	aux->ddc.owner = THIS_MODULE;
