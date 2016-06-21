@@ -73,8 +73,6 @@ static irqreturn_t mtk_disp_rdma_irq_handler(int irq, void *dev_id)
 	if (!priv->crtc)
 		return IRQ_NONE;
 
-	mtk_crtc_target_line_irq(priv->crtc);
-
 	return IRQ_HANDLED;
 }
 

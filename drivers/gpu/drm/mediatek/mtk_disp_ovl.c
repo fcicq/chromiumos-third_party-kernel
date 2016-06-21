@@ -177,9 +177,10 @@ static unsigned int ovl_fmt_convert(unsigned int fmt)
 }
 
 static void mtk_ovl_layer_config(struct mtk_ddp_comp *comp, unsigned int idx,
-				 struct mtk_plane_pending_state *pending,
+				 struct mtk_plane_state *state,
 				 struct cmdq_rec *handle)
 {
+	struct mtk_plane_pending_state *pending = &state->pending;
 	unsigned int addr = pending->addr;
 	unsigned int pitch = pending->pitch & 0xffff;
 	unsigned int fmt = pending->format;

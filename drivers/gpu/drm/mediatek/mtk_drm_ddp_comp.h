@@ -78,7 +78,7 @@ struct mtk_ddp_comp_funcs {
 	void (*layer_off)(struct mtk_ddp_comp *comp, unsigned int idx,
 			  struct cmdq_rec *handle);
 	void (*layer_config)(struct mtk_ddp_comp *comp, unsigned int idx,
-			     struct mtk_plane_pending_state *pending,
+			     struct mtk_plane_state *state,
 			     struct cmdq_rec *handle);
 };
 
@@ -148,11 +148,11 @@ static inline void mtk_ddp_comp_layer_off(struct mtk_ddp_comp *comp,
 
 static inline void mtk_ddp_comp_layer_config(struct mtk_ddp_comp *comp,
 					     unsigned int idx,
-					     struct mtk_plane_pending_state *pending,
+					    struct mtk_plane_state *state,
 					     struct cmdq_rec *handle)
 {
 	if (comp->funcs && comp->funcs->layer_config)
-		comp->funcs->layer_config(comp, idx, pending, handle);
+		comp->funcs->layer_config(comp, idx, state, handle);
 }
 
 int mtk_ddp_comp_get_id(struct device_node *node,
