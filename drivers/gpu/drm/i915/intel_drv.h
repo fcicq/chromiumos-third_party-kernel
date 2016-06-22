@@ -458,6 +458,11 @@ struct intel_crtc_state {
 	 * accordingly. */
 	bool has_dp_encoder;
 
+	/* Bitmask of encoder types (enum intel_output_type)
+	 * driven by the pipe.
+	 */
+	unsigned int output_types;
+
 	/* Whether we should send NULL infoframes. Required for audio. */
 	bool has_hdmi_sink;
 
