@@ -252,6 +252,14 @@ struct rockchip_typec_phy {
 	struct reset_control *tcphy_rst;
 	struct rockchip_usb3phy_port_cfg port_cfgs;
 
+	/* to receive notifier from PD */
+	struct notifier_block usb_event_nb;
+	struct notifier_block host_event_nb;
+	struct notifier_block dp_event_nb;
+
+	struct delayed_work event_wq;
+
+	bool plugged;
 	bool flip;
 	u8 mode;
 	u8 pin_assign;
@@ -636,10 +644,9 @@ static int tcphy_dp_init(struct rockchip_typec_phy *tcphy)
 	return 0;
 }
 
-static int tcphy_phy_init(struct rockchip_typec_phy *tcphy)
+static int tcphy_phy_clk_enable(struct rockchip_typec_phy *tcphy)
 {
 	struct rockchip_usb3phy_port_cfg *cfg = &tcphy->port_cfgs;
-	u32 val;
 	int ret;
 
 	ret = clk_prepare_enable(tcphy->clk_core);
@@ -660,15 +667,39 @@ static int tcphy_phy_init(struct rockchip_typec_phy *tcphy)
 		goto err_clk_core;
 	}
 
-	reset_control_assert(tcphy->tcphy_rst);
-	reset_control_assert(tcphy->uphy_rst);
-	reset_control_assert(tcphy->pipe_rst);
+	msleep(10);
 
 	/* select external psm clock */
 	property_enable(tcphy, &cfg->external_psm, 1);
 	property_enable(tcphy, &cfg->usb3tousb2_en, 0);
 
+	return 0;
+
+err_clk_core:
+	clk_disable_unprepare(tcphy->clk_core);
+	return ret;
+}
+
+static void tcphy_phy_clk_disable(struct rockchip_typec_phy *tcphy)
+{
+	clk_disable_unprepare(tcphy->clk_core);
+	clk_disable_unprepare(tcphy->clk_ref);
+}
+
+static int tcphy_phy_init(struct rockchip_typec_phy *tcphy)
+{
+	u32 val;
+	int ret;
+
+	reset_control_assert(tcphy->tcphy_rst);
+	reset_control_assert(tcphy->uphy_rst);
+	reset_control_assert(tcphy->pipe_rst);
+
+	msleep(10);
+
 	reset_control_deassert(tcphy->tcphy_rst);
+
+	msleep(200);
 
 	tcphy_lanes_config(tcphy);
 
@@ -681,31 +712,32 @@ static int tcphy_phy_init(struct rockchip_typec_phy *tcphy)
 			writel(0x0104, tcphy->base + DP_MODE_CTL);
 	}
 
+	msleep(100);
+
 	reset_control_deassert(tcphy->uphy_rst);
+
+	msleep(200);
 
 	ret = readx_poll_timeout(readl, tcphy->base + PMA_CMN_CTRL1,
 				 val, val & CMN_READY, 10,
 				 PHY_MODE_SET_TIMEOUT);
 	if (ret < 0) {
 		dev_err(tcphy->dev, "wait pma ready timeout\n");
-		goto timeout_pma_ready;
+		return ret;
 	}
+
+	msleep(10);
 
 	reset_control_deassert(tcphy->pipe_rst);
 
+	msleep(200);
+
 	return 0;
 
-timeout_pma_ready:
-	clk_disable_unprepare(tcphy->clk_ref);
-err_clk_core:
-	clk_disable_unprepare(tcphy->clk_core);
-	return ret;
 }
 
 static void tcphy_phy_deinit(struct rockchip_typec_phy *tcphy)
 {
-	clk_disable_unprepare(tcphy->clk_core);
-	clk_disable_unprepare(tcphy->clk_ref);
 	reset_control_assert(tcphy->tcphy_rst);
 	reset_control_assert(tcphy->uphy_rst);
 	reset_control_assert(tcphy->pipe_rst);
@@ -732,6 +764,9 @@ static int rockchip_typec_phy_power_on(struct phy *_phy)
 
 	pin_assign = extcon_get_cable_state_(edev, EXTCON_TYPEC_PIN_ASSIGN);
 	tcphy->flip = extcon_get_cable_state_(edev, EXTCON_TYPEC_POLARITY);
+
+	dev_info(tcphy->dev, "ufp %d dfp %d dp %d pin_assign %d polarity %d\n",
+		 ufp, dfp, dp, pin_assign, tcphy->flip);
 
 	if (ufp) {
 		mode = MODE_UFP_USB;
@@ -787,6 +822,63 @@ static const struct phy_ops rockchip_tcphy_ops = {
 	.power_off	= rockchip_typec_phy_power_off,
 	.owner		= THIS_MODULE,
 };
+
+static void rockchip_tcphy_event_handler(struct work_struct *work)
+{
+	struct rockchip_typec_phy *tcphy;
+	bool plugged, dfp, ufp, dp;
+	struct extcon_dev *edev;
+
+	tcphy = container_of(work, struct rockchip_typec_phy, event_wq.work);
+	edev = tcphy->extcon;
+
+	ufp = extcon_get_cable_state_(edev, EXTCON_USB);
+	dfp = extcon_get_cable_state_(edev, EXTCON_USB_HOST);
+	dp = extcon_get_cable_state_(edev, EXTCON_DISP_DP);
+
+	plugged = ufp || dfp || dp;
+
+	if (plugged != tcphy->plugged) {
+		if (plugged)
+			rockchip_typec_phy_power_on(tcphy->phy);
+		else
+			rockchip_typec_phy_power_off(tcphy->phy);
+		tcphy->plugged = plugged;
+	}
+}
+
+static int tcphy_pd_usb_event(struct notifier_block *nb,
+			      unsigned long event, void *priv)
+{
+	struct rockchip_typec_phy *tcphy;
+
+	tcphy = container_of(nb, struct rockchip_typec_phy, usb_event_nb);
+	schedule_delayed_work(&tcphy->event_wq, 0);
+
+	return 0;
+}
+
+static int tcphy_pd_host_event(struct notifier_block *nb,
+			       unsigned long event, void *priv)
+{
+	struct rockchip_typec_phy *tcphy;
+
+	tcphy = container_of(nb, struct rockchip_typec_phy, host_event_nb);
+	schedule_delayed_work(&tcphy->event_wq, 0);
+
+	return 0;
+}
+
+static int tcphy_pd_dp_event(struct notifier_block *nb,
+			     unsigned long event, void *priv)
+{
+	struct rockchip_typec_phy *tcphy;
+
+	tcphy = container_of(nb, struct rockchip_typec_phy, dp_event_nb);
+	schedule_delayed_work(&tcphy->event_wq, 0);
+
+	return 0;
+}
 
 static int tcphy_get_param(struct device *dev,
 			   struct usb3phy_reg *reg,
@@ -914,6 +1006,10 @@ static int rockchip_typec_phy_probe(struct platform_device *pdev)
 	tcphy->dev = dev;
 	platform_set_drvdata(pdev, tcphy);
 
+	ret = tcphy_phy_clk_enable(tcphy);
+	if (ret)
+		return ret;
+
 	tcphy->mode = MODE_DISCONNECT;
 
 	tcphy->extcon = extcon_get_edev_by_phandle(dev, 0);
@@ -937,6 +1033,58 @@ static int rockchip_typec_phy_probe(struct platform_device *pdev)
 		return PTR_ERR(phy_provider);
 	}
 
+	INIT_DELAYED_WORK(&tcphy->event_wq, rockchip_tcphy_event_handler);
+
+	tcphy->usb_event_nb.notifier_call = tcphy_pd_usb_event;
+	ret = extcon_register_notifier(tcphy->extcon, EXTCON_USB,
+				       &tcphy->usb_event_nb);
+	if (ret) {
+		dev_err(dev, "register EXTCON_USB notifer failed\n");
+		return ret;
+	}
+
+	tcphy->host_event_nb.notifier_call = tcphy_pd_host_event;
+	ret = extcon_register_notifier(tcphy->extcon, EXTCON_USB_HOST,
+				       &tcphy->host_event_nb);
+	if (ret) {
+		dev_err(dev, "register EXTCON_USB_HOST notifer failed\n");
+		goto unregister_usb;
+	}
+
+	tcphy->dp_event_nb.notifier_call = tcphy_pd_dp_event;
+	ret = extcon_register_notifier(tcphy->extcon, EXTCON_DISP_DP,
+				       &tcphy->dp_event_nb);
+	if (ret) {
+		dev_err(dev, "register EXTCON_DISP_DP notifer failed\n");
+		goto unregister_host;
+	}
+
+	schedule_delayed_work(&tcphy->event_wq, 0);
+
+	return 0;
+
+unregister_host:
+	extcon_unregister_notifier(tcphy->extcon, EXTCON_USB_HOST,
+				   &tcphy->host_event_nb);
+unregister_usb:
+	extcon_unregister_notifier(tcphy->extcon, EXTCON_USB,
+				   &tcphy->usb_event_nb);
+	return ret;
+}
+
+static int rockchip_typec_phy_remove(struct platform_device *pdev)
+{
+	struct rockchip_typec_phy *tcphy = platform_get_drvdata(pdev);
+
+	extcon_unregister_notifier(tcphy->extcon, EXTCON_DISP_DP,
+				   &tcphy->dp_event_nb);
+	extcon_unregister_notifier(tcphy->extcon, EXTCON_USB_HOST,
+				   &tcphy->host_event_nb);
+	extcon_unregister_notifier(tcphy->extcon, EXTCON_USB,
+				   &tcphy->usb_event_nb);
+
+	tcphy_phy_clk_disable(tcphy);
+
 	return 0;
 }
 
@@ -949,6 +1097,7 @@ MODULE_DEVICE_TABLE(of, rockchip_typec_phy_dt_ids);
 
 static struct platform_driver rockchip_typec_phy_driver = {
 	.probe		= rockchip_typec_phy_probe,
+	.remove		= rockchip_typec_phy_remove,
 	.driver		= {
 		.name	= "rockchip-typec-phy",
 		.of_match_table = rockchip_typec_phy_dt_ids,
