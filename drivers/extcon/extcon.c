@@ -53,6 +53,10 @@ static const char *extcon_name[] =  {
 	[EXTCON_CHG_USB_FAST]		= "FAST-CHARGER",
 	[EXTCON_CHG_USB_SLOW]		= "SLOW-CHARGER",
 
+	/* Type-c connector */
+	[EXTCON_TYPEC_POLARITY]		= "TYPE-C-POLARITY",
+	[EXTCON_TYPEC_PIN_ASSIGN]	= "TYPE-C-PIN-ASSIGN",
+
 	/* Jack external connector */
 	[EXTCON_JACK_MICROPHONE]	= "MICROPHONE",
 	[EXTCON_JACK_HEADPHONE]		= "HEADPHONE",
@@ -68,6 +72,8 @@ static const char *extcon_name[] =  {
 	[EXTCON_DISP_MHL]		= "MHL",
 	[EXTCON_DISP_DVI]		= "DVI",
 	[EXTCON_DISP_VGA]		= "VGA",
+	[EXTCON_DISP_DP]		= "DP",
+	[EXTCON_DISP_DP_ALT]		= "DP-ALT",
 
 	/* Miscellaneous external connector */
 	[EXTCON_DOCK]			= "DOCK",

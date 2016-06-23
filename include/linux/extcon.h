@@ -45,6 +45,10 @@
 #define EXTCON_CHG_USB_FAST	9
 #define EXTCON_CHG_USB_SLOW	10
 
+/* Type-c connector */
+#define EXTCON_TYPEC_POLARITY	11	/* Typec-C plug orientation */
+#define EXTCON_TYPEC_PIN_ASSIGN	12	/* Typec-C pin Assignment */
+
 /* Jack external connector */
 #define EXTCON_JACK_MICROPHONE	20
 #define EXTCON_JACK_HEADPHONE	21
@@ -60,6 +64,8 @@
 #define EXTCON_DISP_MHL		41	/* Mobile High-Definition Link */
 #define EXTCON_DISP_DVI		42	/* Digital Visual Interface */
 #define EXTCON_DISP_VGA		43	/* Video Graphics Array */
+#define EXTCON_DISP_DP		44	/* Display Port */
+#define EXTCON_DISP_DP_ALT	45	/* Display Port Type-C Alternate Mode */
 
 /* Miscellaneous external connector */
 #define EXTCON_DOCK		60
