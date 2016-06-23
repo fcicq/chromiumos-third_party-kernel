@@ -29,8 +29,9 @@
 #include "rx_desc.h"
 #include "hw.h"
 
-#define ATH10K_TX_STATS_OFFSET	128
-#define ATH10K_TX_STATS_NO_OF_COMB_FB 4
+#define ATH10K_TX_STATS_OFFSET		128
+#define ATH10K_TX_STATS_OFFSET_V2	136
+#define ATH10K_TX_STATS_NO_OF_COMB_FB	4
 
 struct ath10k_per_peer_tx_stats {
 	u8 ratecode[ATH10K_TX_STATS_NO_OF_COMB_FB];

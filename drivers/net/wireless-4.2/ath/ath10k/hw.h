@@ -361,6 +361,14 @@ struct ath10k_pktlog_hdr {
 	u8 payload[0];
 } __packed;
 
+enum {
+	PKTLOG_INFO_FLAG_LOCAL = 1 << 0,
+	PKTLOG_INFO_FLAG_REMOTE = 1 << 1,
+	PKTLOG_INFO_FLAG_CLONE = 1 << 2,
+	PKTLOG_INFO_FLAG_HW_STATUS_V2 = 1 << 3,
+	PKTLOG_INFO_FLAG_UNKNOWN,
+};
+
 enum ath10k_hw_rate_ofdm {
 	ATH10K_HW_RATE_OFDM_48M = 0,
 	ATH10K_HW_RATE_OFDM_24M,

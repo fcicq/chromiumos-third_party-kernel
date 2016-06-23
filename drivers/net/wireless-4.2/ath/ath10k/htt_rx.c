@@ -2131,6 +2131,7 @@ void ath10k_process_tx_stats(struct ath10k *ar, u8 *data)
 {
 	struct ath10k_pktlog_hdr *pl_hdr = (struct ath10k_pktlog_hdr *)data;
 	u16 log_type = __le16_to_cpu(pl_hdr->log_type);
+	u16 log_flags = __le16_to_cpu(pl_hdr->flags);
 	struct ath10k_peer *peer;
 	struct ath10k_per_peer_tx_stats *p_tx_stats = &ar->peer_tx_stats;
 
@@ -2139,8 +2140,14 @@ void ath10k_process_tx_stats(struct ath10k *ar, u8 *data)
 		return;
 
 	if (log_type == ATH10K_SMART_ANT_PKTLOG_TYPE_TXSTATS) {
-		memcpy(p_tx_stats, (pl_hdr->payload) +
-			ATH10K_TX_STATS_OFFSET, sizeof(*p_tx_stats));
+		if (log_flags & PKTLOG_INFO_FLAG_HW_STATUS_V2)
+			memcpy(p_tx_stats, (pl_hdr->payload) +
+					ATH10K_TX_STATS_OFFSET_V2,
+					sizeof(*p_tx_stats));
+		else
+			memcpy(p_tx_stats, (pl_hdr->payload) +
+					ATH10K_TX_STATS_OFFSET,
+					sizeof(*p_tx_stats));
 	} else {
 		struct ieee80211_sta *sta;
 		struct ath10k_sta *arsta;

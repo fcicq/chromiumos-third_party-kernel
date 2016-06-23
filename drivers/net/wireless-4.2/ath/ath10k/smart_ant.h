@@ -62,6 +62,7 @@ extern u32 ath10k_default_antenna_5g;
 #define ATH10K_SMART_ANT_PER_MAX	100
 
 #define ATH10K_PPDU_SIZE_MAX		32
+#define ATH10K_PPDU_SIZE_MAX_V2		34
 
 /* Max number of antenna combinations 2 ^ max_supported_ant */
 #define ATH10K_SMART_ANT_COMB_MAX	8
@@ -110,6 +111,8 @@ extern u32 ath10k_default_antenna_5g;
 
 #define ATH10K_TXS_LRETRY		21
 #define ATH10K_TXS_SRETRY		22
+#define ATH10K_TXS_LRETRY_V2		31
+#define ATH10K_TXS_SRETRY_V2		32
 #define ATH10K_TXS_ACK_RSSI             23
 
 #define ATH10K_TXS_TOT_TRIES		27
@@ -481,7 +484,7 @@ struct ath10k_smart_ant_info {
 	u16 num_sta_conneted;
 	u8 rx_antenna;
 	bool enabled;
-	u32 tx_ppdu_end[ATH10K_PPDU_SIZE_MAX];
+	u32 tx_ppdu_end[ATH10K_PPDU_SIZE_MAX_V2];
 	u32 num_enabled_vif;
 	u8 debug_level;
 };
