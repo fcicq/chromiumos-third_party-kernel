@@ -33,6 +33,10 @@
 #include "rate.h"
 #include "debugfs_sta.h"
 
+#ifdef CONFIG_MAC80211_PACKET_TRACE
+#include "packet_trace.h"
+#endif
+
 #ifdef CONFIG_QCA_NSS_DRV
 
 #define case_rtn_string(val) case val: return #val
@@ -3177,12 +3181,22 @@ static void ieee80211_rx_handlers(struct ieee80211_rx_data *rx,
 	ieee80211_rx_result res = RX_DROP_MONITOR;
 	struct sk_buff *skb;
 
+#ifdef CONFIG_MAC80211_PACKET_TRACE
+#define CALL_RXH(rxh)			\
+	do {                            \
+		res = rxh(rx);          \
+		PACKET_TRACE_RX_DBG(rx, res, " %s", #rxh);	\
+		if (res != RX_CONTINUE)	\
+			goto rxh_next;  \
+	} while (0);
+#else
 #define CALL_RXH(rxh)			\
 	do {				\
 		res = rxh(rx);		\
 		if (res != RX_CONTINUE)	\
 			goto rxh_next;  \
 	} while (0);
+#endif
 
 	/* Lock here to avoid hitting all of the data used in the RX
 	 * path (e.g. key data, station data, ...) concurrently when
@@ -3241,12 +3255,22 @@ static void ieee80211_invoke_rx_handlers(struct ieee80211_rx_data *rx)
 
 	__skb_queue_head_init(&reorder_release);
 
+#ifdef CONFIG_MAC80211_PACKET_TRACE
+#define CALL_RXH(rxh)			\
+	do {                            \
+		res = rxh(rx);          \
+		PACKET_TRACE_RX_DBG(rx, res, " %s", #rxh);	\
+		if (res != RX_CONTINUE)	\
+			goto rxh_next;  \
+	} while (0);
+#else
 #define CALL_RXH(rxh)			\
 	do {				\
 		res = rxh(rx);		\
 		if (res != RX_CONTINUE)	\
 			goto rxh_next;  \
 	} while (0);
+#endif
 
 	CALL_RXH(ieee80211_rx_h_check_dup)
 	CALL_RXH(ieee80211_rx_h_check)
@@ -3427,6 +3451,10 @@ static bool ieee80211_prepare_and_rx_handle(struct ieee80211_rx_data *rx,
 	struct ieee80211_sub_if_data *sdata = rx->sdata;
 
 	rx->skb = skb;
+
+#ifdef CONFIG_MAC80211_PACKET_TRACE
+	PACKET_TRACE_SET_RX_STATUS(local, rx->sta, skb);
+#endif
 
 	if (!ieee80211_accept_frame(rx))
 		return false;
