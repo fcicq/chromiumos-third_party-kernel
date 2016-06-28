@@ -879,8 +879,7 @@ void update_cpu_capabilities(const struct arm64_cpu_capabilities *caps,
  * Run through the enabled capabilities and enable() it on all active
  * CPUs
  */
-static void __init
-enable_cpu_capabilities(const struct arm64_cpu_capabilities *caps)
+void __init enable_cpu_capabilities(const struct arm64_cpu_capabilities *caps)
 {
 	for (; caps->matches; caps++)
 		if (caps->enable && cpus_have_cap(caps->capability))
@@ -995,6 +994,7 @@ void __init setup_cpu_features(void)
 
 	/* Set the CPU feature capabilies */
 	setup_feature_capabilities();
+	enable_errata_workarounds();
 	setup_elf_hwcaps(arm64_elf_hwcaps);
 	setup_elf_hwcaps(compat_elf_hwcaps);
 
