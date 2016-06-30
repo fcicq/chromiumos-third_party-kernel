@@ -752,8 +752,11 @@ static void intel_psr_work(struct work_struct *work)
 			}
 		}
 	} else {
-		if (wait_for((I915_READ(VLV_PSRSTAT(pipe)) &
-			      VLV_EDP_PSR_IN_TRANS) == 0, 1)) {
+		if (intel_wait_for_register(dev_priv,
+					    VLV_PSRSTAT(pipe),
+					    VLV_EDP_PSR_IN_TRANS,
+					    0,
+					    1)) {
 			DRM_ERROR("Timed out waiting for PSR Idle for re-enable\n");
 			return;
 		}
