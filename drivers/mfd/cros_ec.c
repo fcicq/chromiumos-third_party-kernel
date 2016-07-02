@@ -106,6 +106,34 @@ u32 cros_ec_get_host_event(struct cros_ec_device *ec_dev)
 }
 EXPORT_SYMBOL(cros_ec_get_host_event);
 
+static int cros_ec_readmem(struct cros_ec_device *ec_dev, unsigned int offset,
+			unsigned int bytes, void *dest)
+{
+	struct cros_ec_command *msg;
+	struct ec_params_read_memmap params = { .offset = offset, .size = bytes };
+	int ret;
+
+	msg = kzalloc(sizeof(*msg) + max_t(unsigned int, bytes, sizeof(params)),
+		      GFP_KERNEL);
+	if (!msg)
+		return -ENOMEM;
+
+	msg->command = EC_CMD_READ_MEMMAP;
+	msg->insize = bytes;
+	msg->outsize = sizeof(params);
+	memcpy(msg->data, &params, sizeof(params));
+
+	ret = cros_ec_cmd_xfer(ec_dev, msg);
+	if (ret >= 0) {
+		if (WARN_ON(ret != bytes))
+			return -EPROTO;
+		memcpy(dest, msg->data, bytes);
+	}
+	kfree(msg);
+
+	return ret;
+}
+
 static irqreturn_t ec_irq_thread(int irq, void *data)
 {
 	struct cros_ec_device *ec_dev = data;
@@ -146,6 +174,10 @@ int cros_ec_register(struct cros_ec_device *ec_dev)
 {
 	struct device *dev = ec_dev->dev;
 	int err = 0;
+
+	if (!ec_dev->cmd_readmem) {
+		ec_dev->cmd_readmem = cros_ec_readmem;
+	}
 
 	BLOCKING_INIT_NOTIFIER_HEAD(&ec_dev->event_notifier);
 

@@ -60,6 +60,8 @@ struct cros_ec_keyb {
 	struct input_dev *idev;
 	struct cros_ec_device *ec;
 	struct notifier_block notifier;
+
+	struct delayed_work power_button_work;
 };
 
 
@@ -170,11 +172,66 @@ static void cros_ec_keyb_close(struct input_dev *dev)
 					   &ckdev->notifier);
 }
 
+static void cros_ec_keyb_check_switches(struct cros_ec_keyb *ckdev,
+					bool power_button_event)
+{
+	struct cros_ec_device *ec = ckdev->ec;
+	struct input_dev *idev = ckdev->idev;
+	u8 data;
+	int ret;
+
+	// TODO: need a lock???
+
+	ret = ec->cmd_readmem(ec, EC_MEMMAP_SWITCHES, 1, &data);
+	if (ret < 0) {
+		dev_err(ckdev->dev, "Error reading switches: %d\n", ret);
+		return;
+	}
+
+	/*
+	 * If we saw a power button event but polling shows that the
+	 * key is no longer pressed, this might be a "quick press".
+	 * We'll make sure that the state is in sync.
+	 */
+	if (power_button_event && !(data & EC_SWITCH_POWER_BUTTON_PRESSED)) {
+                input_report_key(idev, KEY_POWER, 1);
+                input_sync(idev);
+	}
+
+	input_report_switch(idev, SW_LID, !(data & EC_SWITCH_LID_OPEN));
+	input_report_key(idev, KEY_POWER, !!(data & EC_SWITCH_POWER_BUTTON_PRESSED));
+
+	input_sync(ckdev->idev);
+
+	/* Poll until power button is released */
+	if (data & EC_SWITCH_POWER_BUTTON_PRESSED)
+		schedule_delayed_work(&ckdev->power_button_work, msecs_to_jiffies(20));
+}
+
+static void power_button_work_func(struct work_struct *work)
+{
+	struct cros_ec_keyb *ckdev = container_of(work, struct cros_ec_keyb, 
+						  power_button_work.work);
+
+	cros_ec_keyb_check_switches(ckdev, false);
+}
+
 static int cros_ec_keyb_work(struct notifier_block *nb,
 			     unsigned long queued_during_suspend, void *_notify)
 {
 	struct cros_ec_keyb *ckdev = container_of(nb, struct cros_ec_keyb,
 						  notifier);
+	u32 host_event;
+
+	host_event = cros_ec_get_host_event(ckdev->ec);
+
+	if (host_event & EC_HOST_EVENT_MASK(EC_HOST_EVENT_POWER_BUTTON)) {
+		cros_ec_keyb_check_switches(ckdev, true);
+	} else if (host_event &
+		   (EC_HOST_EVENT_MASK(EC_HOST_EVENT_LID_OPEN) |
+		    EC_HOST_EVENT_MASK(EC_HOST_EVENT_LID_CLOSED))) {
+		cros_ec_keyb_check_switches(ckdev, false);
+	}
 
 	if (ckdev->ec->event_data.event_type != EC_MKBP_EVENT_KEY_MATRIX)
 		return NOTIFY_DONE;
@@ -279,7 +336,11 @@ static int cros_ec_keyb_probe(struct platform_device *pdev)
 
 	ckdev->row_shift = get_count_order(ckdev->cols);
 
+	INIT_DELAYED_WORK(&ckdev->power_button_work, power_button_work_func);
+
 	input_set_capability(idev, EV_MSC, MSC_SCAN);
+	input_set_capability(idev, EV_SW, SW_LID);
+	input_set_capability(idev, EV_KEY, KEY_POWER);
 	input_set_drvdata(idev, ckdev);
 	ckdev->idev = idev;
 	cros_ec_keyb_compute_valid_keys(ckdev);
