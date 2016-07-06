@@ -3589,7 +3589,6 @@ struct ec_response_pd_log {
 	uint8_t payload[0]; /* optional additional data payload: 0..16 bytes */
 } __packed;
 
-
 /* The timestamp is the microsecond counter shifted to get about a ms. */
 #define PD_LOG_TIMESTAMP_SHIFT 10 /* 1 LSB = 1024us */
 
@@ -3704,6 +3703,26 @@ struct ec_params_pd_write_log_entry {
 	uint8_t port; /* port#, or 0 for events unrelated to a given port */
 } __packed;
 
+<<<<<<< HEAD
+=======
+/* Get info about USB-C SS muxes */
+#define EC_CMD_USB_PD_MUX_INFO 0x11a
+
+struct ec_params_usb_pd_mux_info {
+	uint8_t port; /* USB-C port number */
+} __packed;
+
+/* Flags representing mux state */
+#define USB_PD_MUX_USB_ENABLED       (1 << 0)
+#define USB_PD_MUX_DP_ENABLED        (1 << 1)
+#define USB_PD_MUX_POLARITY_INVERTED (1 << 2)
+
+struct ec_response_usb_pd_mux_info {
+	uint8_t flags; /* USB_PD_MUX_*-encoded USB mux state */
+} __packed;
+
+#endif  /* !__ACPI__ */
+>>>>>>> af53b61... TEST-ONLY: support rk3399 type-c extcon
 
 /* Control USB-PD chip */
 #define EC_CMD_PD_CONTROL 0x119

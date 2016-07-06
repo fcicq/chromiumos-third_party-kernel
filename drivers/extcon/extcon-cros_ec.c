@@ -58,6 +58,7 @@ struct cros_ec_extcon_info {
 	struct wake_lock wakelock;
 	bool wakelock_held;
 
+	unsigned int mux; /* display port alt mode */
 	unsigned int dr; /* data role */
 	unsigned int pr; /* power role */
 	unsigned int power_type;
@@ -78,6 +79,9 @@ enum {
 static const unsigned int usb_type_c_cable[] = {
 	EXTCON_USB,
 	EXTCON_USB_HOST,
+	EXTCON_DISP_DP,
+	EXTCON_TYPEC_POLARITY,
+	EXTCON_TYPEC_PIN_ASSIGN,
 	EXTCON_NONE,
 };
 
@@ -177,6 +181,30 @@ static int cros_ec_usb_get_role(struct cros_ec_extcon_info *info)
 }
 
 /**
+ * cros_ec_usb_get_mux() - Get mux info about possible PD device attached to a
+ * given port.
+ * @info: pointer to struct cros_ec_extcon_info
+ *
+ *
+ * Return: mux info on success, <0 on failure.
+ */
+static int cros_ec_usb_get_mux(struct cros_ec_extcon_info *info)
+{
+	struct ec_params_usb_pd_mux_info pd_mux;
+	struct ec_response_usb_pd_mux_info resp;
+	int ret;
+
+	pd_mux.port = info->port_id;
+	ret = cros_ec_pd_command(info, EC_CMD_USB_PD_MUX_INFO, 0,
+				 &pd_mux, sizeof(pd_mux),
+				 &resp, sizeof(resp));
+	if (ret < 0)
+		return ret;
+
+	return resp.flags;
+}
+
+/**
  * cros_ec_pd_get_num_ports() - Get number of EC charge ports.
  * @info: pointer to struct cros_ec_extcon_info
  *
@@ -272,11 +300,24 @@ static unsigned int cros_ec_usb_role_is_writeable(unsigned int role)
 	return write_mask;
 }
 
+static int find_cable_index_by_id(const unsigned int id)
+{
+	int i;
+
+	/* Find the the index of extcon cable in edev->supported_cable */
+	for (i = 0; i < ARRAY_SIZE(usb_type_c_cable); i++) {
+		if (usb_type_c_cable[i] == id)
+			return i;
+	}
+
+	return -EINVAL;
+}
+
 static int extcon_cros_ec_detect_cable(struct cros_ec_extcon_info *info)
 {
 	struct device *dev = info->dev;
 	int role, power_type;
-	unsigned int dr, pr;
+	unsigned int dr, pr, mux;
 
 	power_type = cros_ec_usb_get_power_type(info);
 	if (power_type < 0) {
@@ -300,6 +341,13 @@ static int extcon_cros_ec_detect_cable(struct cros_ec_extcon_info *info)
 			DUAL_ROLE_PROP_PR_SRC : DUAL_ROLE_PROP_PR_SNK;
 	}
 
+	mux = cros_ec_usb_get_mux(info);
+	if (mux < 0) {
+		dev_warn(dev, "failed getting power type err = %d\n",
+			power_type);
+	}
+
+	printk("%s %x %x %d\n",__func__, dr, pr, mux);
 	/*
 	 * When there is no USB host (e.g. USB PD charger),
 	 * we are not really a UFP for the AP.
@@ -308,15 +356,18 @@ static int extcon_cros_ec_detect_cable(struct cros_ec_extcon_info *info)
 	    cros_ec_usb_power_type_is_wall_wart(power_type, role))
 		dr = DUAL_ROLE_PROP_DR_NONE;
 
-	if (info->dr != dr || info->pr != pr ||
+	if (info->dr != dr || info->pr != pr || info->mux != mux ||
 	    info->power_type != power_type) {
 		bool host_connected = false, device_connected = false;
+		bool dp_connected = false, flip = false;
+		int state;
 
 		dev_dbg(dev, "Type/Role switch! type = %s role = %s\n",
 			cros_ec_usb_power_type_string(power_type),
 			cros_ec_usb_role_string(dr));
 		info->dr = dr;
 		info->pr = pr;
+		info->mux = mux;
 		info->power_type = power_type;
 		info->writeable = cros_ec_usb_role_is_writeable(role);
 
@@ -334,10 +385,29 @@ static int extcon_cros_ec_detect_cable(struct cros_ec_extcon_info *info)
 			info->wakelock_held = false;
 		}
 
+		if (!(mux & USB_PD_MUX_USB_ENABLED)) {
+			device_connected = false;
+			host_connected = false;
+		}
+
+		dp_connected = (mux & USB_PD_MUX_DP_ENABLED) ? 1 : 0;
+		flip = (mux & USB_PD_MUX_POLARITY_INVERTED) ? 1 : 0;
+
+/*
 		extcon_set_cable_state_(info->edev, EXTCON_USB_HOST,
 					host_connected);
 		extcon_set_cable_state_(info->edev, EXTCON_USB,
 					device_connected);
+*/
+		state = device_connected << find_cable_index_by_id(EXTCON_USB);
+		state |= host_connected << find_cable_index_by_id(EXTCON_USB_HOST);
+		state |= dp_connected << find_cable_index_by_id(EXTCON_DISP_DP);
+		state |= flip << find_cable_index_by_id(EXTCON_TYPEC_POLARITY);
+		state |= 1 << find_cable_index_by_id(EXTCON_TYPEC_PIN_ASSIGN);
+
+		extcon_set_state(info->edev, state);
+
+
 		wake_up_all(&info->role_wait);
 		dual_role_instance_changed(info->drp_inst);
 	}
@@ -355,7 +425,8 @@ static int extcon_cros_ec_event(struct notifier_block *nb,
 	ec = info->ec;
 
 	host_event = cros_ec_get_host_event(ec);
-	if (host_event & EC_HOST_EVENT_MASK(EC_HOST_EVENT_PD_MCU)) {
+	if (host_event & (EC_HOST_EVENT_MASK(EC_HOST_EVENT_PD_MCU) |
+			  EC_HOST_EVENT_MASK(EC_HOST_EVENT_USB_MUX))) {
 		extcon_cros_ec_detect_cable(info);
 		return NOTIFY_OK;
 	}
