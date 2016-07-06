@@ -10,6 +10,7 @@
 #define _KBASE_PLATFORM_H_
 
 #include <linux/clk.h>
+#include <linux/notifier.h>
 #include <mali_kbase.h>
 #include "mali_kbase_rk_dvfs.h"
 
@@ -33,6 +34,8 @@ struct kbase_rk {
 	unsigned int thermal_throttling_level;
 	struct kbase_rk_dvfs dvfs;
 	struct mutex set_level_lock;
+	/* Notifier block to runtime resume the kbase_device on suspend. */
+	struct notifier_block pm_nb;
 	bool is_powered;
 };
 

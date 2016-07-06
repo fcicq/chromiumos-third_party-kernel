@@ -9,8 +9,25 @@
 #include <linux/device_cooling.h>
 #include <linux/of.h>
 #include <linux/pm_runtime.h>
+#include <linux/suspend.h>
 #include <linux/regulator/driver.h>
 #include "mali_kbase_rk.h"
+
+static int kbase_pm_notifier(struct notifier_block *nb, unsigned long action,
+		void *data)
+{
+	struct kbase_rk *kbase_rk = container_of(nb, struct kbase_rk, pm_nb);
+	struct device *dev = kbase_rk->kbdev->dev;
+
+	switch (action) {
+	case PM_SUSPEND_PREPARE:
+		return pm_runtime_get_sync(dev);
+	case PM_POST_SUSPEND:
+		return pm_runtime_put(dev);
+	}
+
+	return 0;
+}
 
 static int kbase_rk_rt_power_on_callback(struct kbase_device *kbdev)
 {
@@ -113,11 +130,22 @@ static void kbase_rk_power_off_callback(struct kbase_device *kbdev)
 static int kbase_rk_power_runtime_init_callback(
 		struct kbase_device *kbdev)
 {
+	struct kbase_rk *kbase_rk = kbdev->platform_context;
+	int err;
+
 	if (!kbdev->regulator)
 		return -ENODEV;
 
 	pm_runtime_set_autosuspend_delay(kbdev->dev, 200);
 	pm_runtime_use_autosuspend(kbdev->dev);
+
+	kbase_rk->pm_nb.notifier_call = kbase_pm_notifier;
+	kbase_rk->pm_nb.priority = 0;
+	err = register_pm_notifier(&kbase_rk->pm_nb);
+	if (err) {
+		dev_err(kbdev->dev, "Couldn't register pm notifier\n");
+		return -ENODEV;
+	}
 
 	pm_runtime_set_active(kbdev->dev);
 	pm_runtime_enable(kbdev->dev);
@@ -128,7 +156,10 @@ static int kbase_rk_power_runtime_init_callback(
 static void kbase_rk_power_runtime_term_callback(
 		struct kbase_device *kbdev)
 {
+	struct kbase_rk *kbase_rk = kbdev->platform_context;
+
 	pm_runtime_disable(kbdev->dev);
+	unregister_pm_notifier(&kbase_rk->pm_nb);
 }
 
 static void kbase_rk_power_suspend_callback(struct kbase_device *kbdev)
