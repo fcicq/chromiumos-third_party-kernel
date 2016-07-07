@@ -286,6 +286,25 @@
 		status = "disabled";
 	};
 
+	usb2phy: usb2phy {
+		compatible = "rockchip,rk3399-usb-phy";
+		rockchip,grf = <&grf>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		usb2phy0: usb2-phy0 {
+			#phy-cells = <0>;
+			#clock-cells = <0>;
+			reg = <0xe458>;
+		};
+
+		usb2phy1: usb2-phy1 {
+			#phy-cells = <0>;
+			#clock-cells = <0>;
+			reg = <0xe468>;
+		};
+	};
+
 	usb_host0_ehci: usb@fe380000 {
 		compatible = "generic-ehci";
 		reg = <0x0 0xfe380000 0x0 0x20000>;
