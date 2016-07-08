@@ -70,7 +70,9 @@ static int tpm_tis_spi_read_bytes(struct tpm_tis_data *data, u32 addr,
 	};
 
 	if (len > MAX_SPI_FRAMESIZE)
-		return -ENOMEM;
+		return -EINVAL;
+
+	mdelay(1);
 
 	phy->tx_buf[0] = 0x80 | (len - 1);
 	phy->tx_buf[1] = 0xd4;
@@ -128,7 +130,9 @@ static int tpm_tis_spi_write_bytes(struct tpm_tis_data *data, u32 addr,
 	};
 
 	if (len > MAX_SPI_FRAMESIZE)
-		return -ENOMEM;
+		return -EINVAL;
+
+	mdelay(1);
 
 	phy->tx_buf[0] = len - 1;
 	phy->tx_buf[1] = 0xd4;
