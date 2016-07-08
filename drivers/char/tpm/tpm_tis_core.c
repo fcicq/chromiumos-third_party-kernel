@@ -168,8 +168,15 @@ static int get_burstcount(struct tpm_chip *chip)
 			return rc;
 
 		burstcnt = (value >> 8) & 0xFFFF;
-		if (burstcnt)
+		if (burstcnt) {
+			if (burstcnt > 64) {
+				dev_warn(&chip->dev,
+					"cap burstcnt: %d -> 64\n",
+					burstcnt);
+				burstcnt = 64;
+			}
 			return burstcnt;
+		}
 		msleep(TPM_TIMEOUT);
 	} while (time_before(jiffies, stop));
 	return -EBUSY;
