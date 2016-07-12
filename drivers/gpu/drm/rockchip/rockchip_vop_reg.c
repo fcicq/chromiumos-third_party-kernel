@@ -272,6 +272,7 @@ static const struct vop_intr rk3288_vop_intr = {
 };
 
 static const struct vop_data rk3288_vop = {
+	.feature = VOP_FEATURE_OUTPUT_10BIT,
 	.init_table = rk3288_init_reg_table,
 	.table_size = ARRAY_SIZE(rk3288_init_reg_table),
 	.intr = &rk3288_vop_intr,
@@ -340,6 +341,7 @@ static const struct vop_reg_data rk3399_init_reg_table[] = {
 };
 
 static const struct vop_data rk3399_vop_big = {
+	.feature = VOP_FEATURE_OUTPUT_10BIT,
 	.init_table = rk3399_init_reg_table,
 	.table_size = ARRAY_SIZE(rk3399_init_reg_table),
 	.intr = &rk3399_vop_intr,

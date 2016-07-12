@@ -135,6 +135,8 @@ struct vop_win_data {
 	enum drm_plane_type type;
 };
 
+#define VOP_FEATURE_OUTPUT_10BIT BIT(0)
+
 struct vop_data {
 	const struct vop_reg_data *init_table;
 	unsigned int table_size;
@@ -142,6 +144,7 @@ struct vop_data {
 	const struct vop_intr *intr;
 	const struct vop_win_data *win;
 	unsigned int win_size;
+	u64 feature;
 };
 
 /* interrupt define */
