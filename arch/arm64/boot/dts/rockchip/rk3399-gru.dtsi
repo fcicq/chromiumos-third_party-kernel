@@ -731,9 +731,13 @@ ap_i2c_audio: &i2c8 {
 	status = "okay";
 
 	cr50@0 {
-		compatible = "google,cr50", "tcg,tpm_tis-spi";
+		compatible = "google,cr50";
 		reg = <0>;
 		spi-max-frequency = <800000>; // TODO: review later
+
+		access-delay-ms = <2>; // TODO: review later
+		sleep-delay-ms = <1000>;
+		wake-start-delay-ms = <60>;
 	};
 };
 
