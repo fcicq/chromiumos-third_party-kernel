@@ -158,6 +158,7 @@ static int get_burstcount(struct tpm_chip *chip)
 	unsigned long stop;
 	int burstcnt, rc;
 	u32 value;
+	bool retry_burstcnt = false;
 
 	/* wait for burstcount */
 	/* which timeout value, spec has 2 answers (c & d) */
@@ -168,8 +169,21 @@ static int get_burstcount(struct tpm_chip *chip)
 			return rc;
 
 		burstcnt = (value >> 8) & 0xFFFF;
-		if (burstcnt)
-			return burstcnt;
+		if (burstcnt) {
+			/* If burstcnt is larger than max allowed xfer
+			 * size, retry once - may be a glitch. Return
+			 * max_xfer_size on the 2nd try to avoid being
+			 * stuck forever.
+			 */
+			if ((priv->phy_ops->max_xfer_size == 0) ||
+			    (burstcnt <= priv->phy_ops->max_xfer_size))
+				return burstcnt;
+			if (retry_burstcnt)
+				return priv->phy_ops->max_xfer_size;
+			dev_warn(&chip->dev,
+				 "Bad burstcnt read: %d\n", burstcnt);
+			retry_burstcnt = true;
+		}
 		msleep(TPM_TIMEOUT);
 	} while (time_before(jiffies, stop));
 	return -EBUSY;
