@@ -113,7 +113,7 @@ static ssize_t pcrs_show(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR_RO(pcrs);
 
-static ssize_t enabled_show(struct device *dev, struct device_attribute *attr,
+static ssize_t enabled1_show(struct device *dev, struct device_attribute *attr,
 		     char *buf)
 {
 	cap_t cap;
@@ -126,6 +126,32 @@ static ssize_t enabled_show(struct device *dev, struct device_attribute *attr,
 
 	rc = sprintf(buf, "%d\n", !cap.perm_flags.disable);
 	return rc;
+}
+
+static ssize_t enabled2_show(struct device *dev, struct device_attribute *attr,
+			  char *buf)
+{
+	u32 flags;
+	ssize_t rc;
+
+	rc = tpm2_get_tpm_pt(to_tpm_chip(dev), TPM2_PT_STARTUP_CLEAR, &flags,
+			"attempting to determine the enabled state");
+	if (rc)
+		return 0;
+
+	flags = be32_to_cpu(flags);
+	dev_dbg(dev, "enabled: stclear flags=0x%08x\n", flags);
+
+	return sprintf(buf, "%d\n", !!(flags & TPM2_ATTR_SH_ENABLE));
+}
+
+static ssize_t enabled_show(struct device *dev, struct device_attribute *attr,
+			  char *buf)
+{
+	if (to_tpm_chip(dev)->flags & TPM_CHIP_FLAG_TPM2)
+		return enabled2_show(dev, attr, buf);
+	else
+		return enabled1_show(dev, attr, buf);
 }
 static DEVICE_ATTR_RO(enabled);
 
@@ -145,7 +171,7 @@ static ssize_t active_show(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR_RO(active);
 
-static ssize_t owned_show(struct device *dev, struct device_attribute *attr,
+static ssize_t owned1_show(struct device *dev, struct device_attribute *attr,
 			  char *buf)
 {
 	cap_t cap;
@@ -158,6 +184,32 @@ static ssize_t owned_show(struct device *dev, struct device_attribute *attr,
 
 	rc = sprintf(buf, "%d\n", cap.owned);
 	return rc;
+}
+
+static ssize_t owned2_show(struct device *dev, struct device_attribute *attr,
+			  char *buf)
+{
+	u32 flags;
+	ssize_t rc;
+
+	rc = tpm2_get_tpm_pt(to_tpm_chip(dev), TPM2_PT_PERMANENT, &flags,
+			"attempting to determine the owner state");
+	if (rc)
+		return 0;
+
+	flags = be32_to_cpu(flags);
+	dev_dbg(dev, "owned: permanent flags=0x%08x\n", flags);
+
+	return sprintf(buf, "%d\n", !!(flags & TPM2_ATTR_OWNER_AUTH_SET));
+}
+
+static ssize_t owned_show(struct device *dev, struct device_attribute *attr,
+			  char *buf)
+{
+	if (to_tpm_chip(dev)->flags & TPM_CHIP_FLAG_TPM2)
+		return owned2_show(dev, attr, buf);
+	else
+		return owned1_show(dev, attr, buf);
 }
 static DEVICE_ATTR_RO(owned);
 
@@ -282,6 +334,16 @@ static const struct attribute_group tpm_dev_group = {
 	.attrs = tpm_dev_attrs,
 };
 
+static struct attribute *tpm2_dev_attrs[] = {
+	&dev_attr_enabled.attr,
+	&dev_attr_owned.attr,
+	NULL,
+};
+
+static const struct attribute_group tpm2_dev_group = {
+	.attrs = tpm2_dev_attrs,
+};
+
 void tpm_sysfs_add_device(struct tpm_chip *chip)
 {
 	/* The sysfs routines rely on an implicit tpm_try_get_ops, device_del
@@ -289,5 +351,8 @@ void tpm_sysfs_add_device(struct tpm_chip *chip)
 	 * removal so that no callbacks are running or can run again
 	 */
 	WARN_ON(chip->groups_cnt != 0);
-	chip->groups[chip->groups_cnt++] = &tpm_dev_group;
+	chip->groups[chip->groups_cnt++] =
+		(chip->flags & TPM_CHIP_FLAG_TPM2) ?
+		&tpm2_dev_group :
+		&tpm_dev_group;
 }
