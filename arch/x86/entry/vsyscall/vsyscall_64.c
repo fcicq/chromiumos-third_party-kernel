@@ -227,8 +227,8 @@ bool emulate_vsyscall(struct pt_regs *regs, unsigned long address)
 	 * With a real vsyscall, page faults cause SIGSEGV.  We want to
 	 * preserve that behavior to make writing exploits harder.
 	 */
-	prev_sig_on_uaccess_error = current_thread_info()->sig_on_uaccess_error;
-	current_thread_info()->sig_on_uaccess_error = 1;
+	prev_sig_on_uaccess_error = current->thread.sig_on_uaccess_error;
+	current->thread.sig_on_uaccess_error = 1;
 
 	ret = -EFAULT;
 	switch (vsyscall_nr) {
@@ -249,7 +249,7 @@ bool emulate_vsyscall(struct pt_regs *regs, unsigned long address)
 		break;
 	}
 
-	current_thread_info()->sig_on_uaccess_error = prev_sig_on_uaccess_error;
+	current->thread.sig_on_uaccess_error = prev_sig_on_uaccess_error;
 
 check_fault:
 	if (ret == -EFAULT) {
