@@ -264,7 +264,7 @@ static ssize_t timeouts_show(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR_RO(timeouts);
 
-static struct attribute *tpm_dev_attrs[] = {
+static struct attribute *tpm1_dev_attrs[] = {
 	&dev_attr_pubek.attr,
 	&dev_attr_pcrs.attr,
 	&dev_attr_enabled.attr,
@@ -278,8 +278,106 @@ static struct attribute *tpm_dev_attrs[] = {
 	NULL,
 };
 
-static const struct attribute_group tpm_dev_group = {
-	.attrs = tpm_dev_attrs,
+static const struct attribute_group tpm1_dev_group = {
+	.attrs = tpm1_dev_attrs,
+};
+
+static ssize_t tpm2_prop_flag_show(struct device *dev, u32 property_id,
+				   u32 flag_mask, char *buf)
+{
+	u32 flags;
+	ssize_t rc;
+
+	rc = tpm2_get_tpm_pt(to_tpm_chip(dev), property_id, &flags,
+			     "reading property");
+	if (rc)
+		return 0;
+
+	return sprintf(buf, "%d\n", !!(flags & flag_mask));
+}
+
+static ssize_t tpm2_prop_u32_show(struct device *dev, u32 property_id,
+				  char *buf)
+{
+	u32 value;
+	ssize_t rc;
+
+	rc = tpm2_get_tpm_pt(to_tpm_chip(dev), property_id, &value,
+			     "reading property");
+	if (rc)
+		return 0;
+
+	return sprintf(buf, "%u\n", value);
+}
+
+#define DEFINE_TPM2_PROP_FLAG_ATTR(name, property_id, flag_mask)      \
+static ssize_t name##_show(struct device *dev,                        \
+			   struct device_attribute *attr, char *buf)  \
+{                                                                     \
+	return tpm2_prop_flag_show(dev, property_id, flag_mask, buf); \
+}                                                                     \
+static DEVICE_ATTR_RO(name)
+
+#define DEFINE_TPM2_PROP_U32_ATTR(name, property_id)                  \
+static ssize_t name##_show(struct device *dev,                        \
+			   struct device_attribute *attr, char *buf)  \
+{                                                                     \
+	return tpm2_prop_u32_show(dev, property_id, buf);             \
+}                                                                     \
+static DEVICE_ATTR_RO(name)
+
+DEFINE_TPM2_PROP_FLAG_ATTR(owner_auth_set,
+			   TPM2_PT_PERMANENT, TPM2_ATTR_OWNER_AUTH_SET);
+DEFINE_TPM2_PROP_FLAG_ATTR(endorsement_auth_set,
+			   TPM2_PT_PERMANENT, TPM2_ATTR_ENDORSEMENT_AUTH_SET);
+DEFINE_TPM2_PROP_FLAG_ATTR(lockout_auth_set,
+			   TPM2_PT_PERMANENT, TPM2_ATTR_LOCKOUT_AUTH_SET);
+DEFINE_TPM2_PROP_FLAG_ATTR(disable_clear,
+			   TPM2_PT_PERMANENT, TPM2_ATTR_DISABLE_CLEAR);
+DEFINE_TPM2_PROP_FLAG_ATTR(in_lockout,
+			   TPM2_PT_PERMANENT, TPM2_ATTR_IN_LOCKOUT);
+DEFINE_TPM2_PROP_FLAG_ATTR(tpm_generated_eps,
+			   TPM2_PT_PERMANENT, TPM2_ATTR_TPM_GENERATED_EPS);
+
+DEFINE_TPM2_PROP_FLAG_ATTR(ph_enable,
+			   TPM2_PT_STARTUP_CLEAR, TPM2_ATTR_PH_ENABLE);
+DEFINE_TPM2_PROP_FLAG_ATTR(sh_enable,
+			   TPM2_PT_STARTUP_CLEAR, TPM2_ATTR_SH_ENABLE);
+DEFINE_TPM2_PROP_FLAG_ATTR(eh_enable,
+			   TPM2_PT_STARTUP_CLEAR, TPM2_ATTR_EH_ENABLE);
+DEFINE_TPM2_PROP_FLAG_ATTR(ph_enable_nv,
+			   TPM2_PT_STARTUP_CLEAR, TPM2_ATTR_PH_ENABLE_NV);
+DEFINE_TPM2_PROP_FLAG_ATTR(orderly,
+			   TPM2_PT_STARTUP_CLEAR, TPM2_ATTR_ORDERLY);
+
+DEFINE_TPM2_PROP_U32_ATTR(lockout_counter, TPM2_PT_LOCKOUT_COUNTER);
+DEFINE_TPM2_PROP_U32_ATTR(max_auth_fail, TPM2_PT_MAX_AUTH_FAIL);
+DEFINE_TPM2_PROP_U32_ATTR(lockout_interval, TPM2_PT_LOCKOUT_INTERVAL);
+DEFINE_TPM2_PROP_U32_ATTR(lockout_recovery, TPM2_PT_LOCKOUT_RECOVERY);
+
+static struct attribute *tpm2_dev_attrs[] = {
+	&dev_attr_owner_auth_set.attr,
+	&dev_attr_endorsement_auth_set.attr,
+	&dev_attr_lockout_auth_set.attr,
+	&dev_attr_disable_clear.attr,
+	&dev_attr_in_lockout.attr,
+	&dev_attr_tpm_generated_eps.attr,
+	&dev_attr_ph_enable.attr,
+	&dev_attr_sh_enable.attr,
+	&dev_attr_eh_enable.attr,
+	&dev_attr_ph_enable_nv.attr,
+	&dev_attr_orderly.attr,
+	&dev_attr_lockout_counter.attr,
+	&dev_attr_max_auth_fail.attr,
+	&dev_attr_lockout_interval.attr,
+	&dev_attr_lockout_recovery.attr,
+	&dev_attr_durations.attr,
+	&dev_attr_timeouts.attr,
+	NULL,
+};
+
+static const struct attribute_group tpm2_dev_group = {
+	.attrs = tpm2_dev_attrs,
 };
 
 void tpm_sysfs_add_device(struct tpm_chip *chip)
@@ -289,5 +387,7 @@ void tpm_sysfs_add_device(struct tpm_chip *chip)
 	 * removal so that no callbacks are running or can run again
 	 */
 	WARN_ON(chip->groups_cnt != 0);
-	chip->groups[chip->groups_cnt++] = &tpm_dev_group;
+	chip->groups[chip->groups_cnt++] =
+		(chip->flags & TPM_CHIP_FLAG_TPM2) ?
+		&tpm2_dev_group : &tpm1_dev_group;
 }
