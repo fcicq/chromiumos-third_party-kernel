@@ -1,0 +1,32 @@
+* H1 Secure Microcontroller with Cr50 Firmware on SPI Bus.
+
+H1 Secure Microcontroller running Cr50 firmware provides several
+functions, including TPM-like functionality. It communicates over
+SPI using the FIFO protocol described in the PTP Spec, section 6.
+
+Required properties:
+- compatible: Should be "google,cr50".
+- spi-max-frequency: Maximum SPI frequency.
+
+Optional properties:
+- access-delay-ms: Required delay between subsequent transactions on SPI.
+- sleep-delay-ms: Time after the last SPI activity, after which the chip
+  may go to sleep.
+- wake-start-delay-ms: Time after initiating wake up before the chip is
+  ready to accept commands over SPI.
+
+Example:
+
+&spi0 {
+        status = "okay";
+
+        cr50@0 {
+                compatible = "google,cr50";
+                reg = <0>;
+                spi-max-frequency = <800000>;
+
+                access-delay-ms = <2>;
+                sleep-delay-ms = <1000>;
+                wake-start-delay-ms = <60>;
+        };
+};
