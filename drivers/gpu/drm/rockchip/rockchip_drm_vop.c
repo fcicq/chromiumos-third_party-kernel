@@ -1306,6 +1306,7 @@ static int vop_update_plane_event(struct drm_plane *plane,
 	bool visible;
 	bool needs_vblank;
 	int i;
+	unsigned int r;
 	int ret;
 	struct drm_rect dest = {
 		.x1 = crtc_x,
@@ -1361,8 +1362,21 @@ static int vop_update_plane_event(struct drm_plane *plane,
 		}
 
 		if (obj->dma_buf) {
-			resvs[num_resvs] = obj->dma_buf->resv;
-			num_resvs++;
+			/* Sometimes it is desriable to allocate a single buffer
+			 * representing multiple planes.  For example, NV12 can be
+			 * represented with 2 buffers (for luma and chroma) or
+			 * just 1 (with a known offset providing differentation).
+			 * For the second case, make sure not to add reservations
+			 * twice.
+			 */
+			for (r = 0; r < num_resvs; r++) {
+				if (resvs[r] == obj->dma_buf->resv)
+					break;
+			}
+			if (r == num_resvs) {
+				resvs[num_resvs] = obj->dma_buf->resv;
+				num_resvs++;
+			}
 		}
 		rk_objs[i] = to_rockchip_obj(obj);
 	}
