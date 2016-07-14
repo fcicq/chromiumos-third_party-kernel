@@ -61,7 +61,6 @@ struct thread_info {
 	__u32			flags;		/* low level flags */
 	__u32			status;		/* thread synchronous flags */
 	__u32			cpu;		/* current CPU */
-	mm_segment_t		addr_limit;
 #ifdef CONFIG_ALT_SYSCALL
 	/*
 	 * This uses nr_syscalls instead of nr_syscall_max because we want
@@ -99,7 +98,6 @@ struct thread_info {
 	.task		= &tsk,			\
 	.flags		= 0,			\
 	.cpu		= 0,			\
-	.addr_limit	= KERNEL_DS,		\
 	INIT_THREAD_INFO_SYSCALL		\
 }
 
@@ -202,11 +200,6 @@ static inline struct thread_info *current_thread_info(void)
 #ifdef CONFIG_X86_64
 # define cpu_current_top_of_stack (cpu_tss + TSS_sp0)
 #endif
-
-/* Load thread_info address into "reg" */
-#define GET_THREAD_INFO(reg) \
-	_ASM_MOV PER_CPU_VAR(cpu_current_top_of_stack),reg ; \
-	_ASM_SUB $(THREAD_SIZE),reg ;
 
 /*
  * ASM operand which evaluates to a 'thread_info' address of

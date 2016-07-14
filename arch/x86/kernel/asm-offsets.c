@@ -37,7 +37,9 @@ void common(void) {
 	BLANK();
 	OFFSET(TI_flags, thread_info, flags);
 	OFFSET(TI_status, thread_info, status);
-	OFFSET(TI_addr_limit, thread_info, addr_limit);
+
+	BLANK();
+	OFFSET(TASK_addr_limit, task_struct, thread.addr_limit);
 #ifdef CONFIG_ALT_SYSCALL
 	OFFSET(TI_nr_syscalls, thread_info, nr_syscalls);
 	OFFSET(TI_sys_call_table, thread_info, sys_call_table);
