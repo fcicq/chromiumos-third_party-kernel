@@ -112,6 +112,7 @@ static void ironlake_pfit_disable(struct intel_crtc *crtc, bool force);
 static void ironlake_pfit_enable(struct intel_crtc *crtc);
 static void intel_modeset_setup_hw_state(struct drm_device *dev);
 static void intel_pre_disable_primary_noatomic(struct drm_crtc *crtc);
+static void intel_user_framebuffer_destroy(struct drm_framebuffer *fb);
 
 typedef struct {
 	int	min, max;
@@ -13805,6 +13806,94 @@ void intel_create_rotation_property(struct drm_device *dev, struct intel_plane *
 				plane->base.state->rotation);
 }
 
+static void
+intel_chv_clean_clipped_cursor(struct drm_framebuffer *clipped_cursor)
+{
+	struct drm_i915_gem_object * const obj = intel_fb_obj(clipped_cursor);
+
+	i915_gem_object_ggtt_unpin(obj);
+
+	intel_user_framebuffer_destroy(clipped_cursor);
+}
+
+static int
+intel_chv_clip_cursor(struct drm_plane *plane,
+				struct intel_plane_state *state)
+{
+	struct drm_device * const dev = plane->dev;
+	struct drm_i915_private * const dev_priv = dev->dev_private;
+	struct drm_i915_gem_object * const obj = intel_fb_obj(state->base.fb);
+	struct drm_i915_gem_object *cur_obj = NULL;
+	struct drm_framebuffer *cur_fb = dev_priv->clipped_cursor_fb;
+	char __iomem *src, *dst, *orig_src, *orig_dst;
+	struct drm_mode_fb_cmd2 mode_cmd = { 0 };
+	int i;
+	int height = state->base.crtc_h;
+	const int bytes_per_pixel = state->base.fb->bits_per_pixel / 8;
+	const int x_in_bytes = -state->base.crtc_x * bytes_per_pixel;
+	const int width_in_bytes = state->base.crtc_w * bytes_per_pixel;
+	const int w_not_clipped_in_bytes = width_in_bytes - x_in_bytes;
+
+	if (cur_fb) {
+		cur_obj = intel_fb_obj(cur_fb);
+	} else {
+		cur_obj = i915_gem_alloc_object(dev, obj->base.size);
+		if (IS_ERR(cur_obj))
+			return -ENOMEM;
+
+		/* Allocate a new buffer and associate by gem bo */
+		mode_cmd.width = state->base.fb->width;
+		mode_cmd.height = state->base.fb->height;
+		mode_cmd.pitches[0] = state->base.fb->pitches[0];
+		mode_cmd.pixel_format = state->base.fb->pixel_format;
+
+		cur_fb = intel_framebuffer_create(dev, &mode_cmd, cur_obj);
+		if (IS_ERR(cur_fb)) {
+			drm_gem_object_unreference_unlocked(&cur_obj->base);
+			return -ENOMEM;
+		}
+
+		if (i915_gem_obj_ggtt_pin(cur_obj, 0, 0) < 0) {
+			intel_user_framebuffer_destroy(cur_fb);
+			return -ENOMEM;
+		}
+
+		dev_priv->clipped_cursor_fb = cur_fb;
+	}
+
+	src = ioremap_wc(dev_priv->gtt.mappable_base +
+			i915_gem_obj_ggtt_offset(obj),
+			obj->base.size);
+	if (!src) {
+		intel_user_framebuffer_destroy(cur_fb);
+		return -ENOMEM;
+	}
+	orig_src = src;
+
+	dst = ioremap_wc(dev_priv->gtt.mappable_base +
+			i915_gem_obj_ggtt_offset(cur_obj),
+			cur_obj->base.size);
+	if (!dst) {
+		intel_user_framebuffer_destroy(cur_fb);
+		return -ENOMEM;
+	}
+	orig_dst = dst;
+
+	DRM_DEBUG_KMS("Cursor position < 0 on CHV PIPEC. x clipping = %d\n", state->base.crtc_x);
+
+	/* shift the original cursor in to copy buffer offsetting negative pos */
+	src += x_in_bytes;
+	for (i = 0; i < height; i++, dst += width_in_bytes, src += width_in_bytes) {
+		memcpy(dst, src, w_not_clipped_in_bytes);
+		memset(dst + w_not_clipped_in_bytes, 0, x_in_bytes);
+	}
+
+	iounmap(orig_src);
+	iounmap(orig_dst);
+
+	return 0;
+}
+
 static int
 intel_check_cursor_plane(struct drm_plane *plane,
 			 struct intel_crtc_state *crtc_state,
@@ -13858,10 +13947,20 @@ intel_check_cursor_plane(struct drm_plane *plane,
 	 * display power well must be turned off and on again.
 	 * Refuse the put the cursor into that compromised position.
 	 */
-	if (IS_CHERRYVIEW(plane->dev) && pipe == PIPE_C &&
-	    state->visible && state->base.crtc_x < 0) {
-		DRM_DEBUG_KMS("CHV cursor C not allowed to straddle the left screen edge\n");
-		return -EINVAL;
+	if (IS_CHERRYVIEW(plane->dev) && pipe == PIPE_C) {
+		if (state->visible && state->base.crtc_x < 0) {
+			DRM_DEBUG_KMS("CHV cursor C not allowed to straddle the left screen edge, clipping\n");
+			if (intel_chv_clip_cursor(plane, state) < 0)
+				/* Fail the configuration */
+				return -EINVAL;
+		} else {
+			struct drm_i915_private * const dev_priv = plane->dev->dev_private;
+
+			if (dev_priv->clipped_cursor_fb) {
+				intel_chv_clean_clipped_cursor(dev_priv->clipped_cursor_fb);
+				dev_priv->clipped_cursor_fb = NULL;
+			}
+		}
 	}
 
 	return 0;
@@ -13879,16 +13978,31 @@ intel_commit_cursor_plane(struct drm_plane *plane,
 			  struct intel_plane_state *state)
 {
 	struct drm_crtc *crtc = state->base.crtc;
-	struct drm_device *dev = plane->dev;
+	struct drm_device * const dev = plane->dev;
+	struct drm_i915_private * const dev_priv = dev->dev_private;
 	struct intel_crtc *intel_crtc;
-	struct drm_i915_gem_object *obj = intel_fb_obj(state->base.fb);
+	struct drm_i915_gem_object * const orig_obj = intel_fb_obj(state->base.fb);
+	struct drm_i915_gem_object *cur_obj = NULL, *obj = NULL;
+	struct drm_framebuffer * const cursor_fb = dev_priv->clipped_cursor_fb;
+	enum pipe pipe = to_intel_plane(plane)->pipe;
 	uint32_t addr;
+	const bool clipped_cursor = (IS_CHERRYVIEW(dev) && pipe == PIPE_C && cursor_fb);
 
 	crtc = crtc ? crtc : plane->crtc;
 	intel_crtc = to_intel_crtc(crtc);
 
-	plane->fb = state->base.fb;
-	crtc->cursor_x = state->base.crtc_x;
+	if (clipped_cursor) {
+		cur_obj = intel_fb_obj(cursor_fb);
+		plane->fb = cursor_fb;
+		crtc->cursor->state->crtc_x = 0;
+		crtc->cursor_x = 0;
+		obj = cur_obj;
+	} else {
+		plane->fb = state->base.fb;
+		crtc->cursor_x = state->base.crtc_x;
+		obj = orig_obj;
+	}
+
 	crtc->cursor_y = state->base.crtc_y;
 
 	if (intel_crtc->cursor_bo == obj)
@@ -13906,6 +14020,12 @@ intel_commit_cursor_plane(struct drm_plane *plane,
 
 update:
 	intel_crtc_update_cursor(crtc, state->visible);
+
+	if (clipped_cursor) {
+		/* restore */
+		crtc->cursor_x = state->base.crtc_x;
+		crtc->cursor->state->crtc_x = state->base.crtc_x;
+	}
 }
 
 static struct drm_plane *intel_cursor_plane_create(struct drm_device *dev,

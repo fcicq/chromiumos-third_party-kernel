@@ -1926,6 +1926,14 @@ struct drm_i915_private {
 	struct intel_encoder *dig_port_map[I915_MAX_PORTS];
 
 	/*
+	 * Temporary copy of drm_framebuffer to fill and use in case cursor
+	 * pos is < 0 for CHV PIPE_C
+	 * Will be initialized only when crtc_x < 0 as there is a
+	 * HW bug causing pipe underrun
+	 */
+	struct drm_framebuffer *clipped_cursor_fb;
+
+	/*
 	 * NOTE: This is the dri1/ums dungeon, don't add stuff here. Your patch
 	 * will be rejected. Instead look for a better place.
 	 */
