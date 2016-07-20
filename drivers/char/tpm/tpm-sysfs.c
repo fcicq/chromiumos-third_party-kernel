@@ -350,6 +350,17 @@ DEFINE_TPM2_PROP_FLAG_ATTR(ph_enable_nv,
 DEFINE_TPM2_PROP_FLAG_ATTR(orderly,
 			   TPM2_PT_STARTUP_CLEAR, TPM2_ATTR_ORDERLY);
 
+/* Aliases for userland scripts in TPM2 case */
+static struct device_attribute dev_attr_enabled2 = {
+	.attr = { .name = "enabled", .mode = S_IRUGO },
+	.show = sh_enable_show,
+};
+
+static struct device_attribute dev_attr_owned2 = {
+	.attr = { .name = "owned", .mode = S_IRUGO },
+	.show = owner_auth_set_show,
+};
+
 DEFINE_TPM2_PROP_U32_ATTR(lockout_counter, TPM2_PT_LOCKOUT_COUNTER);
 DEFINE_TPM2_PROP_U32_ATTR(max_auth_fail, TPM2_PT_MAX_AUTH_FAIL);
 DEFINE_TPM2_PROP_U32_ATTR(lockout_interval, TPM2_PT_LOCKOUT_INTERVAL);
@@ -367,6 +378,8 @@ static struct attribute *tpm2_dev_attrs[] = {
 	&dev_attr_eh_enable.attr,
 	&dev_attr_ph_enable_nv.attr,
 	&dev_attr_orderly.attr,
+	&dev_attr_enabled2.attr,
+	&dev_attr_owned2.attr,
 	&dev_attr_lockout_counter.attr,
 	&dev_attr_max_auth_fail.attr,
 	&dev_attr_lockout_interval.attr,
