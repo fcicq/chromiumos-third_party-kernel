@@ -104,9 +104,35 @@ struct v4l2_async_notifier {
 		       struct v4l2_async_subdev *asd);
 };
 
+/**
+ * v4l2_async_notifier_register - registers a subdevice asynchronous notifier
+ *
+ * @v4l2_dev: pointer to &struct v4l2_device
+ * @notifier: pointer to &struct v4l2_async_notifier
+ */
 int v4l2_async_notifier_register(struct v4l2_device *v4l2_dev,
 				 struct v4l2_async_notifier *notifier);
+
+/**
+ * v4l2_async_notifier_unregister - unregisters a subdevice asynchronous notifier
+ *
+ * @notifier: pointer to &struct v4l2_async_notifier
+ */
 void v4l2_async_notifier_unregister(struct v4l2_async_notifier *notifier);
+
+/**
+ * v4l2_async_register_subdev - registers a sub-device to the asynchronous
+ * 	subdevice framework
+ *
+ * @sd: pointer to &struct v4l2_subdev
+ */
 int v4l2_async_register_subdev(struct v4l2_subdev *sd);
+
+/**
+ * v4l2_async_unregister_subdev - unregisters a sub-device to the asynchronous
+ * 	subdevice framework
+ *
+ * @sd: pointer to &struct v4l2_subdev
+ */
 void v4l2_async_unregister_subdev(struct v4l2_subdev *sd);
 #endif
