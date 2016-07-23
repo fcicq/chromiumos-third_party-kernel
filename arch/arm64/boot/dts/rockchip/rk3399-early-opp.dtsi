@@ -109,3 +109,9 @@
 		};
 	};
 };
+
+// NOTE: remove 500MHz and 600MHz for pre-ES2
+&gpu_opp_table {
+	/delete-node/ opp03;
+	/delete-node/ opp04;
+};
