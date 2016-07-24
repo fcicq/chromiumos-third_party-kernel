@@ -200,6 +200,7 @@ struct da7219_aad_priv {
 
 	struct snd_soc_jack *jack;
 	bool jack_inserted;
+	bool accdet_en;
 };
 
 /* AAD control */

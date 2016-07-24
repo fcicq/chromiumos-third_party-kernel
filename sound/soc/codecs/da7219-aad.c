@@ -37,6 +37,7 @@ void da7219_aad_jack_det(struct snd_soc_codec *codec, struct snd_soc_jack *jack)
 
 	da7219->aad->jack = jack;
 	da7219->aad->jack_inserted = false;
+	da7219->aad->accdet_en = false;
 
 	/* Send an initial empty report */
 	snd_soc_jack_report(jack, 0, DA7219_AAD_REPORT_ALL_MASK);
@@ -45,6 +46,8 @@ void da7219_aad_jack_det(struct snd_soc_codec *codec, struct snd_soc_jack *jack)
 	snd_soc_update_bits(codec, DA7219_ACCDET_CONFIG_1,
 			    DA7219_ACCDET_EN_MASK,
 			    (jack ? DA7219_ACCDET_EN_MASK : 0));
+
+	da7219->aad->accdet_en = true;
 }
 EXPORT_SYMBOL_GPL(da7219_aad_jack_det);
 
@@ -276,6 +279,10 @@ static irqreturn_t da7219_aad_irq_thread(int irq, void *data)
 	u8 events[DA7219_AAD_IRQ_REG_MAX];
 	u8 statusa;
 	int i, report = 0, mask = 0;
+
+	/* Ensure the master bias to be enabled */
+	if (!da7219_aad->accdet_en)
+		return IRQ_NONE;
 
 	/* Read current IRQ events */
 	regmap_bulk_read(da7219->regmap, DA7219_ACCDET_IRQ_EVENT_A,
