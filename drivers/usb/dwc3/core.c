@@ -818,9 +818,7 @@ static void rockchip_otg_extcon_work(struct work_struct *work)
 {
 	struct dwc3 *dwc = container_of(work, struct dwc3, cable.work.work);
 	struct extcon_dev *edev = dwc->cable.edev;
-	struct usb_hcd *hcd;
 	int ret;
-	u32 reg;
 
 	if (extcon_get_cable_state_(edev, EXTCON_USB_HOST) > 0) {
 		dev_info(dwc->dev, "USB HOST connected\n");
@@ -828,63 +826,20 @@ static void rockchip_otg_extcon_work(struct work_struct *work)
 		if (dwc->cable.connected)
 			return;
 
-		if (WARN_ON(dwc->dr_mode == USB_DR_MODE_PERIPHERAL))
-			return;
-
 		ret = phy_power_on(dwc->usb3_generic_phy);
 		if (ret < 0)
 			return;
 
-		reset_control_deassert(dwc->otg_rst);
-
-		hcd = dev_get_drvdata(&dwc->xhci->dev);
-
-		dwc3_set_mode(dwc, DWC3_GCTL_PRTCAP_HOST);
-
-		if (hcd->state == HC_STATE_HALT) {
-			usb_add_hcd(hcd, hcd->irq, IRQF_SHARED);
-			usb_add_hcd(hcd->shared_hcd, hcd->irq, IRQF_SHARED);
-		}
-
 		dwc->cable.connected = true;
-		dev_info(dwc->dev, "%s : %d ", __func__, __LINE__);
 	} else {
 		dev_info(dwc->dev, "USB unconnected\n");
 
 		if (!dwc->cable.connected)
 			return;
 
-		reg = dwc3_readl(dwc->regs, DWC3_GCTL);
-
-		if (DWC3_GCTL_PRTCAP(reg) == DWC3_GCTL_PRTCAP_HOST) {
-			hcd = dev_get_drvdata(&dwc->xhci->dev);
-
-			if (hcd->state != HC_STATE_HALT) {
-				usb_remove_hcd(hcd->shared_hcd);
-				usb_remove_hcd(hcd);
-			}
-		}
-
-		switch (dwc->dr_mode) {
-		case USB_DR_MODE_PERIPHERAL:
-			dwc3_set_mode(dwc, DWC3_GCTL_PRTCAP_DEVICE);
-			break;
-		case USB_DR_MODE_HOST:
-			dwc3_set_mode(dwc, DWC3_GCTL_PRTCAP_HOST);
-			break;
-		case USB_DR_MODE_OTG:
-			dwc3_set_mode(dwc, DWC3_GCTL_PRTCAP_OTG);
-			break;
-		default:
-			return;
-		}
-
 		phy_power_off(dwc->usb3_generic_phy);
 
-		reset_control_assert(dwc->otg_rst);
-
 		dwc->cable.connected = false;
-		dev_info(dwc->dev, "%s : %d ", __func__, __LINE__);
 	}
 }
 
