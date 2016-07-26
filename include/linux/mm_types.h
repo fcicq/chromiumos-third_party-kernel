@@ -59,58 +59,56 @@ struct page {
 	};
 
 	/* Second double word */
-	struct {
-		union {
-			pgoff_t index;		/* Our offset within mapping. */
-			void *freelist;		/* sl[aou]b first free object */
-		};
+	union {
+		pgoff_t index;		/* Our offset within mapping. */
+		void *freelist;		/* sl[aou]b first free object */
+	};
 
-		union {
+	union {
 #if defined(CONFIG_HAVE_CMPXCHG_DOUBLE) && \
 	defined(CONFIG_HAVE_ALIGNED_STRUCT_PAGE)
-			/* Used for cmpxchg_double in slub */
-			unsigned long counters;
+		/* Used for cmpxchg_double in slub */
+		unsigned long counters;
 #else
-			/*
-			 * Keep _count separate from slub cmpxchg_double data.
-			 * As the rest of the double word is protected by
-			 * slab_lock but _count is not.
-			 */
-			unsigned counters;
+		/*
+		 * Keep _count separate from slub cmpxchg_double data.
+		 * As the rest of the double word is protected by
+		 * slab_lock but _count is not.
+		 */
+		unsigned counters;
 #endif
 
-			struct {
+		struct {
 
-				union {
-					/*
-					 * Count of ptes mapped in
-					 * mms, to show when page is
-					 * mapped & limit reverse map
-					 * searches.
-					 *
-					 * Used also for tail pages
-					 * refcounting instead of
-					 * _count. Tail pages cannot
-					 * be mapped and keeping the
-					 * tail page _count zero at
-					 * all times guarantees
-					 * get_page_unless_zero() will
-					 * never succeed on tail
-					 * pages.
-					 */
-					atomic_t _mapcount;
+			union {
+				/*
+				 * Count of ptes mapped in
+				 * mms, to show when page is
+				 * mapped & limit reverse map
+				 * searches.
+				 *
+				 * Used also for tail pages
+				 * refcounting instead of
+				 * _count. Tail pages cannot
+				 * be mapped and keeping the
+				 * tail page _count zero at
+				 * all times guarantees
+				 * get_page_unless_zero() will
+				 * never succeed on tail
+				 * pages.
+				 */
+				atomic_t _mapcount;
 
-					struct { /* SLUB */
-						unsigned inuse:16;
-						unsigned objects:15;
-						unsigned frozen:1;
-					};
-					int units;	/* SLOB */
+				struct { /* SLUB */
+					unsigned inuse:16;
+					unsigned objects:15;
+					unsigned frozen:1;
 				};
-				atomic_t _count;		/* Usage count, see below. */
+				int units;	/* SLOB */
 			};
-			unsigned int active;	/* SLAB */
+			atomic_t _count;		/* Usage count, see below. */
 		};
+		unsigned int active;	/* SLAB */
 	};
 
 	/*
