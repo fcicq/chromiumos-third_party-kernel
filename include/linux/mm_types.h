@@ -96,6 +96,11 @@ struct page {
 				 * get_page_unless_zero() will
 				 * never succeed on tail
 				 * pages.
+				 *
+				 * Extra information about page type may be
+				 * stored here for pages that are never mapped,
+				 * in which case the value MUST BE <= -2.
+				 * See page-flags.h for more details.
 				 */
 				atomic_t _mapcount;
 
