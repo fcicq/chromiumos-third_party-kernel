@@ -1349,9 +1349,9 @@ struct ieee80211_local {
 
 	struct work_struct restart_work;
 
-#ifdef CONFIG_MAC80211_PACKET_TRACE
-	int pt_enable;
-	void *pt_config;
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+	int wifi_diag_enable;
+	void *wifi_diag_config;
 #endif
 
 #ifdef CONFIG_MAC80211_DEBUGFS
