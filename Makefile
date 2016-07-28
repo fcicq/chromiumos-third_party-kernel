@@ -600,6 +600,8 @@ else
 KBUILD_CFLAGS	+= -O2
 endif
 
+KBUILD_CFLAGS	+= $(call cc-disable-warning,frame-address,)
+
 include $(srctree)/arch/$(SRCARCH)/Makefile
 
 ifdef CONFIG_READABLE_ASM
