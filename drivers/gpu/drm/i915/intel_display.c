@@ -13561,6 +13561,7 @@ intel_cleanup_plane_fb(struct drm_plane *plane,
 	struct drm_device *dev = plane->dev;
 	struct intel_plane *intel_plane = to_intel_plane(plane);
 	struct intel_plane_state *old_intel_state;
+	struct intel_plane_state *intel_state = to_intel_plane_state(plane->state);
 	struct drm_i915_gem_object *old_obj = intel_fb_obj(old_state->fb);
 	struct drm_i915_gem_object *obj = intel_fb_obj(plane->state->fb);
 
@@ -13578,6 +13579,7 @@ intel_cleanup_plane_fb(struct drm_plane *plane,
 	    (obj && !(obj->frontbuffer_bits & intel_plane->frontbuffer_bit)))
 		i915_gem_track_fb(old_obj, obj, intel_plane->frontbuffer_bit);
 
+	i915_gem_request_assign(&intel_state->wait_req, NULL);
 	i915_gem_request_assign(&old_intel_state->wait_req, NULL);
 
 }
