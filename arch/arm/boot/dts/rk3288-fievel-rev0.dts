@@ -166,7 +166,7 @@
 
 		/* Sleep only */
 		&bt_dev_wake_sleep
-		&pwr_led1_off
+		&pwr_led1_blink
 	>;
 
 	buck-5v {
@@ -183,11 +183,11 @@
 
 	leds {
 		pwr_led1_on: pwr-led1-on {
-			rockchip,pins = <7 3 RK_FUNC_GPIO &pcfg_output_high>;
+			rockchip,pins = <7 3 RK_FUNC_GPIO &pcfg_output_low>;
 		};
 
-		pwr_led1_off: pwr-led1-off {
-			rockchip,pins = <7 3 RK_FUNC_GPIO &pcfg_output_low>;
+		pwr_led1_blink: pwr-led1-blink {
+			rockchip,pins = <7 3 RK_FUNC_GPIO &pcfg_output_high>;
 		};
 	};
 
