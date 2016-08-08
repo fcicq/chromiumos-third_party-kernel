@@ -108,7 +108,7 @@ static void noop_apic_write(u32 reg, u32 v)
 	WARN_ON_ONCE(cpu_has_apic && !disable_apic);
 }
 
-struct apic apic_noop = {
+struct apic apic_noop __ro_after_init = {
 	.name				= "noop",
 	.probe				= noop_probe,
 	.acpi_madt_oem_check		= NULL,
