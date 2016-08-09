@@ -977,6 +977,38 @@ mwifiex_reset_write(struct file *file,
 	return count;
 }
 
+static int mwifiex_pcie_read_reg(struct mwifiex_adapter *adapter, int reg,
+				 u32 *data)
+{
+	struct pcie_service_card *card = adapter->card;
+
+	*data = ioread32(card->pci_mmap1 + reg);
+	if (*data == 0xffffffff)
+		return 0xffffffff;
+
+	return 0;
+}
+
+#define REVISION_ID_MAX_LEN 16
+
+static ssize_t
+mwifiex_revision_id_read(struct file *file, char __user *ubuf,
+			 size_t count, loff_t *ppos)
+{
+	struct mwifiex_private *priv = file->private_data;
+	char buf[REVISION_ID_MAX_LEN];
+	u32 revision_id = 0;
+	int len = 0;
+
+	BUG_ON(priv->adapter->iface_type != MWIFIEX_PCIE);
+
+	mwifiex_pcie_read_reg(priv->adapter, 0x8, &revision_id);
+	revision_id &= 0xff;
+
+	len = snprintf(buf, REVISION_ID_MAX_LEN, "0x%x\n", revision_id);
+	return simple_read_from_buffer(ubuf, count, ppos, buf, len);
+}
+
 #define MWIFIEX_DFS_ADD_FILE(name) do {                                 \
 	if (!debugfs_create_file(#name, 0644, priv->dfs_dev_dir,        \
 			priv, &mwifiex_dfs_##name##_fops))              \
@@ -1016,6 +1048,7 @@ MWIFIEX_DFS_FILE_OPS(debug_mask);
 MWIFIEX_DFS_FILE_OPS(timeshare_coex);
 MWIFIEX_DFS_FILE_WRITE_OPS(reset);
 MWIFIEX_DFS_FILE_OPS(verext);
+MWIFIEX_DFS_FILE_READ_OPS(revision_id);
 
 /*
  * This function creates the debug FS directory structure and the files.
@@ -1045,6 +1078,9 @@ mwifiex_dev_debugfs_init(struct mwifiex_private *priv)
 	MWIFIEX_DFS_ADD_FILE(timeshare_coex);
 	MWIFIEX_DFS_ADD_FILE(reset);
 	MWIFIEX_DFS_ADD_FILE(verext);
+
+	if  (priv->adapter->iface_type == MWIFIEX_PCIE)
+		MWIFIEX_DFS_ADD_FILE(revision_id);
 }
 
 /*
