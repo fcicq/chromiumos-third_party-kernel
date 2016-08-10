@@ -29,6 +29,7 @@ void ieee80211s_init(void)
 	mesh_allocated = 1;
 	rm_cache = kmem_cache_create("mesh_rmc", sizeof(struct rmc_entry),
 				     0, 0, NULL);
+	mesh_hwmp_init();
 }
 
 void ieee80211s_stop(void)
@@ -1445,7 +1446,6 @@ void ieee80211_mesh_init_sdata(struct ieee80211_sub_if_data *sdata)
 	ifmsh->last_preq = jiffies;
 	ifmsh->next_perr = jiffies;
 	ifmsh->csa_role = IEEE80211_MESH_CSA_ROLE_NONE;
-	ifmsh->bitrate_avg_weight = MESH_BITRATE_AVG_WEIGHT;
 	ifmsh->path_switch_threshold = MESH_PATH_SWITCH_TH;
 	/* Allocate all mesh structures when creating the first mesh interface. */
 	if (!mesh_allocated)
