@@ -205,6 +205,54 @@
 	POP_GS_EX
 .endm
 
+/*
+ * %eax: prev task
+ * %edx: next task
+ */
+ENTRY(__switch_to_asm)
+	/*
+	 * Save callee-saved registers
+	 * This must match the order in struct inactive_task_frame
+	 */
+	pushl	%ebp
+	pushl	%ebx
+	pushl	%edi
+	pushl	%esi
+
+	/* switch stack */
+	movl	%esp, TASK_threadsp(%eax)
+	movl	TASK_threadsp(%edx), %esp
+
+#ifdef CONFIG_CC_STACKPROTECTOR
+	movl	TASK_stack_canary(%edx), %ebx
+	movl	%ebx, PER_CPU_VAR(stack_canary)+stack_canary_offset
+#endif
+
+#ifdef CONFIG_RETPOLINE
+	/*
+	 * When switching from a shallower to a deeper call stack
+	 * the RSB may either underflow or use entries populated
+	 * with userspace addresses. On CPUs where those concerns
+	 * exist, overwrite the RSB with entries which capture
+	 * speculative execution to prevent attack.
+	 */
+	FILL_RETURN_BUFFER %ebx, RSB_CLEAR_LOOPS, X86_FEATURE_RSB_CTXSW
+#endif
+
+	/* restore callee-saved registers */
+	popl	%esi
+	popl	%edi
+	popl	%ebx
+	popl	%ebp
+
+	jmp	__switch_to
+END(__switch_to_asm)
+
+/*
+ * A newly forked process directly context switches into this address.
+ *
+ * eax: prev task we switched from
+ */
 ENTRY(ret_from_fork)
 	pushl	%eax
 	call	schedule_tail

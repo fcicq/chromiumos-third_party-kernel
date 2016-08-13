@@ -514,14 +514,59 @@ END(stub_x32_rt_sigreturn)
 #endif
 
 /*
+ * %rdi: prev task
+ * %rsi: next task
+ */
+ENTRY(__switch_to_asm)
+	/*
+	 * Save callee-saved registers
+	 * This must match the order in inactive_task_frame
+	 */
+	pushq	%rbp
+	pushq	%rbx
+	pushq	%r12
+	pushq	%r13
+	pushq	%r14
+	pushq	%r15
+
+	/* switch stack */
+	movq	%rsp, TASK_threadsp(%rdi)
+	movq	TASK_threadsp(%rsi), %rsp
+
+#ifdef CONFIG_CC_STACKPROTECTOR
+	movq	TASK_stack_canary(%rsi), %rbx
+	movq	%rbx, PER_CPU_VAR(irq_stack_union)+stack_canary_offset
+#endif
+
+#ifdef CONFIG_RETPOLINE
+	/*
+	 * When switching from a shallower to a deeper call stack
+	 * the RSB may either underflow or use entries populated
+	 * with userspace addresses. On CPUs where those concerns
+	 * exist, overwrite the RSB with entries which capture
+	 * speculative execution to prevent attack.
+	 */
+	FILL_RETURN_BUFFER %r12, RSB_CLEAR_LOOPS, X86_FEATURE_RSB_CTXSW
+#endif
+
+	/* restore callee-saved registers */
+	popq	%r15
+	popq	%r14
+	popq	%r13
+	popq	%r12
+	popq	%rbx
+	popq	%rbp
+
+	jmp	__switch_to
+END(__switch_to_asm)
+
+/*
  * A newly forked process directly context switches into this address.
  *
- * rdi: prev task we switched from
+ * rax: prev task we switched from
  */
 ENTRY(ret_from_fork)
-
-	LOCK ; btr $TIF_FORK, TI_flags(%r8)
-
+	movq	%rax, %rdi
 	call	schedule_tail			/* rdi: 'prev' task parameter */
 
 	RESTORE_EXTRA_REGS
