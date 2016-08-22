@@ -20,6 +20,9 @@ Required properties:
 Optional properties:
  - clock-frequency: Should specify the desired i2c bus clock frequency in Hz,
                     defaults to 100kHz if omitted.
+ - qup-clock-frequency: Should specify the desired i2c qup clock frequency in
+                    Hz. If omitted, then the frequency configured by bootloader
+		    will be used.
 
  - noise-reject-scl: Should specify the desired scl noise reject value (max value 3)
  - noise-reject-sda: Should specify the desired sda noise reject value (max value 3)

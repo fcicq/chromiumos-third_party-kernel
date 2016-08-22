@@ -1393,6 +1393,7 @@ static int qup_i2c_probe(struct platform_device *pdev)
 	int ret, fs_div, hs_div;
 	int src_clk_freq;
 	u32 clk_freq = 100000;
+	u32 qup_clk_freq;
 	int blocks;
 	u32 noise_rej_scl, noise_rej_sda;
 
@@ -1496,6 +1497,15 @@ nodma:
 	if (IS_ERR(qup->pclk)) {
 		dev_err(qup->dev, "Could not get iface clock\n");
 		return PTR_ERR(qup->pclk);
+	}
+
+	if (!of_property_read_u32(node, "qup-clock-frequency",
+			&qup_clk_freq)) {
+		ret = clk_set_rate(qup->clk, qup_clk_freq);
+		if (ret) {
+			dev_err(qup->dev, "Set qup clock frequency failed\n");
+			goto fail;
+		}
 	}
 
 	qup_i2c_enable_clocks(qup);
