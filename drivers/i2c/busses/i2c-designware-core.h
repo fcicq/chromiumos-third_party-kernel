@@ -119,6 +119,7 @@ struct dw_i2c_dev {
 	bool			pm_runtime_disabled;
 	bool			suspended;
 	bool			skip_resume;
+	bool			dynamic_tar_update_enabled;
 };
 
 #define ACCESS_SWAP		0x00000001
