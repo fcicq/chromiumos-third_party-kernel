@@ -49,7 +49,7 @@ static int tcp_diag_dump_one(struct sk_buff *in_skb, const struct nlmsghdr *nlh,
 
 #ifdef CONFIG_INET_DIAG_DESTROY
 static int tcp_diag_destroy(struct sk_buff *in_skb,
-			    struct inet_diag_req_v2 *req)
+			    const struct inet_diag_req_v2 *req)
 {
 	struct net *net = sock_net(in_skb->sk);
 	struct sock *sk = inet_diag_find_one_icsk(net, &tcp_hashinfo, req);

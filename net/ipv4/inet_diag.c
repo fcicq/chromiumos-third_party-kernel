@@ -294,7 +294,7 @@ static int sk_diag_fill(struct sock *sk, struct sk_buff *skb,
 
 struct sock *inet_diag_find_one_icsk(struct net *net,
 				     struct inet_hashinfo *hashinfo,
-				     struct inet_diag_req_v2 *req)
+				     const struct inet_diag_req_v2 *req)
 {
 	struct sock *sk;
 
