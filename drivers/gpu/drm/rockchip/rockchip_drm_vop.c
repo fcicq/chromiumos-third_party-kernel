@@ -879,6 +879,8 @@ static void vop_enable(struct drm_crtc *crtc)
 	}
 
 	memcpy(vop->regs, vop->regsbak, vop->len);
+	vop_cfg_done(vop);
+
 	/*
 	 * At here, vop clock & iommu is enable, R/W vop regs would be safe.
 	 */
