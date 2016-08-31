@@ -391,6 +391,7 @@ static void mesh_sta_info_init(struct ieee80211_sub_if_data *sdata,
 
 	spin_lock_bh(&sta->mesh->plink_lock);
 	sta->last_rx = jiffies;
+	ewma_init(&sta->mesh->avg_beacon_signal, 1024, 16);
 
 	/* rates and capabilities don't change during peering */
 	if (sta->mesh->plink_state == NL80211_PLINK_ESTAB &&
@@ -548,12 +549,14 @@ mesh_sta_info_get(struct ieee80211_sub_if_data *sdata,
  * @sdata: local meshif
  * @addr: peer's address
  * @elems: IEs from beacon or mesh peering frame
+ * @rx_signal: signal strength when receiving the mesh beacon
  *
  * Initiates peering if appropriate.
  */
 void mesh_neighbour_update(struct ieee80211_sub_if_data *sdata,
 			   u8 *hw_addr,
-			   struct ieee802_11_elems *elems)
+			   struct ieee802_11_elems *elems,
+			   int rx_signal)
 {
 	struct sta_info *sta;
 	u32 changed = 0;
@@ -568,6 +571,8 @@ void mesh_neighbour_update(struct ieee80211_sub_if_data *sdata,
 	    sdata->u.mesh.mshcfg.auto_open_plinks &&
 	    rssi_threshold_check(sdata, sta))
 		changed = mesh_plink_open(sta);
+
+	ewma_add(&sta->mesh->avg_beacon_signal, -rx_signal);
 
 	ieee80211_mps_frame_release(sta, elems);
 out:

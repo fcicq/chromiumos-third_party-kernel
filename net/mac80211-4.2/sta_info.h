@@ -292,6 +292,8 @@ struct ieee80211_fast_tx {
  * @t_offset: timing offset relative to this host
  * @t_offset_setpoint: reference timing offset of this sta to be used when
  * 	calculating clockdrift
+ * @avg_beacon_signal: moving average of signal of received mesh Beacon frames
+ *	from this peer
  * @local_pm: local link-specific power save mode
  * @peer_pm: peer-specific power save mode towards local STA
  * @nonpeer_pm: STA power save mode towards non-peer neighbors
@@ -316,6 +318,8 @@ struct mesh_sta {
 
 	enum nl80211_plink_state plink_state;
 	u32 plink_timeout;
+
+	struct ewma avg_beacon_signal;
 
 	/* mesh power save */
 	enum nl80211_mesh_power_mode local_pm;

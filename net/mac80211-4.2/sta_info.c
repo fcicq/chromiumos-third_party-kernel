@@ -1886,6 +1886,14 @@ void sta_set_sinfo(struct sta_info *sta, struct station_info *sinfo)
 		sinfo->filled |= BIT(NL80211_STA_INFO_BEACON_RX) |
 				 BIT(NL80211_STA_INFO_BEACON_SIGNAL_AVG);
 		sinfo->rx_beacon_signal_avg = ieee80211_ave_rssi(&sdata->vif);
+	} else if (ieee80211_vif_is_mesh(&sdata->vif) &&
+	    !(sdata->vif.driver_flags & IEEE80211_VIF_BEACON_FILTER)) {
+#ifdef CONFIG_MAC80211_MESH
+		sinfo->filled |= BIT(NL80211_STA_INFO_BEACON_RX) |
+				 BIT(NL80211_STA_INFO_BEACON_SIGNAL_AVG);
+		sinfo->rx_beacon_signal_avg =
+				(s8)-ewma_read(&sta->mesh->avg_beacon_signal);
+#endif
 	}
 
 	if (ieee80211_hw_check(&sta->local->hw, SIGNAL_DBM) ||
