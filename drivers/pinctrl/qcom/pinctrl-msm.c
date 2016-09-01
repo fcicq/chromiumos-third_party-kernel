@@ -196,6 +196,10 @@ static int msm_config_reg(struct msm_pinctrl *pctrl,
 		*bit = g->oe_bit;
 		*mask = 1;
 		break;
+	case PIN_CONFIG_DRIVE_OPEN_DRAIN:
+		*bit = g->od_bit;
+		*mask = 1;
+		break;
 	default:
 		dev_err(pctrl->dev, "Invalid config param %04x\n", param);
 		return -ENOTSUPP;
@@ -284,6 +288,9 @@ static int msm_config_group_get(struct pinctrl_dev *pctldev,
 		val = readl(pctrl->regs + g->io_reg);
 		arg = !!(val & BIT(g->in_bit));
 		break;
+	case PIN_CONFIG_DRIVE_OPEN_DRAIN:
+		arg = (arg == 1);
+		break;
 	default:
 		dev_err(pctrl->dev, "Unsupported config parameter: %x\n",
 			param);
@@ -356,6 +363,9 @@ static int msm_config_group_set(struct pinctrl_dev *pctldev,
 			spin_unlock_irqrestore(&pctrl->lock, flags);
 
 			/* enable output */
+			arg = 1;
+			break;
+		case PIN_CONFIG_DRIVE_OPEN_DRAIN:
 			arg = 1;
 			break;
 		default:
