@@ -866,6 +866,8 @@ int drm_dp_link_choose(struct drm_dp_link *link,
 		       const struct drm_display_info *info);
 
 int drm_dp_link_train(struct drm_dp_link *link);
+int drm_dp_downstream_max_clock(const u8 dpcd[DP_RECEIVER_CAP_SIZE],
+				const u8 port_cap[4]);
 
 void drm_dp_aux_init(struct drm_dp_aux *aux);
 int drm_dp_aux_register(struct drm_dp_aux *aux);
