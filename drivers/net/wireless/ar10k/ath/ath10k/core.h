@@ -695,6 +695,9 @@ struct ath10k {
 			size_t board_size;
 			size_t board_ext_size;
 		} fw;
+
+		const struct ath10k_hw_ops *hw_ops;
+
 	} hw_params;
 
 	const struct firmware *board;
