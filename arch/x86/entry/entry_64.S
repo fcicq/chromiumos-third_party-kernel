@@ -174,12 +174,15 @@ GLOBAL(entry_SYSCALL_64_after_swapgs)
 	pushq	%r11				/* pt_regs->r11 */
 	sub	$(6*8), %rsp			/* pt_regs->bp, bx, r12-15 not saved */
 
-	testl	$_TIF_WORK_SYSCALL_ENTRY, ASM_THREAD_INFO(TI_flags, %rsp, SIZEOF_PTREGS)
+	movq	PER_CPU_VAR(current_task), %r11
+	testl	$_TIF_WORK_SYSCALL_ENTRY, TASK_TI_flags(%r11)
 	jnz	tracesys
+
 entry_SYSCALL_64_fastpath:
 #if __SYSCALL_MASK == ~0
 # ifdef CONFIG_ALT_SYSCALL
-	movl	ASM_THREAD_INFO(TI_nr_syscalls, %rsp, SIZEOF_PTREGS), %r11d
+	movq	PER_CPU_VAR(current_task), %r11
+	movl	TASK_TI_nr_syscalls(%r11), %r11d
 	cmpq	%r11, %rax
 # else
 	cmpq	$NR_syscalls, %rax
@@ -187,7 +190,8 @@ entry_SYSCALL_64_fastpath:
 #else
 	andl	$__SYSCALL_MASK, %eax
 # ifdef CONFIG_ALT_SYSCALL
-	cmpl	ASM_THREAD_INFO(TI_nr_syscalls, %rsp, SIZEOF_PTREGS), %eax
+	movl	PER_CPU_VAR(current_task), %edx
+	cmpl	TASK_TI_nr_syscalls(%edx), %eax
 # else
 	cmpl	$NR_syscalls, %eax
 # endif /* CONFIG_ALT_SYSCALL */
@@ -197,7 +201,8 @@ entry_SYSCALL_64_fastpath:
 	and	%rcx, %rax
 	movq	%r10, %rcx
 #ifdef CONFIG_ALT_SYSCALL
-	movq	ASM_THREAD_INFO(TI_sys_call_table, %rsp, SIZEOF_PTREGS), %r11
+	movq	PER_CPU_VAR(current_task), %r11
+	movq	TASK_TI_sys_call_table(%r11), %r11
 # ifdef CONFIG_RETPOLINE
 	movq    0(%r11, %rax, 8), %rax
 	call    __x86_indirect_thunk_rax
@@ -234,7 +239,8 @@ entry_SYSCALL_64_fastpath:
 	 * flags (TIF_NOTIFY_RESUME, TIF_USER_RETURN_NOTIFY, etc) set is
 	 * very bad.
 	 */
-	testl	$_TIF_ALLWORK_MASK, ASM_THREAD_INFO(TI_flags, %rsp, SIZEOF_PTREGS)
+	movq	PER_CPU_VAR(current_task), %r11
+	testl	$_TIF_ALLWORK_MASK, TASK_TI_flags(%r11)
 	jnz	int_ret_from_sys_call_irqs_off	/* Go to the slow path */
 
 	movq	RIP(%rsp), %rcx
@@ -298,7 +304,8 @@ tracesys_phase2:
 	RESTORE_EXTRA_REGS
 #if __SYSCALL_MASK == ~0
 # ifdef CONFIG_ALT_SYSCALL
-	movl	ASM_THREAD_INFO(TI_nr_syscalls, %rsp, SIZEOF_PTREGS), %r11d
+	movq	PER_CPU_VAR(current_task), %r11
+	movl	TASK_TI_nr_syscalls(%r11), %r11d
 	cmpq	%r11, %rax
 # else
 	cmpq	$NR_syscalls, %rax
@@ -316,7 +323,8 @@ tracesys_phase2:
 	and	%rcx, %rax
 	movq	%r10, %rcx			/* fixup for C */
 #ifdef CONFIG_ALT_SYSCALL
-	movq	ASM_THREAD_INFO(TI_sys_call_table, %rsp, SIZEOF_PTREGS), %r11
+	movq	PER_CPU_VAR(current_task), %r11
+	movq	TASK_TI_sys_call_table(%r11), %r11
 # ifdef CONFIG_RETPOLINE
 	movq    0(%r11, %rax, 8), %rax
 	call    __x86_indirect_thunk_rax
@@ -516,6 +524,7 @@ END(stub_x32_rt_sigreturn)
 /*
  * %rdi: prev task
  * %rsi: next task
+ * rsi: task we're switching to
  */
 ENTRY(__switch_to_asm)
 	/*
