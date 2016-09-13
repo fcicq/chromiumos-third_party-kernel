@@ -285,7 +285,6 @@ static void __init fpu__init_system_ctx_switch(void)
 	on_boot_cpu = 0;
 
 	WARN_ON_FPU(current->thread.fpu.fpstate_active);
-	current_thread_info()->status = 0;
 
 	/* Auto enable eagerfpu for xsaveopt */
 	if (cpu_has_xsaveopt && eagerfpu != DISABLE)
