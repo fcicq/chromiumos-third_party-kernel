@@ -524,7 +524,6 @@ END(stub_x32_rt_sigreturn)
 /*
  * %rdi: prev task
  * %rsi: next task
- * rsi: task we're switching to
  */
 ENTRY(__switch_to_asm)
 	/*
