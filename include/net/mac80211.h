@@ -3305,6 +3305,9 @@ enum ieee80211_reconfig_type {
  *	synchronization which is needed in case driver has in its RSS queues
  *	pending frames that were received prior to the control path action
  *	currently taken (e.g. disassociation) but are not processed yet.
+ *
+ * @start_nan: join an existing NAN cluster, or create a new one.
+ * @stop_nan: leave the NAN cluster.
  */
 struct ieee80211_ops {
 	void (*tx)(struct ieee80211_hw *hw,
@@ -3543,6 +3546,12 @@ struct ieee80211_ops {
 	void (*wake_tx_queue)(struct ieee80211_hw *hw,
 			      struct ieee80211_txq *txq);
 	void (*sync_rx_queues)(struct ieee80211_hw *hw);
+
+	int (*start_nan)(struct ieee80211_hw *hw,
+			 struct ieee80211_vif *vif,
+			 struct cfg80211_nan_conf *conf);
+	int (*stop_nan)(struct ieee80211_hw *hw,
+			struct ieee80211_vif *vif);
 };
 
 /**
