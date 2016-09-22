@@ -1278,9 +1278,6 @@ static void ieee80211_drv_tx(struct ieee80211_local *local,
 	if (atomic_read(&sdata->txqs_len[ac]) >= local->hw.txq_ac_max_pending)
 		netif_stop_subqueue(sdata->dev, ac);
 
-#ifdef CONFIG_MAC80211_WIFI_DIAG
-	WIFI_DIAG_TX_SDATA_DBG(sdata, skb, TX_QUEUED, "%s", __func__);
-#endif
 	skb_queue_tail(&txqi->queue, skb);
 	drv_wake_tx_queue(local, txqi);
 
