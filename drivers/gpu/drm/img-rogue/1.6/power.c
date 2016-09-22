@@ -1102,23 +1102,16 @@ PVRSRV_ERROR PVRSRVDevicePreClockSpeedChange(IMG_UINT32	ui32DeviceIndex,
 					return eError;
 				}
 			} END_LOOP_UNTIL_TIMEOUT();
+
+			if (eError == PVRSRV_ERROR_DEVICE_IDLE_REQUEST_DENIED)
+			{
+				PVRSRVPowerUnlock();
+				return eError;
+			}
 		}
 
 		eError = psPowerDevice->pfnPreClockSpeedChange(psPowerDevice->hDevCookie,
-													   psPowerDevice->eCurrentPowerState);
-
-		if ((eError != PVRSRV_OK) && (eError != PVRSRV_ERROR_DEVICE_POWER_CHANGE_DENIED))
-		{
-			PVR_DPF((PVR_DBG_ERROR,
-					"PVRSRVDevicePreClockSpeedChange : Device %u failed, error:0x%x",
-					ui32DeviceIndex, eError));
-		}
-	}
-
-	if (eError != PVRSRV_OK)
-	{
-		PVRSRVPowerUnlock();
-		return eError;
+		                                               psPowerDevice->eCurrentPowerState);
 	}
 
 	ui64StopTimer = OSClockus();

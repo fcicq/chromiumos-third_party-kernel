@@ -118,7 +118,11 @@ static IMG_INT32 devfreq_target(struct device *dev, long unsigned *requested_fre
 		return 0;
 	}
 
-	PVRSRVDevicePreClockSpeedChange(0, psDVFSDeviceCfg->bIdleReq, NULL);
+	if (PVRSRV_OK != PVRSRVDevicePreClockSpeedChange(0, psDVFSDeviceCfg->bIdleReq, NULL))
+	{
+		dev_err(dev, "PVRSRVDevicePreClockSpeedChange failed\n");
+		return -EPERM;
+	}
 
 	/* Increasing frequency, change voltage first */
 	if (ui32Freq > ui32CurFreq)
