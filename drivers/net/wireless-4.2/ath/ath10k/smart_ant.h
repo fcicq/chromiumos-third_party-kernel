@@ -111,8 +111,8 @@ extern u32 ath10k_default_antenna_5g;
 
 #define ATH10K_TXS_LRETRY		21
 #define ATH10K_TXS_SRETRY		22
-#define ATH10K_TXS_LRETRY_V2		31
-#define ATH10K_TXS_SRETRY_V2		32
+#define ATH10K_TXS_LRETRY_V2		32
+#define ATH10K_TXS_SRETRY_V2		33
 #define ATH10K_TXS_ACK_RSSI             23
 
 #define ATH10K_TXS_TOT_TRIES		27

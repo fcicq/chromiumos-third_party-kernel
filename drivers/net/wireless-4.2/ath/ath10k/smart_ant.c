@@ -1547,7 +1547,7 @@ void ath10k_smart_ant_proc_tx_feedback(struct ath10k *ar, u8 *data)
 			       sizeof(info->tx_ppdu_end));
 		else
 			memcpy((u8 *)info->tx_ppdu_end, pl_hdr->payload,
-			       ATH10K_PPDU_SIZE_MAX);
+			       ATH10K_PPDU_SIZE_MAX * sizeof(u32));
 	} else {
 		struct ieee80211_sta *sta;
 		struct ath10k_smart_ant_tx_fb feed_back;
