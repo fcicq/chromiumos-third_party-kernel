@@ -48,6 +48,8 @@
 #define ATH10K_FLUSH_TIMEOUT_HZ (5*HZ)
 #define ATH10K_CONNECTION_LOSS_HZ (3*HZ)
 #define ATH10K_NUM_CHANS 39
+#define ATH10K_FWLOG_MODULE_ID_MAX_10_2_4 28
+#define ATH10K_FWLOG_MODULE_ID_MAX_10_4 35
 
 /* Antenna noise floor */
 #define ATH10K_DEFAULT_NOISE_FLOOR -95
@@ -696,6 +698,7 @@ struct ath10k {
 	u32 vht_cap_info;
 	u32 num_rf_chains;
 	u32 max_spatial_stream;
+	u32 fwlog_max_moduleid;
 	/* protected by conf_mutex */
 	bool ani_enabled;
 
@@ -936,6 +939,8 @@ struct ath10k {
 
 	struct ath10k_thermal thermal;
 	struct ath10k_wow wow;
+	struct work_struct fwlog_tx_work;
+	struct sk_buff_head fwlog_tx_queue;
 
 	bool btc_feature;
 
