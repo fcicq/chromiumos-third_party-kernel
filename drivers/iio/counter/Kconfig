@@ -1,0 +1,7 @@
+#
+# Counter devices
+#
+# When adding new entries keep the list in alphabetical order
+
+menu "Counters"
+endmenu
