@@ -37,6 +37,7 @@
 #include "fwlog.h"
 
 unsigned int ath10k_debug_mask;
+EXPORT_SYMBOL(ath10k_debug_mask);
 static unsigned int ath10k_cryptmode_param;
 static bool uart_print;
 static bool skip_otp;
