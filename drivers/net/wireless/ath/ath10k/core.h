@@ -1069,6 +1069,7 @@ struct ath10k {
 
 	void *ce_priv;
 
+	const unsigned int *debug_mask;
 	/* must be last */
 	u8 drv_priv[0] __aligned(sizeof(void *));
 };
