@@ -638,7 +638,11 @@ resizefs_out:
 			goto encryption_policy_out;
 		}
 
+		mutex_lock(&inode->i_mutex);
+
 		err = ext4_process_policy(&policy, inode);
+
+		mutex_unlock(&inode->i_mutex);
 encryption_policy_out:
 		return err;
 #else
