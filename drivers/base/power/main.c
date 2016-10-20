@@ -198,6 +198,12 @@ static ktime_t initcall_debug_start(struct device *dev, void *cb)
 	if (!pm_print_times_enabled)
 		return 0;
 
+	if (pm_print_times_enabled) {
+		pr_info("calling  %s+ @ %i, parent: %s, cb: %pf\n",
+			dev_name(dev), task_pid_nr(current),
+			dev->parent ? dev_name(dev->parent) : "none", cb);
+	}
+
 	dev_info(dev, "calling %pF @ %i, parent: %s\n", cb,
 		 task_pid_nr(current),
 		 dev->parent ? dev_name(dev->parent) : "none");
