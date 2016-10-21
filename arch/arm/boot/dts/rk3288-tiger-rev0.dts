@@ -239,6 +239,10 @@
 		&ddrio_pwroff
 		&global_pwroff
 
+		/* For usb bc1.2 */
+		&usb_otg_ilim_sel
+		&usb_usb_ilim_sel
+
 		/* Wake only */
 		&bt_dev_wake_awake
 		&pwr_led1_on
@@ -325,6 +329,16 @@
 
 		usb_otg_pwr_en: usb_otg_pwr_en {
 			rockchip,pins = <0 12 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+
+	usb-bc12 {
+		usb_otg_ilim_sel: usb-otg-ilim-sel {
+			rockchip,pins = <6 17 RK_FUNC_GPIO &pcfg_output_high>;
+		};
+
+		usb_usb_ilim_sel: usb-usb-ilim-sel {
+			rockchip,pins = <5 13 RK_FUNC_GPIO &pcfg_output_high>;
 		};
 	};
 };
