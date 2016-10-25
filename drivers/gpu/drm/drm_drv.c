@@ -27,7 +27,7 @@
  */
 
 #include <linux/debugfs.h>
-#include <linux/fence.h>
+#include <linux/dma-fence.h>
 #include <linux/fs.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
