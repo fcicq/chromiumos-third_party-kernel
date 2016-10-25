@@ -1,14 +1,14 @@
 #ifndef __NOUVEAU_FENCE_H__
 #define __NOUVEAU_FENCE_H__
 
-#include <linux/fence.h>
+#include <linux/dma-fence.h>
 #include <nvif/notify.h>
 
 struct nouveau_drm;
 struct nouveau_bo;
 
 struct nouveau_fence {
-	struct fence base;
+	struct dma_fence base;
 
 	struct list_head head;
 
@@ -28,7 +28,7 @@ int  nouveau_fence_emit_initted(struct nouveau_fence *fence,
 				struct nouveau_channel *chan);
 int  nouveau_fence_emit(struct nouveau_fence *, struct nouveau_channel *);
 bool nouveau_fence_done(struct nouveau_fence *);
-void nouveau_fence_work(struct fence *, void (*)(void *), void *);
+void nouveau_fence_work(struct dma_fence *, void (*)(void *), void *);
 int  nouveau_fence_wait(struct nouveau_fence *, bool lazy, bool intr);
 int  nouveau_fence_sync(struct fence *, struct nouveau_channel *, bool intr);
 int  nouveau_fence_sync_fd(int, struct nouveau_channel *, bool intr);
