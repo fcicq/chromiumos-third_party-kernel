@@ -5827,10 +5827,8 @@ static int intel_compute_max_dotclk(struct drm_i915_private *dev_priv)
 
 static int skl_calc_cdclk(int max_pixclk, int vco);
 
-static void intel_update_max_cdclk(struct drm_device *dev)
+static void intel_update_max_cdclk(struct drm_i915_private *dev_priv)
 {
-	struct drm_i915_private *dev_priv = to_i915(dev);
-
 	if (IS_SKYLAKE(dev_priv) || IS_KABYLAKE(dev_priv)) {
 		u32 limit = I915_READ(SKL_DFSM) & SKL_DFSM_CDCLK_LIMIT_MASK;
 		int max_cdclk, vco;
@@ -5888,11 +5886,9 @@ static void intel_update_max_cdclk(struct drm_device *dev)
 			 dev_priv->max_dotclk_freq);
 }
 
-static void intel_update_cdclk(struct drm_device *dev)
+static void intel_update_cdclk(struct drm_i915_private *dev_priv)
 {
-	struct drm_i915_private *dev_priv = to_i915(dev);
-
-	dev_priv->cdclk_freq = dev_priv->display.get_display_clock_speed(dev);
+	dev_priv->cdclk_freq = dev_priv->display.get_display_clock_speed(&dev_priv->drm);
 
 	if (INTEL_GEN(dev_priv) >= 9)
 		DRM_DEBUG_DRIVER("Current CD clock rate: %d kHz, VCO: %d kHz, ref: %d kHz\n",
@@ -6047,14 +6043,14 @@ static void bxt_set_cdclk(struct drm_i915_private *dev_priv, int cdclk)
 		return;
 	}
 
-	intel_update_cdclk(&dev_priv->drm);
+	intel_update_cdclk(dev_priv);
 }
 
 static void bxt_sanitize_cdclk(struct drm_i915_private *dev_priv)
 {
 	u32 cdctl, expected;
 
-	intel_update_cdclk(&dev_priv->drm);
+	intel_update_cdclk(dev_priv);
 
 	if (dev_priv->cdclk_pll.vco == 0 ||
 	    dev_priv->cdclk_freq == dev_priv->cdclk_pll.ref)
@@ -6187,7 +6183,7 @@ void skl_set_preferred_cdclk_vco(struct drm_i915_private *dev_priv, int vco)
 	dev_priv->skl_preferred_vco_freq = vco;
 
 	if (changed)
-		intel_update_max_cdclk(&dev_priv->drm);
+		intel_update_max_cdclk(dev_priv);
 }
 
 static void
@@ -6269,7 +6265,6 @@ static bool skl_cdclk_wait_for_pcu_ready(struct drm_i915_private *dev_priv)
 
 static void skl_set_cdclk(struct drm_i915_private *dev_priv, int cdclk, int vco)
 {
-	struct drm_device *dev = &dev_priv->drm;
 	u32 freq_select, pcu_ack;
 
 	WARN_ON((cdclk == 24000) != (vco == 0));
@@ -6320,7 +6315,7 @@ static void skl_set_cdclk(struct drm_i915_private *dev_priv, int cdclk, int vco)
 	sandybridge_pcode_write(dev_priv, SKL_PCODE_CDCLK_CONTROL, pcu_ack);
 	mutex_unlock(&dev_priv->rps.hw_lock);
 
-	intel_update_cdclk(dev);
+	intel_update_cdclk(dev_priv);
 }
 
 static void skl_sanitize_cdclk(struct drm_i915_private *dev_priv);
@@ -6367,7 +6362,7 @@ static void skl_sanitize_cdclk(struct drm_i915_private *dev_priv)
 	if ((I915_READ(SWF_ILK(0x18)) & 0x00FFFFFF) == 0)
 		goto sanitize;
 
-	intel_update_cdclk(&dev_priv->drm);
+	intel_update_cdclk(dev_priv);
 	/* Is PLL enabled and locked ? */
 	if (dev_priv->cdclk_pll.vco == 0 ||
 	    dev_priv->cdclk_freq == dev_priv->cdclk_pll.ref)
@@ -6458,7 +6453,7 @@ static void valleyview_set_cdclk(struct drm_device *dev, int cdclk)
 
 	mutex_unlock(&dev_priv->sb_lock);
 
-	intel_update_cdclk(dev);
+	intel_update_cdclk(dev_priv);
 }
 
 static void cherryview_set_cdclk(struct drm_device *dev, int cdclk)
@@ -6499,7 +6494,7 @@ static void cherryview_set_cdclk(struct drm_device *dev, int cdclk)
 	}
 	mutex_unlock(&dev_priv->rps.hw_lock);
 
-	intel_update_cdclk(dev);
+	intel_update_cdclk(dev_priv);
 }
 
 static int valleyview_calc_cdclk(struct drm_i915_private *dev_priv,
@@ -10195,7 +10190,7 @@ static void hsw_restore_lcpll(struct drm_i915_private *dev_priv)
 	}
 
 	intel_uncore_forcewake_put(dev_priv, FORCEWAKE_ALL);
-	intel_update_cdclk(&dev_priv->drm);
+	intel_update_cdclk(dev_priv);
 }
 
 /*
@@ -10375,7 +10370,7 @@ static void broadwell_set_cdclk(struct drm_device *dev, int cdclk)
 
 	I915_WRITE(CDCLK_FREQ, DIV_ROUND_CLOSEST(cdclk, 1000) - 1);
 
-	intel_update_cdclk(dev);
+	intel_update_cdclk(dev_priv);
 
 	WARN(cdclk != dev_priv->cdclk_freq,
 	     "cdclk requested %d kHz but got %d kHz\n",
@@ -16313,7 +16308,7 @@ void intel_modeset_init_hw(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = to_i915(dev);
 
-	intel_update_cdclk(dev);
+	intel_update_cdclk(dev_priv);
 
 	dev_priv->atomic_cdclk_freq = dev_priv->cdclk_freq;
 
@@ -16484,12 +16479,12 @@ int intel_modeset_init(struct drm_device *dev)
 	}
 
 	intel_update_czclk(dev_priv);
-	intel_update_cdclk(dev);
+	intel_update_cdclk(dev_priv);
 
 	intel_shared_dpll_init(dev);
 
 	if (dev_priv->max_cdclk_freq == 0)
-		intel_update_max_cdclk(dev);
+		intel_update_max_cdclk(dev_priv);
 
 	/* Just disable it once at startup */
 	i915_disable_vga(dev);
