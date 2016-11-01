@@ -1852,6 +1852,34 @@ static struct phy_driver ar40xx_phy_driver = {
 
 /* End of phy driver support */
 
+/* /sys attributes for MII register read */
+static ssize_t phy_id1_show(struct device *dev,
+			    struct device_attribute *attr, char *buf)
+{
+	return scnprintf(buf, PAGE_SIZE, "0x%x\n",
+			 mdiobus_read(ar40xx_priv->mii_bus, 0, 0x2));
+}
+static DEVICE_ATTR_RO(phy_id1);
+
+static ssize_t phy_id2_show(struct device *dev,
+			    struct device_attribute *attr, char *buf)
+{
+	return scnprintf(buf, PAGE_SIZE, "0x%x\n",
+			 mdiobus_read(ar40xx_priv->mii_bus, 0, 0x3));
+}
+static DEVICE_ATTR_RO(phy_id2);
+
+static struct attribute *mii_info_attrs[] = {
+	&dev_attr_phy_id1.attr,
+	&dev_attr_phy_id2.attr,
+	NULL
+};
+
+static struct attribute_group mii_info_group = {
+	.name = "mii_info",
+	.attrs = mii_info_attrs
+};
+
 /* Platform driver probe function */
 
 static int ar40xx_probe(struct platform_device *pdev)
@@ -1958,6 +1986,11 @@ static int ar40xx_probe(struct platform_device *pdev)
 		goto err_unregister_switch;
 	}
 
+	ret = sysfs_create_group(&pdev->dev.kobj, &mii_info_group);
+	if (ret != 0) {
+		dev_err(&pdev->dev, "Failed to create attribute group\n");
+		return -EIO;
+	}
 	ar40xx_start(priv);
 
 	return 0;
@@ -1977,6 +2010,7 @@ static int ar40xx_remove(struct platform_device *pdev)
 	cancel_delayed_work_sync(&priv->mib_work);
 
 	unregister_switch(&priv->dev);
+	sysfs_remove_group(&pdev->dev.kobj, &mii_info_group);
 
 	phy_driver_unregister(&ar40xx_phy_driver);
 
