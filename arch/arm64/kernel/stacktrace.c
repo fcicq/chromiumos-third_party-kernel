@@ -20,6 +20,7 @@
 #include <linux/sched.h>
 #include <linux/stacktrace.h>
 
+#include <asm/stack_pointer.h>
 #include <asm/stacktrace.h>
 
 /*

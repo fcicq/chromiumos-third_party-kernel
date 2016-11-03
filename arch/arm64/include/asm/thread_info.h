@@ -36,6 +36,7 @@
 
 struct task_struct;
 
+#include <asm/stack_pointer.h>
 #include <asm/types.h>
 #include <asm/unistd.h>
 
@@ -87,11 +88,6 @@ extern void * const compat_sys_call_table[];
 }
 
 #define init_stack		(init_thread_union.stack)
-
-/*
- * how to get the current stack pointer from C
- */
-register unsigned long current_stack_pointer asm ("sp");
 
 /*
  * how to get the thread information struct from C
