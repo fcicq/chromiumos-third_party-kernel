@@ -68,6 +68,7 @@ asmlinkage void secondary_start_kernel(void);
  */
 struct secondary_data {
 	void *stack;
+	struct task_struct *task;
 };
 extern struct secondary_data secondary_data;
 extern void secondary_entry(void);
