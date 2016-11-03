@@ -825,6 +825,7 @@ struct intel_csr {
 	func(has_runtime_pm); \
 	func(has_csr); \
 	func(has_resource_streamer); \
+	func(has_64bit_reloc); \
 	func(has_rc6); \
 	func(has_rc6p); \
 	func(has_dp_mst); \
@@ -2832,6 +2833,8 @@ intel_info(const struct drm_i915_private *dev_priv)
 #define HAS_CSR(dev_priv)	((dev_priv)->info.has_csr)
 
 #define HAS_RUNTIME_PM(dev_priv) ((dev_priv)->info.has_runtime_pm)
+#define HAS_64BIT_RELOC(dev_priv) ((dev_priv)->info.has_64bit_reloc)
+
 /*
  * For now, anything with a GuC requires uCode loading, and then supports
  * command submission once loaded. But these are logically independent
