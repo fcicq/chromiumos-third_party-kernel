@@ -2930,11 +2930,11 @@ int stmmac_resume(struct net_device *ndev)
 	} else {
 		pinctrl_pm_select_default_state(priv->device);
 		/* enable the clk prevously disabled */
-		clk_enable(priv->stmmac_clk);
+		clk_prepare_enable(priv->stmmac_clk);
+		/* reset the phy so that it's ready */
+		if (priv->mii)
+			stmmac_mdio_reset(priv->mii);
 	}
-	/* reset the phy so that it's ready */
-	if (priv->mii)
-		stmmac_mdio_reset(priv->mii);
 
 	netif_device_attach(ndev);
 
