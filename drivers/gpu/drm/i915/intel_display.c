@@ -3063,6 +3063,9 @@ static void i9xx_update_primary_plane(struct drm_plane *primary,
 	    fb->modifier[0] == I915_FORMAT_MOD_X_TILED)
 		dspcntr |= DISPPLANE_TILED;
 
+	if (rotation & DRM_ROTATE_180)
+		dspcntr |= DISPPLANE_ROTATE_180;
+
 	if (IS_G4X(dev_priv))
 		dspcntr |= DISPPLANE_TRICKLE_FEED_DISABLE;
 
@@ -3073,10 +3076,8 @@ static void i9xx_update_primary_plane(struct drm_plane *primary,
 			intel_compute_tile_offset(&x, &y, plane_state, 0);
 
 	if (rotation & DRM_ROTATE_180) {
-		dspcntr |= DISPPLANE_ROTATE_180;
-
-		x += (crtc_state->pipe_src_w - 1);
-		y += (crtc_state->pipe_src_h - 1);
+		x += crtc_state->pipe_src_w - 1;
+		y += crtc_state->pipe_src_h - 1;
 	}
 
 	linear_offset = intel_fb_xy_to_linear(x, y, plane_state, 0);
@@ -3168,6 +3169,9 @@ static void ironlake_update_primary_plane(struct drm_plane *primary,
 	if (fb->modifier[0] == I915_FORMAT_MOD_X_TILED)
 		dspcntr |= DISPPLANE_TILED;
 
+	if (rotation & DRM_ROTATE_180)
+		dspcntr |= DISPPLANE_ROTATE_180;
+
 	if (!IS_HASWELL(dev_priv) && !IS_BROADWELL(dev_priv))
 		dspcntr |= DISPPLANE_TRICKLE_FEED_DISABLE;
 
@@ -3176,13 +3180,11 @@ static void ironlake_update_primary_plane(struct drm_plane *primary,
 	intel_crtc->dspaddr_offset =
 		intel_compute_tile_offset(&x, &y, plane_state, 0);
 
-	if (rotation & DRM_ROTATE_180) {
-		dspcntr |= DISPPLANE_ROTATE_180;
-
-		if (!IS_HASWELL(dev_priv) && !IS_BROADWELL(dev_priv)) {
-			x += (crtc_state->pipe_src_w - 1);
-			y += (crtc_state->pipe_src_h - 1);
-		}
+	/* HSW+ does this automagically in hardware */
+	if (!IS_HASWELL(dev_priv) && !IS_BROADWELL(dev_priv) &&
+	    rotation & DRM_ROTATE_180) {
+		x += crtc_state->pipe_src_w - 1;
+		y += crtc_state->pipe_src_h - 1;
 	}
 
 	linear_offset = intel_fb_xy_to_linear(x, y, plane_state, 0);
