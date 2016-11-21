@@ -319,6 +319,7 @@ static asmlinkage long alt_sys_prctl(int option, unsigned long arg2,
 #define __NR_compat_tee		__NR_ia32_tee
 #define __NR_compat_tgkill	__NR_ia32_tgkill
 #define __NR_compat_tkill	__NR_ia32_tkill
+#define __NR_compat_time	__NR_ia32_time
 #define __NR_compat_timer_create	__NR_ia32_timer_create
 #define __NR_compat_timer_delete	__NR_ia32_timer_delete
 #define __NR_compat_timer_getoverrun	__NR_ia32_timer_getoverrun
@@ -707,6 +708,7 @@ static struct syscall_whitelist_entry android_whitelist[] = {
 	SYSCALL_ENTRY(tee),
 	SYSCALL_ENTRY(tgkill),
 	SYSCALL_ENTRY(tkill),
+	SYSCALL_ENTRY(time),
 	SYSCALL_ENTRY(timer_create),
 	SYSCALL_ENTRY(timer_delete),
 	SYSCALL_ENTRY(timer_gettime),
@@ -1195,6 +1197,7 @@ static struct syscall_whitelist_entry android_compat_whitelist[] = {
 	COMPAT_SYSCALL_ENTRY(tgkill),
 	COMPAT_SYSCALL_ENTRY(tee),
 	COMPAT_SYSCALL_ENTRY(tkill),
+	COMPAT_SYSCALL_ENTRY(time),
 	COMPAT_SYSCALL_ENTRY(timer_create),
 	COMPAT_SYSCALL_ENTRY(timer_delete),
 	COMPAT_SYSCALL_ENTRY(timer_gettime),
