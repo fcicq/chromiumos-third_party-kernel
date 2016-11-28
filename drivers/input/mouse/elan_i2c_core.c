@@ -5,7 +5,7 @@
  *
  * Author: 林政維 (Duson Lin) <dusonlin@emc.com.tw>
  * Author: KT Liao <kt.liao@emc.com.tw>
- * Version: 1.6.2
+ * Version: 1.6.3
  *
  * Based on cyapa driver:
  * copyright (c) 2011-2012 Cypress Semiconductor, Inc.
@@ -42,7 +42,7 @@
 #include "elan_i2c.h"
 
 #define DRIVER_NAME		"elan_i2c"
-#define ELAN_DRIVER_VERSION	"1.6.2"
+#define ELAN_DRIVER_VERSION	"1.6.3"
 #define ELAN_VENDOR_ID		0x04f3
 #define ETP_MAX_PRESSURE	255
 #define ETP_FWIDTH_REDUCE	90
@@ -79,6 +79,7 @@ struct elan_tp_data {
 	unsigned int		x_res;
 	unsigned int		y_res;
 
+	u8			pattern;
 	u16			product_id;
 	u8			fw_version;
 	u8			sm_version;
@@ -86,7 +87,7 @@ struct elan_tp_data {
 	u16			fw_checksum;
 	int			pressure_adjustment;
 	u8			mode;
-	u8			ic_type;
+	u16			ic_type;
 	u16			fw_validpage_count;
 	u16			fw_signature_address;
 
@@ -97,10 +98,10 @@ struct elan_tp_data {
 	bool			baseline_ready;
 };
 
-static int elan_get_fwinfo(u8 iap_version, u16 *validpage_count,
+static int elan_get_fwinfo(u16 ic_type, u16 *validpage_count,
 			   u16 *signature_address)
 {
-	switch (iap_version) {
+	switch (ic_type) {
 	case 0x00:
 	case 0x06:
 	case 0x08:
@@ -119,6 +120,9 @@ static int elan_get_fwinfo(u8 iap_version, u16 *validpage_count,
 		break;
 	case 0x0E:
 		*validpage_count = 640;
+		break;
+	case 0x10:
+		*validpage_count = 1024;
 		break;
 	default:
 		/* unknown ic type clear value */
@@ -373,6 +377,7 @@ static int elan_uninhibit(struct input_dev *input_dev)
 static int elan_query_device_info(struct elan_tp_data *data)
 {
 	int error;
+	u16 ic_type;
 
 	error = data->ops->get_version(data->client, false, &data->fw_version);
 	if (error)
@@ -392,7 +397,16 @@ static int elan_query_device_info(struct elan_tp_data *data)
 	if (error)
 		return error;
 
-	error = elan_get_fwinfo(data->iap_version, &data->fw_validpage_count,
+	error = data->ops->get_pattern(data->client, &data->pattern);
+	if (error)
+		return error;
+
+	if (data->pattern == 0x01)
+		ic_type = data->ic_type;
+	else
+		ic_type = data->iap_version;
+
+	error = elan_get_fwinfo(ic_type, &data->fw_validpage_count,
 				&data->fw_signature_address);
 	if (error)
 		dev_warn(&data->client->dev,
@@ -1205,10 +1219,13 @@ static int elan_probe(struct i2c_client *client,
 		"Elan Touchpad Extra Information:\n"
 		"    Max ABS X,Y:   %d,%d\n"
 		"    Width X,Y:   %d,%d\n"
-		"    Resolution X,Y:   %d,%d (dots/mm)\n",
+		"    Resolution X,Y:   %d,%d (dots/mm)\n"
+		"    ic type: 0x%x\n"
+		"    info pattern: 0x%x\n",
 		data->max_x, data->max_y,
 		data->width_x, data->width_y,
-		data->x_res, data->y_res);
+		data->x_res, data->y_res,
+		data->ic_type, data->pattern);
 
 	/* Set up input device properties based on queried parameters. */
 	error = elan_setup_input_device(data);
