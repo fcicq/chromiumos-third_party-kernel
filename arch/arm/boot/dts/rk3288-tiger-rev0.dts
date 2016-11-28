@@ -112,6 +112,7 @@
 		reset-gpios = <&gpio2 15 GPIO_ACTIVE_LOW>;
 		vcc33-supply = <&vcc33_io>;
 		vccio-supply = <&vcc33_io>;
+		wakeup-source;
 	};
 };
 
