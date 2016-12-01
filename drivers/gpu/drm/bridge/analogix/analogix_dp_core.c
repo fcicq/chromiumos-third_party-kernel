@@ -867,7 +867,10 @@ static void analogix_dp_commit(struct analogix_dp_device *dp)
 	/* Enable video */
 	analogix_dp_start_video(dp);
 
-	dp->psr_support = false;
+	/* NOTE: PSR is explicitly disabled here */
+	dp->psr_support = false && analogix_dp_detect_sink_psr(dp);
+	if (dp->psr_support)
+		analogix_dp_enable_sink_psr(dp);
 }
 
 /*
