@@ -343,11 +343,11 @@
 
 	usb-bc12 {
 		usb_otg_ilim_sel: usb-otg-ilim-sel {
-			rockchip,pins = <6 17 RK_FUNC_GPIO &pcfg_output_high>;
+			rockchip,pins = <6 17 RK_FUNC_GPIO &pcfg_output_low>;
 		};
 
 		usb_usb_ilim_sel: usb-usb-ilim-sel {
-			rockchip,pins = <5 13 RK_FUNC_GPIO &pcfg_output_high>;
+			rockchip,pins = <5 15 RK_FUNC_GPIO &pcfg_output_low>;
 		};
 	};
 };
