@@ -21,6 +21,7 @@
 #include <linux/input.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
+#include <linux/delay.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
 #include <sound/soc.h>
@@ -362,6 +363,13 @@ static int skylake_nau8825_trigger(struct snd_pcm_substream *substream, int cmd)
 		if (ret < 0)
 			dev_err(codec_dai->dev, "can't set FLL: %d\n", ret);
 		break;
+	case SNDRV_PCM_TRIGGER_RESUME:
+		ret = snd_soc_dai_set_pll(codec_dai, 0, 0, runtime->rate,
+			runtime->rate * 256);
+		if (ret < 0)
+			dev_err(codec_dai->dev, "can't set FLL: %d\n", ret);
+		msleep(10);
+		break;
 	}
 
 	return ret;
@@ -626,10 +634,32 @@ static struct snd_soc_dai_link skylake_dais[] = {
 	},
 };
 
+static int __maybe_unused skylake_nau8825_resume_post(struct snd_soc_card *card)
+{
+	struct snd_soc_dai *codec_dai;
+
+	codec_dai = skl_get_codec_dai(card);
+	if (!codec_dai) {
+		dev_err(card->dev, "Codec dai not found\n");
+		return -EIO;
+	}
+	dev_dbg(codec_dai->dev, "playback_active:%d playback_widget->active:%d codec_dai->rate:%d\n",
+		codec_dai->playback_active, codec_dai->playback_widget->active,
+		codec_dai->rate);
+
+	if (codec_dai->playback_active && codec_dai->playback_widget->active) {
+		snd_soc_dai_set_sysclk(codec_dai,
+			NAU8825_CLK_FLL_FS, 0, SND_SOC_CLOCK_IN);
+	}
+
+	return 0;
+}
+
 /* skylake audio machine driver for SPT + NAU88L25 */
 static struct snd_soc_card skylake_audio_card = {
 	.name = "sklnau8825adi",
 	.owner = THIS_MODULE,
+	.resume_post = skylake_nau8825_resume_post,
 	.dai_link = skylake_dais,
 	.num_links = ARRAY_SIZE(skylake_dais),
 	.controls = skylake_controls,
