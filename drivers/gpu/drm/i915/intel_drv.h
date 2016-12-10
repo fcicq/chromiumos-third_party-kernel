@@ -798,6 +798,16 @@ struct intel_dp_desc {
 	u8 sw_minor_rev;
 } __packed;
 
+struct intel_dp_compliance_data {
+	unsigned long edid;
+};
+
+struct intel_dp_compliance {
+	unsigned long test_type;
+	struct intel_dp_compliance_data test_data;
+	bool test_active;
+};
+
 struct intel_dp {
 	uint32_t output_reg;
 	uint32_t aux_ch_ctl_reg;
@@ -876,9 +886,7 @@ struct intel_dp {
 	void (*prepare_link_retrain)(struct intel_dp *intel_dp);
 
 	/* Displayport compliance testing */
-	unsigned long compliance_test_type;
-	unsigned long compliance_test_data;
-	bool compliance_test_active;
+	struct intel_dp_compliance compliance;
 };
 
 struct intel_digital_port {
