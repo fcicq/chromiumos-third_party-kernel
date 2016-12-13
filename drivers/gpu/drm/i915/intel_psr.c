@@ -1224,13 +1224,9 @@ void intel_psr_init(struct drm_i915_private *dev_priv)
 	if (!dev_priv->psr.sink_support)
 		return;
 
-	/* Per platform default */
-	if (i915.enable_psr == -1) {
-		if (IS_HASWELL(dev_priv) || IS_BROADWELL(dev_priv))
-			i915.enable_psr = 1;
-		else
-			i915.enable_psr = 0;
-	}
+	/* Per platform default: all disabled. */
+	if (i915.enable_psr == -1)
+		i915.enable_psr = 0;
 
 	/* Chromeos baytrails were never tested with PSR, so disable it */
 	if (IS_VALLEYVIEW(dev_priv)) {
