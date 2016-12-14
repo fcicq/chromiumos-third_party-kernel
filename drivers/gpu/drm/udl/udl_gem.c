@@ -141,7 +141,7 @@ int udl_gem_get_pages(struct udl_gem_object *obj, gfp_t gfpmask)
 	obj->pages = pages;
 
 #if defined(CONFIG_X86)
-	drm_clflush_pages(obj->pages, page_count);
+	drm_clflush_pages(obj->pages, obj->base.size / PAGE_SIZE);
 #endif
 
 	return 0;
