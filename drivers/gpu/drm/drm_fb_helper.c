@@ -979,7 +979,7 @@ static int setcolreg(struct drm_crtc *crtc, u16 red, u16 green,
 
 	pindex = regno;
 
-	if (fb->bits_per_pixel == 16) {
+	if (fb->format->cpp[0] == 16) {
 		pindex = regno << 3;
 
 		if (fb->depth == 16 && regno > 63)
@@ -1085,14 +1085,14 @@ int drm_fb_helper_check_var(struct fb_var_screeninfo *var,
 		return -EINVAL;
 
 	/* Need to resize the fb object !!! */
-	if (var->bits_per_pixel > fb->bits_per_pixel ||
+	if (var->bits_per_pixel > fb->format->cpp[0] * 8 ||
 	    var->xres > fb->width || var->yres > fb->height ||
 	    var->xres_virtual > fb->width || var->yres_virtual > fb->height) {
 		DRM_DEBUG("fb userspace requested width/height/bpp is greater than current fb "
 			  "request %dx%d-%d (virtual %dx%d) > %dx%d-%d\n",
 			  var->xres, var->yres, var->bits_per_pixel,
 			  var->xres_virtual, var->yres_virtual,
-			  fb->width, fb->height, fb->bits_per_pixel);
+			  fb->width, fb->height, fb->format->cpp[0] * 8);
 		return -EINVAL;
 	}
 
@@ -1495,7 +1495,7 @@ void drm_fb_helper_fill_var(struct fb_info *info, struct drm_fb_helper *fb_helpe
 	info->pseudo_palette = fb_helper->pseudo_palette;
 	info->var.xres_virtual = fb->width;
 	info->var.yres_virtual = fb->height;
-	info->var.bits_per_pixel = fb->bits_per_pixel;
+	info->var.bits_per_pixel = fb->format->cpp[0] * 8;
 	info->var.accel_flags = FB_ACCELF_TEXT;
 	info->var.xoffset = 0;
 	info->var.yoffset = 0;
