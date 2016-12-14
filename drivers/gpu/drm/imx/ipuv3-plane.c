@@ -61,10 +61,6 @@ static int calc_vref(struct drm_display_mode *mode)
 		return 60;
 
 	return DIV_ROUND_UP(mode->clock * 1000, vtotal * htotal);
-}
-
-static inline int calc_bandwidth(int width, int height, unsigned int vref)
-{
 	return width * height * vref;
 }
 
