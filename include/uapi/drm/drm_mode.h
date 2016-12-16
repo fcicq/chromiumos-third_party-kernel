@@ -112,6 +112,9 @@
 #define DRM_MODE_CONTENT_PROTECTION_UNDESIRED	0
 #define DRM_MODE_CONTENT_PROTECTION_DESIRED     1
 #define DRM_MODE_CONTENT_PROTECTION_ENABLED     2
+/* Link Status options */
+#define DRM_MODE_LINK_STATUS_GOOD	0
+#define DRM_MODE_LINK_STATUS_BAD	1
 
 struct drm_mode_modeinfo {
 	__u32 clock;

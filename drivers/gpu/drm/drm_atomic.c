@@ -1094,6 +1094,20 @@ int drm_atomic_connector_set_property(struct drm_connector *connector,
 			return -EINVAL;
 		}
 		state->content_protection = val;
+	} else if (property == config->link_status_property) {
+		/* Never downgrade from GOOD to BAD on userspace's request here,
+		 * only hw issues can do that.
+		 *
+		 * For an atomic property the userspace doesn't need to be able
+		 * to understand all the properties, but needs to be able to
+		 * restore the state it wants on VT switch. So if the userspace
+		 * tries to change the link_status from GOOD to BAD, driver
+		 * silently rejects it and returns a 0. This prevents userspace
+		 * from accidently breaking  the display when it restores the
+		 * state.
+		 */
+		if (state->link_status != DRM_LINK_STATUS_GOOD)
+			state->link_status = val;
 	} else if (connector->funcs->atomic_set_property) {
 		return connector->funcs->atomic_set_property(connector,
 				state, property, val);
@@ -1142,6 +1156,8 @@ drm_atomic_connector_get_property(struct drm_connector *connector,
 		*val = connector->dpms;
 	} else if (property == connector->content_protection_property) {
 		*val = state->content_protection;
+	} else if (property == config->link_status_property) {
+		*val = state->link_status;
 	} else if (connector->funcs->atomic_get_property) {
 		return connector->funcs->atomic_get_property(connector,
 				state, property, val);
