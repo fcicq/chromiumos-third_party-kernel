@@ -150,6 +150,7 @@
 		compatible = "snps,dwmac-mdio";
 		phy1: ethernet-phy@1 {
 			reg = <1>;
+			enable-phy-ssc;
 		};
 	};
 };
