@@ -1198,7 +1198,7 @@ static void mwifiex_deaggr_sdio_pkt(struct mwifiex_adapter *adapter,
 			break;
 		}
 		skb_deaggr = mwifiex_alloc_dma_align_buf(pkt_len,
-							 GFP_KERNEL | GFP_DMA |
+							 GFP_KERNEL |
 							 __GFP_REPEAT);
 		if (!skb_deaggr)
 			break;
@@ -1446,7 +1446,6 @@ static int mwifiex_sdio_card_to_host_mp_aggr(struct mwifiex_adapter *adapter,
 			/* copy pkt to deaggr buf */
 			skb_deaggr = mwifiex_alloc_dma_align_buf(len_arr[pind],
 								 GFP_KERNEL |
-								 GFP_DMA |
 								 __GFP_REPEAT);
 			if (!skb_deaggr) {
 				dev_err(adapter->dev, "skb allocation failure drop pkt len=%d type=%d\n",
