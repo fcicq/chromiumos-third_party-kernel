@@ -73,6 +73,13 @@
 	};
 };
 
+&gpio_keys {
+	pinctrl-0 = <&pwr_key_l>;
+
+	/* let btmrvl handle bt wake */
+	/delete-node/ bt-wake;
+};
+
 &rk808 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pmic_int_l &dvs_1 &dvs_2>;
@@ -124,6 +131,21 @@
 		vcc33_lan: SWITCH_REG2 {
 			regulator-name = "vcc33_lan";
 		};
+	};
+};
+
+&sdio0 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	btmrvl: btmrvl@2 {
+		compatible = "marvell,sd8897-bt";
+		reg = <2>;
+		interrupt-parent = <&gpio4>;
+		interrupts = <31 IRQ_TYPE_LEVEL_LOW>;
+		marvell,wakeup-pin = /bits/ 16 <13>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&bt_host_wake_l>;
 	};
 };
 
