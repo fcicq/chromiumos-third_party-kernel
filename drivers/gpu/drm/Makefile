@@ -42,7 +42,7 @@ drm_kms_helper-$(CONFIG_DRM_DP_AUX_CHARDEV) += drm_dp_aux_dev.o
 drm_kms_helper-$(CONFIG_DRM_DP_CEC) += drm_dp_cec.o
 
 obj-$(CONFIG_DRM_KMS_HELPER) += drm_kms_helper.o
-obj-$(CONFIG_DRM_DEBUG_MM_SELFTEST) += selftests/test-drm_mm.o
+obj-$(CONFIG_DRM_DEBUG_MM_SELFTEST) += selftests/
 
 CFLAGS_drm_trace_points.o := -I$(src)
 
