@@ -981,18 +981,9 @@ hdmi_to_dig_port(struct intel_hdmi *intel_hdmi)
 	return container_of(intel_hdmi, struct intel_digital_port, hdmi);
 }
 
-static inline bool pipe_has_cursor_plane(struct drm_i915_private *dev_priv, int pipe)
-{
-	if (IS_CHERRYVIEW(dev_priv) && pipe == PIPE_C)
-		return false;
-
-	return true;
-}
-
 /*
  * Returns the number of planes for this pipe, ie the number of sprites + 1
- * (primary plane). This doesn't count the cursor plane except on CHV pipe C,
- * which has a universal plane masked as cursor plane.
+ * (primary plane). This doesn't count the cursor plane then.
  */
 static inline unsigned int intel_num_planes(struct intel_crtc *crtc)
 {
@@ -1565,8 +1556,7 @@ bool intel_sdvo_init(struct drm_device *dev, uint32_t sdvo_reg, bool is_sdvob);
 
 
 /* intel_sprite.c */
-struct drm_plane *intel_plane_init(struct drm_device *dev, enum pipe pipe,
-		int plane, enum drm_plane_type plane_type);
+int intel_plane_init(struct drm_device *dev, enum pipe pipe, int plane);
 int intel_sprite_set_colorkey(struct drm_device *dev, void *data,
 			      struct drm_file *file_priv);
 void intel_pipe_update_start(struct intel_crtc *crtc,
