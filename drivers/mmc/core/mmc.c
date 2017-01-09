@@ -601,6 +601,21 @@ static int mmc_decode_ext_csd(struct mmc_card *card, u8 *ext_csd)
 		card->ext_csd.ffu_capable =
 			(ext_csd[EXT_CSD_SUPPORTED_MODE] & 0x1) &&
 			!(ext_csd[EXT_CSD_FW_CONFIG] & 0x1);
+		if (card->ext_csd.ffu_capable) {
+			card->ext_csd.ffu_arg = ext_csd[EXT_CSD_FFU_ARG] |
+				ext_csd[EXT_CSD_FFU_ARG + 1] << 8 |
+				ext_csd[EXT_CSD_FFU_ARG + 2] << 16 |
+				ext_csd[EXT_CSD_FFU_ARG + 3] << 24;
+
+			card->ext_csd.ffu_mode_op =
+				(ext_csd[EXT_CSD_FFU_FEATURES] & 0x1);
+			if (card->ext_csd.ffu_mode_op) {
+				u32 timeout =
+					ext_csd[EXT_CSD_OP_CODES_TIMEOUT];
+				card->ext_csd.mode_op_codes_time =
+					DIV_ROUND_UP(1 << timeout, 10);
+			}
+		}
 	}
 out:
 	return err;
