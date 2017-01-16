@@ -404,6 +404,15 @@ static struct dmi_system_id cros_ec_lpc_dmi_table[] __initdata = {
 			DMI_MATCH(DMI_PRODUCT_NAME, "Peppy"),
 		},
 	},
+	{
+		/* For all Intel Chromebooks/boxes with Intel_* as version and
+		 * coreboot as bios vendor.
+		 */
+		.matches = {
+			DMI_MATCH(DMI_BIOS_VENDOR, "coreboot"),
+			DMI_MATCH(DMI_BIOS_VERSION, "Intel_"),
+		},
+	},
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(dmi, cros_ec_lpc_dmi_table);
