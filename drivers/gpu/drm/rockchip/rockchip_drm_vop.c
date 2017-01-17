@@ -1486,6 +1486,18 @@ static int vop_update_primary_plane(struct drm_crtc *crtc,
 {
 	unsigned int crtc_w, crtc_h;
 
+	/*
+	 * FIXME(tfiga): As per chromium:595281 we are getting a crash here
+	 * on resume from sleep due to a NULL crtc->primary->fb. It does not
+	 * seem to reproduce even with heavy suspend stress tests and can
+	 * happen only if for some reason CRTC is enabled, but primary plane
+	 * does not have a framebuffer assigned. In such case we do not have
+	 * to do anything here anyway, as the plane will be disabled initially
+	 * after resume.
+	 */
+	if (WARN_ON(!crtc->primary->fb))
+		return 0;
+
 	crtc_w = crtc->primary->fb->width - crtc->x;
 	crtc_h = crtc->primary->fb->height - crtc->y;
 
