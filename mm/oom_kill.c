@@ -685,7 +685,7 @@ void oom_kill_process(struct oom_control *oc, struct task_struct *p,
 	/* CrOS: lower burst ratelimit to 1 to prevent excessive jank */
 	static DEFINE_RATELIMIT_STATE(oom_rs, DEFAULT_RATELIMIT_INTERVAL,
 				      1);
-	bool can_oom_reap = true;
+	bool can_oom_reap;
 
 	/*
 	 * If the task is already exiting, don't alarm the sysadmin or kill
@@ -755,6 +755,10 @@ void oom_kill_process(struct oom_control *oc, struct task_struct *p,
 	/* Get a reference to safely compare mm after task_unlock(victim) */
 	mm = victim->mm;
 	atomic_inc(&mm->mm_count);
+
+	/* Make sure we do not try to oom reap the mm multiple times */
+	can_oom_reap = !test_and_set_bit(MMF_OOM_KILLED, &mm->flags);
+
 	/*
 	 * We should send SIGKILL before setting TIF_MEMDIE in order to prevent
 	 * the OOM victim from depleting the memory reserves from the user
