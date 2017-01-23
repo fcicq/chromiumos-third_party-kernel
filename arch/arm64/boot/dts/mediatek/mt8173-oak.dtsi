@@ -404,6 +404,9 @@
 	mmc-hs400-1_8v;
 	cap-mmc-hw-reset;
 	hs400-ds-delay = <0x14015>;
+	mediatek,hs200-cmd-int-delay=<26>;
+	mediatek,hs400-cmd-int-delay=<14>;
+	mediatek,hs400-cmd-resp-sel-rising;
 	vmmc-supply = <&mt6397_vemc_3v3_reg>;
 	vqmmc-supply = <&mt6397_vio18_reg>;
 	assigned-clocks = <&topckgen CLK_TOP_MSDC50_0_SEL>;
