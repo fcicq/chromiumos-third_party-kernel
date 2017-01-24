@@ -870,6 +870,33 @@ static const struct file_operations fops_txq_stats = {
 	.llseek = default_llseek,
 };
 
+static ssize_t ath10k_dbg_sta_read_peer_ps_state(struct file *file,
+						 char __user *user_buf,
+						 size_t count, loff_t *ppos)
+{
+	struct ieee80211_sta *sta = file->private_data;
+	struct ath10k_sta *arsta = (struct ath10k_sta *)sta->drv_priv;
+	struct ath10k *ar = arsta->arvif->ar;
+	char buf[20];
+	int len = 0;
+
+	mutex_lock(&ar->conf_mutex);
+	if(ar->ps_state_enable == 0)
+		arsta->peer_ps_state = 2;
+	len = scnprintf(buf, sizeof(buf) - len, "%d\n",
+			arsta->peer_ps_state);
+	mutex_unlock(&ar->conf_mutex);
+
+	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
+}
+
+static const struct file_operations fops_peer_ps_state = {
+	.open = simple_open,
+	.read = ath10k_dbg_sta_read_peer_ps_state,
+	.owner = THIS_MODULE,
+	.llseek = default_llseek,
+};
+
 void ath10k_sta_add_debugfs(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 			    struct ieee80211_sta *sta, struct dentry *dir)
 {
@@ -889,4 +916,6 @@ void ath10k_sta_add_debugfs(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 			    &fops_txq_stats);
 	debugfs_create_file("tx_success_bytes", S_IRUGO, dir, sta,
 			    &fops_tx_success_bytes);
+	debugfs_create_file("peer_ps_state", S_IRUSR, dir, sta,
+			    &fops_peer_ps_state);
 }
