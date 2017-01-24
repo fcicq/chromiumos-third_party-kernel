@@ -416,6 +416,7 @@ struct ath10k_sta {
 #endif
 	struct ath10k_txq_stats txq_stats;
 	u8 tpc;
+	u32 peer_ps_state;
 
 	struct ath10k_smart_ant_sta *smart_ant_sta;
 };
@@ -766,6 +767,7 @@ struct ath10k {
 	u32 fwlog_max_moduleid;
 	/* protected by conf_mutex */
 	bool ani_enabled;
+	u8 ps_state_enable;
 
 	DECLARE_BITMAP(fw_features, ATH10K_FW_FEATURE_COUNT);
 

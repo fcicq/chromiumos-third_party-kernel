@@ -3843,6 +3843,11 @@ struct wmi_pdev_tpc_config_event {
 	u8 rates_array[WMI_TPC_RATE_MAX];
 } __packed;
 
+struct wmi_peer_sta_ps_state_chg_event {
+	struct wmi_mac_addr peer_macaddr;
+	__le32 peer_ps_state;
+} __packed;
+
 /* Transmit power scale factor. */
 enum wmi_tp_scale {
 	WMI_TP_SCALE_MAX    = 0,	/* no scaling (default) */

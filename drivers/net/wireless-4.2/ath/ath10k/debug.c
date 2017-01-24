@@ -2611,6 +2611,67 @@ static const struct file_operations fops_adjacent_wlan_interfrc = {
 	.open = simple_open
 };
 
+static ssize_t ath10k_write_ps_state_enable(struct file *file,
+					    const char __user *user_buf,
+					    size_t count, loff_t *ppos)
+{
+	struct ath10k *ar = file->private_data;
+	int ret;
+	u32 param;
+	u8 ps_state_enable;
+
+	if (kstrtou8_from_user(user_buf, count, 0, &ps_state_enable))
+		return -EINVAL;
+
+	if (ps_state_enable > 1 || ps_state_enable < 0)
+		return -EINVAL;
+
+	mutex_lock(&ar->conf_mutex);
+
+	if (ar->ps_state_enable == ps_state_enable) {
+		ret = count;
+		goto exit;
+	}
+
+	param = ar->wmi.pdev_param->peer_sta_ps_statechg_enable;
+	ret = ath10k_wmi_pdev_set_param(ar, param, ps_state_enable);
+	if (ret) {
+		ath10k_warn(ar, "ps_state_enable_enable failed from debugfs: %d\n",
+			    ret);
+		goto exit;
+	}
+	ar->ps_state_enable = ps_state_enable;
+
+	ret = count;
+
+exit:
+	mutex_unlock(&ar->conf_mutex);
+
+	return ret;
+}
+
+static ssize_t ath10k_read_ps_state_enable(struct file *file,
+					   char __user *user_buf,
+					   size_t count, loff_t *ppos)
+{
+	struct ath10k *ar = file->private_data;
+	int len = 0;
+	char buf[32];
+
+	len = scnprintf(buf, sizeof(buf) - len, "%d\n",
+			ar->ps_state_enable);
+
+	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
+}
+
+static const struct file_operations fops_ps_state_enable = {
+	.read = ath10k_read_ps_state_enable,
+	.write = ath10k_write_ps_state_enable,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+	.llseek = default_llseek,
+};
+
 int ath10k_debug_create(struct ath10k *ar)
 {
 	ar->debug.fw_crash_data = vzalloc(sizeof(*ar->debug.fw_crash_data));
@@ -2747,6 +2808,9 @@ int ath10k_debug_register(struct ath10k *ar)
 	debugfs_create_file("adjacent_wlan_interfrc", S_IRUGO | S_IWUSR,
 			    ar->debug.debugfs_phy, ar,
 			    &fops_adjacent_wlan_interfrc);
+
+	debugfs_create_file("ps_state_enable", S_IRUSR | S_IWUSR,
+			    ar->debug.debugfs_phy, ar, &fops_ps_state_enable);
 
 #ifdef CONFIG_ATH10K_SMART_ANTENNA
 	ath10k_smart_ant_debugfs_init(ar);
