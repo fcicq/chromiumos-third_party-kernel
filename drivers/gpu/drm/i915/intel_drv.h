@@ -673,6 +673,14 @@ struct intel_crtc_state {
 	 */
 	bool dither;
 
+	/*
+	 * Dither gets enabled for 18bpp which causes CRC mismatch errors for
+	 * compliance video pattern tests.
+	 * Disable dither only if it is a compliance test request for
+	 * 18bpp.
+	 */
+	bool dither_force_disable;
+
 	/* Controls for the clock computation, to override various stages. */
 	bool clock_set;
 
@@ -981,6 +989,9 @@ enum link_m_n_set {
 
 struct intel_dp_compliance_data {
 	unsigned long edid;
+	uint8_t video_pattern;
+	uint16_t hdisplay, vdisplay;
+	uint8_t bpc;
 };
 
 struct intel_dp_compliance {
