@@ -31,7 +31,7 @@
 #define NETNEXT_VERSION		"08"
 
 /* Information for net */
-#define NET_VERSION		"6"
+#define NET_VERSION		"8"
 
 #define DRIVER_VERSION		"v1." NETNEXT_VERSION "." NET_VERSION
 #define DRIVER_AUTHOR "Realtek linux nic maintainers <nic_swsd@realtek.com>"
@@ -3480,6 +3480,9 @@ static int rtl8152_post_reset(struct usb_interface *intf)
 	netif_wake_queue(netdev);
 	usb_submit_urb(tp->intr_urb, GFP_KERNEL);
 
+	if (!list_empty(&tp->rx_done))
+		napi_schedule(&tp->napi);
+
 	return 0;
 }
 
@@ -3629,6 +3632,8 @@ static int rtl8152_resume(struct usb_interface *intf)
 			napi_enable(&tp->napi);
 			clear_bit(SELECTIVE_SUSPEND, &tp->flags);
 			smp_mb__after_atomic();
+			if (!list_empty(&tp->rx_done))
+				napi_schedule(&tp->napi);
 		} else {
 			tp->rtl_ops.up(tp);
 			netif_carrier_off(tp->netdev);
