@@ -2331,6 +2331,7 @@ bool sk_ns_capable(const struct sock *sk,
 bool sk_capable(const struct sock *sk, int cap);
 bool sk_net_capable(const struct sock *sk, int cap);
 bool inet_sk_allowed(struct net *net, gid_t gid);
+bool android_ns_capable(struct net *net, int cap);
 
 extern __u32 sysctl_wmem_max;
 extern __u32 sysctl_rmem_max;
