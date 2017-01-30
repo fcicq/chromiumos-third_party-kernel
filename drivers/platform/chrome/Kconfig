@@ -69,6 +69,25 @@ config CHROMEOS_TBMC
 config CROS_EC_CTL
         tristate
 
+config CHROMEOS_TBMC
+	tristate "ChromeOS Tablet Switch Controller"
+	depends on ACPI
+	---help---
+	  This option adds a driver for the tablet switch on
+	  select Chrome OS systems.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called chromeos_tbmc.
+
+config CROS_EC_CHARDEV
+        tristate "Chrome OS Embedded Controller userspace device interface"
+        depends on MFD_CROS_EC && MFD_CROS_EC_PD_UPDATE
+        ---help---
+          This driver adds support to talk with the ChromeOS EC from userspace.
+
+          If you have a supported Chromebook, choose Y or M here.
+          The module will be called cros_ec_dev.
+
 config CROS_EC_LPC
         tristate "ChromeOS Embedded Controller (LPC)"
         depends on MFD_CROS_EC && ACPI && (X86 || COMPILE_TEST)
