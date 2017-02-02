@@ -971,9 +971,6 @@ static int wtp_connect(struct hid_device *hdev, bool connected)
 	struct wtp_data *wd = hidpp->private_data;
 	int ret;
 
-	if (!connected)
-		return 0;
-
 	if (!wd->x_size) {
 		ret = wtp_get_config(hidpp);
 		if (ret) {
@@ -1040,9 +1037,6 @@ static int m560_send_config_command(struct hid_device *hdev, bool connected)
 	struct hidpp_device *hidpp_dev;
 
 	hidpp_dev = hid_get_drvdata(hdev);
-
-	if (!connected)
-		return -ENODEV;
 
 	return hidpp_send_rap_command_sync(
 		hidpp_dev,
@@ -1247,9 +1241,6 @@ static int k400_connect(struct hid_device *hdev, bool connected)
 {
 	struct hidpp_device *hidpp = hid_get_drvdata(hdev);
 
-	if (!connected)
-		return 0;
-
 	if (!disable_tap_to_click)
 		return 0;
 
@@ -1445,6 +1436,9 @@ static void hidpp_connect_event(struct hidpp_device *hidpp)
 	struct input_dev *input;
 	char *name, *devm_name;
 
+	if (!connected)
+		return;
+
 	if (hidpp->quirks & HIDPP_QUIRK_CLASS_WTP) {
 		ret = wtp_connect(hdev, connected);
 		if (ret)
@@ -1459,9 +1453,6 @@ static void hidpp_connect_event(struct hidpp_device *hidpp)
 			return;
 	}
 
-	if (!connected || hidpp->delayed_input)
-		return;
-
 	/* the device is already connected, we can ask for its name and
 	 * protocol */
 	if (!hidpp->protocol_major) {
@@ -1474,8 +1465,8 @@ static void hidpp_connect_event(struct hidpp_device *hidpp)
 			 hidpp->protocol_major, hidpp->protocol_minor);
 	}
 
-	if (!(hidpp->quirks & HIDPP_QUIRK_NO_HIDINPUT))
-		/* if HID created the input nodes for us, we can stop now */
+	if (!(hidpp->quirks & HIDPP_QUIRK_NO_HIDINPUT) || hidpp->delayed_input)
+		/* if the input nodes are already created, we can stop now */
 		return;
 
 	if (!hidpp->name || hidpp->name == hdev->name) {
