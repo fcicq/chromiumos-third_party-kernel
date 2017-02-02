@@ -212,7 +212,7 @@
 					pins = "gpio32";
 					function = "sdio7";
 					drive-strength = <10>;
-					bias-disable;
+					bias-pull-up;
 				};
 			};
 
