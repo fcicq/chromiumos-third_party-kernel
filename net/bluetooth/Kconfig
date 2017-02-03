@@ -113,4 +113,11 @@ config BT_DEBUGFS
 	  Provide extensive information about internal Bluetooth states
 	  in debugfs.
 
+config BT_HCI_LE_SPLITTER
+	bool "Split LE out for separate userspace stack"
+	depends on BT
+	help
+	  Creates a char device to allow a userspace stack to handle LE
+	  comms. Bluez will only see an EDR chip and will act accordingly.
+
 source "drivers/bluetooth/Kconfig"

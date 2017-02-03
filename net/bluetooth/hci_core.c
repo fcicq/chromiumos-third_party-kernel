@@ -34,6 +34,7 @@
 
 #include <net/bluetooth/bluetooth.h>
 #include <net/bluetooth/hci_core.h>
+#include <net/bluetooth/hci_le_splitter.h>
 #include <net/bluetooth/l2cap.h>
 #include <net/bluetooth/mgmt.h>
 
@@ -1395,7 +1396,11 @@ static int hci_dev_do_open(struct hci_dev *hdev)
 
 	clear_bit(HCI_INIT, &hdev->flags);
 
+	if (!ret)
+		ret = hci_le_splitter_init_done(hdev);
+
 	if (!ret) {
+
 		hci_dev_hold(hdev);
 		hci_dev_set_flag(hdev, HCI_RPA_EXPIRED);
 		set_bit(HCI_UP, &hdev->flags);
@@ -1411,6 +1416,8 @@ static int hci_dev_do_open(struct hci_dev *hdev)
 			mgmt_power_on(hdev, ret);
 		}
 	} else {
+		hci_le_splitter_init_fail(hdev);
+
 		/* Init failed, cleanup */
 		flush_work(&hdev->tx_work);
 		flush_work(&hdev->cmd_work);
@@ -1518,6 +1525,9 @@ int hci_dev_do_close(struct hci_dev *hdev)
 	bool auto_off;
 
 	BT_DBG("%s %p", hdev->name, hdev);
+
+	if (!hci_le_splitter_deinit(hdev))
+		return 0;
 
 	if (!hci_dev_test_flag(hdev, HCI_UNREGISTER) &&
 	    !hci_dev_test_flag(hdev, HCI_USER_CHANNEL) &&
@@ -3354,6 +3364,11 @@ static void hci_send_frame(struct hci_dev *hdev, struct sk_buff *skb)
 		return;
 	}
 
+	if (!hci_le_splitter_should_allow_bluez_tx(hdev, skb)) {
+		kfree_skb(skb);
+		return;
+	}
+
 	err = hdev->send(hdev, skb);
 	if (err < 0) {
 		BT_ERR("%s sending frame failed (%d)", hdev->name, err);
@@ -4179,6 +4194,11 @@ static void hci_rx_work(struct work_struct *work)
 		}
 
 		if (hci_dev_test_flag(hdev, HCI_USER_CHANNEL)) {
+			kfree_skb(skb);
+			continue;
+		}
+
+		if (!hci_le_splitter_should_allow_bluez_rx(hdev, skb)) {
 			kfree_skb(skb);
 			continue;
 		}
