@@ -503,7 +503,6 @@ static int nl80211_prepare_wdev_dump(struct sk_buff *skb,
 						   nl80211_fam.attrbuf);
 		if (IS_ERR(*wdev))
 			return PTR_ERR(*wdev);
-
 		*rdev = wiphy_to_rdev((*wdev)->wiphy);
 		/* 0 is the first index - add 1 to parse only once */
 		cb->args[0] = (*rdev)->wiphy_idx + 1;
