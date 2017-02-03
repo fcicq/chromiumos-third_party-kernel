@@ -167,52 +167,71 @@
 					pins = "gpio23";
 					function = "sdio0";
 					drive-strength = <10>;
+					bias-pull-up;
+					pull-up-res = <0>;
 				};
 				sd1 {
 					pins = "gpio24";
 					function = "sdio1";
 					drive-strength = <10>;
+					bias-pull-up;
+					pull-up-res = <0>;
 				};
 				sd2 {
 					pins = "gpio25";
 					function = "sdio2";
 					drive-strength = <10>;
+					bias-pull-up;
+					pull-up-res = <0>;
 				};
 				sd3 {
 					pins = "gpio26";
 					function = "sdio3";
 					drive-strength = <10>;
+					bias-pull-up;
+					pull-up-res = <0>;
 				};
 				sdclk {
 					pins = "gpio27";
 					function = "sdio_clk";
 					drive-strength = <4>;
+					bias-pull-up;
+					pull-up-res = <0>;
 				};
 				sdcmd {
 					pins = "gpio28";
 					function = "sdio_cmd";
 					drive-strength = <10>;
+					bias-pull-up;
+					pull-up-res = <0>;
 				};
 				sd4 {
 					pins = "gpio29";
 					function = "sdio4";
 					drive-strength = <10>;
+					bias-pull-up;
+					pull-up-res = <0>;
 				};
 				sd5 {
 					pins = "gpio30";
 					function = "sdio5";
 					drive-strength = <10>;
+					bias-pull-up;
+					pull-up-res = <0>;
 				};
 				sd6 {
 					pins = "gpio31";
 					function = "sdio6";
 					drive-strength = <10>;
+					bias-pull-up;
+					pull-up-res = <0>;
 				};
 				sd7 {
 					pins = "gpio32";
 					function = "sdio7";
 					drive-strength = <10>;
 					bias-pull-up;
+					pull-up-res = <0>;
 				};
 			};
 
