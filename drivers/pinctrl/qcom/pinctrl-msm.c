@@ -219,10 +219,16 @@ static int msm_config_set(struct pinctrl_dev *pctldev, unsigned int pin,
 	return -ENOTSUPP;
 }
 
+#ifdef CONFIG_PINCTRL_IPQ4019
+#define MSM_NO_PULL	0
+#define MSM_PULL_DOWN	1
+#define MSM_PULL_UP	2
+#else
 #define MSM_NO_PULL	0
 #define MSM_PULL_DOWN	1
 #define MSM_KEEPER	2
 #define MSM_PULL_UP	3
+#endif
 
 static unsigned msm_regval_to_drive(u32 val)
 {
@@ -259,9 +265,11 @@ static int msm_config_group_get(struct pinctrl_dev *pctldev,
 	case PIN_CONFIG_BIAS_PULL_DOWN:
 		arg = arg == MSM_PULL_DOWN;
 		break;
+#ifndef CONFIG_PINCTRL_IPQ4019
 	case PIN_CONFIG_BIAS_BUS_HOLD:
 		arg = arg == MSM_KEEPER;
 		break;
+#endif
 	case PIN_CONFIG_BIAS_PULL_UP:
 		arg = arg == MSM_PULL_UP;
 		break;
@@ -321,9 +329,11 @@ static int msm_config_group_set(struct pinctrl_dev *pctldev,
 		case PIN_CONFIG_BIAS_PULL_DOWN:
 			arg = MSM_PULL_DOWN;
 			break;
+#ifndef CONFIG_PINCTRL_IPQ4019
 		case PIN_CONFIG_BIAS_BUS_HOLD:
 			arg = MSM_KEEPER;
 			break;
+#endif
 		case PIN_CONFIG_BIAS_PULL_UP:
 			arg = MSM_PULL_UP;
 			break;
