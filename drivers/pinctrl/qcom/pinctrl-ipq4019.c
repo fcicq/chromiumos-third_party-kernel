@@ -273,6 +273,7 @@ static const unsigned int sdc2_data_pins[] = { 75 };
 		.in_bit = 0,			\
 		.out_bit = 1,			\
 		.od_bit = 12,			\
+		.pull_up_res_bit = 13,		\
 		.intr_enable_bit = 0,		\
 		.intr_status_bit = 0,		\
 		.intr_target_bit = 5,		\

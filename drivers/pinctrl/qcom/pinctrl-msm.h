@@ -80,6 +80,7 @@ struct msm_pingroup {
 	unsigned mux_bit:5;
 
 	unsigned pull_bit:5;
+	unsigned pull_up_res_bit:5;
 	unsigned drv_bit:5;
 
 	unsigned oe_bit:5;
