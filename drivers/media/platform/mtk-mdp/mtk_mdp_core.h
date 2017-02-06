@@ -210,7 +210,6 @@ struct mtk_mdp_ctx {
 
 extern int mtk_mdp_dbg_level;
 
-#define DEBUG	1
 
 #if defined(DEBUG)
 
