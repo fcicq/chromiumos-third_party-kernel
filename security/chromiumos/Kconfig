@@ -9,6 +9,14 @@ config SECURITY_CHROMIUMOS
 	  and loading modules is limited to only the root filesystem. This
 	  LSM is stacked ahead of any primary "full" LSM.
 
+config SECURITY_CHROMIUMOS_DEVICE_JAIL
+	bool "Chromium OS Security: device jail sandbox"
+	depends on USB
+	default y
+	help
+	  When enabled, the kernel device_jail interface will be enabled,
+	  allowing further sandboxing of USB devices.
+
 config ALT_SYSCALL_CHROMIUMOS
 	tristate "Chromium OS Alt-Syscall Tables"
 	depends on ALT_SYSCALL
