@@ -1051,7 +1051,6 @@ static void vb2ops_vdec_buf_queue(struct vb2_buffer *vb)
 				 * means the first NALU does not have SPS
 				 * header. Do not print the error in that case.
 				 */
-				int log_level = ret ? 0 : 1;
 				src_buf = v4l2_m2m_src_buf_remove(ctx->m2m_ctx);
 				if (ret == -EIO) {
 					mtk_v4l2_err("[%d] Unrecoverable error in vdec_if_decode.",
@@ -1063,10 +1062,10 @@ static void vb2ops_vdec_buf_queue(struct vb2_buffer *vb)
 					v4l2_m2m_buf_done(to_vb2_v4l2_buffer(src_buf),
 							VB2_BUF_STATE_DONE);
 				}
-				mtk_v4l2_debug(log_level,
-						"[%d] vdec_if_decode() src_buf=%d, size=%zu, fail=%d, res_chg=%d",
-						ctx->id, src_buf->index,
-						src_mem.size, ret, res_chg);
+				mtk_v4l2_debug(ret ? 0 : 1,
+					       "[%d] vdec_if_decode() src_buf=%d, size=%zu, fail=%d, res_chg=%d",
+					       ctx->id, src_buf->index,
+					       src_mem.size, ret, res_chg);
 				return;
 			}
 
