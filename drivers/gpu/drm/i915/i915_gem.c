@@ -1843,9 +1843,11 @@ int i915_gem_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 		goto unlock;
 	}
 
-	/* Use a partial view if the object is bigger than the aperture. */
-	if (obj->base.size >= dev_priv->gtt.mappable_end &&
-	    obj->tiling_mode == I915_TILING_NONE) {
+	/* Now pin it into the GTT if needed */
+	ret = i915_gem_object_ggtt_pin(obj, &view, 0, PIN_MAPPABLE);
+
+	/* Use a partial view if the object is bigger than what we can pin. */
+	if (ret) {
 		unsigned int chunk_size;
 
 		chunk_size = MIN_CHUNK_PAGES;
@@ -1860,12 +1862,11 @@ int i915_gem_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 			      chunk_size,
 			      (vma->vm_end - vma->vm_start)/PAGE_SIZE -
 			      view.params.partial.offset);
-	}
 
-	/* Now pin it into the GTT if needed */
-	ret = i915_gem_object_ggtt_pin(obj, &view, 0, PIN_MAPPABLE);
-	if (ret)
-		goto unlock;
+		ret = i915_gem_object_ggtt_pin(obj, &view, 0, PIN_MAPPABLE);
+		if (ret)
+			goto unlock;
+	}
 
 	ret = i915_gem_object_set_to_gtt_domain(obj, write);
 	if (ret)
