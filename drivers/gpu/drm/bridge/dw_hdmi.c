@@ -34,6 +34,7 @@
 #include "dw_hdmi.h"
 
 #define HDMI_EDID_LEN		512
+#define DDC_SEGMENT_ADDR	0x30
 
 #define RGB			0
 #define YCBCR444		1
@@ -195,6 +196,7 @@ struct dw_hdmi_i2c {
 
 	u8			slave_reg;
 	bool			is_regaddr;
+	bool			is_segment;
 };
 
 struct dw_hdmi {
@@ -417,17 +419,20 @@ static int dw_hdmi_i2c_read(struct dw_hdmi *hdmi,
 
 	while (length--) {
 		reinit_completion(&i2c->cmp);
-
 		hdmi_writeb(hdmi, i2c->slave_reg++, HDMI_I2CM_ADDRESS);
-		hdmi_writeb(hdmi, HDMI_I2CM_OPERATION_READ,
-			    HDMI_I2CM_OPERATION);
-
+		if (i2c->is_segment)
+			hdmi_writeb(hdmi, HDMI_I2CM_OPERATION_READ_EXT,
+				    HDMI_I2CM_OPERATION);
+		else
+			hdmi_writeb(hdmi, HDMI_I2CM_OPERATION_READ,
+				    HDMI_I2CM_OPERATION);
 		ret = dw_hdmi_i2c_wait(hdmi);
 		if (ret)
 			return ret;
 
 		*buf++ = hdmi_readb(hdmi, HDMI_I2CM_DATAI);
 	}
+	i2c->is_segment = false;
 
 	return 0;
 }
@@ -448,7 +453,6 @@ static int dw_hdmi_i2c_write(struct dw_hdmi *hdmi,
 
 	while (length--) {
 		reinit_completion(&i2c->cmp);
-
 		hdmi_writeb(hdmi, *buf++, HDMI_I2CM_DATAO);
 		hdmi_writeb(hdmi, i2c->slave_reg++, HDMI_I2CM_ADDRESS);
 		hdmi_writeb(hdmi, HDMI_I2CM_OPERATION_WRITE,
@@ -473,12 +477,6 @@ static int dw_hdmi_i2c_xfer(struct i2c_adapter *adap,
 	dev_dbg(hdmi->dev, "xfer: num: %d, addr: %#x\n", num, addr);
 
 	for (i = 0; i < num; i++) {
-		if (msgs[i].addr != addr) {
-			dev_warn(hdmi->dev,
-				 "unsupported transfer, changed slave address\n");
-			return -EOPNOTSUPP;
-		}
-
 		if (msgs[i].len == 0) {
 			dev_dbg(hdmi->dev,
 				"unsupported transfer %d/%d, no data\n",
@@ -497,15 +495,24 @@ static int dw_hdmi_i2c_xfer(struct i2c_adapter *adap,
 	/* Set slave device register address on transfer */
 	i2c->is_regaddr = false;
 
+	/* Set segment pointer for I2C extended read mode operation */
+	i2c->is_segment = false;
+
 	for (i = 0; i < num; i++) {
 		dev_dbg(hdmi->dev, "xfer: num: %d/%d, len: %d, flags: %#x\n",
 			i + 1, num, msgs[i].len, msgs[i].flags);
-
-		if (msgs[i].flags & I2C_M_RD)
-			ret = dw_hdmi_i2c_read(hdmi, msgs[i].buf, msgs[i].len);
-		else
-			ret = dw_hdmi_i2c_write(hdmi, msgs[i].buf, msgs[i].len);
-
+		if (msgs[i].addr == DDC_SEGMENT_ADDR && msgs[i].len == 1) {
+			i2c->is_segment = true;
+			hdmi_writeb(hdmi, DDC_SEGMENT_ADDR, HDMI_I2CM_SEGADDR);
+			hdmi_writeb(hdmi, *msgs[i].buf, HDMI_I2CM_SEGPTR);
+		} else {
+			if (msgs[i].flags & I2C_M_RD)
+				ret = dw_hdmi_i2c_read(hdmi, msgs[i].buf,
+						       msgs[i].len);
+			else
+				ret = dw_hdmi_i2c_write(hdmi, msgs[i].buf,
+							msgs[i].len);
+		}
 		if (ret < 0)
 			break;
 	}
