@@ -282,13 +282,14 @@ static int stmmac_pltfr_remove(struct platform_device *pdev)
 {
 	struct net_device *ndev = platform_get_drvdata(pdev);
 	struct stmmac_priv *priv = netdev_priv(ndev);
+	struct plat_stmmacenet_data *plat = priv->plat;
 	int ret = stmmac_dvr_remove(ndev);
 
-	if (priv->plat->exit)
-		priv->plat->exit(pdev, priv->plat->bsp_priv);
+	if (plat->exit)
+		plat->exit(pdev, plat->bsp_priv);
 
-	if (priv->plat->free)
-		priv->plat->free(pdev, priv->plat->bsp_priv);
+	if (plat->free)
+		plat->free(pdev, plat->bsp_priv);
 
 	return ret;
 }
