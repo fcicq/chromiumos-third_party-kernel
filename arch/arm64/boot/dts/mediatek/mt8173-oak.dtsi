@@ -13,7 +13,6 @@
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/regulator/regulator.h>
 #include "mt8173.dtsi"
-#include "mt8173-pinfunc.h"
 
 / {
 	aliases {
