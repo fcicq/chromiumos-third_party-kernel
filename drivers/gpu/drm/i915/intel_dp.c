@@ -3110,20 +3110,11 @@ ironlake_dp_detect(struct intel_dp *intel_dp)
 	struct drm_device *dev = intel_dp_to_dev(intel_dp);
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	struct intel_digital_port *intel_dig_port = dp_to_dig_port(intel_dp);
-	enum drm_connector_status status;
-
-	/* Can't disconnect eDP, but you can close the lid... */
-	if (is_edp(intel_dp)) {
-		status = intel_panel_detect(dev);
-		if (status == connector_status_unknown)
-			status = connector_status_connected;
-		return status;
-	}
 
 	if (!ibx_digital_port_connected(dev_priv, intel_dig_port))
 		return connector_status_disconnected;
 
-	return intel_dp_detect_dpcd(intel_dp);
+	return connector_status_connected;
 }
 
 static enum drm_connector_status
@@ -3133,16 +3124,6 @@ g4x_dp_detect(struct intel_dp *intel_dp)
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	struct intel_digital_port *intel_dig_port = dp_to_dig_port(intel_dp);
 	uint32_t bit;
-
-	/* Can't disconnect eDP, but you can close the lid... */
-	if (is_edp(intel_dp)) {
-		enum drm_connector_status status;
-
-		status = intel_panel_detect(dev);
-		if (status == connector_status_unknown)
-			status = connector_status_connected;
-		return status;
-	}
 
 	if (IS_VALLEYVIEW(dev)) {
 		switch (intel_dig_port->port) {
@@ -3177,7 +3158,7 @@ g4x_dp_detect(struct intel_dp *intel_dp)
 	if ((I915_READ(PORT_HOTPLUG_STAT) & bit) == 0)
 		return connector_status_disconnected;
 
-	return intel_dp_detect_dpcd(intel_dp);
+	return connector_status_connected;
 }
 
 static struct edid *
@@ -3233,10 +3214,13 @@ intel_dp_detect(struct drm_connector *connector, bool force)
 
 	intel_dp->has_audio = false;
 
-	/* Ensure the sink is awake for DPCD/EDID reads. */
-	if (!is_edp(intel_dp) && connector->dpms != DRM_MODE_DPMS_ON) {
-		/* Bypass DPCD check, since we obtain it during detection. */
-		intel_dp_do_sink_dpms(intel_dp, DRM_MODE_DPMS_ON);
+	/* Can't disconnect eDP, but you can close the lid... */
+	if (is_edp(intel_dp)) {
+		status = intel_panel_detect(dev);
+		if (status == connector_status_unknown)
+			status = connector_status_connected;
+		if (status == connector_status_disconnected)
+			goto out;
 	}
 
 	if (HAS_PCH_SPLIT(dev))
@@ -3246,6 +3230,14 @@ intel_dp_detect(struct drm_connector *connector, bool force)
 
 	if (status != connector_status_connected)
 		goto out;
+
+	/* Ensure the sink is awake for DPCD/EDID reads. */
+	if (!is_edp(intel_dp) && connector->dpms != DRM_MODE_DPMS_ON) {
+		/* Bypass DPCD check, since we obtain it during detection. */
+		intel_dp_do_sink_dpms(intel_dp, DRM_MODE_DPMS_ON);
+	}
+
+	status = intel_dp_detect_dpcd(intel_dp);
 
 	if (intel_dp->force_audio != HDMI_AUDIO_AUTO) {
 		intel_dp->has_audio = (intel_dp->force_audio == HDMI_AUDIO_ON);
@@ -3275,11 +3267,12 @@ intel_dp_detect(struct drm_connector *connector, bool force)
 		intel_encoder->type = INTEL_OUTPUT_DISPLAYPORT;
 	status = connector_status_connected;
 
-out:
 	/* Restore the sink state */
-	if (!is_edp(intel_dp) && connector->dpms != DRM_MODE_DPMS_ON)
+	if (!is_edp(intel_dp) && connector->dpms != DRM_MODE_DPMS_ON) {
 		intel_dp_do_sink_dpms(intel_dp, connector->dpms);
+	}
 
+out:
 	intel_runtime_pm_put(dev_priv);
 	return status;
 }
