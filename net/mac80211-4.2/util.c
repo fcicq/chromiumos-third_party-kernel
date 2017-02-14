@@ -287,22 +287,6 @@ __le16 ieee80211_ctstoself_duration(struct ieee80211_hw *hw,
 }
 EXPORT_SYMBOL(ieee80211_ctstoself_duration);
 
-static void
-ieee80211_propagate_sta_queue_wake(struct ieee80211_sub_if_data *sdata,
-				   int ac)
-{
-	struct ieee80211_local *local = sdata->local;
-	int q_max = IEEE80211_NUM_NDEV_STA_Q;
-	int q;
-
-	if (!local->ops->wake_tx_queue)
-		return;
-
-	for (q = ac; q < q_max; q += IEEE80211_NUM_ACS)
-		if (!test_bit(q, sdata->ndev_sta_q_stopped))
-			netif_wake_subqueue(sdata->dev, q + IEEE80211_NUM_ACS);
-}
-
 void ieee80211_propagate_queue_wake(struct ieee80211_local *local, int queue)
 {
 	struct ieee80211_sub_if_data *sdata;
@@ -325,17 +309,15 @@ void ieee80211_propagate_queue_wake(struct ieee80211_local *local, int queue)
 			int ac_queue = sdata->vif.hw_queue[ac];
 
 			if (local->ops->wake_tx_queue &&
-			    (atomic_read(&sdata->txqs_len[ac]) >=
+			    (atomic_read(&sdata->txqs_len[ac]) >
 			     local->hw.txq_ac_max_pending))
 				continue;
 
 			if (ac_queue == queue ||
 			    (sdata->vif.cab_queue == queue &&
 			     local->queue_stop_reasons[ac_queue] == 0 &&
-			     skb_queue_empty(&local->pending[ac_queue]))) {
+			     skb_queue_empty(&local->pending[ac_queue])))
 				netif_wake_subqueue(sdata->dev, ac);
-				ieee80211_propagate_sta_queue_wake(sdata, ac);
-			}
 		}
 	}
 }
@@ -401,8 +383,6 @@ static void __ieee80211_stop_queue(struct ieee80211_hw *hw, int queue,
 	struct ieee80211_local *local = hw_to_local(hw);
 	struct ieee80211_sub_if_data *sdata;
 	int n_acs = IEEE80211_NUM_ACS;
-	int q_max;
-	int q;
 
 	trace_stop_queue(local, queue, reason);
 
@@ -420,11 +400,6 @@ static void __ieee80211_stop_queue(struct ieee80211_hw *hw, int queue,
 	if (local->hw.queues < IEEE80211_NUM_ACS)
 		n_acs = 1;
 
-	if (local->ops->wake_tx_queue)
-		q_max = IEEE80211_NUM_ACS * (IEEE80211_NUM_NDEV_STA + 1);
-	else
-		q_max = IEEE80211_NUM_ACS;
-
 	rcu_read_lock();
 	list_for_each_entry_rcu(sdata, &local->interfaces, list) {
 		int ac;
@@ -434,10 +409,8 @@ static void __ieee80211_stop_queue(struct ieee80211_hw *hw, int queue,
 
 		for (ac = 0; ac < n_acs; ac++) {
 			if (sdata->vif.hw_queue[ac] == queue ||
-			    sdata->vif.cab_queue == queue) {
-				for (q = ac; q < q_max; q += IEEE80211_NUM_ACS)
-					netif_stop_subqueue(sdata->dev, q);
-			}
+			    sdata->vif.cab_queue == queue)
+				netif_stop_subqueue(sdata->dev, ac);
 		}
 	}
 	rcu_read_unlock();
