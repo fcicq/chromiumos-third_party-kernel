@@ -2016,7 +2016,6 @@ static void ath10k_htt_rx_tx_fetch_ind(struct ath10k *ar, struct sk_buff *skb)
 {
 	struct ieee80211_hw *hw = ar->hw;
 	struct ieee80211_txq *txq;
-	struct ath10k_sta *arsta;
 	struct htt_resp *resp = (struct htt_resp *)skb->data;
 	struct htt_tx_fetch_record *record;
 	size_t len;
@@ -2097,11 +2096,6 @@ static void ath10k_htt_rx_tx_fetch_ind(struct ath10k *ar, struct sk_buff *skb)
 			ath10k_warn(ar, "failed to lookup txq for peer_id %hu tid %hhu\n",
 				    peer_id, tid);
 			continue;
-		}
-
-		if (txq->sta) {
-			arsta = (void *)txq->sta->drv_priv;
-			arsta->txq_stats.tx_fetch_ind[txq->ac] = jiffies;
 		}
 
 		num_msdus = 0;
