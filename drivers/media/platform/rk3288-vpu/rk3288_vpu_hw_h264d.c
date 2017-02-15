@@ -220,19 +220,20 @@ void rk3288_vpu_h264d_exit(struct rk3288_vpu_ctx *ctx)
 }
 
 /*
- * NOTE: The hardware needs scaling lists in zig zag order and with bytes
- * swapped within each subsequent 4 bytes. Both array below include both
+ * NOTE: The scaling lists are in zig-zag order, apply inverse scanning process
+ * to get the values in matrix order. In addition, the hardware requires bytes
+ * swapped within each subsequent 4 bytes. Both arrays below include both
  * transformations.
  */
 static const u32 zig_zag_4x4[] = {
-	8, 4, 1, 0, 6, 3, 2, 5, 10, 13, 12, 9, 15, 14, 11, 7
+	3, 2, 7, 11, 6, 1, 0, 5, 10, 15, 14, 9, 4, 8, 13, 12
 };
 
 static const u32 zig_zag_8x8[] = {
-	16, 8, 1, 0, 10, 3, 2, 9, 25, 32, 24, 17, 5, 4, 11, 18,
-	33, 26, 19, 12, 34, 41, 48, 40, 6, 13, 20, 27, 28, 21, 14, 7,
-	56, 49, 42, 35, 36, 43, 50, 57, 23, 15, 22, 29, 51, 44, 37, 30,
-	45, 52, 59, 58, 46, 39, 31, 38, 54, 61, 60, 53, 63, 62, 55, 47
+	3, 2, 11, 19, 10, 1, 0, 9, 18, 27, 35, 26, 17, 8, 7, 6,
+	15, 16, 25, 34, 43, 51, 42, 33, 24, 23, 14, 5, 4, 13, 22, 31,
+	32, 41, 50, 59, 58, 49, 40, 39, 30, 21, 12, 20, 29, 38, 47, 48,
+	57, 56, 55, 46, 37, 28, 36, 45, 54, 63, 62, 53, 44, 52, 61, 60
 };
 
 static void rk3288_vpu_h264d_reorder_scaling_list(struct rk3288_vpu_ctx *ctx)
