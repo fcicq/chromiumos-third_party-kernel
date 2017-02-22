@@ -601,6 +601,34 @@ static const struct file_operations fops_tx_stats = {
 	.llseek = default_llseek,
 };
 
+static ssize_t ath10k_dbg_sta_read_tx_success_bytes(struct file *file,
+						    char __user *user_buf,
+						    size_t count, loff_t *ppos)
+{
+	struct ieee80211_sta *sta = file->private_data;
+	struct ath10k_sta *arsta = (struct ath10k_sta *)sta->drv_priv;
+	char buf[100];
+	int len = 0, i;
+	u64 total_succ_bytes;
+
+	total_succ_bytes = arsta->tx_stats.succ_bytes_gi[0] +
+		arsta->tx_stats.succ_bytes_gi[1];
+	for (i = 0; i < LEGACY_RATE_NUM; i++)
+		total_succ_bytes += arsta->tx_stats.succ_bytes_legacy_rates[i];
+
+	len = scnprintf(buf, sizeof(buf),
+			"%llu\n", total_succ_bytes);
+
+	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
+}
+
+static const struct file_operations fops_tx_success_bytes = {
+	.read = ath10k_dbg_sta_read_tx_success_bytes,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+	.llseek = default_llseek,
+};
+
 void ath10k_sta_add_debugfs(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 			    struct ieee80211_sta *sta, struct dentry *dir)
 {
@@ -613,4 +641,6 @@ void ath10k_sta_add_debugfs(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 			    &fops_rx_duration);
 	debugfs_create_file("tx_stats", S_IRUGO, dir, sta,
 			    &fops_tx_stats);
+	debugfs_create_file("tx_success_bytes", S_IRUGO, dir, sta,
+			    &fops_tx_success_bytes);
 }
