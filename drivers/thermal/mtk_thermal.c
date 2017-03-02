@@ -1236,7 +1236,7 @@ static int cpufreq_svs_notifier(struct notifier_block *nb, unsigned long event,
 	return NOTIFY_OK;
 }
 
-static bool skip_svs_init;
+static bool allow_svs_late_init;
 
 static struct notifier_block svs_cpufreq_notifier_block = {
 	.notifier_call = cpufreq_svs_notifier,
@@ -1252,7 +1252,7 @@ static int mtk_svs_late_init(void)
 {
 	int ret, i;
 
-	if (skip_svs_init)
+	if (allow_svs_late_init)
 		return -EINVAL;
 
 	ret = cpufreq_register_notifier(&svs_cpufreq_notifier_block,
@@ -1292,7 +1292,7 @@ static int mtk_svs_probe(struct platform_device *pdev)
 			return PTR_ERR(mt->svs_pll);
 
 		pr_err("Failed to get SVS PLL clock\n");
-		goto out_skip_svs_init;
+		return ret;
 	}
 
 	mt->svs_mux = devm_clk_get(&pdev->dev, "svs_mux");
@@ -1301,7 +1301,7 @@ static int mtk_svs_probe(struct platform_device *pdev)
 			return PTR_ERR(mt->svs_mux);
 
 		pr_err("Failed to get SVS MUX clock\n");
-		goto out_skip_svs_init;
+		return ret;
 	}
 
 	for (i = 0; i < MT8173_NUM_SVS_BANKS; i++) {
@@ -1314,7 +1314,7 @@ static int mtk_svs_probe(struct platform_device *pdev)
 				return PTR_ERR(reg);
 
 			pr_err("Failed to get %s regulator\n", supply);
-			goto out_skip_svs_init;
+			return ret;
 		}
 
 		svs_banks[i].reg = reg;
@@ -1323,11 +1323,9 @@ static int mtk_svs_probe(struct platform_device *pdev)
 
 	ret = mtk_svs_get_calibration_data(mt->dev, mt);
 	if (ret) {
-		if (ret == -EPROBE_DEFER)
-			return ret;
-
-		pr_err("Failed to get SVS calibration data\n");
-		goto out_skip_svs_init;
+		if (ret != -EPROBE_DEFER)
+			pr_err("Failed to get SVS calibration data\n");
+		return ret;
 	}
 
 	mt->svs_irq = platform_get_irq(pdev, 1);
@@ -1337,14 +1335,13 @@ static int mtk_svs_probe(struct platform_device *pdev)
 					"mtk-svs", mt);
 	if (ret) {
 		pr_err("Failed to get SVS IRQ\n");
-		goto out_skip_svs_init;
+		return ret;
 	}
 
-	return 0;
+	/* SVS has successfully probed, allow SVS late init */
+	allow_svs_late_init = true;
 
-out_skip_svs_init:
-	skip_svs_init = true;
-	return ret;
+	return 0;
 }
 
 static int mtk_thermal_probe(struct platform_device *pdev)
