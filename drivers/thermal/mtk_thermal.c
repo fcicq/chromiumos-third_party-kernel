@@ -1107,6 +1107,7 @@ static int mtk_svs_hw_init(struct mtk_thermal *mt)
 		ret = cpufreq_get_policy(&policy, svs_bank_cfgs[i].dev_id);
 		if (ret) {
 			dev_err(svs->dev, "cpufreq is not ready.\n");
+			pm_qos_remove_request(&qos_request);
 			clk_set_parent(mt->svs_mux, parent);
 			return ret;
 		}
