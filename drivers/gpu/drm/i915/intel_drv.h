@@ -1277,14 +1277,14 @@ void hsw_fdi_link_train(struct drm_crtc *crtc);
 void intel_ddi_init(struct drm_i915_private *dev_priv, enum port port);
 enum port intel_ddi_get_encoder_port(struct intel_encoder *intel_encoder);
 bool intel_ddi_get_hw_state(struct intel_encoder *encoder, enum pipe *pipe);
-void intel_ddi_enable_transcoder_func(struct drm_crtc *crtc);
+void intel_ddi_enable_transcoder_func(struct intel_crtc *crtc);
 void intel_ddi_disable_transcoder_func(struct drm_i915_private *dev_priv,
 				       enum transcoder cpu_transcoder);
 void intel_ddi_enable_pipe_clock(struct intel_crtc *intel_crtc);
 void intel_ddi_disable_pipe_clock(struct intel_crtc *intel_crtc);
 bool intel_ddi_pll_select(struct intel_crtc *crtc,
 			  struct intel_crtc_state *crtc_state);
-void intel_ddi_set_pipe_settings(struct drm_crtc *crtc);
+void intel_ddi_set_pipe_settings(struct intel_crtc *crtc);
 void intel_ddi_prepare_link_retrain(struct intel_dp *intel_dp);
 bool intel_ddi_connector_get_hw_state(struct intel_connector *intel_connector);
 bool intel_ddi_is_audio_enabled(struct drm_i915_private *dev_priv,
@@ -1297,7 +1297,7 @@ intel_ddi_get_crtc_new_encoder(struct intel_crtc_state *crtc_state);
 void intel_ddi_init_dp_buf_reg(struct intel_encoder *encoder);
 void intel_ddi_clock_get(struct intel_encoder *encoder,
 			 struct intel_crtc_state *pipe_config);
-void intel_ddi_set_vc_payload_alloc(struct drm_crtc *crtc, bool state);
+void intel_ddi_set_vc_payload_alloc(struct intel_crtc *crtc, bool state);
 uint32_t ddi_signal_levels(struct intel_dp *intel_dp);
 struct intel_shared_dpll *intel_ddi_get_link_dpll(struct intel_dp *intel_dp,
 						  int clock);
