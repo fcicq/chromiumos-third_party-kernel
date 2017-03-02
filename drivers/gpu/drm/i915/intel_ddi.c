@@ -1713,6 +1713,8 @@ static void intel_ddi_pre_enable_dp(struct intel_encoder *encoder,
 	struct drm_i915_private *dev_priv = to_i915(encoder->base.dev);
 	enum port port = intel_ddi_get_encoder_port(encoder);
 
+	WARN_ON(link_mst && (port == PORT_A || port == PORT_E));
+
 	intel_dp_set_link_params(intel_dp, link_rate, lane_count,
 				 link_mst);
 	if (encoder->type == INTEL_OUTPUT_EDP)
