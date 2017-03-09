@@ -1517,9 +1517,7 @@ static int vop_create_crtc(struct vop *vop)
 					       0, &vop_plane_funcs,
 					       win_data->phy->data_formats,
 					       win_data->phy->nformats,
-					       win_data->phy->format_modifiers,
-					       win_data->phy->nformat_modifiers,
-					       win_data->type, NULL);
+					       NULL, 0, win_data->type, NULL);
 		if (ret) {
 			DRM_DEV_ERROR(vop->dev, "failed to init plane %d\n",
 				      ret);
@@ -1558,9 +1556,7 @@ static int vop_create_crtc(struct vop *vop)
 					       &vop_plane_funcs,
 					       win_data->phy->data_formats,
 					       win_data->phy->nformats,
-					       win_data->phy->format_modifiers,
-					       win_data->phy->nformat_modifiers,
-					       win_data->type, NULL);
+					       NULL, 0, win_data->type, NULL);
 		if (ret) {
 			DRM_DEV_ERROR(vop->dev, "failed to init overlay %d\n",
 				      ret);
