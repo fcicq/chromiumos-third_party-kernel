@@ -654,7 +654,6 @@ static const struct i2c_device_id drv260x_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, drv260x_id);
 
-#ifdef CONFIG_OF
 static const struct of_device_id drv260x_of_match[] = {
 	{ .compatible = "ti,drv2604", },
 	{ .compatible = "ti,drv2604l", },
@@ -663,14 +662,13 @@ static const struct of_device_id drv260x_of_match[] = {
 	{ }
 };
 MODULE_DEVICE_TABLE(of, drv260x_of_match);
-#endif
 
 static struct i2c_driver drv260x_driver = {
 	.probe		= drv260x_probe,
 	.driver		= {
 		.name	= "drv260x-haptics",
 		.owner	= THIS_MODULE,
-		.of_match_table = of_match_ptr(drv260x_of_match),
+		.of_match_table = drv260x_of_match,
 		.pm	= &drv260x_pm_ops,
 	},
 	.id_table = drv260x_id,
