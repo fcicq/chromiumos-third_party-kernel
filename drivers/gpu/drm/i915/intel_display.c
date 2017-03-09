@@ -14285,7 +14285,7 @@ static struct drm_plane *intel_primary_plane_create(struct drm_device *dev,
 	ret = drm_universal_plane_init(dev, &primary->base, 0,
 				       &intel_plane_funcs,
 				       intel_primary_formats, num_formats,
-				       NULL, 0, DRM_PLANE_TYPE_PRIMARY, NULL);
+				       DRM_PLANE_TYPE_PRIMARY, NULL);
 	if (ret)
 		goto fail;
 
@@ -14444,7 +14444,7 @@ static struct drm_plane *intel_cursor_plane_create(struct drm_device *dev,
 				       &intel_plane_funcs,
 				       intel_cursor_formats,
 				       ARRAY_SIZE(intel_cursor_formats),
-				       NULL, 0, DRM_PLANE_TYPE_CURSOR, NULL);
+				       DRM_PLANE_TYPE_CURSOR, NULL);
 	if (ret)
 		goto fail;
 
