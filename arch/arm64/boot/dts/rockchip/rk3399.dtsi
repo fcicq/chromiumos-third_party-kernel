@@ -1644,7 +1644,7 @@
 
 	display_subsystem: display-subsystem {
 		compatible = "rockchip,display-subsystem";
-		ports = <&vopb_out>, <&vopl_out>;
+		ports = <&vopl_out>, <&vopb_out>;
 		status = "disabled";
 	};
 
