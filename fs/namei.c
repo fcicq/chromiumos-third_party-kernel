@@ -4329,7 +4329,8 @@ static char *page_getlink(struct dentry * dentry, struct page **ppage)
 	if (IS_ERR(page))
 		return (char*)page;
 	*ppage = page;
-	kaddr = kmap(page);
+	BUG_ON(mapping_gfp_mask(mapping) & __GFP_HIGHMEM);
+	kaddr = page_address(page);
 	nd_terminate_link(kaddr, dentry->d_inode->i_size, PAGE_SIZE - 1);
 	return kaddr;
 }
@@ -4358,7 +4359,6 @@ void page_put_link(struct dentry *dentry, struct nameidata *nd, void *cookie)
 	struct page *page = cookie;
 
 	if (page) {
-		kunmap(page);
 		page_cache_release(page);
 	}
 }
@@ -4372,7 +4372,6 @@ int __page_symlink(struct inode *inode, const char *symname, int len, int nofs)
 	struct page *page;
 	void *fsdata;
 	int err;
-	char *kaddr;
 	unsigned int flags = AOP_FLAG_UNINTERRUPTIBLE;
 	if (nofs)
 		flags |= AOP_FLAG_NOFS;
@@ -4383,9 +4382,7 @@ retry:
 	if (err)
 		goto fail;
 
-	kaddr = kmap_atomic(page);
-	memcpy(kaddr, symname, len-1);
-	kunmap_atomic(kaddr);
+	memcpy(page_address(page), symname, len-1);
 
 	err = pagecache_write_end(NULL, mapping, 0, len-1, len-1,
 							page, fsdata);

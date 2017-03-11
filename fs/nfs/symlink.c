@@ -58,7 +58,7 @@ static void *nfs_follow_link(struct dentry *dentry, struct nameidata *nd)
 		err = page;
 		goto read_failed;
 	}
-	nd_set_link(nd, kmap(page));
+	nd_set_link(nd, page_address(page));
 	return page;
 
 read_failed:

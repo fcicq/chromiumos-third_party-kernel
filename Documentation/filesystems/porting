@@ -463,3 +463,8 @@ in your dentry operations instead.
 	of the in-tree instances did).  inode_hash_lock is still held,
 	of course, so they are still serialized wrt removal from inode hash,
 	as well as wrt set() callback of iget5_locked().
+--
+[mandatory]
+	any symlink that might use page_follow_link_light/page_put_link() must
+	have inode_nohighmem(inode) called before anything might start playing with
+	its pagecache.
