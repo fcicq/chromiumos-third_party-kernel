@@ -204,7 +204,7 @@
 				sdclk {
 					pins = "gpio27";
 					function = "sdio_clk";
-					drive-strength = <4>;
+					drive-strength = <2>;
 					bias-pull-up;
 					pull-up-res = <0>;
 				};
