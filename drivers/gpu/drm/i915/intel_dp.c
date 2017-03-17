@@ -4725,6 +4725,8 @@ intel_dp_detect(struct drm_connector *connector, bool force)
 		status = intel_dp_long_pulse(intel_dp->attached_connector);
 
 	intel_dp->detect_done = false;
+	intel_dp->has_hdmi_sink = false;
+	intel_dp->has_dvi_sink = false;
 
 	return status;
 }
