@@ -108,7 +108,6 @@ int drm_open(struct inode *inode, struct file *filp)
 
 err_undo:
 	dev->open_count--;
-err_release:
 	drm_minor_release(minor);
 	return retcode;
 }
