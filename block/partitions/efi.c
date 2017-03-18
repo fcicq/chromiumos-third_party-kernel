@@ -369,7 +369,9 @@ static int is_gpt_valid(struct parsed_partitions *state, u64 lba,
 
 	/* Check the GUID Partition Table signature */
 	if (le64_to_cpu((*gpt)->signature) == GPT_HEADER_SIGNATURE_IGNORED) {
-		pr_debug("GUID Partition Table at LBA %llu marked IGNOREME\n");
+		pr_debug("GUID Partition Table at LBA %llu marked IGNOREME\n",
+			 (unsigned long long)lba);
+
 		if (ignored)
 			*ignored = 1;
 		goto fail;
