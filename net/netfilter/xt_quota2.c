@@ -168,9 +168,7 @@ quota_proc_write(struct file *file, const char __user *input,
 		buf[size] = '\0';
 
 	if (*buf == '+') {
-		int64_t temp;
-
-		kstrtoll(buf + 1, NULL, &temp);
+		int64_t temp = simple_strtoull(buf + 1, NULL, 0);
 		spin_lock_bh(&e->lock);
 		/* Do not let quota become negative if @tmp is very negative */
 		if (temp > 0 || -temp < e->quota)
@@ -179,9 +177,7 @@ quota_proc_write(struct file *file, const char __user *input,
 			e->quota = 0;
 		spin_unlock_bh(&e->lock);
 	} else if (*buf == '-') {
-		int64_t temp;
-
-		kstrtoll(buf + 1, NULL, &temp);
+		int64_t temp = simple_strtoull(buf + 1, NULL, 0);
 		spin_lock_bh(&e->lock);
 		/* Do not let quota become negative if @tmp is very big */
 		if (temp < 0 || temp < e->quota)
@@ -191,7 +187,7 @@ quota_proc_write(struct file *file, const char __user *input,
 		spin_unlock_bh(&e->lock);
 	} else {
 		spin_lock_bh(&e->lock);
-		kstrtoll(buf, NULL, &e->quota);
+		e->quota = simple_strtoull(buf, NULL, 0);
 		spin_unlock_bh(&e->lock);
 	}
 	return size;
