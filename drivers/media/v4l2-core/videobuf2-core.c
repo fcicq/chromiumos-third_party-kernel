@@ -1181,16 +1181,6 @@ static void __fill_vb2_buffer(struct vb2_buffer *vb, const struct v4l2_buffer *b
 {
 	unsigned int plane;
 
-	if (V4L2_TYPE_IS_OUTPUT(b->type)) {
-		if (WARN_ON_ONCE(b->bytesused == 0)) {
-			pr_warn_once("use of bytesused == 0 is deprecated and will be removed in the future,\n");
-			if (vb->vb2_queue->allow_zero_bytesused)
-				pr_warn_once("use VIDIOC_DECODER_CMD(V4L2_DEC_CMD_STOP) instead.\n");
-			else
-				pr_warn_once("use the actual size instead.\n");
-		}
-	}
-
 	if (V4L2_TYPE_IS_MULTIPLANAR(b->type)) {
 		if (b->memory == V4L2_MEMORY_USERPTR) {
 			for (plane = 0; plane < vb->num_planes; ++plane) {
