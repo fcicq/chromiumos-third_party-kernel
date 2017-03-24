@@ -2694,6 +2694,8 @@ err_stop:
 		sony_battery_remove(sc);
 	if (sc->touchpad)
 		sony_unregister_touchpad(sc);
+	if (sc->sensor_dev)
+		sony_unregister_sensors(sc);
 	sony_cancel_work_sync(sc);
 	kfree(sc->output_report_dmabuf);
 	sony_remove_dev_list(sc);
@@ -2780,9 +2782,6 @@ static void sony_remove(struct hid_device *hdev)
 
 	if (sc->touchpad)
 		sony_unregister_touchpad(sc);
-
-	if (sc->sensor_dev)
-		sony_unregister_sensors(sc);
 
 	if (sc->sensor_dev)
 		sony_unregister_sensors(sc);
