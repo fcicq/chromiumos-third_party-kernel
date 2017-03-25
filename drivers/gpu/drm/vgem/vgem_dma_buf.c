@@ -39,7 +39,11 @@ struct sg_table *vgem_gem_prime_get_sg_table(struct drm_gem_object *gobj)
 
 int vgem_gem_prime_pin(struct drm_gem_object *gobj)
 {
+	long n_pages = gobj->size >> PAGE_SHIFT;
 	struct drm_vgem_gem_object *obj = to_vgem_bo(gobj);
+
+	drm_clflush_pages(obj->pages, n_pages);
+
 	return vgem_gem_get_pages(obj);
 }
 
