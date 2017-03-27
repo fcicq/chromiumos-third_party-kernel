@@ -136,7 +136,7 @@ static void edma_get_ethtool_stats(struct net_device *netdev,
 	for(i = 0; i < EDMA_STATS_LEN; i++) {
 		p = (uint8_t *)&(edma_cinfo->edma_ethstats) +
 			edma_gstrings_stats[i].stat_offset;
-		data[i] = *(uint32_t *)p;
+		data[i] = *(uint64_t *)p;
 	}
 }
 

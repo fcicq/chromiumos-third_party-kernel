@@ -1287,14 +1287,17 @@ void edma_adjust_link(struct net_device *netdev)
 	}
 }
 
-/* edma_get_stats()
+/* edma_get_stats64()
  *	Statistics api used to retreive the tx/rx statistics
  */
-struct net_device_stats *edma_get_stats(struct net_device *netdev)
+struct rtnl_link_stats64 *edma_get_stats64(struct net_device *netdev,
+		struct rtnl_link_stats64 *stats)
 {
 	struct edma_adapter *adapter = netdev_priv(netdev);
 
-	return &adapter->stats;
+	memcpy(stats, &adapter->stats, sizeof(*stats));
+
+	return stats;
 }
 
 /* edma_xmit()

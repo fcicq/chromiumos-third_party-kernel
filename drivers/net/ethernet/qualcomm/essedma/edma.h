@@ -175,55 +175,55 @@ extern int ssdk_rfs_ipct_rule_set(__be32 ip_src, __be32 ip_dst,
 				  __be16 sport, __be16 dport,
 				  uint8_t proto, u16 loadbalance, bool action);
 struct edma_ethtool_statistics {
-	u32 tx_q0_pkt;
-	u32 tx_q1_pkt;
-	u32 tx_q2_pkt;
-	u32 tx_q3_pkt;
-	u32 tx_q4_pkt;
-	u32 tx_q5_pkt;
-	u32 tx_q6_pkt;
-	u32 tx_q7_pkt;
-	u32 tx_q8_pkt;
-	u32 tx_q9_pkt;
-	u32 tx_q10_pkt;
-	u32 tx_q11_pkt;
-	u32 tx_q12_pkt;
-	u32 tx_q13_pkt;
-	u32 tx_q14_pkt;
-	u32 tx_q15_pkt;
-	u32 tx_q0_byte;
-	u32 tx_q1_byte;
-	u32 tx_q2_byte;
-	u32 tx_q3_byte;
-	u32 tx_q4_byte;
-	u32 tx_q5_byte;
-	u32 tx_q6_byte;
-	u32 tx_q7_byte;
-	u32 tx_q8_byte;
-	u32 tx_q9_byte;
-	u32 tx_q10_byte;
-	u32 tx_q11_byte;
-	u32 tx_q12_byte;
-	u32 tx_q13_byte;
-	u32 tx_q14_byte;
-	u32 tx_q15_byte;
-	u32 rx_q0_pkt;
-	u32 rx_q1_pkt;
-	u32 rx_q2_pkt;
-	u32 rx_q3_pkt;
-	u32 rx_q4_pkt;
-	u32 rx_q5_pkt;
-	u32 rx_q6_pkt;
-	u32 rx_q7_pkt;
-	u32 rx_q0_byte;
-	u32 rx_q1_byte;
-	u32 rx_q2_byte;
-	u32 rx_q3_byte;
-	u32 rx_q4_byte;
-	u32 rx_q5_byte;
-	u32 rx_q6_byte;
-	u32 rx_q7_byte;
-	u32 tx_desc_error;
+	u64 tx_q0_pkt;
+	u64 tx_q1_pkt;
+	u64 tx_q2_pkt;
+	u64 tx_q3_pkt;
+	u64 tx_q4_pkt;
+	u64 tx_q5_pkt;
+	u64 tx_q6_pkt;
+	u64 tx_q7_pkt;
+	u64 tx_q8_pkt;
+	u64 tx_q9_pkt;
+	u64 tx_q10_pkt;
+	u64 tx_q11_pkt;
+	u64 tx_q12_pkt;
+	u64 tx_q13_pkt;
+	u64 tx_q14_pkt;
+	u64 tx_q15_pkt;
+	u64 tx_q0_byte;
+	u64 tx_q1_byte;
+	u64 tx_q2_byte;
+	u64 tx_q3_byte;
+	u64 tx_q4_byte;
+	u64 tx_q5_byte;
+	u64 tx_q6_byte;
+	u64 tx_q7_byte;
+	u64 tx_q8_byte;
+	u64 tx_q9_byte;
+	u64 tx_q10_byte;
+	u64 tx_q11_byte;
+	u64 tx_q12_byte;
+	u64 tx_q13_byte;
+	u64 tx_q14_byte;
+	u64 tx_q15_byte;
+	u64 rx_q0_pkt;
+	u64 rx_q1_pkt;
+	u64 rx_q2_pkt;
+	u64 rx_q3_pkt;
+	u64 rx_q4_pkt;
+	u64 rx_q5_pkt;
+	u64 rx_q6_pkt;
+	u64 rx_q7_pkt;
+	u64 rx_q0_byte;
+	u64 rx_q1_byte;
+	u64 rx_q2_byte;
+	u64 rx_q3_byte;
+	u64 rx_q4_byte;
+	u64 rx_q5_byte;
+	u64 rx_q6_byte;
+	u64 rx_q7_byte;
+	u64 tx_desc_error;
 };
 
 struct edma_mdio_data {
@@ -385,7 +385,7 @@ struct edma_adapter {
 	struct edma_common_info *edma_cinfo; /* edma common info */
 	struct phy_device *phydev; /* Phy device */
 	struct edma_rfs_flow_table rfs; /* edma rfs flow table */
-	struct net_device_stats stats; /* netdev statistics */
+	struct rtnl_link_stats64 stats; /* netdev statistics */
 	set_rfs_filter_callback_t set_rfs_rule;
 	u32 flags;/* status flags */
 	unsigned long state_flags; /* GMAC up/down flags */
@@ -425,7 +425,8 @@ void edma_free_irqs(struct edma_adapter *adapter);
 irqreturn_t edma_interrupt(int irq, void *dev);
 void edma_write_reg(u16 reg_addr, u32 reg_value);
 void edma_read_reg(u16 reg_addr, volatile u32 *reg_value);
-struct net_device_stats *edma_get_stats(struct net_device *netdev);
+struct rtnl_link_stats64 *edma_get_stats64(struct net_device *dev,
+		struct rtnl_link_stats64 *stats);
 int edma_set_mac_addr(struct net_device *netdev, void *p);
 int edma_rx_flow_steer(struct net_device *dev, const struct sk_buff *skb,
 		u16 rxq, u32 flow_id);

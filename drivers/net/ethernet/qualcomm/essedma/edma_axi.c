@@ -124,12 +124,12 @@ void edma_get_tx_rx_coalesce(u32 *reg_val)
 
 void edma_read_append_stats(struct edma_common_info *edma_cinfo)
 {
-	uint32_t *p;
+	uint64_t *p;
 	int i;
 	u32 stat;
 
 	spin_lock(&edma_cinfo->stats_lock);
-	p = (uint32_t *)&(edma_cinfo->edma_ethstats);
+	p = (uint64_t *)&(edma_cinfo->edma_ethstats);
 
 	for (i = 0; i < EDMA_MAX_TRANSMIT_QUEUE; i++) {
 		edma_read_reg(EDMA_REG_TX_STAT_PKT_Q(i), &stat);
@@ -570,7 +570,7 @@ static const struct net_device_ops edma_axi_netdev_ops = {
 	.ndo_register_rfs_filter = edma_register_rfs_filter,
 	.ndo_get_default_vlan_tag = edma_get_default_vlan_tag,
 #endif
-	.ndo_get_stats          = edma_get_stats,
+	.ndo_get_stats64	= edma_get_stats64,
 	.ndo_change_mtu		= edma_change_mtu,
 };
 
