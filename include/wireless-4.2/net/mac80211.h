@@ -750,14 +750,10 @@ enum mac80211_rate_control_flags {
 
 
 #ifdef CONFIG_MAC80211_WIFI_DIAG
-#define IEEE80211_TX_INFO_COMMON_EXTRA			8
 #define IEEE80211_TX_INFO_STATUS_DRIVER_DATA_SIZE	8
 #define IEEE80211_TX_INFO_DRIVER_DATA_SIZE		32
 #define IEEE80211_TX_INFO_RATE_DRIVER_DATA_SIZE		16
 #else
-/* extra bytes added before union */
-#define IEEE80211_TX_INFO_COMMON_EXTRA			0
-
 /* status_driver_data */
 #define IEEE80211_TX_INFO_STATUS_DRIVER_DATA_SIZE	16
 
@@ -860,10 +856,6 @@ struct ieee80211_tx_info {
 
 	u16 ack_frame_id;
 
-#ifdef CONFIG_MAC80211_WIFI_DIAG
-	u32 wifi_diag_cookie;
-#endif
-
 	union {
 		struct {
 			union {
@@ -912,6 +904,9 @@ struct ieee80211_tx_info {
 		void *driver_data[
 			IEEE80211_TX_INFO_DRIVER_DATA_SIZE / sizeof(void *)];
 	};
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+	u32 wifi_diag_cookie;
+#endif
 };
 
 /**
@@ -967,15 +962,13 @@ ieee80211_tx_info_clear_status(struct ieee80211_tx_info *info)
 		     offsetof(struct ieee80211_tx_info, control.rates));
 	BUILD_BUG_ON(offsetof(struct ieee80211_tx_info, status.rates) !=
 		     offsetof(struct ieee80211_tx_info, driver_rates));
-	BUILD_BUG_ON(offsetof(struct ieee80211_tx_info, status.rates) !=
-		     8 + IEEE80211_TX_INFO_COMMON_EXTRA);
+	BUILD_BUG_ON(offsetof(struct ieee80211_tx_info, status.rates) != 8);
 	/* clear the rate counts */
 	for (i = 0; i < IEEE80211_TX_MAX_RATES; i++)
 		info->status.rates[i].count = 0;
 
 	BUILD_BUG_ON(
-	    offsetof(struct ieee80211_tx_info, status.ack_signal) !=
-	    20 + IEEE80211_TX_INFO_COMMON_EXTRA);
+	    offsetof(struct ieee80211_tx_info, status.ack_signal) != 20);
 	memset(&info->status.ampdu_ack_len, 0,
 	       sizeof(struct ieee80211_tx_info) -
 	       offsetof(struct ieee80211_tx_info, status.ampdu_ack_len));
