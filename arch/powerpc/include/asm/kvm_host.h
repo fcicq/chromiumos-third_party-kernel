@@ -41,9 +41,6 @@
 #define KVM_USER_MEM_SLOTS 32
 #define KVM_MEM_SLOTS_NUM KVM_USER_MEM_SLOTS
 
-#ifdef CONFIG_KVM_MMIO
-#define KVM_COALESCED_MMIO_PAGE_OFFSET 1
-#endif
 #define KVM_HALT_POLL_NS_DEFAULT 500000
 
 /* These values are internal and can be increased later */

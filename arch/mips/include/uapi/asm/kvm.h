@@ -19,6 +19,8 @@
  * Some parts derived from the x86 version of this file.
  */
 
+#define KVM_COALESCED_MMIO_PAGE_OFFSET 1
+
 /*
  * for KVM_GET_REGS and KVM_SET_REGS
  *
