@@ -2164,6 +2164,7 @@ static int shmem_symlink(struct inode *dir, struct dentry *dentry, const char *s
 	int len;
 	struct inode *inode;
 	struct page *page;
+	char *kaddr;
 	struct shmem_inode_info *info;
 
 	len = strlen(symname) + 1;
@@ -2201,8 +2202,9 @@ static int shmem_symlink(struct inode *dir, struct dentry *dentry, const char *s
 		}
 		inode->i_mapping->a_ops = &shmem_aops;
 		inode->i_op = &shmem_symlink_inode_operations;
-		inode_nohighmem(inode);
-		memcpy(page_address(page), symname, len);
+		kaddr = kmap_atomic(page);
+		memcpy(kaddr, symname, len);
+		kunmap_atomic(kaddr);
 		SetPageUptodate(page);
 		set_page_dirty(page);
 		unlock_page(page);
@@ -2225,7 +2227,7 @@ static void *shmem_follow_link(struct dentry *dentry, struct nameidata *nd)
 {
 	struct page *page = NULL;
 	int error = shmem_getpage(dentry->d_inode, 0, &page, SGP_READ, NULL);
-	nd_set_link(nd, error ? ERR_PTR(error) : page_address(page));
+	nd_set_link(nd, error ? ERR_PTR(error) : kmap(page));
 	if (page)
 		unlock_page(page);
 	return page;
@@ -2235,6 +2237,7 @@ static void shmem_put_link(struct dentry *dentry, struct nameidata *nd, void *co
 {
 	if (!IS_ERR(nd_get_link(nd))) {
 		struct page *page = cookie;
+		kunmap(page);
 		mark_page_accessed(page);
 		page_cache_release(page);
 	}

@@ -577,7 +577,6 @@ static void ufs_set_inode_ops(struct inode *inode)
 		else {
 			inode->i_op = &ufs_symlink_inode_operations;
 			inode->i_mapping->a_ops = &ufs_aops;
-			inode_nohighmem(inode);
 		}
 	} else
 		init_special_inode(inode, inode->i_mode,
