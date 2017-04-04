@@ -54,8 +54,7 @@ static int skl_transfer_firmware(struct sst_dsp *ctx,
 {
 	int ret = 0;
 
-	ret = ctx->cl_dev.ops.cl_copy_to_dmabuf(ctx, basefw, base_fw_size,
-								true);
+	ret = ctx->cl_dev.ops.cl_copy_to_dmabuf(ctx, basefw, base_fw_size);
 	if (ret < 0)
 		return ret;
 
@@ -287,49 +286,22 @@ static struct skl_module_table *skl_module_get_from_id(
 	return NULL;
 }
 
-static int skl_transfer_module(struct sst_dsp *ctx, const void *data,
-				u32 size, u16 mod_id)
+static int skl_transfer_module(struct sst_dsp *ctx,
+			struct skl_load_module_info *module)
 {
-	int ret, bytes_left, curr_pos;
+	int ret;
 	struct skl_sst *skl = ctx->thread_context;
-	skl->mod_load_complete = false;
-	init_waitqueue_head(&skl->mod_load_wait);
 
-	bytes_left = ctx->cl_dev.ops.cl_copy_to_dmabuf(ctx, data, size, false);
-	if (bytes_left < 0)
-		return bytes_left;
+	ret = ctx->cl_dev.ops.cl_copy_to_dmabuf(ctx, module->fw->data,
+							module->fw->size);
+	if (ret < 0)
+		return ret;
 
-	ret = skl_ipc_load_modules(&skl->ipc, SKL_NUM_MODULES, &mod_id);
-	if (ret < 0) {
+	ret = skl_ipc_load_modules(&skl->ipc, SKL_NUM_MODULES,
+						(void *)&module->mod_id);
+	if (ret < 0)
 		dev_err(ctx->dev, "Failed to Load module: %d\n", ret);
-		goto out;
-	}
 
-	/*
-	 * if bytes_left > 0 then wait for BDL complete interrupt and
-	 * copy the next chunk till bytes_left is 0. if bytes_left is
-	 * is zero, then wait for load module IPC reply
-	 */
-	while (bytes_left > 0) {
-		curr_pos = size - bytes_left;
-
-		ret = skl_cldma_wait_interruptible(ctx);
-		if (ret < 0)
-			goto out;
-
-		bytes_left = ctx->cl_dev.ops.cl_copy_to_dmabuf(ctx,
-							data + curr_pos,
-							bytes_left, false);
-	}
-
-	ret = wait_event_timeout(skl->mod_load_wait, skl->mod_load_complete,
-				msecs_to_jiffies(SKL_IPC_BOOT_MSECS));
-	if (ret == 0 || !skl->mod_load_status) {
-		dev_err(ctx->dev, "Module Load failed\n");
-		ret = -EIO;
-	}
-
-out:
 	ctx->cl_dev.ops.cl_stop_dma(ctx);
 
 	return ret;
@@ -354,8 +326,7 @@ static int skl_load_module(struct sst_dsp *ctx, u16 mod_id, char *guid)
 	}
 
 	if (!module_entry->usage_cnt) {
-		ret = skl_transfer_module(ctx, module_entry->mod_info->fw->data,
-				module_entry->mod_info->fw->size, mod_id);
+		ret = skl_transfer_module(ctx, module_entry->mod_info);
 		if (ret < 0) {
 			dev_err(ctx->dev, "Failed to Load module\n");
 			return ret;
