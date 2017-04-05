@@ -3237,7 +3237,8 @@ intel_dp_detect(struct drm_connector *connector, bool force)
 		intel_dp_do_sink_dpms(intel_dp, DRM_MODE_DPMS_ON);
 	}
 
-	status = intel_dp_detect_dpcd(intel_dp);
+	if (!is_edp(intel_dp))
+		status = intel_dp_detect_dpcd(intel_dp);
 
 	if (intel_dp->force_audio != HDMI_AUDIO_AUTO) {
 		intel_dp->has_audio = (intel_dp->force_audio == HDMI_AUDIO_ON);
@@ -3268,9 +3269,8 @@ intel_dp_detect(struct drm_connector *connector, bool force)
 	status = connector_status_connected;
 
 	/* Restore the sink state */
-	if (!is_edp(intel_dp) && connector->dpms != DRM_MODE_DPMS_ON) {
+	if (!is_edp(intel_dp) && connector->dpms != DRM_MODE_DPMS_ON)
 		intel_dp_do_sink_dpms(intel_dp, connector->dpms);
-	}
 
 out:
 	intel_runtime_pm_put(dev_priv);
