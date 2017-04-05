@@ -27,7 +27,7 @@
 static void *ext4_follow_link(struct dentry *dentry, struct nameidata *nd)
 {
 	struct page *cpage = NULL;
-	char *caddr = NULL, *paddr = NULL;
+	char *caddr, *paddr = NULL;
 	struct ext4_str cstr, pstr;
 	struct inode *inode = dentry->d_inode;
 	struct ext4_encrypted_symlink_data *sd;
@@ -51,14 +51,6 @@ static void *ext4_follow_link(struct dentry *dentry, struct nameidata *nd)
 			return cpage;
 		caddr = kmap(cpage);
 		caddr[size] = 0;
-		caddr = kmalloc(size + 1, GFP_NOFS);
-		if (!caddr) {
-			res = -ENOMEM;
-			goto errout;
-		}
-		memcpy(caddr, kmap(cpage), size);
-		kunmap(cpage);
-		page_cache_release(cpage);
 	}
 
 	/* Symlink is encrypted */
@@ -88,10 +80,16 @@ static void *ext4_follow_link(struct dentry *dentry, struct nameidata *nd)
 	if (res <= plen)
 		paddr[res] = '\0';
 	nd_set_link(nd, paddr);
-	kfree(caddr);
+	if (cpage) {
+		kunmap(cpage);
+		page_cache_release(cpage);
+	}
 	return NULL;
 errout:
-	kfree(caddr);
+	if (cpage) {
+		kunmap(cpage);
+		page_cache_release(cpage);
+	}
 	kfree(paddr);
 	return ERR_PTR(res);
 }
