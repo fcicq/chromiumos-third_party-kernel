@@ -730,6 +730,8 @@
 			mediatek,apmixedsys = <&apmixedsys>;
 			nvmem-cells = <&thermal_calibration>,
 				      <&svs_calibration>;
+			mediatek,svs-little-core-id = <0>;
+			mediatek,svs-big-core-id = <2>;
 			nvmem-cell-names = "calibration-data",
 					   "svs-calibration-data";
 		};
