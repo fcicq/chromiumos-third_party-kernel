@@ -259,6 +259,8 @@ struct tpm_chip {
 
 	char hwrng_name[64];
 	struct hwrng hwrng;
+	
+	unsigned long is_suspended;
 
 	struct mutex tpm_mutex;	/* tpm is processing */
 
