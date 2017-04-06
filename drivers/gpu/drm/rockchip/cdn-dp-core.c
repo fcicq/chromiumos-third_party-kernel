@@ -808,19 +808,15 @@ static void cdn_dp_encoder_enable(struct drm_encoder *encoder)
 {
 	struct cdn_dp_device *dp = encoder_to_dp(encoder);
 	int ret, val;
-	struct rockchip_crtc_state *state;
 
-	state = to_rockchip_crtc_state(encoder->crtc->state);
 	switch (vop_get_crtc_vop_id(encoder->crtc)) {
 	case RK3399_VOP_LIT:
 		DRM_DEV_DEBUG_KMS(dp->dev, "vop LIT output to cdn-dp\n");
 		val = DP_SEL_VOP_LIT | (DP_SEL_VOP_LIT << 16);
-		state->output_mode = ROCKCHIP_OUT_MODE_P888;
 		break;
 	case RK3399_VOP_BIG:
 		DRM_DEV_DEBUG_KMS(dp->dev, "vop BIG output to cdn-dp\n");
 		val = DP_SEL_VOP_LIT << 16;
-		state->output_mode = ROCKCHIP_OUT_MODE_AAAA;
 		break;
 	default:
 		break;
