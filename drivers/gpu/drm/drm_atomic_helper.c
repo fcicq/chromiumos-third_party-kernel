@@ -542,6 +542,7 @@ drm_atomic_helper_check_modeset(struct drm_device *dev,
 	struct drm_connector *connector;
 	struct drm_connector_state *connector_state;
 	int i, ret;
+	unsigned connectors_mask = 0;
 
 	for_each_crtc_in_state(state, crtc, crtc_state, i) {
 		if (!drm_mode_equal(&crtc->state->mode, &crtc_state->mode)) {
@@ -572,6 +573,8 @@ drm_atomic_helper_check_modeset(struct drm_device *dev,
 		return ret;
 
 	for_each_connector_in_state(state, connector, connector_state, i) {
+		const struct drm_connector_helper_funcs *funcs = connector->helper_private;
+
 		/*
 		 * This only sets crtc->mode_changed for routing changes,
 		 * drivers must set crtc->mode_changed themselves when connector
@@ -588,6 +591,12 @@ drm_atomic_helper_check_modeset(struct drm_device *dev,
 			    connector_state->link_status)
 				crtc_state->connectors_changed = true;
 		}
+		if (funcs->atomic_check)
+			ret = funcs->atomic_check(connector, connector_state);
+		if (ret)
+			return ret;
+
+		connectors_mask += BIT(i);
 	}
 
 	/*
@@ -635,6 +644,22 @@ drm_atomic_helper_check_modeset(struct drm_device *dev,
 
 			return -EINVAL;
 		}
+	}
+
+	/*
+	 * Iterate over all connectors again, to make sure atomic_check()
+	 * has been called on them when a modeset is forced.
+	 */
+	for_each_connector_in_state(state, connector, connector_state, i) {
+		const struct drm_connector_helper_funcs *funcs = connector->helper_private;
+
+		if (connectors_mask & BIT(i))
+			continue;
+
+		if (funcs->atomic_check)
+			ret = funcs->atomic_check(connector, connector_state);
+		if (ret)
+			return ret;
 	}
 
 	ret = mode_valid(state);
