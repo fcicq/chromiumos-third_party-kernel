@@ -3603,9 +3603,9 @@ intel_edp_init_dpcd(struct intel_dp *intel_dp)
 		uint8_t frame_sync_cap;
 
 		dev_priv->psr.sink_support = true;
-		drm_dp_dpcd_read(&intel_dp->aux,
-				 DP_SINK_DEVICE_AUX_FRAME_SYNC_CAP,
-				 &frame_sync_cap, 1);
+		drm_dp_dpcd_readb(&intel_dp->aux,
+				  DP_SINK_DEVICE_AUX_FRAME_SYNC_CAP,
+				  &frame_sync_cap);
 		dev_priv->psr.aux_frame_sync = frame_sync_cap ? true : false;
 		/* PSR2 needs frame sync as well */
 		dev_priv->psr.psr2_support = dev_priv->psr.aux_frame_sync;
@@ -3678,8 +3678,8 @@ intel_dp_get_dpcd(struct intel_dp *intel_dp)
 	if (!is_edp(intel_dp))
 		intel_dp_set_sink_rates(intel_dp);
 
-	if (drm_dp_dpcd_read(&intel_dp->aux, DP_SINK_COUNT,
-			     &intel_dp->sink_count, 1) < 0)
+	if (drm_dp_dpcd_readb(&intel_dp->aux, DP_SINK_COUNT,
+			      &intel_dp->sink_count) <= 0)
 		return false;
 
 	/*
@@ -3716,7 +3716,7 @@ intel_dp_get_dpcd(struct intel_dp *intel_dp)
 static bool
 intel_dp_can_mst(struct intel_dp *intel_dp)
 {
-	u8 buf[1];
+	u8 mstm_cap;
 
 	if (!i915.enable_dp_mst)
 		return false;
@@ -3727,10 +3727,10 @@ intel_dp_can_mst(struct intel_dp *intel_dp)
 	if (intel_dp->dpcd[DP_DPCD_REV] < 0x12)
 		return false;
 
-	if (drm_dp_dpcd_read(&intel_dp->aux, DP_MSTM_CAP, buf, 1) != 1)
+	if (drm_dp_dpcd_readb(&intel_dp->aux, DP_MSTM_CAP, &mstm_cap) != 1)
 		return false;
 
-	return buf[0] & DP_MST_CAP;
+	return mstm_cap & DP_MST_CAP;
 }
 
 static void
@@ -3876,9 +3876,8 @@ stop:
 static bool
 intel_dp_get_sink_irq(struct intel_dp *intel_dp, u8 *sink_irq_vector)
 {
-	return drm_dp_dpcd_read(&intel_dp->aux,
-				       DP_DEVICE_SERVICE_IRQ_VECTOR,
-				       sink_irq_vector, 1) == 1;
+	return drm_dp_dpcd_readb(&intel_dp->aux, DP_DEVICE_SERVICE_IRQ_VECTOR,
+				 sink_irq_vector) == 1;
 }
 
 static bool
@@ -3937,10 +3936,8 @@ static uint8_t intel_dp_autotest_edid(struct intel_dp *intel_dp)
 		 */
 		block += intel_connector->detect_edid->extensions;
 
-		if (!drm_dp_dpcd_write(&intel_dp->aux,
-					DP_TEST_EDID_CHECKSUM,
-					&block->checksum,
-					1))
+		if (drm_dp_dpcd_writeb(&intel_dp->aux, DP_TEST_EDID_CHECKSUM,
+				       block->checksum) <= 0)
 			DRM_DEBUG_KMS("Failed to write EDID checksum\n");
 
 		test_result = DP_TEST_ACK | DP_TEST_EDID_CHECKSUM_WRITE;
