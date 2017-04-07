@@ -217,7 +217,6 @@ static int evdi_crtc_cursor_set(struct drm_crtc *crtc,
 	struct evdi_device *evdi = dev->dev_private;
 	struct drm_gem_object *obj = NULL;
 	struct evdi_gem_object *eobj = NULL;
-	int ret;
 	/*
 	 * evdi_crtc_cursor_set is callback function using
 	 * deprecated cursor entry point.
@@ -244,18 +243,15 @@ static int evdi_crtc_cursor_set(struct drm_crtc *crtc,
 		mutex_unlock(&dev->struct_mutex);
 	}
 
-	ret = evdi_cursor_set(evdi->cursor,
-			      eobj, width, height, hot_x, hot_y,
-			      format, stride);
+	evdi_cursor_set(evdi->cursor,
+			eobj, width, height, hot_x, hot_y,
+			format, stride);
 	drm_gem_object_unreference_unlocked(obj);
-	if (ret) {
-		EVDI_ERROR("Failed to set evdi cursor\n");
-		return ret;
-	}
 
 	if (evdi_enable_cursor_blending)
 		return evdi_crtc_page_flip(crtc, NULL, NULL, 0);
-	evdi_painter_send_cursor_set(evdi->painter, evdi->cursor);
+	else
+		evdi_painter_send_cursor_set(evdi->painter, evdi->cursor);
 	return 0;
 }
 
@@ -268,7 +264,8 @@ static int evdi_crtc_cursor_move(struct drm_crtc *crtc, int x, int y)
 
 	if (evdi_enable_cursor_blending)
 		return evdi_crtc_page_flip(crtc, NULL, NULL, 0);
-	evdi_painter_send_cursor_move(evdi->painter, evdi->cursor);
+	else
+		evdi_painter_send_cursor_move(evdi->painter, evdi->cursor);
 	return 0;
 }
 
