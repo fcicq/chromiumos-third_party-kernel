@@ -625,6 +625,14 @@ static int ieee80211_tx_get_rates(struct ieee80211_hw *hw,
 	return rates_idx;
 }
 
+static void ieee80211_tx_upd_rateinfo(struct sta_info *sta)
+{
+	struct rate_info rinfo;
+
+	sta_set_rate_info_tx(sta, &sta->last_tx_rate, &rinfo);
+	sta->sta.last_tx_bitrate = cfg80211_calculate_bitrate(&rinfo);
+}
+
 void ieee80211_tx_status_noskb(struct ieee80211_hw *hw,
 			       struct ieee80211_sta *pubsta,
 			       struct ieee80211_tx_info *info)
@@ -667,8 +675,10 @@ void ieee80211_tx_status_noskb(struct ieee80211_hw *hw,
 		rate_control_tx_status_noskb(local, sband, sta, info);
 
 		if (ieee80211_hw_check(&local->hw, HAS_RATE_CONTROL) &&
-		    (rates_idx != -1))
+		    (rates_idx != -1)) {
 			sta->last_tx_rate = info->status.rates[rates_idx];
+			ieee80211_tx_upd_rateinfo(sta);
+		}
 	}
 
 	if (acked || noack_success) {
