@@ -1565,12 +1565,6 @@ struct i915_gem_mm {
 	struct list_head fence_list;
 
 	/**
-	 * Are we in a non-interruptible section of code like
-	 * modesetting?
-	 */
-	bool interruptible;
-
-	/**
 	 * Workqueue to fault in userptr pages, flushed by the execbuf
 	 * when required but otherwise left to userspace to try again
 	 * on EAGAIN.
