@@ -335,5 +335,14 @@ void i915_gem_shrinker_init(struct drm_i915_private *dev_priv)
 	register_shrinker(&dev_priv->mm.shrinker);
 
 	dev_priv->mm.oom_notifier.notifier_call = i915_gem_shrinker_oom;
-	register_oom_notifier(&dev_priv->mm.oom_notifier);
+	/* 
+	 * When we hit an oom situation, we can have a situation with one
+	 * process inside the intel driver holding the lock at the same
+	 * time this is called. Thankfully it can timeout, but that takes
+	 * 5 seconds, which is unacceptable from an end-user perspective.
+	 * So we disable this oom notifier completely, since at that point
+	 * the shrinker was already called multiple times and there is
+	 * probably nothing left to clean. See b/36197895 for more info.
+	 */
+	/* register_oom_notifier(&dev_priv->mm.oom_notifier); */
 }
