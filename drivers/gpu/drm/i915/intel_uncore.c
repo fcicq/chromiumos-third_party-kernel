@@ -1576,10 +1576,10 @@ static int gen6_reset_engines(struct drm_i915_private *dev_priv,
  */
 int __intel_wait_for_register_fw(struct drm_i915_private *dev_priv,
 				 i915_reg_t reg,
-				 const u32 mask,
-				 const u32 value,
-				 const unsigned int fast_timeout_us,
-				 const unsigned int slow_timeout_ms,
+				 u32 mask,
+				 u32 value,
+				 unsigned int fast_timeout_us,
+				 unsigned int slow_timeout_ms,
 				 u32 *out_value)
 {
 	u32 reg_value;
