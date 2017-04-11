@@ -1630,15 +1630,23 @@ int __intel_wait_for_register(struct drm_i915_private *dev_priv,
 			    const unsigned long timeout_ms,
 			    u32 *out_value)
 {
-
 	unsigned fw =
 		intel_uncore_forcewake_for_reg(dev_priv, reg, FW_REG_READ);
 	u32 reg_value;
 	int ret;
 
-	intel_uncore_forcewake_get(dev_priv, fw);
-	ret = wait_for_us((I915_READ_FW(reg) & mask) == value, 2);
-	intel_uncore_forcewake_put(dev_priv, fw);
+	might_sleep();
+
+	spin_lock_irq(&dev_priv->uncore.lock);
+	intel_uncore_forcewake_get__locked(dev_priv, fw);
+
+	ret = __intel_wait_for_register_fw(dev_priv,
+					   reg, mask, value,
+					   2, 0, NULL);
+
+	intel_uncore_forcewake_put__locked(dev_priv, fw);
+	spin_unlock_irq(&dev_priv->uncore.lock);
+
 	if (ret)
 		ret = __wait_for(reg_value = I915_READ_NOTRACE(reg),
 				 (reg_value & mask) == value,
