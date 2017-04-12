@@ -60,7 +60,6 @@ static int scm_restart_panic(struct notifier_block *this,
 	unsigned long event, void *data)
 {
 	scm_restart_dload_mode_enable();
-	scm_restart_sdi_disable();
 
 	return NOTIFY_DONE;
 }
@@ -72,7 +71,6 @@ static struct notifier_block panic_nb = {
 static int scm_restart_reason_reboot(struct notifier_block *nb,
 				unsigned long action, void *data)
 {
-	scm_restart_sdi_disable();
 	scm_restart_dload_mode_disable();
 
 	return NOTIFY_DONE;
@@ -103,10 +101,11 @@ static int scm_restart_reason_probe(struct platform_device *pdev)
 	 * to make sure they are disabled during boot */
 	if (dload_dis) {
 		scm_restart_dload_mode_disable();
-		scm_restart_sdi_disable();
 	} else {
 		scm_restart_dload_mode_enable();
 	}
+
+	scm_restart_sdi_disable();
 
 	ret = atomic_notifier_chain_register(&panic_notifier_list, &panic_nb);
 	if (ret) {
