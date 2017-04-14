@@ -462,6 +462,8 @@
 		watchdog@b017000 {
 			compatible = "qcom,kpss-wdt-ipq4019";
 			reg = <0xb017000 0x40>;
+			interrupt-names = "bark_irq";
+			interrupts = <0 3 0>;
 			clocks = <&sleep_clk>;
 			timeout-sec = <10>;
 			status = "disabled";
