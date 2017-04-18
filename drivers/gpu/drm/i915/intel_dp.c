@@ -3237,8 +3237,11 @@ intel_dp_detect(struct drm_connector *connector, bool force)
 		intel_dp_do_sink_dpms(intel_dp, DRM_MODE_DPMS_ON);
 	}
 
-	if (!is_edp(intel_dp))
+	if (!is_edp(intel_dp)) {
 		status = intel_dp_detect_dpcd(intel_dp);
+		if (status != connector_status_connected)
+			goto out;
+	}
 
 	if (intel_dp->force_audio != HDMI_AUDIO_AUTO) {
 		intel_dp->has_audio = (intel_dp->force_audio == HDMI_AUDIO_ON);
