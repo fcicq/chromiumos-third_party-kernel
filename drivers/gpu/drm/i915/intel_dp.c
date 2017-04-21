@@ -99,6 +99,9 @@ intel_dp_max_link_bw(struct intel_dp *intel_dp)
 	int max_link_bw = intel_dp->dpcd[DP_MAX_LINK_RATE];
 	struct drm_device *dev = intel_dp->attached_connector->base.dev;
 
+	if (intel_dp->is_dellda200)
+		max_link_bw = DP_LINK_BW_2_7;
+
 	switch (max_link_bw) {
 	case DP_LINK_BW_1_62:
 	case DP_LINK_BW_2_7:
@@ -2945,6 +2948,7 @@ intel_dp_probe_oui(struct intel_dp *intel_dp)
 	}
 
 	intel_dp->is_ps8617 = drm_dp_branch_is_ps8617(buf);
+	intel_dp->is_dellda200 = drm_dp_branch_is_dellda200(buf);
 
 	ironlake_edp_panel_vdd_off(intel_dp, false);
 }
