@@ -927,20 +927,16 @@ static snd_pcm_uframes_t skl_platform_pcm_pointer
 	unsigned int pos;
 
 	/*
-	 * Use DPIB for Playback stream as the periodic DMA Position-in-
-	 * Buffer Writes may be scheduled at the same time or later than
+	 * Use DPIB as the periodic DMA Position-in-Buffer
+	 * writes may be scheduled at the same time or later than
 	 * the MSI and does not guarantee to reflect the Position of the
 	 * last buffer that was transferred. Whereas DPIB register in
-	 * HAD space reflects the actual data that is transferred.
-	 * Use the position buffer for capture, as DPIB write gets
-	 * completed earlier than the actual data written to the DDR.
+	 * HDA space reflects the actual data that is transferred.
 	 */
-	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
-		pos = readl(ebus->bus.remap_addr + AZX_REG_VS_SDXDPIB_XBASE +
-				(AZX_REG_VS_SDXDPIB_XINTERVAL *
-				hdac_stream(hstream)->index));
-	else
-		pos = snd_hdac_stream_get_pos_posbuf(hdac_stream(hstream));
+
+	pos = readl(ebus->bus.remap_addr + AZX_REG_VS_SDXDPIB_XBASE +
+			(AZX_REG_VS_SDXDPIB_XINTERVAL *
+			hdac_stream(hstream)->index));
 
 	if (pos >= hdac_stream(hstream)->bufsize)
 		pos = 0;

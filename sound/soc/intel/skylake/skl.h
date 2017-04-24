@@ -50,6 +50,7 @@
 
 #define AZX_PCIREG_CGCTL		0x48
 #define AZX_CGCTL_MISCBDCGE_MASK	(1 << 6)
+#define AZX_EM2_DUM_MASK               (1 << 23)
 
 struct skl_dsp_resource {
 	u32 max_mcps;
