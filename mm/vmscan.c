@@ -173,6 +173,7 @@ static unsigned long zone_reclaimable_pages(struct zone *zone)
 	     zone_page_state(zone, NR_INACTIVE_FILE);
 
 	pages_min = min_filelist_kbytes >> (PAGE_SHIFT - 10);
+	pages_min = pages_min * zone->managed_pages / totalram_pages;
 	if (nr < pages_min)
 		nr = 0;
 
@@ -1912,6 +1913,7 @@ static int file_is_low(struct lruvec *lruvec)
 		return false;
 
 	pages_min = min_filelist_kbytes >> (PAGE_SHIFT - 10);
+	pages_min = pages_min * zone->managed_pages / totalram_pages;
 	active = zone_page_state(zone, NR_ACTIVE_FILE);
 	inactive = zone_page_state(zone, NR_INACTIVE_FILE);
 
