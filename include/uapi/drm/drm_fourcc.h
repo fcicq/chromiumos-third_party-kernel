@@ -289,9 +289,8 @@
  * header with 16 bytes per block, followed by the block data aligned to 1024
  * bytes. Each block is 16x16 pixels.
  *
- * Eventually ARM should define modifiers for the various AFBC types, but
- * we'll use this in the meantime. We use the CHROMEOS vendor ID to make sure
- * we don't clash with future vendor modifiers.
+ * This Rockchip specific version of AFBC only supports buffers up to
+ * 2560 pixels wide.
  */
 #define DRM_FORMAT_MOD_CHROMEOS_ROCKCHIP_AFBC	fourcc_mod_code(CHROMEOS, 1)
 

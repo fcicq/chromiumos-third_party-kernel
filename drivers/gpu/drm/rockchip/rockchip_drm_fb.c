@@ -128,6 +128,15 @@ rockchip_fb_alloc(struct drm_device *dev, const struct drm_mode_fb_cmd2 *mode_cm
 	int ret;
 	int i;
 
+	/* The DRM_FORMAT_MOD_CHROMEOS_ROCKCHIP_AFBC modifier
+	 * indicates support for AFBC buffers only up to 2560 pixels
+	 * wide.
+	 */
+	if ((mode_cmd->flags & DRM_MODE_FB_MODIFIERS) &&
+	    mode_cmd->modifier[0] == DRM_FORMAT_MOD_CHROMEOS_ROCKCHIP_AFBC &&
+	    mode_cmd->width > 2560)
+		return ERR_PTR(-EINVAL);
+
 	rockchip_fb = kzalloc(sizeof(*rockchip_fb), GFP_KERNEL);
 	if (!rockchip_fb)
 		return ERR_PTR(-ENOMEM);
