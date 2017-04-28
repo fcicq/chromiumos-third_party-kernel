@@ -18,6 +18,7 @@
 #include "mac.h"
 
 #include <net/mac80211.h>
+#include <net/codel.h>
 #include <linux/etherdevice.h>
 
 #include "hif.h"
@@ -3361,7 +3362,7 @@ static void ath10k_tx_h_add_p2p_noa_ie(struct ath10k *ar,
 static void ath10k_mac_tx_h_fill_cb(struct ath10k *ar,
 				    struct ieee80211_vif *vif,
 				    struct ieee80211_txq *txq,
-				    struct sk_buff *skb)
+				    struct sk_buff *skb, u32 airtime)
 {
 	struct ieee80211_hdr *hdr = (void *)skb->data;
 	struct ath10k_skb_cb *cb = ATH10K_SKB_CB(skb);
@@ -3378,6 +3379,7 @@ static void ath10k_mac_tx_h_fill_cb(struct ath10k *ar,
 
 	cb->vif = vif;
 	cb->txq = txq;
+	cb->airtime_est = airtime;
 }
 
 bool ath10k_mac_tx_frm_has_freq(struct ath10k *ar)
@@ -3675,6 +3677,17 @@ void ath10k_mgmt_over_wmi_tx_work(struct work_struct *work)
 	}
 }
 
+static void atf_scheduler_init(struct ieee80211_txq *txq)
+{
+	struct ath10k_txq *artxq = (void *)txq->drv_priv;
+	struct atf_scheduler *atf = &artxq->atf;
+
+	atf->quantum = IEEE80211_ATF_QUANTUM;
+	atf->deficit = IEEE80211_ATF_QUANTUM;
+	atf->deficit_max = atf->quantum * 2;
+	atf->next_epoch = codel_get_time() + IEEE80211_ATF_TXQ_AIRTIME_MIN;
+}
+
 static void ath10k_mac_txq_init(struct ieee80211_txq *txq)
 {
 	struct ath10k_txq *artxq;
@@ -3684,6 +3697,7 @@ static void ath10k_mac_txq_init(struct ieee80211_txq *txq)
 
 	artxq = (void *)txq->drv_priv;
 	INIT_LIST_HEAD(&artxq->list);
+	atf_scheduler_init(txq);
 }
 
 static void ath10k_mac_txq_unref(struct ath10k *ar, struct ieee80211_txq *txq)
@@ -3731,6 +3745,54 @@ struct ieee80211_txq *ath10k_mac_txq_lookup(struct ath10k *ar,
 		return NULL;
 }
 
+/* Replenish deficit for all txqs. It is called while holding txq_lock
+ */
+void ath10k_atf_refill_deficit(struct ath10k *ar)
+{
+	struct ieee80211_txq *txq;
+	struct ath10k_txq *artxq;
+	bool reset_deficit = false;
+	struct atf_scheduler *atf;
+	u32 now;
+	u32 release_limit;
+
+	now = codel_get_time();
+	if (codel_time_after(now, ar->atf_next_interval)) {
+		reset_deficit = true;
+		ar->atf_next_interval = now + ar->atf_sch_interval;
+		ar->atf_bytes_send_last_interval = ar->atf_bytes_send;
+		ar->atf_bytes_send = 0;
+	}
+	if (ar->htt.num_pending_tx == 0)
+		ar->airtime_inflight = 0;
+
+	if (ar->airtime_inflight < ar->atf_release_limit)
+		release_limit = IEEE80211_ATF_TXQ_AIRTIME_MAX;
+	else
+		release_limit = IEEE80211_ATF_TXQ_AIRTIME_MIN;
+
+	/* Replenish deficit for all active queues if the frames it released
+	 * to firmware has estimated airtime less than release_limit.
+	 */
+	list_for_each_entry(artxq, &ar->txqs, list) {
+		txq = container_of((void *)artxq, struct ieee80211_txq,
+				   drv_priv);
+		atf = &artxq->atf;
+		if ((atf->airtime_inflight < release_limit) ||
+		    ((reset_deficit) && (atf->bytes_send == 0)))
+			atf->deficit += atf->quantum;
+		if (reset_deficit) {
+			if (atf->deficit < 0)
+				atf->deficit = 0;
+			atf->bytes_send_last_interval = atf->bytes_send;
+			atf->bytes_send = 0;
+		}
+
+		if (atf->deficit > atf->deficit_max)
+			atf->deficit = atf->deficit_max;
+	}
+}
+
 static bool ath10k_mac_tx_can_push(struct ieee80211_hw *hw,
 				   struct ieee80211_txq *txq)
 {
@@ -3738,6 +3800,8 @@ static bool ath10k_mac_tx_can_push(struct ieee80211_hw *hw,
 	struct ath10k_txq *artxq = (void *)txq->drv_priv;
 
 	/* No need to get locks */
+	if (ath10k_atf_scheduler_enabled(ar) && (artxq->atf.deficit < 0))
+		return false;
 
 	if (ar->htt.tx_q_state.mode == HTT_TX_MODE_SWITCH_PUSH)
 		return true;
@@ -3749,6 +3813,64 @@ static bool ath10k_mac_tx_can_push(struct ieee80211_hw *hw,
 		return true;
 
 	return false;
+}
+
+/* Return estimated airtime in microsecond, which is calculated using last
+ * reported TX rate. This is just a rough estimation because host driver has no
+ * knowledge of the actual transmit rate, retries or aggregation. If actual
+ * airtime can be reported by firmware, then delta between estimated and actual
+ * airtime can be adjusted from deficit.
+ */
+#define IEEE80211_ATF_OVERHEAD		100	/* IFS + some slot time */
+#define IEEE80211_ATF_OVERHEAD_IFS	16	/* IFS only */
+u32 ath10k_atf_update_airtime(struct ath10k *ar, struct ieee80211_txq *txq,
+			      struct sk_buff *skb)
+{
+	u32 now, pktlen, overhead;
+	u32 airtime = 0;
+
+	struct atf_scheduler *atf;
+	struct ath10k_txq *artxq;
+
+	if (!txq)
+		return airtime;
+
+	spin_lock_bh(&ar->htt.tx_lock);
+	artxq = (void *)txq->drv_priv;
+	atf = &artxq->atf;
+
+	/* overhead for media access time and IFS */
+	overhead = IEEE80211_ATF_OVERHEAD_IFS;
+	now = codel_get_time();
+	if (codel_time_after(now, atf->next_epoch)) {
+		/* Host driver has no information regarding how aggregation will
+		 * be formed, which is done in firmware, so just make a crude
+		 * assumption that frames released to firmware within a few ms
+		 * apart is likely be aggregated together.
+		 */
+		atf->next_epoch = now + IEEE80211_ATF_TXQ_AIRTIME_MIN;
+		overhead = IEEE80211_ATF_OVERHEAD;
+	}
+
+	pktlen = skb->len + 38; /* Assume MAC header 30, SNAP 8 for most case */
+	if (txq && txq->sta && txq->sta->last_tx_bitrate) {
+		/* airtime in us, last_tx_bitrate in 100kbps */
+		airtime = (skb->len * 8 * (1000 / 100))
+				/ txq->sta->last_tx_bitrate;
+	} else {
+		overhead = IEEE80211_ATF_OVERHEAD;
+	}
+
+	airtime += overhead;
+
+	if (ath10k_atf_scheduler_enabled(ar))
+		atf->deficit -= airtime;
+	ar->airtime_inflight += airtime;
+	atf->frames_inflight++;
+	atf->airtime_inflight += airtime;
+
+	spin_unlock_bh(&ar->htt.tx_lock);
+	return airtime;
 }
 
 int ath10k_mac_tx_push_txq(struct ieee80211_hw *hw,
@@ -3766,6 +3888,7 @@ int ath10k_mac_tx_push_txq(struct ieee80211_hw *hw,
 	size_t skb_len;
 	bool is_mgmt;
 	int ret;
+	u32 airtime;
 
 	spin_lock_bh(&ar->htt.tx_lock);
 	ret = ath10k_htt_tx_inc_pending(htt);
@@ -3783,12 +3906,13 @@ int ath10k_mac_tx_push_txq(struct ieee80211_hw *hw,
 		return -ENOENT;
 	}
 
-	ath10k_mac_tx_h_fill_cb(ar, vif, txq, skb);
-
 	skb_len = skb->len;
 	txmode = ath10k_mac_tx_h_get_txmode(ar, vif, sta, skb);
 	txpath = ath10k_mac_tx_h_get_txpath(ar, skb, txmode);
 	is_mgmt = (txpath == ATH10K_MAC_TX_HTT_MGMT);
+
+	airtime = ath10k_atf_update_airtime(ar, txq, skb);
+	ath10k_mac_tx_h_fill_cb(ar, vif, txq, skb, airtime);
 
 	if (is_mgmt) {
 		hdr = (struct ieee80211_hdr *)skb->data;
@@ -3798,6 +3922,7 @@ int ath10k_mac_tx_push_txq(struct ieee80211_hw *hw,
 
 		if (ret) {
 			ath10k_htt_tx_dec_pending(htt);
+			ath10k_atf_tx_complete(ar, skb);
 			spin_unlock_bh(&ar->htt.tx_lock);
 			return ret;
 		}
@@ -3810,6 +3935,7 @@ int ath10k_mac_tx_push_txq(struct ieee80211_hw *hw,
 
 		spin_lock_bh(&ar->htt.tx_lock);
 		ath10k_htt_tx_dec_pending(htt);
+		ath10k_atf_tx_complete(ar, skb);
 		if (is_mgmt)
 			ath10k_htt_tx_mgmt_dec_pending(htt);
 		spin_unlock_bh(&ar->htt.tx_lock);
@@ -3831,7 +3957,9 @@ void ath10k_mac_tx_push_pending(struct ath10k *ar)
 	struct ath10k_txq *artxq;
 	struct ath10k_txq *last;
 	int ret;
-	int max;
+	int max, txq_max, retry = 3;
+	bool need_refill, has_deficit;
+	u32 airtime_inflight, airtime_limit;
 
 	if (ar->htt.num_pending_tx >= (ar->htt.max_num_pending_tx / 2))
 		return;
@@ -3839,6 +3967,12 @@ void ath10k_mac_tx_push_pending(struct ath10k *ar)
 	spin_lock_bh(&ar->txqs_lock);
 	rcu_read_lock();
 
+	txq_max = (ath10k_atf_scheduler_enabled(ar)) ? 64 : 16;
+	airtime_inflight = ar->airtime_inflight;
+	airtime_limit = IEEE80211_ATF_TXQ_AIRTIME_MAX;
+again:
+	need_refill = false;
+	has_deficit = false;
 	last = list_last_entry(&ar->txqs, struct ath10k_txq, list);
 	while (!list_empty(&ar->txqs)) {
 		artxq = list_first_entry(&ar->txqs, struct ath10k_txq, list);
@@ -3846,7 +3980,7 @@ void ath10k_mac_tx_push_pending(struct ath10k *ar)
 				   drv_priv);
 
 		/* Prevent aggressive sta/tid taking over tx queue */
-		max = 16;
+		max = txq_max;
 		ret = 0;
 		while (ath10k_mac_tx_can_push(hw, txq) && max--) {
 			ret = ath10k_mac_tx_push_txq(hw, txq);
@@ -3860,8 +3994,29 @@ void ath10k_mac_tx_push_pending(struct ath10k *ar)
 
 		ath10k_htt_tx_txq_update(hw, txq);
 
+		if (ath10k_atf_scheduler_enabled(ar)) {
+			if (ret != -ENOENT) {
+				if (artxq->atf.deficit > 0)
+					has_deficit = true;
+				else
+					need_refill = true;
+			}
+			if (ar->airtime_inflight > ar->atf_release_limit)
+				airtime_limit = IEEE80211_ATF_TXQ_AIRTIME_MIN;
+		}
+
 		if (artxq == last || (ret < 0 && ret != -ENOENT))
 			break;
+	}
+
+	if (ath10k_atf_scheduler_enabled(ar) && (retry-- > 0)) {
+		/* only refill when all txq has packets run out of deficit */
+		if (need_refill && !has_deficit)
+			ath10k_atf_refill_deficit(ar);
+
+		if ((ar->airtime_inflight < ar->airtime_inflight_max) &&
+		    ((ar->airtime_inflight - airtime_inflight) < airtime_limit))
+			goto again;
 	}
 
 	rcu_read_unlock();
@@ -4047,14 +4202,16 @@ static void ath10k_mac_op_tx(struct ieee80211_hw *hw,
 	bool is_mgmt;
 	bool is_presp;
 	int ret;
-
-	ath10k_mac_tx_h_fill_cb(ar, vif, txq, skb);
+	u32 airtime;
 
 	txmode = ath10k_mac_tx_h_get_txmode(ar, vif, sta, skb);
 	txpath = ath10k_mac_tx_h_get_txpath(ar, skb, txmode);
 	is_htt = (txpath == ATH10K_MAC_TX_HTT ||
 		  txpath == ATH10K_MAC_TX_HTT_MGMT);
 	is_mgmt = (txpath == ATH10K_MAC_TX_HTT_MGMT);
+
+	airtime = ath10k_atf_update_airtime(ar, txq, skb);
+	ath10k_mac_tx_h_fill_cb(ar, vif, txq, skb, airtime);
 
 	if (is_htt) {
 		spin_lock_bh(&ar->htt.tx_lock);
@@ -4064,6 +4221,7 @@ static void ath10k_mac_op_tx(struct ieee80211_hw *hw,
 		if (ret) {
 			ath10k_warn(ar, "failed to increase tx pending count: %d, dropping\n",
 				    ret);
+			ath10k_atf_tx_complete(ar, skb);
 			spin_unlock_bh(&ar->htt.tx_lock);
 			ieee80211_free_txskb(ar->hw, skb);
 			return;
@@ -4074,6 +4232,7 @@ static void ath10k_mac_op_tx(struct ieee80211_hw *hw,
 			ath10k_dbg(ar, ATH10K_DBG_MAC, "failed to increase tx mgmt pending count: %d, dropping\n",
 				   ret);
 			ath10k_htt_tx_dec_pending(htt);
+			ath10k_atf_tx_complete(ar, skb);
 			spin_unlock_bh(&ar->htt.tx_lock);
 			ieee80211_free_txskb(ar->hw, skb);
 			return;
@@ -4087,6 +4246,7 @@ static void ath10k_mac_op_tx(struct ieee80211_hw *hw,
 		if (is_htt) {
 			spin_lock_bh(&ar->htt.tx_lock);
 			ath10k_htt_tx_dec_pending(htt);
+			ath10k_atf_tx_complete(ar, skb);
 			if (is_mgmt)
 				ath10k_htt_tx_mgmt_dec_pending(htt);
 			spin_unlock_bh(&ar->htt.tx_lock);
@@ -4104,15 +4264,36 @@ static void ath10k_mac_op_wake_tx_queue(struct ieee80211_hw *hw,
 	struct ath10k_txq *f_artxq;
 	int ret = 0;
 	int max = 16;
+	struct ath10k_txq *last;
 
 	spin_lock_bh(&ar->txqs_lock);
 	if (list_empty(&artxq->list))
 		list_add_tail(&artxq->list, &ar->txqs);
 
 	f_artxq = list_first_entry(&ar->txqs, struct ath10k_txq, list);
+	last = list_last_entry(&ar->txqs, struct ath10k_txq, list);
 	f_txq = container_of((void *)f_artxq, struct ieee80211_txq, drv_priv);
 	list_del_init(&f_artxq->list);
 
+	if (ath10k_atf_scheduler_enabled(ar)) {
+		rcu_read_lock();
+		while ((f_artxq->atf.deficit < 0)) {
+			list_add_tail(&f_artxq->list, &ar->txqs);
+			f_artxq = list_first_entry(&ar->txqs,
+						   struct ath10k_txq, list);
+			if (f_artxq == last) {
+				rcu_read_unlock();
+				ath10k_atf_refill_deficit(ar);
+				spin_unlock_bh(&ar->txqs_lock);
+				ath10k_htt_tx_txq_update(hw, txq);
+				return;
+			}
+			f_txq = container_of((void *)artxq,
+					     struct ieee80211_txq, drv_priv);
+			list_del_init(&f_artxq->list);
+		}
+		rcu_read_unlock();
+	}
 	while (ath10k_mac_tx_can_push(hw, f_txq) && max--) {
 		ret = ath10k_mac_tx_push_txq(hw, f_txq);
 		if (ret)

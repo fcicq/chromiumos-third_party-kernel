@@ -86,6 +86,7 @@ int ath10k_mac_tx_push_txq(struct ieee80211_hw *hw,
 struct ieee80211_txq *ath10k_mac_txq_lookup(struct ath10k *ar,
 					    u16 peer_id,
 					    u8 tid);
+void ath10k_atf_refill_deficit(struct ath10k *ar);
 
 static inline struct ath10k_vif *ath10k_vif_to_arvif(struct ieee80211_vif *vif)
 {

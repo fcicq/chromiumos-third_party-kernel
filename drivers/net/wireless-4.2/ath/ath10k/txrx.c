@@ -76,6 +76,29 @@ void ath10k_update_latency_stats(struct ath10k *ar, struct sk_buff *msdu, u8 ac)
 	ar->debug.tx_delay_stats[ac]->counts[bin]++;
 }
 
+/* Update airtime upon tx completion. It is called while holding txq_lock */
+void ath10k_atf_tx_complete(struct ath10k *ar, struct sk_buff *skb)
+{
+	struct ieee80211_txq *txq;
+	struct ath10k_skb_cb *skb_cb;
+	struct ath10k_txq *artxq;
+	struct atf_scheduler *atf;
+
+	skb_cb = ATH10K_SKB_CB(skb);
+
+	txq = skb_cb->txq;
+	if (!txq)
+		return;
+	ar->airtime_inflight -= skb_cb->airtime_est;
+	ar->atf_bytes_send += skb->len;
+	artxq = (void *)txq->drv_priv;
+	atf = &artxq->atf;
+
+	atf->frames_inflight--;
+	atf->bytes_send += skb->len;
+	atf->airtime_inflight -= skb_cb->airtime_est;
+}
+
 int ath10k_txrx_tx_unref(struct ath10k_htt *htt,
 			 const struct htt_tx_done *tx_done)
 {
@@ -113,6 +136,7 @@ int ath10k_txrx_tx_unref(struct ath10k_htt *htt,
 	if (txq) {
 		artxq = (void *)txq->drv_priv;
 		artxq->num_fw_queued--;
+		ath10k_atf_tx_complete(htt->ar, msdu);
 	}
 
 	ath10k_htt_tx_free_msdu_id(htt, tx_done->msdu_id);

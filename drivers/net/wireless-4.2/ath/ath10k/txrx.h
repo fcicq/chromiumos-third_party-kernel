@@ -35,4 +35,5 @@ void ath10k_peer_map_event(struct ath10k_htt *htt,
 void ath10k_peer_unmap_event(struct ath10k_htt *htt,
 			     struct htt_peer_unmap_event *ev);
 
+void ath10k_atf_tx_complete(struct ath10k *ar, struct sk_buff *skb);
 #endif
