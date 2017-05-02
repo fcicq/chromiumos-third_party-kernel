@@ -19,6 +19,7 @@ config DRM_POWERVR_ROGUE_1_8
 	depends on ARM64 || X86
 	depends on HAS_IOMEM
 	depends on DRM
+	depends on (DRM_POWERVR_ROGUE_1_9!=m && m) || (DRM_POWERVR_ROGUE_1_9!=y && y)
 	select DRM_KMS_HELPER
 	select PM_DEVFREQ
 	select DEVFREQ_GOV_SIMPLE_ONDEMAND
