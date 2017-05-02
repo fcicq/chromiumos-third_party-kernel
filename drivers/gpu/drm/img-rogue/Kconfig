@@ -1,5 +1,5 @@
 config DRM_POWERVR_ROGUE_1_10
-	tristate "PowerVR Rogue"
+	tristate "PowerVR Rogue v1.10"
 	depends on ARM64 || METAG
 	depends on HAS_IOMEM
 	depends on DRM
@@ -17,10 +17,11 @@ config DRM_POWERVR_ROGUE_1_10
 	  information, see <https://www.imgtec.com/graphics-processors/>.
 
 config DRM_POWERVR_ROGUE_1_9
-	tristate "PowerVR Rogue"
+	tristate "PowerVR Rogue v1.9"
 	depends on ARM64 || X86
 	depends on HAS_IOMEM
 	depends on DRM
+	depends on (DRM_POWERVR_ROGUE_1_10!=m && m) || (DRM_POWERVR_ROGUE_1_10!=y && y)
 	select DRM_KMS_HELPER
 	select GPU_TRACEPOINTS
 	select PM_DEVFREQ
