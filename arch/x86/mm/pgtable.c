@@ -271,12 +271,48 @@ static void pgd_prepopulate_pmd(struct mm_struct *mm, pgd_t *pgd, pmd_t *pmds[])
 	}
 }
 
+static inline pgd_t *_pgd_alloc(void)
+{
+#ifdef CONFIG_KAISER
+	// Instead of one PML4, we aquire two PML4s and, thus, an 8kb-aligned memory
+	// block. Therefore, we have to allocate at least 3 pages. However, the
+	// __get_free_pages returns us 4 pages. Hence, we store the base pointer at
+	// the beginning of the page of our 8kb-aligned memory block in order to
+	// correctly free it afterwars.
+
+	unsigned long pages = __get_free_pages(PGALLOC_GFP, get_order(4*PAGE_SIZE));
+
+	if(native_get_normal_pgd((pgd_t*) pages) == (pgd_t*) pages)
+	{
+		*((unsigned long*)(pages + 2 * PAGE_SIZE)) = pages;
+		return (pgd_t *) pages;
+	}
+	else
+	{
+		*((unsigned long*)(pages + 3 * PAGE_SIZE)) = pages;
+		return (pgd_t *) (pages + PAGE_SIZE);
+	}
+#else
+	return (pgd_t *)__get_free_page(PGALLOC_GFP);
+#endif
+}
+
+static inline void _pgd_free(pgd_t *pgd)
+{
+#ifdef CONFIG_KAISER
+  unsigned long pages = *((unsigned long*) ((char*) pgd + 2 * PAGE_SIZE));
+	free_pages(pages, get_order(4*PAGE_SIZE));
+#else
+	free_page((unsigned long)pgd);
+#endif
+}
+
 pgd_t *pgd_alloc(struct mm_struct *mm)
 {
 	pgd_t *pgd;
 	pmd_t *pmds[PREALLOCATED_PMDS];
 
-	pgd = (pgd_t *)__get_free_page(PGALLOC_GFP);
+	pgd = _pgd_alloc();
 
 	if (pgd == NULL)
 		goto out;
@@ -306,7 +342,7 @@ pgd_t *pgd_alloc(struct mm_struct *mm)
 out_free_pmds:
 	free_pmds(pmds);
 out_free_pgd:
-	free_page((unsigned long)pgd);
+	_pgd_free(pgd);
 out:
 	return NULL;
 }
@@ -316,7 +352,7 @@ void pgd_free(struct mm_struct *mm, pgd_t *pgd)
 	pgd_mop_up_pmds(mm, pgd);
 	pgd_dtor(pgd);
 	paravirt_pgd_free(mm, pgd);
-	free_page((unsigned long)pgd);
+	_pgd_free(pgd);
 }
 
 /*
