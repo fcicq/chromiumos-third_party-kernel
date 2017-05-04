@@ -83,6 +83,9 @@
 #include <asm/setup.h>
 #include <asm/sections.h>
 #include <asm/cacheflush.h>
+#ifdef CONFIG_KAISER
+#include <asm/kaiser.h>
+#endif
 
 #ifdef CONFIG_X86_LOCAL_APIC
 #include <asm/smp.h>
@@ -474,6 +477,9 @@ static void __init mm_init(void)
 	percpu_init_late();
 	pgtable_init();
 	vmalloc_init();
+#ifdef CONFIG_KAISER
+	kaiser_init();
+#endif
 }
 
 asmlinkage void __init start_kernel(void)
