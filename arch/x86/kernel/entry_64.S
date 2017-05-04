@@ -58,6 +58,7 @@
 #include <asm/context_tracking.h>
 #include <asm/smap.h>
 #include <asm/pgtable_types.h>
+#include <asm/kaiser.h>
 #include <linux/err.h>
 
 /* Avoid __ASSEMBLER__'ifying <linux/audit.h> just for this.  */
@@ -262,6 +263,7 @@ ENDPROC(native_usergs_sysret64)
 	testl $3, CS-RBP(%rsi)
 	je 1f
 	SWAPGS
+	SWITCH_KERNEL_CR3
 	/*
 	 * irq_count is used to check if a CPU is already on an interrupt stack
 	 * or not. While this is essentially redundant with preempt_count it is
@@ -307,6 +309,7 @@ ENTRY(save_paranoid)
 	testl %edx,%edx
 	js 1f	/* negative -> in kernel */
 	SWAPGS
+	SWITCH_KERNEL_CR3
 	xorl %ebx,%ebx
 1:	ret
 	CFI_ENDPROC
@@ -390,6 +393,7 @@ ENTRY(system_call)
 	CFI_REGISTER	rip,rcx
 	/*CFI_REGISTER	rflags,r11*/
 	SWAPGS_UNSAFE_STACK
+	SWITCH_KERNEL_CR3_NO_STACK
 	/*
 	 * A hypervisor implementation might want to use a label
 	 * after the swapgs, so that it can do the swapgs
@@ -461,6 +465,7 @@ sysret_check:
 	CFI_REGISTER	rip,rcx
 	RESTORE_ARGS 1,-ARG_SKIP,0
 	/*CFI_REGISTER	rflags,r11*/
+	SWITCH_USER_CR3
 	movq	PER_CPU_VAR(old_rsp), %rsp
 	USERGS_SYSRET64
 
@@ -837,6 +842,7 @@ retint_swapgs:		/* return to user-space */
 	 */
 	DISABLE_INTERRUPTS(CLBR_ANY)
 	TRACE_IRQS_IRETQ
+	SWITCH_USER_CR3
 	SWAPGS
 	jmp restore_args
 
@@ -877,6 +883,7 @@ native_irq_return_ldt:
 	pushq_cfi %rax
 	pushq_cfi %rdi
 	SWAPGS
+	SWITCH_KERNEL_CR3
 	movq PER_CPU_VAR(espfix_waddr),%rdi
 	movq %rax,(0*8)(%rdi)	/* RAX */
 	movq (2*8)(%rsp),%rax	/* RIP */
@@ -892,6 +899,7 @@ native_irq_return_ldt:
 	andl $0xffff0000,%eax
 	popq_cfi %rdi
 	orq PER_CPU_VAR(espfix_stack),%rax
+	SWITCH_USER_CR3
 	SWAPGS
 	movq %rax,%rsp
 	popq_cfi %rax
@@ -1318,6 +1326,7 @@ ENTRY(paranoid_exit)
 	jnz   paranoid_userspace
 paranoid_swapgs:
 	TRACE_IRQS_IRETQ 0
+	SWITCH_USER_CR3_NO_STACK
 	SWAPGS_UNSAFE_STACK
 	RESTORE_ALL 8
 	jmp irq_return
@@ -1383,6 +1392,7 @@ ENTRY(error_entry)
 	je error_kernelspace
 error_swapgs:
 	SWAPGS
+	SWITCH_KERNEL_CR3
 error_sti:
 	TRACE_IRQS_OFF
 	ret
@@ -1511,6 +1521,7 @@ ENTRY(nmi)
 	 */
 
 	SWAPGS
+	SWITCH_KERNEL_CR3
 	cld
 	movq	%rsp, %rdx
 	movq	PER_CPU_VAR(kernel_stack), %rsp
@@ -1552,6 +1563,7 @@ ENTRY(nmi)
 	 * work, because we don't want to enable interrupts.  Fortunately,
 	 * do_nmi doesn't modify pt_regs.
 	 */
+	SWITCH_USER_CR3
 	SWAPGS
 
 	addq	$6*8, %rsp	/* skip bx, bp, and r12-r15 */
@@ -1755,6 +1767,7 @@ end_repeat_nmi:
 	testl %ebx,%ebx				/* swapgs needed? */
 	jnz nmi_restore
 nmi_swapgs:
+	SWITCH_USER_CR3_NO_STACK
 	SWAPGS_UNSAFE_STACK
 nmi_restore:
 	/* Pop the extra iret frame at once */
