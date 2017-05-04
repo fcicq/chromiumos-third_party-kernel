@@ -1182,7 +1182,7 @@ static int rockchip_pcie_prog_ib_atu(struct rockchip_pcie *rockchip,
 	return 0;
 }
 
-static int rockchip_cfg_atu(struct rockchip_pcie *rockchip)
+static int rockchip_pcie_cfg_atu(struct rockchip_pcie *rockchip)
 {
 	struct device *dev = rockchip->dev;
 	int offset;
@@ -1305,7 +1305,7 @@ static int __maybe_unused rockchip_pcie_resume_noirq(struct device *dev)
 	if (err)
 		return err;
 
-	err = rockchip_cfg_atu(rockchip);
+	err = rockchip_pcie_cfg_atu(rockchip);
 	if (err)
 		return err;
 
@@ -1422,7 +1422,7 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
 		}
 	}
 
-	err = rockchip_cfg_atu(rockchip);
+	err = rockchip_pcie_cfg_atu(rockchip);
 	if (err)
 		goto err_free_res;
 
