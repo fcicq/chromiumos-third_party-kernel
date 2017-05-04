@@ -39,7 +39,11 @@
 #define _PAGE_ACCESSED	(_AT(pteval_t, 1) << _PAGE_BIT_ACCESSED)
 #define _PAGE_DIRTY	(_AT(pteval_t, 1) << _PAGE_BIT_DIRTY)
 #define _PAGE_PSE	(_AT(pteval_t, 1) << _PAGE_BIT_PSE)
-#define _PAGE_GLOBAL	(_AT(pteval_t, 1) << _PAGE_BIT_GLOBAL)
+#ifdef CONFIG_KAISER
+#define _PAGE_GLOBAL	(_AT(pteval_t, 0))
+#else
+#define _PAGE_GLOBAL  (_AT(pteval_t, 1) << _PAGE_BIT_GLOBAL)
+#endif
 #define _PAGE_UNUSED1	(_AT(pteval_t, 1) << _PAGE_BIT_UNUSED1)
 #define _PAGE_IOMAP	(_AT(pteval_t, 1) << _PAGE_BIT_IOMAP)
 #define _PAGE_PAT	(_AT(pteval_t, 1) << _PAGE_BIT_PAT)
@@ -92,7 +96,11 @@
 #endif
 
 #define _PAGE_FILE	(_AT(pteval_t, 1) << _PAGE_BIT_FILE)
-#define _PAGE_PROTNONE	(_AT(pteval_t, 1) << _PAGE_BIT_PROTNONE)
+#ifdef CONFIG_KAISER
+#define _PAGE_PROTNONE	(_AT(pteval_t, 0))
+#else
+#define _PAGE_PROTNONE  (_AT(pteval_t, 1) << _PAGE_BIT_PROTNONE)
+#endif
 
 /*
  * _PAGE_NUMA indicates that this page will trigger a numa hinting
