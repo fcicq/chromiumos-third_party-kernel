@@ -109,7 +109,7 @@
 #define memzero(s, n)	memset((s), 0, (n))
 
 
-static void error(char *m);
+static void error(char *m) __noreturn;
 
 /*
  * This is set up by the setup-routine at boot-time
