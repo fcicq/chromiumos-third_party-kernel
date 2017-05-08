@@ -4407,7 +4407,7 @@ static __poll_t binder_poll(struct file *filp,
 				struct poll_table_struct *wait)
 {
 	struct binder_proc *proc = filp->private_data;
-	struct binder_thread *thread = NULL;
+	struct binder_thread *thread;
 	bool wait_for_proc_work;
 
 	thread = binder_get_thread(proc);
