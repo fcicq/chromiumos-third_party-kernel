@@ -3437,7 +3437,7 @@ skl_compute_wm_level(const struct drm_i915_private *dev_priv,
 	 * We'll only calculate watermarks for planes that are actually
 	 * enabled, so make sure all other planes are set as disabled.
 	 */
-	memset(result, 0, sizeof(*result));
+	memset(result->plane_en, 0, sizeof(result->plane_en));
 
 	for_each_intel_plane_mask(dev, intel_plane, cstate->base.plane_mask) {
 		int i = skl_wm_plane_id(intel_plane);
