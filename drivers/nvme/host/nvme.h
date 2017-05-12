@@ -82,10 +82,19 @@ struct nvme_dev {
 	u8 vwc;
 	u8 npss;
 	u8 apsta;
+	/* shadow doorbell buffer support: */
 	u32 *dbbuf_dbs;
 	dma_addr_t dbbuf_dbs_dma_addr;
 	u32 *dbbuf_eis;
 	dma_addr_t dbbuf_eis_dma_addr;
+
+	/* host memory buffer support: */
+	u64 host_mem_size;
+	u32 nr_host_mem_descs;
+	struct nvme_host_mem_buf_desc *host_mem_descs;
+
+	void **host_mem_desc_bufs;
+	struct dma_attrs	host_mem_dma_attrs;
 
 	struct nvme_id_power_state psd[32];
 

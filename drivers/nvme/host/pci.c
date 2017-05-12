@@ -89,6 +89,12 @@ MODULE_PARM_DESC(use_cmb_sqes, "use controller's memory buffer for I/O SQes");
 static DEFINE_SPINLOCK(dev_list_lock);
 static LIST_HEAD(dev_list);
 static struct task_struct *nvme_thread;
+
+static unsigned int max_host_mem_size_mb = 128;
+module_param(max_host_mem_size_mb, uint, 0444);
+MODULE_PARM_DESC(max_host_mem_size_mb,
+	"Maximum Host Memory Buffer (HMB) size per controller (in MiB)");
+
 static struct workqueue_struct *nvme_workq;
 static wait_queue_head_t nvme_kthread_wait;
 
@@ -2702,6 +2708,167 @@ static inline void nvme_release_cmb(struct nvme_dev *dev)
 	}
 }
 
+static int nvme_set_host_mem(struct nvme_dev *dev, u32 bits)
+{
+	size_t len = dev->nr_host_mem_descs * sizeof(*dev->host_mem_descs);
+	struct nvme_command c;
+	u64 dma_addr;
+	int ret;
+
+	dma_addr = dma_map_single(dev->dev, dev->host_mem_descs, len,
+			DMA_TO_DEVICE);
+	if (dma_mapping_error(dev->dev, dma_addr))
+		return -ENOMEM;
+
+	memset(&c, 0, sizeof(c));
+	c.features.opcode	= nvme_admin_set_features;
+	c.features.fid		= cpu_to_le32(NVME_FEAT_HOST_MEM_BUF);
+	c.features.dword11	= cpu_to_le32(bits);
+	c.features.dword12	= cpu_to_le32(dev->host_mem_size >>
+					      ilog2(dev->page_size));
+	c.features.dword13	= cpu_to_le32(lower_32_bits(dma_addr));
+	c.features.dword14	= cpu_to_le32(upper_32_bits(dma_addr));
+	c.features.dword15	= cpu_to_le32(dev->nr_host_mem_descs);
+
+	ret = nvme_submit_sync_cmd(dev->admin_q, &c, NULL, 0);
+	if (ret) {
+		dev_warn(dev->device,
+			 "failed to set host mem (err %d, flags %#x).\n",
+			 ret, bits);
+	}
+	dma_unmap_single(dev->dev, dma_addr, len, DMA_TO_DEVICE);
+	return ret;
+}
+
+static void nvme_free_host_mem(struct nvme_dev *dev)
+{
+	int i;
+
+	for (i = 0; i < dev->nr_host_mem_descs; i++) {
+		struct nvme_host_mem_buf_desc *desc = &dev->host_mem_descs[i];
+		size_t size = le32_to_cpu(desc->size) * dev->page_size;
+
+		dma_free_attrs(dev->dev, size, dev->host_mem_desc_bufs[i],
+			       le64_to_cpu(desc->addr),
+			       &dev->host_mem_dma_attrs);
+	}
+
+	kfree(dev->host_mem_desc_bufs);
+	dev->host_mem_desc_bufs = NULL;
+	kfree(dev->host_mem_descs);
+	dev->host_mem_descs = NULL;
+}
+
+static int nvme_alloc_host_mem(struct nvme_dev *dev, u64 min, u64 preferred)
+{
+	struct nvme_host_mem_buf_desc *descs;
+	u32 chunk_size, max_entries, i = 0;
+	void **bufs;
+	u64 size, tmp;
+
+	/* start big and work our way down */
+	chunk_size = min(preferred, (u64)PAGE_SIZE << MAX_ORDER);
+retry:
+	tmp = (preferred + chunk_size - 1);
+	do_div(tmp, chunk_size);
+	max_entries = tmp;
+	descs = kcalloc(max_entries, sizeof(*descs), GFP_KERNEL);
+	if (!descs)
+		goto out;
+
+	bufs = kcalloc(max_entries, sizeof(*bufs), GFP_KERNEL);
+	if (!bufs)
+		goto out_free_descs;
+
+	init_dma_attrs(&dev->host_mem_dma_attrs);
+	dma_set_attr(DMA_ATTR_NO_KERNEL_MAPPING, &dev->host_mem_dma_attrs);
+
+	for (size = 0; size < preferred; size += chunk_size) {
+		u32 len = min_t(u64, chunk_size, preferred - size);
+		dma_addr_t dma_addr;
+
+		bufs[i] = dma_alloc_attrs(dev->dev, len, &dma_addr, GFP_KERNEL,
+				&dev->host_mem_dma_attrs);
+		if (!bufs[i])
+			break;
+
+		descs[i].addr = cpu_to_le64(dma_addr);
+		descs[i].size = cpu_to_le32(len / dev->page_size);
+		i++;
+	}
+
+	if (!size || (min && size < min)) {
+		dev_warn(dev->device,
+			"failed to allocate host memory buffer.\n");
+		goto out_free_bufs;
+	}
+
+	dev_info(dev->device,
+		"allocated %lld MiB host memory buffer.\n",
+		size >> ilog2(SZ_1M));
+	dev->nr_host_mem_descs = i;
+	dev->host_mem_size = size;
+	dev->host_mem_descs = descs;
+	dev->host_mem_desc_bufs = bufs;
+	return 0;
+
+out_free_bufs:
+	while (--i >= 0) {
+		size_t size = le32_to_cpu(descs[i].size) * dev->page_size;
+
+		dma_free_attrs(dev->dev, size, bufs[i],
+			       le64_to_cpu(descs[i].addr),
+			       &dev->host_mem_dma_attrs);
+	}
+
+	kfree(bufs);
+out_free_descs:
+	kfree(descs);
+out:
+	/* try a smaller chunk size if we failed early */
+	if (chunk_size >= PAGE_SIZE * 2 && (i == 0 || size < min)) {
+		chunk_size /= 2;
+		goto retry;
+	}
+	dev->host_mem_descs = NULL;
+	return -ENOMEM;
+}
+
+static void nvme_setup_host_mem(struct nvme_dev *dev)
+{
+	u64 max = (u64)max_host_mem_size_mb * SZ_1M;
+	u64 preferred = (u64)dev->hmpre * 4096;
+	u64 min = (u64)dev->hmmin * 4096;
+	u32 enable_bits = NVME_HOST_MEM_ENABLE;
+
+	preferred = min(preferred, max);
+	if (min > max) {
+		dev_warn(dev->device,
+			"min host memory (%lld MiB) above limit (%d MiB).\n",
+			min >> ilog2(SZ_1M), max_host_mem_size_mb);
+		nvme_free_host_mem(dev);
+		return;
+	}
+
+	/*
+	 * If we already have a buffer allocated check if we can reuse it.
+	 */
+	if (dev->host_mem_descs) {
+		if (dev->host_mem_size >= min)
+			enable_bits |= NVME_HOST_MEM_RETURN;
+		else
+			nvme_free_host_mem(dev);
+	}
+
+	if (!dev->host_mem_descs) {
+		if (nvme_alloc_host_mem(dev, min, preferred))
+			return;
+	}
+
+	if (nvme_set_host_mem(dev, enable_bits))
+		nvme_free_host_mem(dev);
+}
+
 static size_t db_bar_size(struct nvme_dev *dev, unsigned nr_io_queues)
 {
 	return 4096 + ((nr_io_queues + 1) * 8 * dev->db_stride);
@@ -2956,6 +3123,9 @@ static int nvme_dev_add(struct nvme_dev *dev)
 		dev_pm_qos_hide_latency_tolerance(dev->device);
 
 	nvme_configure_apst(dev);
+
+	if (dev->hmpre)
+		nvme_setup_host_mem(dev);
 
 	if (!dev->tagset.tags) {
 		dev->tagset.ops = &nvme_mq_ops;
@@ -3264,6 +3434,16 @@ static void nvme_dev_shutdown(struct nvme_dev *dev)
 			struct nvme_queue *nvmeq = dev->queues[i];
 			nvme_suspend_queue(nvmeq);
 		}
+
+		/*
+		 * If the controller is still alive tell it to stop using the
+		 * host memory buffer.  In theory the shutdown / reset should
+		 * make sure that it doesn't access the host memoery anymore,
+		 * but I'd rather be safe than sorry..
+		 */
+		if (dev->host_mem_descs)
+			nvme_set_host_mem(dev, 0);
+
 	} else {
 		nvme_disable_io_queues(dev);
 		nvme_shutdown_ctrl(dev);
@@ -3828,6 +4008,7 @@ static void nvme_remove(struct pci_dev *pdev)
 	flush_work(&dev->scan_work);
 	nvme_dev_remove(dev);
 	nvme_dev_shutdown(dev);
+	nvme_free_host_mem(dev);
 	nvme_dev_remove_admin(dev);
 	device_destroy(nvme_class, MKDEV(nvme_char_major, dev->instance));
 	nvme_free_queues(dev, 0);
