@@ -2945,6 +2945,8 @@ static int nvme_dev_add(struct nvme_dev *dev)
 	prev_apsta = dev->apsta;
 	dev->apsta = ctrl->apsta;
 	memcpy(dev->psd, ctrl->psd, sizeof(ctrl->psd));
+	dev->hmpre = le32_to_cpu(ctrl->hmpre);
+	dev->hmmin = le32_to_cpu(ctrl->hmmin);
 
 	kfree(ctrl);
 
