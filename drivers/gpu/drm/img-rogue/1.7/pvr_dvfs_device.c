@@ -94,6 +94,7 @@ static IMG_INT32 devfreq_target(struct device *dev, long unsigned *requested_fre
 
 	if (!psDVFSDevice->bEnabled)
 	{
+		*requested_freq = psRGXTimingInfo->ui32CoreClockSpeed;
 		return 0;
 	}
 
