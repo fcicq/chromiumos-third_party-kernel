@@ -311,6 +311,7 @@ __create_hw_context(struct drm_i915_private *dev_priv,
 	kref_init(&ctx->ref);
 	list_add_tail(&ctx->link, &dev_priv->contexts.list);
 	ctx->i915 = dev_priv;
+	ctx->priority = I915_PRIORITY_NORMAL;
 
 	ctx->vma_lut.ht_bits = VMA_HT_BITS;
 	ctx->vma_lut.ht_size = BIT(VMA_HT_BITS);
