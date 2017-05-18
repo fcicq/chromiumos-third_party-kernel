@@ -790,14 +790,6 @@ enum link_m_n_set {
 	M2_N2
 };
 
-struct intel_dp_desc {
-	u8 oui[3];
-	u8 device_id[6];
-	u8 hw_rev;
-	u8 sw_major_rev;
-	u8 sw_minor_rev;
-} __packed;
-
 struct intel_dp_compliance_data {
 	unsigned long edid;
 };
@@ -835,7 +827,7 @@ struct intel_dp {
 	/* Max link BW for the sink as per DPCD registers */
 	int max_sink_link_bw;
 	/* sink or branch descriptor */
-	struct intel_dp_desc desc;
+	struct drm_dp_desc desc;
 	struct drm_dp_aux aux;
 	uint8_t train_set[4];
 	int panel_power_up_delay;
