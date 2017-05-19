@@ -2678,7 +2678,7 @@ video_usercopy(struct file *file, unsigned int cmd, unsigned long arg,
 			parg = sbuf;
 		} else {
 			/* too big to allocate from stack */
-			mbuf = kmalloc(_IOC_SIZE(cmd), GFP_KERNEL);
+			mbuf = kvmalloc(_IOC_SIZE(cmd), GFP_KERNEL);
 			if (NULL == mbuf)
 				return -ENOMEM;
 			parg = mbuf;
@@ -2725,7 +2725,7 @@ video_usercopy(struct file *file, unsigned int cmd, unsigned long arg,
 		 * array) fits into sbuf (so that mbuf will still remain
 		 * unused up to here).
 		 */
-		mbuf = kmalloc(array_size, GFP_KERNEL);
+		mbuf = kvmalloc(array_size, GFP_KERNEL);
 		err = -ENOMEM;
 		if (NULL == mbuf)
 			goto out_array_args;
@@ -2768,7 +2768,7 @@ out_array_args:
 	}
 
 out:
-	kfree(mbuf);
+	kvfree(mbuf);
 	return err;
 }
 EXPORT_SYMBOL(video_usercopy);
