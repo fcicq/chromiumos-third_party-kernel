@@ -160,6 +160,9 @@ struct intel_guc {
 	struct intel_uc_fw fw;
 	struct intel_guc_log log;
 
+	/* Log snapshot if GuC errors during load */
+	struct drm_i915_gem_object *load_err_log;
+
 	/* intel_guc_recv interrupt related state */
 	bool interrupts_enabled;
 
