@@ -3512,6 +3512,7 @@ void RGXCheckFirmwareCCB(PVRSRV_RGXDEV_INFO *psDevInfo)
 			case RGXFWIF_FWCCB_CMD_DEBUG_DUMP:
 			{
 				RGXDumpDebugInfo(NULL,NULL,psDevInfo);
+				OSWarnOn(IMG_TRUE);
 				break;
 			}
 

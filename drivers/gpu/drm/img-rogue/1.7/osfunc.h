@@ -1631,6 +1631,12 @@ void OSRemoveStatisticFolder(void **ppvFolder);
 */ /**************************************************************************/
 void OSUserModeAccessToPerfCountersEn(void);
 
+#if defined(LINUX) && defined(__KERNEL__)
+#define OSWarnOn(a) WARN_ON(a)
+#else
+#define OSWarnOn(a) do { if (!!(a)) { OSDumpStack(); } } while(0)
+#endif
+
 #if defined(CONFIG_L4_LINUX)
 #include <asm/api-l4env/api.h>
 #include <asm/io.h>
