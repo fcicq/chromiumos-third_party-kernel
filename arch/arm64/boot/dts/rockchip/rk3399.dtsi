@@ -165,7 +165,7 @@
 			device_type = "cpu";
 			compatible = "arm,cortex-a72", "arm,armv8";
 			reg = <0x0 0x100>;
-			enable-method = "psci";
+			enable-method = "disabled";
 			#cooling-cells = <2>; /* min followed by max */
 			dynamic-power-coefficient = <436>;
 			clocks = <&cru ARMCLKB>;
@@ -176,7 +176,7 @@
 			device_type = "cpu";
 			compatible = "arm,cortex-a72", "arm,armv8";
 			reg = <0x0 0x101>;
-			enable-method = "psci";
+			enable-method = "disabled";
 			clocks = <&cru ARMCLKB>;
 			cpu-idle-states = <&cpu_sleep>;
 		};
