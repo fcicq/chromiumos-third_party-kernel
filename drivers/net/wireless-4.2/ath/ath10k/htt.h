@@ -47,12 +47,24 @@ struct ath10k_per_peer_tx_stats {
 } __packed;
 
 enum htt_dbg_stats_type {
-	HTT_DBG_STATS_WAL_PDEV_TXRX = 1 << 0,
-	HTT_DBG_STATS_RX_REORDER    = 1 << 1,
-	HTT_DBG_STATS_RX_RATE_INFO  = 1 << 2,
-	HTT_DBG_STATS_TX_PPDU_LOG   = 1 << 3,
-	HTT_DBG_STATS_TX_RATE_INFO  = 1 << 4,
-	/* bits 5-23 currently reserved */
+	HTT_DBG_STATS_WAL_PDEV_TXRX	= 1 << 0,
+	HTT_DBG_STATS_RX_REORDER	= 1 << 1,
+	HTT_DBG_STATS_RX_RATE_INFO	= 1 << 2,
+	HTT_DBG_STATS_TX_PPDU_LOG	= 1 << 3,
+	HTT_DBG_STATS_TX_RATE_INFO	= 1 << 4,
+	HTT_DBG_STATS_TIDQ              = 1 << 5,
+	HTT_DBG_STATS_TXBF_INFO         = 1 << 6,
+	HTT_DBG_STATS_SND_INFO          = 1 << 7,
+	HTT_DBG_STATS_ERROR_INFO        = 1 << 8,
+	HTT_DBG_STATS_TX_SELFGEN_INFO   = 1 << 9,
+	HTT_DBG_STATS_TX_MU_INFO        = 1 << 10,
+	HTT_DBG_STATS_SIFS_RESP_INFO    = 1 << 11,
+	HTT_DBG_STATS_RESET_INFO        = 1 << 12,
+	HTT_DBG_STATS_MAC_WDOG_INFO     = 1 << 13,
+	HTT_DBG_STATS_TX_DESC_INFO      = 1 << 14,
+	HTT_DBG_STATS_TX_FETCH_MGR_INFO = 1 << 15,
+	HTT_DBG_STATS_TX_PFSCHED_INFO	= 1 << 16,
+	/* bits 14-23 currently reserved */
 
 	HTT_DBG_NUM_STATS /* keep this last */
 };

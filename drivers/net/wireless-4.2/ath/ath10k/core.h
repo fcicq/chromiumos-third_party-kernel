@@ -38,6 +38,7 @@
 #include "wow.h"
 #include "swap.h"
 #include "smart_ant.h"
+#include "debug_htt_stats.h"
 
 #define MS(_v, _f) (((_v) & _f##_MASK) >> _f##_LSB)
 #define SM(_v, _f) (((_v) << _f##_LSB) & _f##_MASK)
@@ -482,6 +483,10 @@ struct ath10k_debug {
 	bool fw_stats_done;
 
 	unsigned long htt_stats_mask;
+	unsigned long reset_htt_stats;
+	u64 htt_req_cookie;
+	struct wlan_10_4_htt_stats htt_10_4;
+	struct wlan_10_2_htt_stats htt_10_2;
 	struct delayed_work htt_stats_dwork;
 	struct ath10k_dfs_stats dfs_stats;
 	struct ath_dfs_pool_stats dfs_pool_stats;

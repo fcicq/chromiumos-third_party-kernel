@@ -1037,6 +1037,7 @@ static int ath10k_debug_htt_stats_req(struct ath10k *ar)
 		return 0;
 
 	cookie = get_jiffies_64();
+	ar->debug.htt_req_cookie = cookie;
 
 	ret = ath10k_htt_h2t_stats_req(&ar->htt, ar->debug.htt_stats_mask,
 				       cookie);
@@ -2493,6 +2494,7 @@ int ath10k_debug_register(struct ath10k *ar)
 			    ar->debug.debugfs_phy, ar,
 			    &fops_adjacent_wlan_interfrc);
 
+	ath10k_htt_debug_stats_init(ar);
 	return 0;
 }
 

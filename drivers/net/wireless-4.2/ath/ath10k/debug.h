@@ -93,6 +93,7 @@ void ath10k_debug_get_et_stats(struct ieee80211_hw *hw,
 			       struct ieee80211_vif *vif,
 			       struct ethtool_stats *stats, u64 *data);
 void ath10k_smart_ant_debugfs_init(struct ath10k *ar);
+void ath10k_htt_debug_stats_init(struct ath10k *ar);
 #else
 static inline int ath10k_debug_start(struct ath10k *ar)
 {
@@ -149,6 +150,7 @@ ath10k_debug_get_new_fw_crash_data(struct ath10k *ar)
 #define ath10k_debug_get_et_sset_count NULL
 #define ath10k_debug_get_et_stats NULL
 #define ath10k_smart_ant_debugfs_init NULL
+#define ath10k_htt_debug_stats_init NULL
 
 #endif /* CONFIG_ATH10K_DEBUGFS */
 #ifdef CONFIG_MAC80211_DEBUGFS

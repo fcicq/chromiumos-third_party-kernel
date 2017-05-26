@@ -16,7 +16,7 @@ ath10k_core-y += mac.o \
 		 swap.o \
 		 fwlog.o
 
-ath10k_core-$(CONFIG_ATH10K_DEBUGFS) += spectral.o debug_smart_ant.o
+ath10k_core-$(CONFIG_ATH10K_DEBUGFS) += spectral.o debug_smart_ant.o debug_htt_stats.o
 ath10k_core-$(CONFIG_NL80211_TESTMODE) += testmode.o
 ath10k_core-$(CONFIG_ATH10K_TRACING) += trace.o
 ath10k_core-$(CONFIG_THERMAL) += thermal.o
