@@ -400,10 +400,6 @@ unsigned long vm_mmap_pgoff(struct file *file, unsigned long addr,
 	unsigned long populate;
 
 	ret = security_mmap_file(file, prot, flag);
-	if (ret == -EINVAL) {
-		printk(KERN_ERR
-			"dma-buf-mmap: vm_mmap_pgoff returning EINVAL 1.\n");
-	}
 	if (!ret) {
 		down_write(&mm->mmap_sem);
 		ret = do_mmap_pgoff(file, addr, len, prot, flag, pgoff,
@@ -411,10 +407,6 @@ unsigned long vm_mmap_pgoff(struct file *file, unsigned long addr,
 		up_write(&mm->mmap_sem);
 		if (populate)
 			mm_populate(ret, populate);
-	}
-	if (ret == -EINVAL) {
-		printk(KERN_ERR
-			"dma-buf-mmap: vm_mmap_pgoff returning EINVAL 2.\n");
 	}
 	return ret;
 }

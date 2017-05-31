@@ -1260,10 +1260,8 @@ unsigned long do_mmap_pgoff(struct file *file, unsigned long addr,
 		if (!(file && (file->f_path.mnt->mnt_flags & MNT_NOEXEC)))
 			prot |= PROT_EXEC;
 
-	if (!len) {
-		printk(KERN_ERR "dma-buf-mmap: do_mmap_pgoff len is 0.\n");
+	if (!len)
 		return -EINVAL;
-	}
 
 	if (!(flags & MAP_FIXED))
 		addr = round_hint_to_min(addr);
@@ -1340,10 +1338,8 @@ unsigned long do_mmap_pgoff(struct file *file, unsigned long addr,
 
 			if (!file->f_op->mmap)
 				return -ENODEV;
-			if (vm_flags & (VM_GROWSDOWN|VM_GROWSUP)) {
-				printk("dma-buf-mmap: do_mmap_pgoff returning EINVAL 1.\n");
+			if (vm_flags & (VM_GROWSDOWN|VM_GROWSUP))
 				return -EINVAL;
-			}
 			break;
 
 		default:
@@ -1352,10 +1348,8 @@ unsigned long do_mmap_pgoff(struct file *file, unsigned long addr,
 	} else {
 		switch (flags & MAP_TYPE) {
 		case MAP_SHARED:
-			if (vm_flags & (VM_GROWSDOWN|VM_GROWSUP)) {
-				printk("dma-buf-mmap: do_mmap_pgoff returning EINVAL 2.\n");
+			if (vm_flags & (VM_GROWSDOWN|VM_GROWSUP))
 				return -EINVAL;
-			}
 			/*
 			 * Ignore pgoff.
 			 */
@@ -1369,8 +1363,6 @@ unsigned long do_mmap_pgoff(struct file *file, unsigned long addr,
 			pgoff = addr >> PAGE_SHIFT;
 			break;
 		default:
-			WARN_ON(true);
-			printk("dma-buf-mmap: do_mmap_pgoff returning EINVAL. flags:%lu.\n", flags);
 			return -EINVAL;
 		}
 	}
@@ -1394,8 +1386,6 @@ unsigned long do_mmap_pgoff(struct file *file, unsigned long addr,
 	    ((vm_flags & VM_LOCKED) ||
 	     (flags & (MAP_POPULATE | MAP_NONBLOCK)) == MAP_POPULATE))
 		*populate = len;
-	if (IS_ERR_VALUE(addr) && addr == -EINVAL)
-		printk("dma-buf-mmap: do_mmap_pgoff return EINVAL 4.");
 	return addr;
 }
 
@@ -1446,8 +1436,6 @@ out_fput:
 	if (file)
 		fput(file);
 out:
-	if (retval == -EINVAL)
-		printk("dma-buf-mmap: mmap_pgoff returning EINVAL.\n");
 	return retval;
 }
 
@@ -1603,8 +1591,6 @@ munmap_back:
 		}
 		vma->vm_file = get_file(file);
 		error = file->f_op->mmap(file, vma);
-		if (error == -EINVAL)
-			printk("dma-buf-mmap: mmap_region returning EINVAL 1.\n");
 		if (error)
 			goto unmap_and_free_vma;
 
@@ -1621,11 +1607,8 @@ munmap_back:
 		vm_flags = vma->vm_flags;
 	} else if (vm_flags & VM_SHARED) {
 		error = shmem_zero_setup(vma);
-		if (error) {
-			if (error == -EINVAL)
-				printk("dma-buf-mmap: mmap_region returning EINVAL 2.\n");
+		if (error)
 			goto free_vma;
-		}
 	}
 
 	if (vma_wants_writenotify(vma)) {
@@ -1688,8 +1671,6 @@ free_vma:
 unacct_error:
 	if (charged)
 		vm_unacct_memory(charged);
-	if (error == -EINVAL)
-		  printk("dma-buf-mmap: mmap_region returning EINVAL 3.\n");
 	return error;
 }
 
@@ -2011,23 +1992,16 @@ get_unmapped_area(struct file *file, unsigned long addr, unsigned long len,
 	if (file && file->f_op->get_unmapped_area)
 		get_area = file->f_op->get_unmapped_area;
 	addr = get_area(file, addr, len, pgoff, flags);
-	if (IS_ERR_VALUE(addr)) {
-	       if (addr == -EINVAL)
-			    printk("dma-buf-mmap: gem_unmapped_area returning EINVAL 1.\n");
+	if (IS_ERR_VALUE(addr))
 		return addr;
-	}
 
 	if (addr > TASK_SIZE - len)
 		return -ENOMEM;
-	if (addr & ~PAGE_MASK) {
-		printk("dma-buf-mmap: gem_unmapped_area returning EINVAL 2.\n");
+	if (addr & ~PAGE_MASK)
 		return -EINVAL;
-	}
 
 	addr = arch_rebalance_pgtables(addr, len);
 	error = security_mmap_addr(addr);
-	if (error == -EINVAL)
-		printk("dma-buf-mmap: gem_unmapped_area returning EINVAL 3.\n");
 	return error ? error : addr;
 }
 

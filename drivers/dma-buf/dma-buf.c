@@ -68,34 +68,19 @@ static int dma_buf_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
-static const struct file_operations dma_buf_fops;
-
 static int dma_buf_mmap_internal(struct file *file, struct vm_area_struct *vma)
 {
 	struct dma_buf *dmabuf;
 
-	if (WARN_ON(!is_dma_buf_file(file))) {
-		printk(KERN_ERR
-			"dma-buf-mmap: dma_buf_mmap_internal returning EINVAL. "
-			"file->f_op:%p &dma_buf_fops:%p",
-		       file->f_op, &dma_buf_fops);
+	if (!is_dma_buf_file(file))
 		return -EINVAL;
-	}
 
 	dmabuf = file->private_data;
 
 	/* check for overflowing the buffer's size */
-	if (WARN_ON(
-		vma->vm_pgoff + ((vma->vm_end - vma->vm_start) >> PAGE_SHIFT) >
-			dmabuf->size >> PAGE_SHIFT)) {
-		printk(KERN_ERR
-			"dma-buf-mmap: dma_buf_mmap_internal returning EINVAL. "
-			"bo_size:%zu vm_start:%lu vm_end:%lu vm_pgoff:%lu "
-			"offset_in_page:%lu",
-		       dmabuf->size, vma->vm_start, vma->vm_end, vma->vm_pgoff,
-		       offset_in_page(vma->vm_end - vma->vm_start));
+	if (vma->vm_pgoff + ((vma->vm_end - vma->vm_start) >> PAGE_SHIFT) >
+	    dmabuf->size >> PAGE_SHIFT)
 		return -EINVAL;
-	}
 
 	return dmabuf->ops->mmap(dmabuf, vma);
 }

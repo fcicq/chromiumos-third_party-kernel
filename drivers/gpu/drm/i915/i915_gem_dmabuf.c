@@ -200,23 +200,15 @@ static int i915_gem_dmabuf_mmap(struct dma_buf *dma_buf, struct vm_area_struct *
 	struct drm_i915_gem_object *obj = dma_buf_to_obj(dma_buf);
 	int ret;
 
-	if (WARN_ON(obj->base.size < vma->vm_end - vma->vm_start)) {
-		printk(KERN_ERR
-			"dma-buf-mmap: i915_gem_dmabuf_mmap returning EINVAL 1.\n");
+	if (obj->base.size < vma->vm_end - vma->vm_start)
 		return -EINVAL;
-	}
 
 	if (!obj->base.filp)
 		return -ENODEV;
 
 	ret = obj->base.filp->f_op->mmap(obj->base.filp, vma);
-	if (ret) {
-		if (WARN_ON(ret == -EINVAL)) {
-			printk(KERN_ERR
-				"dma-buf-mmap: i915_gem_dmabuf_mmap returning EINVAL 2.\n");
-		}
+	if (ret)
 		return ret;
-	}
 
 	fput(vma->vm_file);
 	vma->vm_file = get_file(obj->base.filp);
