@@ -4,6 +4,14 @@ config DRM_BRIDGE
 	help
 	  Bridge registration and lookup framework.
 
+config DRM_PANEL_BRIDGE
+	def_bool y
+	depends on DRM_BRIDGE
+	depends on DRM_KMS_HELPER
+	select DRM_PANEL
+	help
+	  DRM bridge wrapper of DRM panels
+
 menu "Display Interface Bridges"
 	depends on DRM && DRM_BRIDGE
 
