@@ -80,7 +80,7 @@ i915_gem_shrink(struct drm_i915_private *dev_priv,
 		unsigned int bit;
 	} phases[] = {
 		{ &dev_priv->mm.unbound_list, I915_SHRINK_UNBOUND },
-/*		{ &dev_priv->mm.bound_list, I915_SHRINK_BOUND },*/
+		{ &dev_priv->mm.bound_list, I915_SHRINK_BOUND },
 		{ NULL, 0 },
 	}, *phase;
 	unsigned long count = 0;
@@ -179,7 +179,6 @@ static bool i915_gem_shrinker_lock(struct drm_device *dev, bool *unlock)
 	return true;
 }
 
-/*
 static int num_vma_bound(struct drm_i915_gem_object *obj)
 {
 	struct i915_vma *vma;
@@ -194,7 +193,6 @@ static int num_vma_bound(struct drm_i915_gem_object *obj)
 
 	return count;
 }
-*/
 
 static unsigned long
 i915_gem_shrinker_count(struct shrinker *shrinker, struct shrink_control *sc)
@@ -214,10 +212,10 @@ i915_gem_shrinker_count(struct shrinker *shrinker, struct shrink_control *sc)
 		if (obj->pages_pin_count == 0)
 			count += obj->base.size >> PAGE_SHIFT;
 
-/*	list_for_each_entry(obj, &dev_priv->mm.bound_list, global_list) {
+	list_for_each_entry(obj, &dev_priv->mm.bound_list, global_list) {
 		if (obj->pages_pin_count == num_vma_bound(obj))
 			count += obj->base.size >> PAGE_SHIFT;
-	}*/
+	}
 
 	if (unlock)
 		mutex_unlock(&dev->struct_mutex);
