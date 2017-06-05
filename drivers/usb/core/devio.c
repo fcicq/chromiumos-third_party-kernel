@@ -2367,6 +2367,9 @@ static long usbdev_do_ioctl(struct file *file, unsigned int cmd,
 	case USBDEVFS_DROP_PRIVILEGES:
 		ret = proc_drop_privileges(ps, p);
 		break;
+	case USBDEVFS_GET_SPEED:
+		ret = ps->dev->speed;
+		break;
 	}
 	usb_unlock_device(dev);
 	if (ret >= 0)
