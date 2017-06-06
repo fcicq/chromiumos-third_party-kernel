@@ -93,7 +93,7 @@ static void write_vreg(struct intel_vgpu *vgpu, unsigned int offset,
 }
 
 static int new_mmio_info(struct intel_gvt *gvt,
-		u32 offset, u32 flags, u32 size,
+		u32 offset, u8 flags, u32 size,
 		u32 addr_mask, u32 ro_mask, u32 device,
 		int (*read)(struct intel_vgpu *, unsigned int, void *, unsigned int),
 		int (*write)(struct intel_vgpu *, unsigned int, void *, unsigned int))
@@ -2904,9 +2904,10 @@ int intel_gvt_setup_mmio_info(struct intel_gvt *gvt)
 {
 	struct intel_gvt_device_info *info = &gvt->device_info;
 	struct drm_i915_private *dev_priv = gvt->dev_priv;
+	int size = info->mmio_size / 4 * sizeof(*gvt->mmio.mmio_attribute);
 	int ret;
 
-	gvt->mmio.mmio_attribute = vzalloc(info->mmio_size);
+	gvt->mmio.mmio_attribute = vzalloc(size);
 	if (!gvt->mmio.mmio_attribute)
 		return -ENOMEM;
 
