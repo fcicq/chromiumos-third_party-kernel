@@ -224,6 +224,7 @@ struct edma_ethtool_statistics {
 	u64 rx_q6_byte;
 	u64 rx_q7_byte;
 	u64 tx_desc_error;
+	u64 rx_alloc_fail_ctr;
 };
 
 struct edma_mdio_data {
@@ -357,6 +358,7 @@ struct edma_rfd_desc_ring {
 	dma_addr_t dma; /* descriptor ring physical address */
 	u16 sw_next_to_fill; /* next descriptor to fill */
 	u16 sw_next_to_clean; /* next descriptor to clean */
+	u16 pending_fill; /* fill pending from previous iteration */
 };
 
 /* edma_rfs_flter_node - rfs filter node in hash table */
