@@ -1834,9 +1834,18 @@ static void gen8_disable_metric_set(struct drm_i915_private *dev_priv)
 	gen8_configure_all_contexts(dev_priv, false);
 }
 
-static void gen7_update_oacontrol_locked(struct drm_i915_private *dev_priv)
+static void gen7_oa_enable(struct drm_i915_private *dev_priv)
 {
-	lockdep_assert_held(&dev_priv->perf.hook_lock);
+	/*
+	 * Reset buf pointers so we don't forward reports from before now.
+	 *
+	 * Think carefully if considering trying to avoid this, since it
+	 * also ensures status flags and the buffer itself are cleared
+	 * in error paths, and we have checks for invalid reports based
+	 * on the assumption that certain fields are written to zeroed
+	 * memory which this helps maintains.
+	 */
+	gen7_init_oa_buffer(dev_priv);
 
 	if (dev_priv->perf.oa.exclusive_stream->enabled) {
 		struct i915_gem_context *ctx =
@@ -1857,25 +1866,6 @@ static void gen7_update_oacontrol_locked(struct drm_i915_private *dev_priv)
 			   GEN7_OACONTROL_ENABLE);
 	} else
 		I915_WRITE(GEN7_OACONTROL, 0);
-}
-
-static void gen7_oa_enable(struct drm_i915_private *dev_priv)
-{
-	unsigned long flags;
-
-	/* Reset buf pointers so we don't forward reports from before now.
-	 *
-	 * Think carefully if considering trying to avoid this, since it
-	 * also ensures status flags and the buffer itself are cleared
-	 * in error paths, and we have checks for invalid reports based
-	 * on the assumption that certain fields are written to zeroed
-	 * memory which this helps maintains.
-	 */
-	gen7_init_oa_buffer(dev_priv);
-
-	spin_lock_irqsave(&dev_priv->perf.hook_lock, flags);
-	gen7_update_oacontrol_locked(dev_priv);
-	spin_unlock_irqrestore(&dev_priv->perf.hook_lock, flags);
 }
 
 static void gen8_oa_enable(struct drm_i915_private *dev_priv)
@@ -3051,7 +3041,6 @@ void i915_perf_init(struct drm_i915_private *dev_priv)
 
 		INIT_LIST_HEAD(&dev_priv->perf.streams);
 		mutex_init(&dev_priv->perf.lock);
-		spin_lock_init(&dev_priv->perf.hook_lock);
 		spin_lock_init(&dev_priv->perf.oa.oa_buffer.ptr_lock);
 
 		dev_priv->perf.sysctl_header = register_sysctl_table(dev_root);
