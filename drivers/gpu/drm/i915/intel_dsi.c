@@ -350,12 +350,12 @@ static bool intel_dsi_compute_config(struct intel_encoder *encoder,
 	return true;
 }
 
-static void glk_dsi_device_ready(struct intel_encoder *encoder)
+static void glk_dsi_enable_io(struct intel_encoder *encoder)
 {
 	struct drm_i915_private *dev_priv = to_i915(encoder->base.dev);
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(&encoder->base);
 	enum port port;
-	u32 tmp, val;
+	u32 tmp;
 
 	/* Set the MIPI mode
 	 * If MIPI_Mode is off, then writing to LP_Wake bit is not reflecting.
@@ -385,6 +385,14 @@ static void glk_dsi_device_ready(struct intel_encoder *encoder)
 				GLK_MIPIIO_PORT_POWERED, 20))
 			DRM_ERROR("MIPIO port is powergated\n");
 	}
+}
+
+static void glk_dsi_device_ready(struct intel_encoder *encoder)
+{
+	struct drm_i915_private *dev_priv = to_i915(encoder->base.dev);
+	struct intel_dsi *intel_dsi = enc_to_intel_dsi(&encoder->base);
+	enum port port;
+	u32 val;
 
 	/* Wait for MIPI PHY status bit to set */
 	for_each_dsi_port(port, intel_dsi->ports) {
@@ -395,8 +403,8 @@ static void glk_dsi_device_ready(struct intel_encoder *encoder)
 	}
 
 	/* Get IO out of reset */
-	tmp = I915_READ(MIPI_CTRL(PORT_A));
-	I915_WRITE(MIPI_CTRL(PORT_A), tmp | GLK_MIPIIO_RESET_RELEASED);
+	val = I915_READ(MIPI_CTRL(PORT_A));
+	I915_WRITE(MIPI_CTRL(PORT_A), val | GLK_MIPIIO_RESET_RELEASED);
 
 	/* Get IO out of Low power state*/
 	for_each_dsi_port(port, intel_dsi->ports) {
@@ -431,9 +439,9 @@ static void glk_dsi_device_ready(struct intel_encoder *encoder)
 		val |= (ULPS_STATE_NORMAL_OPERATION | DEVICE_READY);
 		I915_WRITE(MIPI_DEVICE_READY(port), val);
 
-		tmp = I915_READ(MIPI_CTRL(port));
-		tmp &= ~GLK_LP_WAKE;
-		I915_WRITE(MIPI_CTRL(port), tmp);
+		val = I915_READ(MIPI_CTRL(port));
+		val &= ~GLK_LP_WAKE;
+		I915_WRITE(MIPI_CTRL(port), val);
 	}
 
 	/* Wait for Stop state */
@@ -814,6 +822,9 @@ static void intel_dsi_pre_enable(struct intel_encoder *encoder,
 
 	/* Deassert reset */
 	intel_dsi_vbt_exec_sequence(intel_dsi, MIPI_SEQ_DEASSERT_RESET);
+
+	if (IS_GEMINILAKE(dev_priv))
+		glk_dsi_enable_io(encoder);
 
 	/* Put device in ready state (LP-11) */
 	intel_dsi_device_ready(encoder);
