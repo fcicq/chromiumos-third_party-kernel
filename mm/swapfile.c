@@ -2892,11 +2892,11 @@ static struct swap_info_struct *alloc_swap_info(void)
 	return p;
 }
 
-#ifdef CONFIG_DISK_BASED_SWAP
+/* This sysctl is only exposed when CONFIG_DISK_BASED_SWAP is enabled. */
 int sysctl_disk_based_swap;
-#endif
 
-static int claim_swapfile(struct swap_info_struct *p, struct inode *inode)
+static int claim_swapfile(struct swap_info_struct *p, struct inode *inode,
+			  bool allow_disk_based_swap)
 {
 	int error;
 	/* On Chromium OS, we only support zram swap devices. */
@@ -2920,13 +2920,11 @@ static int claim_swapfile(struct swap_info_struct *p, struct inode *inode)
 		if (error < 0)
 			return error;
 		p->flags |= SWP_BLKDEV;
-#ifdef CONFIG_DISK_BASED_SWAP
-	} else if (sysctl_disk_based_swap && S_ISREG(inode->i_mode)) {
+	} else if (S_ISREG(inode->i_mode) && allow_disk_based_swap) {
 		p->bdev = inode->i_sb->s_bdev;
 		inode_lock(inode);
 		if (IS_SWAPFILE(inode))
 			return -EBUSY;
-#endif
 	} else
 		return -EINVAL;
 
@@ -3137,6 +3135,7 @@ SYSCALL_DEFINE2(swapon, const char __user *, specialfile, int, swap_flags)
 	struct page *page = NULL;
 	struct inode *inode = NULL;
 	bool inced_nr_rotate_swap = false;
+	bool allow_disk_based_swap = sysctl_disk_based_swap;
 
 	if (swap_flags & ~SWAP_FLAGS_VALID)
 		return -EINVAL;
@@ -3171,7 +3170,7 @@ SYSCALL_DEFINE2(swapon, const char __user *, specialfile, int, swap_flags)
 	inode = mapping->host;
 
 	/* If S_ISREG(inode->i_mode) will do inode_lock(inode); */
-	error = claim_swapfile(p, inode);
+	error = claim_swapfile(p, inode, allow_disk_based_swap);
 	if (unlikely(error))
 		goto bad_swap;
 
@@ -3339,7 +3338,8 @@ bad_swap:
 		atomic_dec(&nr_rotate_swap);
 	if (swap_file) {
 		if (inode && S_ISREG(inode->i_mode)) {
-			inode_unlock(inode);
+			if (allow_disk_based_swap)
+				inode_unlock(inode);
 			inode = NULL;
 		}
 		filp_close(swap_file, NULL);
