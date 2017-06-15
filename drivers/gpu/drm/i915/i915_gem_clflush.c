@@ -72,8 +72,6 @@ static const struct dma_fence_ops i915_clflush_ops = {
 static void __i915_do_clflush(struct drm_i915_gem_object *obj)
 {
 	drm_clflush_sg(obj->mm.pages);
-	obj->cache_dirty = false;
-
 	intel_fb_obj_flush(obj, ORIGIN_CPU);
 }
 
@@ -81,9 +79,6 @@ static void i915_clflush_work(struct work_struct *work)
 {
 	struct clflush *clflush = container_of(work, typeof(*clflush), work);
 	struct drm_i915_gem_object *obj = clflush->obj;
-
-	if (!obj->cache_dirty)
-		goto out;
 
 	if (i915_gem_object_pin_pages(obj)) {
 		DRM_ERROR("Failed to acquire obj->pages for clflushing\n");
@@ -132,10 +127,10 @@ void i915_gem_clflush_object(struct drm_i915_gem_object *obj,
 	 * anything not backed by physical memory we consider to be always
 	 * coherent and not need clflushing.
 	 */
-	if (!i915_gem_object_has_struct_page(obj))
+	if (!i915_gem_object_has_struct_page(obj)) {
+		obj->cache_dirty = false;
 		return;
-
-	obj->cache_dirty = true;
+	}
 
 	/* If the GPU is snooping the contents of the CPU cache,
 	 * we do not need to manually clear the CPU cache lines.  However,
@@ -154,6 +149,8 @@ void i915_gem_clflush_object(struct drm_i915_gem_object *obj,
 	if (!(flags & I915_CLFLUSH_SYNC))
 		clflush = kmalloc(sizeof(*clflush), GFP_KERNEL);
 	if (clflush) {
+		GEM_BUG_ON(!obj->cache_dirty);
+
 		dma_fence_init(&clflush->dma,
 			       &i915_clflush_ops,
 			       &clflush_lock,
@@ -181,6 +178,8 @@ void i915_gem_clflush_object(struct drm_i915_gem_object *obj,
 	} else {
 		GEM_BUG_ON(obj->base.write_domain != I915_GEM_DOMAIN_CPU);
 	}
+
+	obj->cache_dirty = false;
 }
 
 void i915_gem_clflush_init(struct drm_i915_private *i915)

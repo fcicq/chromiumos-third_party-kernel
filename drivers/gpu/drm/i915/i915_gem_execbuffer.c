@@ -291,7 +291,7 @@ static inline int use_cpu_reloc(struct drm_i915_gem_object *obj)
 		return DBG_USE_CPU_RELOC > 0;
 
 	return (HAS_LLC(to_i915(obj->base.dev)) ||
-		obj->base.write_domain == I915_GEM_DOMAIN_CPU ||
+		obj->cache_dirty ||
 		obj->cache_level != I915_CACHE_NONE);
 }
 
@@ -1128,10 +1128,8 @@ i915_gem_execbuffer_move_to_gpu(struct drm_i915_gem_request *req,
 		if (vma->exec_entry->flags & EXEC_OBJECT_ASYNC)
 			continue;
 
-		if (obj->base.write_domain & I915_GEM_DOMAIN_CPU) {
+		if (obj->cache_dirty)
 			i915_gem_clflush_object(obj, 0);
-			obj->base.write_domain = 0;
-		}
 
 		ret = i915_gem_request_await_object
 			(req, obj, obj->base.pending_write_domain);
@@ -1264,12 +1262,6 @@ i915_gem_validate_context(struct drm_device *dev, struct drm_file *file,
 	return ctx;
 }
 
-static bool gpu_write_needs_clflush(struct drm_i915_gem_object *obj)
-{
-	return !(obj->cache_level == I915_CACHE_NONE ||
-		 obj->cache_level == I915_CACHE_WT);
-}
-
 void i915_vma_move_to_active(struct i915_vma *vma,
 			     struct drm_i915_gem_request *req,
 			     unsigned int flags)
@@ -1293,15 +1285,16 @@ void i915_vma_move_to_active(struct i915_vma *vma,
 	i915_gem_active_set(&vma->last_read[idx], req);
 	list_move_tail(&vma->vm_link, &vma->vm->active_list);
 
+	obj->base.write_domain = 0;
 	if (flags & EXEC_OBJECT_WRITE) {
+		obj->base.write_domain = I915_GEM_DOMAIN_RENDER;
+
 		if (intel_fb_obj_invalidate(obj, ORIGIN_CS))
 			i915_gem_active_set(&obj->frontbuffer_write, req);
 
-		/* update for the implicit flush after a batch */
-		obj->base.write_domain &= ~I915_GEM_GPU_DOMAINS;
-		if (!obj->cache_dirty && gpu_write_needs_clflush(obj))
-			obj->cache_dirty = true;
+		obj->base.read_domains = 0;
 	}
+	obj->base.read_domains |= I915_GEM_GPU_DOMAINS;
 
 	if (flags & EXEC_OBJECT_NEEDS_FENCE)
 		i915_gem_active_set(&vma->last_fence, req);
