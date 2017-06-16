@@ -1128,7 +1128,7 @@ i915_gem_execbuffer_move_to_gpu(struct drm_i915_gem_request *req,
 		if (vma->exec_entry->flags & EXEC_OBJECT_ASYNC)
 			continue;
 
-		if (obj->cache_dirty)
+		if (unlikely(obj->cache_dirty && !obj->cache_coherent))
 			i915_gem_clflush_object(obj, 0);
 
 		ret = i915_gem_request_await_object
