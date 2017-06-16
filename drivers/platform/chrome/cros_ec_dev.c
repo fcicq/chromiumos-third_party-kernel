@@ -302,7 +302,7 @@ static void cros_ec_sensors_register(struct cros_ec_dev *ec)
 	msg = kzalloc(sizeof(struct cros_ec_command) +
 		      max(sizeof(*params), sizeof(*resp)), GFP_KERNEL);
 	if (msg == NULL)
-  		return;
+		return;
 
 	msg->version = 2;
 	msg->command = EC_CMD_MOTION_SENSE_CMD + ec->cmd_offset;
@@ -321,8 +321,8 @@ static void cros_ec_sensors_register(struct cros_ec_dev *ec)
 
 	resp = (struct ec_response_motion_sense *)msg->data;
 	sensor_num = resp->dump.sensor_count;
-	/* Allocate 2 extra sensors in case lid angle or FIFO are needed */
-	sensor_cells = kzalloc(sizeof(struct mfd_cell) * (sensor_num + 2),
+	/* Allocate one extra sensor in case FIFO are needed */
+	sensor_cells = kzalloc(sizeof(struct mfd_cell) * (sensor_num + 1),
 			       GFP_KERNEL);
 	if (sensor_cells == NULL) {
 		dev_err(ec->dev, "failed to allocate mfd cells for sensors\n");
@@ -382,16 +382,8 @@ static void cros_ec_sensors_register(struct cros_ec_dev *ec)
 		sensor_type[resp->info.type]++;
 		id++;
 	}
-	if (sensor_type[MOTIONSENSE_TYPE_ACCEL] >= 2) {
-		sensor_platforms[id].sensor_num = sensor_num;
-
-		sensor_cells[id].name = "cros-ec-angle";
-		sensor_cells[id].id = 0;
-		sensor_cells[id].platform_data = &sensor_platforms[id];
-		sensor_cells[id].pdata_size =
-			sizeof(struct cros_ec_sensor_platform);
-		id++;
-	}
+	if (sensor_type[MOTIONSENSE_TYPE_ACCEL] >= 2)
+		ec->has_kb_wake_angle = true;
 	if (cros_ec_check_features(ec, EC_FEATURE_MOTION_SENSE_FIFO)) {
 		sensor_cells[id].name = "cros-ec-ring";
 		id++;
@@ -407,6 +399,55 @@ error_platforms:
 	kfree(sensor_cells);
 error:
 	kfree(msg);
+}
+
+#define CROS_EC_SENSOR_LEGACY_NUM 2
+static struct mfd_cell cros_ec_accel_legacy_cells[CROS_EC_SENSOR_LEGACY_NUM];
+
+static void cros_ec_accel_legacy_register(struct cros_ec_dev *ec)
+{
+	struct cros_ec_device *ec_dev = ec->ec_dev;
+	u8 status;
+	int i, ret;
+	struct cros_ec_sensor_platform
+		sensor_platforms[CROS_EC_SENSOR_LEGACY_NUM];
+
+	/*
+	 * Check if EC supports direct memory reads and if EC has
+	 * accelerometers.
+	 */
+	if (!ec_dev->cmd_readmem)
+		return;
+
+	ret = ec_dev->cmd_readmem(ec_dev, EC_MEMMAP_ACC_STATUS, 1, &status);
+	if (ret < 0) {
+		dev_warn(ec->dev, "EC does not support direct reads.\n");
+		return;
+	}
+
+	/* Check if EC has accelerometers. */
+	if (!(status & EC_MEMMAP_ACC_STATUS_PRESENCE_BIT)) {
+		dev_info(ec->dev, "EC does not have accelerometers.\n");
+		return;
+	}
+
+	/*
+	 * Register 2 accelerometers
+	 */
+	for (i = 0; i < CROS_EC_SENSOR_LEGACY_NUM; i++) {
+		cros_ec_accel_legacy_cells[i].name = "cros-ec-accel-legacy";
+		sensor_platforms[i].sensor_num = i;
+		cros_ec_accel_legacy_cells[i].id = i;
+		cros_ec_accel_legacy_cells[i].platform_data =
+			&sensor_platforms[i];
+		cros_ec_accel_legacy_cells[i].pdata_size =
+			sizeof(struct cros_ec_sensor_platform);
+	}
+	ret = mfd_add_devices(ec->dev, 0, cros_ec_accel_legacy_cells,
+			      CROS_EC_SENSOR_LEGACY_NUM,
+			      NULL, 0, NULL);
+	if (ret)
+		dev_err(ec->dev, "failed to add EC sensors\n");
 }
 
 static const struct mfd_cell cros_ec_rtc_devs[] = {
@@ -447,6 +488,26 @@ static int ec_device_probe(struct platform_device *pdev)
 	device_initialize(&ec->class_dev);
 	cdev_init(&ec->cdev, &fops);
 
+	/* check whether this is actually a Fingerprint MCU rather than an EC */
+	if (cros_ec_check_features(ec, EC_FEATURE_FINGERPRINT)) {
+		dev_info(dev, "Fingerprint MCU detected.\n");
+		/*
+		 * Help userspace differentiating ECs from FP MCU,
+		 * regardless of the probing order.
+		 */
+		ec_platform->ec_name = CROS_EC_DEV_FP_NAME;
+	}
+
+	/* check whether this is actually a Touchpad MCU rather than an EC */
+	if (cros_ec_check_features(ec, EC_FEATURE_TOUCHPAD)) {
+		dev_info(dev, "Touchpad MCU detected.\n");
+		/*
+		 * Help userspace differentiating ECs from TP MCU,
+		 * regardless of the probing order.
+		 */
+		ec_platform->ec_name = CROS_EC_DEV_TP_NAME;
+	}
+
 	/*
 	 * Add the character device
 	 * Link cdev to the class device to be sure device is not used
@@ -475,19 +536,17 @@ static int ec_device_probe(struct platform_device *pdev)
 		goto set_named_failed;
 	}
 
-	retval = device_add(&ec->class_dev);
-	if (retval) {
-		dev_err(dev, "device_register failed => %d\n", retval);
-		goto dev_reg_failed;
-	}
-
 	/* check whether this EC instance has the PD charge manager */
 	if (cros_ec_check_features(ec, EC_FEATURE_USB_PD))
 		cros_ec_usb_pd_charger_register(ec);
 
 	/* check whether this EC is a sensor hub. */
-	if (cros_ec_check_features(ec, EC_FEATURE_MOTION_SENSE))
+	if (cros_ec_check_features(ec, EC_FEATURE_MOTION_SENSE)) {
 		cros_ec_sensors_register(ec);
+	} else {
+		/* Workaroud for very old EC firmware */
+		cros_ec_accel_legacy_register(ec);
+	}
 
 	/* check whether this EC instance has RTC host command support */
 	if (cros_ec_check_features(ec, EC_FEATURE_RTC))
@@ -496,6 +555,11 @@ static int ec_device_probe(struct platform_device *pdev)
 	/* Take control of the lightbar from the EC. */
 	lb_manual_suspend_ctrl(ec, 1);
 
+	/* We can now add the sysfs class, we know which parameter to show */
+	retval = device_add(&ec->class_dev);
+	if (retval)
+		dev_err(dev, "device_register failed => %d\n", retval);
+
 	if (cros_ec_debugfs_init(ec))
 		dev_warn(dev, "failed to create debugfs directory\n");
 
@@ -503,7 +567,6 @@ static int ec_device_probe(struct platform_device *pdev)
 
 	return 0;
 
-dev_reg_failed:
 set_named_failed:
 	dev_set_drvdata(dev, NULL);
 	cdev_del(&ec->cdev);
@@ -526,6 +589,14 @@ static int ec_device_remove(struct platform_device *pdev)
 	cdev_del(&ec->cdev);
 	device_unregister(&ec->class_dev);
 	return 0;
+}
+
+static void ec_device_shutdown(struct platform_device *pdev)
+{
+	struct cros_ec_dev *ec = dev_get_drvdata(&pdev->dev);
+
+	/* Be sure to clear up debugfs delayed works */
+	cros_ec_debugfs_remove(ec);
 }
 
 static const struct platform_device_id cros_ec_id[] = {
@@ -581,6 +652,7 @@ static struct platform_driver cros_ec_dev_driver = {
 	},
 	.probe = ec_device_probe,
 	.remove = ec_device_remove,
+	.shutdown = ec_device_shutdown,
 };
 
 static int __init cros_ec_dev_init(void)

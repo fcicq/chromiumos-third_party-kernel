@@ -11,6 +11,8 @@
 
 #include "leds.h"
 
+DEFINE_LED_TRIGGER(bt_power_led_trigger);
+
 struct hci_basic_led_trigger {
 	struct led_trigger	led_trigger;
 	struct hci_dev		*hdev;
@@ -24,6 +26,21 @@ void hci_leds_update_powered(struct hci_dev *hdev, bool enabled)
 	if (hdev->power_led)
 		led_trigger_event(hdev->power_led,
 				  enabled ? LED_FULL : LED_OFF);
+
+	if (!enabled) {
+		struct hci_dev *d;
+
+		read_lock(&hci_dev_list_lock);
+
+		list_for_each_entry(d, &hci_dev_list, list) {
+			if (test_bit(HCI_UP, &d->flags))
+				enabled = true;
+		}
+
+		read_unlock(&hci_dev_list_lock);
+	}
+
+	led_trigger_event(bt_power_led_trigger, enabled ? LED_FULL : LED_OFF);
 }
 
 static void power_activate(struct led_classdev *led_cdev)
@@ -55,7 +72,7 @@ static struct led_trigger *led_allocate_basic(struct hci_dev *hdev,
 	if (!htrig->led_trigger.name)
 		goto err_alloc;
 
-	if (led_trigger_register(&htrig->led_trigger))
+	if (devm_led_trigger_register(&hdev->dev, &htrig->led_trigger))
 		goto err_register;
 
 	return &htrig->led_trigger;
@@ -73,8 +90,12 @@ void hci_leds_init(struct hci_dev *hdev)
 	hdev->power_led = led_allocate_basic(hdev, power_activate, "power");
 }
 
-void hci_leds_exit(struct hci_dev *hdev)
+void bt_leds_init(void)
 {
-	if (hdev->power_led)
-		led_trigger_unregister(hdev->power_led);
+	led_trigger_register_simple("bluetooth-power", &bt_power_led_trigger);
+}
+
+void bt_leds_cleanup(void)
+{
+	led_trigger_unregister_simple(bt_power_led_trigger);
 }

@@ -1002,7 +1002,7 @@ nv04_crtc_cursor_set(struct drm_crtc *crtc, struct drm_file *file_priv,
 	if (width != 64 || height != 64)
 		return -EINVAL;
 
-	gem = drm_gem_object_lookup(dev, file_priv, buffer_handle);
+	gem = drm_gem_object_lookup(file_priv, buffer_handle);
 	if (!gem)
 		return -ENOENT;
 	cursor = nouveau_gem_object(gem);
@@ -1081,8 +1081,6 @@ nouveau_crtc_set_config(struct drm_mode_set *set)
 }
 
 static const struct drm_crtc_funcs nv04_crtc_funcs = {
-	.save = nv_crtc_save,
-	.restore = nv_crtc_restore,
 	.cursor_set = nv04_crtc_cursor_set,
 	.cursor_move = nv04_crtc_cursor_move,
 	.gamma_set = nv_crtc_gamma_set,
@@ -1122,6 +1120,9 @@ nv04_crtc_create(struct drm_device *dev, int crtc_num)
 
 	nv_crtc->index = crtc_num;
 	nv_crtc->last_dpms = NV_DPMS_CLEARED;
+
+	nv_crtc->save = nv_crtc_save;
+	nv_crtc->restore = nv_crtc_restore;
 
 	drm_crtc_init(dev, &nv_crtc->base, &nv04_crtc_funcs);
 	drm_crtc_helper_add(&nv_crtc->base, &nv04_crtc_helper_funcs);

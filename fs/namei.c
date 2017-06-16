@@ -4573,7 +4573,7 @@ int generic_readlink(struct dentry *dentry, char __user *buffer, int buflen)
 EXPORT_SYMBOL(generic_readlink);
 
 /* get the link contents into pagecache */
-static char *page_getlink(struct dentry * dentry, struct page **ppage)
+static const char *page_getlink(struct dentry * dentry, void **cookie)
 {
 	char *kaddr;
 	struct page *page;
@@ -4581,41 +4581,35 @@ static char *page_getlink(struct dentry * dentry, struct page **ppage)
 	page = read_mapping_page(mapping, 0, NULL);
 	if (IS_ERR(page))
 		return (char*)page;
-	*ppage = page;
-	kaddr = kmap(page);
+	*cookie = page;
+	BUG_ON(mapping_gfp_mask(mapping) & __GFP_HIGHMEM);
+	kaddr = page_address(page);
 	nd_terminate_link(kaddr, dentry->d_inode->i_size, PAGE_SIZE - 1);
 	return kaddr;
 }
 
-int page_readlink(struct dentry *dentry, char __user *buffer, int buflen)
-{
-	struct page *page = NULL;
-	int res = readlink_copy(buffer, buflen, page_getlink(dentry, &page));
-	if (page) {
-		kunmap(page);
-		page_cache_release(page);
-	}
-	return res;
-}
-EXPORT_SYMBOL(page_readlink);
-
 const char *page_follow_link_light(struct dentry *dentry, void **cookie)
 {
-	struct page *page = NULL;
-	char *res = page_getlink(dentry, &page);
-	if (!IS_ERR(res))
-		*cookie = page;
-	return res;
+	return page_getlink(dentry, cookie);
 }
 EXPORT_SYMBOL(page_follow_link_light);
 
 void page_put_link(struct inode *unused, void *cookie)
 {
 	struct page *page = cookie;
-	kunmap(page);
 	page_cache_release(page);
 }
 EXPORT_SYMBOL(page_put_link);
+
+int page_readlink(struct dentry *dentry, char __user *buffer, int buflen)
+{
+	void *cookie = NULL;
+	int res = readlink_copy(buffer, buflen, page_getlink(dentry, &cookie));
+	if (cookie)
+		page_put_link(NULL, cookie);
+	return res;
+}
+EXPORT_SYMBOL(page_readlink);
 
 /*
  * The nofs argument instructs pagecache_write_begin to pass AOP_FLAG_NOFS
@@ -4626,7 +4620,6 @@ int __page_symlink(struct inode *inode, const char *symname, int len, int nofs)
 	struct page *page;
 	void *fsdata;
 	int err;
-	char *kaddr;
 	unsigned int flags = AOP_FLAG_UNINTERRUPTIBLE;
 	if (nofs)
 		flags |= AOP_FLAG_NOFS;
@@ -4637,9 +4630,7 @@ retry:
 	if (err)
 		goto fail;
 
-	kaddr = kmap_atomic(page);
-	memcpy(kaddr, symname, len-1);
-	kunmap_atomic(kaddr);
+	memcpy(page_address(page), symname, len-1);
 
 	err = pagecache_write_end(NULL, mapping, 0, len-1, len-1,
 							page, fsdata);

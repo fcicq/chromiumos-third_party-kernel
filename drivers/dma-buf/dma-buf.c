@@ -302,6 +302,9 @@ static const struct file_operations dma_buf_fops = {
 	.llseek		= dma_buf_llseek,
 	.poll		= dma_buf_poll,
 	.unlocked_ioctl	= dma_buf_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl	= dma_buf_ioctl,
+#endif
 };
 
 /*
@@ -612,7 +615,7 @@ EXPORT_SYMBOL_GPL(dma_buf_begin_cpu_access);
  * @dmabuf:	[in]	buffer to complete cpu access for.
  * @direction:	[in]	length of range for cpu access.
  *
- * This call must always succeed.
+ * Can return negative error values, returns 0 on success.
  */
 int dma_buf_end_cpu_access(struct dma_buf *dmabuf,
 			   enum dma_data_direction direction)

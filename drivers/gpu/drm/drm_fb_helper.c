@@ -157,39 +157,12 @@ int drm_fb_helper_add_one_connector(struct drm_fb_helper *fb_helper, struct drm_
 	if (!fb_helper_connector)
 		return -ENOMEM;
 
+	drm_connector_reference(connector);
 	fb_helper_connector->connector = connector;
 	fb_helper->connector_info[fb_helper->connector_count++] = fb_helper_connector;
 	return 0;
 }
 EXPORT_SYMBOL(drm_fb_helper_add_one_connector);
-
-static void remove_from_modeset(struct drm_mode_set *set,
-		struct drm_connector *connector)
-{
-	int i, j;
-
-	for (i = 0; i < set->num_connectors; i++) {
-		if (set->connectors[i] == connector)
-			break;
-	}
-
-	if (i == set->num_connectors)
-		return;
-
-	for (j = i + 1; j < set->num_connectors; j++) {
-		set->connectors[j - 1] = set->connectors[j];
-	}
-	set->num_connectors--;
-
-	/*
-	 * TODO maybe need to makes sure we set it back to !=NULL somewhere?
-	 */
-	if (set->num_connectors == 0) {
-		set->fb = NULL;
-		drm_mode_destroy(connector->dev, set->mode);
-		set->mode = NULL;
-	}
-}
 
 int drm_fb_helper_remove_one_connector(struct drm_fb_helper *fb_helper,
 				       struct drm_connector *connector)
@@ -210,16 +183,13 @@ int drm_fb_helper_remove_one_connector(struct drm_fb_helper *fb_helper,
 	if (i == fb_helper->connector_count)
 		return -EINVAL;
 	fb_helper_connector = fb_helper->connector_info[i];
+	drm_connector_unreference(fb_helper_connector->connector);
 
 	for (j = i + 1; j < fb_helper->connector_count; j++) {
 		fb_helper->connector_info[j - 1] = fb_helper->connector_info[j];
 	}
 	fb_helper->connector_count--;
 	kfree(fb_helper_connector);
-
-	/* also cleanup dangling references to the connector: */
-	for (i = 0; i < fb_helper->crtc_count; i++)
-		remove_from_modeset(&fb_helper->crtc_info[i].mode_set, connector);
 
 	return 0;
 }
@@ -360,7 +330,7 @@ retry:
 			goto fail;
 		}
 
-		plane_state->rotation = BIT(DRM_ROTATE_0);
+		plane_state->rotation = DRM_ROTATE_0;
 
 		plane->old_fb = plane->fb;
 		plane_mask |= 1 << drm_plane_index(plane);
@@ -410,7 +380,7 @@ static int restore_fbdev_mode(struct drm_fb_helper *fb_helper)
 
 	drm_warn_on_modeset_not_all_locked(dev);
 
-	if (fb_helper->atomic)
+	if (dev->mode_config.funcs->atomic_commit)
 		return restore_fbdev_mode_atomic(fb_helper);
 
 	drm_for_each_plane(plane, dev) {
@@ -420,7 +390,7 @@ static int restore_fbdev_mode(struct drm_fb_helper *fb_helper)
 		if (dev->mode_config.rotation_property) {
 			drm_mode_plane_set_obj_prop(plane,
 						    dev->mode_config.rotation_property,
-						    BIT(DRM_ROTATE_0));
+						    DRM_ROTATE_0);
 		}
 	}
 
@@ -489,7 +459,7 @@ static bool drm_fb_helper_is_bound(struct drm_fb_helper *fb_helper)
 
 	/* Sometimes user space wants everything disabled, so don't steal the
 	 * display if there's a master. */
-	if (dev->primary->master)
+	if (READ_ONCE(dev->master))
 		return false;
 
 	drm_for_each_crtc(crtc, dev) {
@@ -630,8 +600,10 @@ static void drm_fb_helper_crtc_free(struct drm_fb_helper *helper)
 {
 	int i;
 
-	for (i = 0; i < helper->connector_count; i++)
+	for (i = 0; i < helper->connector_count; i++) {
+		drm_connector_unreference(helper->connector_info[i]->connector);
 		kfree(helper->connector_info[i]);
+	}
 	kfree(helper->connector_info);
 	for (i = 0; i < helper->crtc_count; i++) {
 		kfree(helper->crtc_info[i].mode_set.connectors);
@@ -718,8 +690,6 @@ int drm_fb_helper_init(struct drm_device *dev,
 		fb_helper->crtc_info[i].mode_set.crtc = crtc;
 		i++;
 	}
-
-	fb_helper->atomic = !!drm_core_check_feature(dev, DRIVER_ATOMIC);
 
 	return 0;
 out_free:
@@ -1251,7 +1221,7 @@ retry:
 			goto fail;
 
 		plane = mode_set->crtc->primary;
-		plane_mask |= drm_plane_index(plane);
+		plane_mask |= (1 << drm_plane_index(plane));
 		plane->old_fb = plane->fb;
 	}
 
@@ -1304,7 +1274,7 @@ int drm_fb_helper_pan_display(struct fb_var_screeninfo *var,
 		return -EBUSY;
 	}
 
-	if (fb_helper->atomic) {
+	if (dev->mode_config.funcs->atomic_commit) {
 		ret = pan_display_atomic(var, info);
 		goto unlock;
 	}
@@ -1931,7 +1901,18 @@ static int drm_pick_crtcs(struct drm_fb_helper *fb_helper,
 		my_score++;
 
 	connector_funcs = connector->helper_private;
-	encoder = connector_funcs->best_encoder(connector);
+
+	/*
+	 * If the DRM device implements atomic hooks and ->best_encoder() is
+	 * NULL we fallback to the default drm_atomic_helper_best_encoder()
+	 * helper.
+	 */
+	if (fb_helper->dev->mode_config.funcs->atomic_commit &&
+	    !connector_funcs->best_encoder)
+		encoder = drm_atomic_helper_best_encoder(connector);
+	else
+		encoder = connector_funcs->best_encoder(connector);
+
 	if (!encoder)
 		goto out;
 
@@ -2124,7 +2105,7 @@ EXPORT_SYMBOL(drm_fb_helper_initial_config);
  * @fb_helper: the drm_fb_helper
  *
  * Scan the connectors attached to the fb_helper and try to put together a
- * setup after *notification of a change in output configuration.
+ * setup after notification of a change in output configuration.
  *
  * Called at runtime, takes the mode config locks to be able to check/change the
  * modeset configuration. Must be run from process context (which usually means
@@ -2174,9 +2155,9 @@ EXPORT_SYMBOL(drm_fb_helper_hotplug_event);
  * but the module doesn't depend on any fb console symbols.  At least
  * attempt to load fbcon to avoid leaving the system without a usable console.
  */
-#if defined(CONFIG_FRAMEBUFFER_CONSOLE_MODULE) && !defined(CONFIG_EXPERT)
-static int __init drm_fb_helper_modinit(void)
+int __init drm_fb_helper_modinit(void)
 {
+#if defined(CONFIG_FRAMEBUFFER_CONSOLE_MODULE) && !defined(CONFIG_EXPERT)
 	const char *name = "fbcon";
 	struct module *fbcon;
 
@@ -2186,8 +2167,7 @@ static int __init drm_fb_helper_modinit(void)
 
 	if (!fbcon)
 		request_module_nowait(name);
+#endif
 	return 0;
 }
-
-module_init(drm_fb_helper_modinit);
-#endif
+EXPORT_SYMBOL(drm_fb_helper_modinit);

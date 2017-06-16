@@ -61,19 +61,11 @@ config SW_SYNC
 	bool "Software synchronization objects"
 	default n
 	depends on SYNC
+	depends on SYNC_FILE
 	---help---
 	  A sync object driver that uses a 32bit counter to coordinate
 	  synchronization.  Useful when there is no hardware primitive backing
 	  the synchronization.
-
-config SW_SYNC_USER
-	bool "Userspace API for SW_SYNC"
-	default n
-	depends on SW_SYNC
-	---help---
-	  Provides a user space API to the sw sync object.
-	  *WARNING* improper use of this can result in deadlocking kernel
-	  drivers from userspace.
 
 source "drivers/staging/android/ion/Kconfig"
 

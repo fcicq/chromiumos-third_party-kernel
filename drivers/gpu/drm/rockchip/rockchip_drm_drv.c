@@ -200,6 +200,7 @@ static int rockchip_drm_init_iommu(struct drm_device *drm_dev)
 	DRM_DEBUG("IOMMU context initialized (aperture: %#llx-%#llx)\n",
 		  start, end);
 	drm_mm_init(&private->mm, start, end - start + 1);
+	mutex_init(&private->mm_lock);
 
 	return 0;
 }
@@ -366,7 +367,7 @@ static void rockchip_drm_preclose(struct drm_device *dev,
 		rockchip_drm_crtc_cancel_pending_vblank(crtc, file_priv);
 }
 
-void rockchip_drm_lastclose(struct drm_device *dev)
+static void rockchip_drm_lastclose(struct drm_device *dev)
 {
 #ifdef CONFIG_DRM_FBDEV_EMULATION
 	struct rockchip_drm_private *priv = dev->dev_private;
@@ -611,6 +612,10 @@ static int rockchip_drm_platform_probe(struct platform_device *pdev)
 		dev_err(dev, "No available vop found for display-subsystem.\n");
 		return -ENODEV;
 	}
+
+	if (is_support_iommu && !iommu_present(&platform_bus_type))
+		return -EPROBE_DEFER;
+
 	/*
 	 * For each bound crtc, bind the encoders attached to its
 	 * remote endpoint.

@@ -382,10 +382,12 @@ static int byt_sdio_probe_slot(struct sdhci_pci_slot *slot)
 
 static int byt_sd_probe_slot(struct sdhci_pci_slot *slot)
 {
-	slot->host->mmc->caps |= MMC_CAP_WAIT_WHILE_BUSY;
+	slot->host->mmc->caps |= MMC_CAP_WAIT_WHILE_BUSY |
+				 MMC_CAP_AGGRESSIVE_PM;
 	slot->cd_con_id = NULL;
 	slot->cd_idx = 0;
 	slot->cd_override_level = true;
+	slot->cd_wake = true;
 	if (slot->chip->pdev->device == PCI_DEVICE_ID_INTEL_BXT_SD ||
 	    slot->chip->pdev->device == PCI_DEVICE_ID_INTEL_BXTM_SD ||
 	    slot->chip->pdev->device == PCI_DEVICE_ID_INTEL_APL_SD)
@@ -1324,7 +1326,6 @@ static int sdhci_pci_enable_dma(struct sdhci_host *host)
 {
 	struct sdhci_pci_slot *slot;
 	struct pci_dev *pdev;
-	int ret = -1;
 
 	slot = sdhci_priv(host);
 	pdev = slot->chip->pdev;
@@ -1335,20 +1336,6 @@ static int sdhci_pci_enable_dma(struct sdhci_host *host)
 		dev_warn(&pdev->dev, "Will use DMA mode even though HW "
 			"doesn't fully claim to support it.\n");
 	}
-
-	if (host->flags & SDHCI_USE_64_BIT_DMA) {
-		if (host->quirks2 & SDHCI_QUIRK2_BROKEN_64_BIT_DMA) {
-			host->flags &= ~SDHCI_USE_64_BIT_DMA;
-		} else {
-			ret = pci_set_dma_mask(pdev, DMA_BIT_MASK(64));
-			if (ret)
-				dev_warn(&pdev->dev, "Failed to set 64-bit DMA mask\n");
-		}
-	}
-	if (ret)
-		ret = pci_set_dma_mask(pdev, DMA_BIT_MASK(32));
-	if (ret)
-		return ret;
 
 	pci_set_master(pdev);
 
@@ -1706,6 +1693,8 @@ static struct sdhci_pci_slot *sdhci_pci_probe_slot(
 				 slot->cd_override_level, 0, NULL)) {
 		dev_warn(&pdev->dev, "failed to setup card detect gpio\n");
 		slot->cd_idx = -1;
+	} else if (slot->cd_wake) {
+		mmc_gpio_cd_enable_wake(host->mmc);
 	}
 
 	ret = sdhci_add_host(host);

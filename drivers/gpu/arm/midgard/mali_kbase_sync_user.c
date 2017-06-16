@@ -73,12 +73,9 @@ int kbase_stream_create(const char *name, int *const out_fd)
 int kbase_stream_create_fence(int tl_fd)
 {
 	struct sync_timeline *tl;
-	struct sync_pt *pt;
-	struct sync_fence *fence;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 7, 0)
-	struct files_struct *files;
-	struct fdtable *fdt;
-#endif
+	struct fence *fence;
+	struct sync_file *sfile;
+
 	int fd;
 	struct file *tl_file;
 
@@ -93,48 +90,30 @@ int kbase_stream_create_fence(int tl_fd)
 
 	tl = tl_file->private_data;
 
-	pt = kbase_sync_pt_alloc(tl);
-	if (!pt) {
-		fd = -EFAULT;
-		goto out;
-	}
-
-	fence = sync_fence_create("mali_fence", pt);
+	fence = kbase_fence_alloc(tl);
 	if (!fence) {
-		sync_pt_free(pt);
 		fd = -EFAULT;
 		goto out;
 	}
 
-	/* from here the fence owns the sync_pt */
+	sfile = sync_file_create(fence);
+	if (!sfile) {
+		fence_put(fence);
+		fd = -EFAULT;
+		goto out;
+	}
+
+	/* from here the sync_fole owns the fence */
 
 	/* create a fd representing the fence */
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 7, 0)
 	fd = get_unused_fd_flags(O_RDWR | O_CLOEXEC);
 	if (fd < 0) {
-		sync_fence_put(fence);
+		fput(sfile->file);
 		goto out;
 	}
-#else
-	fd = get_unused_fd();
-	if (fd < 0) {
-		sync_fence_put(fence);
-		goto out;
-	}
-
-	files = current->files;
-	spin_lock(&files->file_lock);
-	fdt = files_fdtable(files);
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 4, 0)
-	__set_close_on_exec(fd, fdt);
-#else
-	FD_SET(fd, fdt->close_on_exec);
-#endif
-	spin_unlock(&files->file_lock);
-#endif  /* LINUX_VERSION_CODE >= KERNEL_VERSION(3, 7, 0) */
 
 	/* bind fence to the new fd */
-	sync_fence_install(fence, fd);
+	fd_install(fd, sfile->file);
 
  out:
 	fput(tl_file);
@@ -142,15 +121,45 @@ int kbase_stream_create_fence(int tl_fd)
 	return fd;
 }
 
+/* sync_file_fdget is static now, so implement it ourselves.
+ * We cannot access static fops either, so to verify that this is actual sync
+ * call file info ioctl and verify there is a fence attached.
+ */
+struct sync_file *kbase_sync_file_fdget(int fd)
+{
+	struct file *file = fget(fd);
+	mm_segment_t fs = get_fs();
+	struct sync_file_info info = { { 0 } };
+	int ret;
+
+	if (!file)
+		return NULL;
+
+	if (!file->f_op->unlocked_ioctl)
+		goto err;
+
+	set_fs(get_ds());
+	ret = file->f_op->unlocked_ioctl(file, SYNC_IOC_FILE_INFO, (unsigned long)(uintptr_t)&info);
+	set_fs(fs);
+	if (ret != 0 && info.num_fences == 0)
+		goto err;
+
+	return file->private_data;
+
+err:
+	fput(file);
+	return NULL;
+}
+
 int kbase_fence_validate(int fd)
 {
-	struct sync_fence *fence;
+	struct sync_file *sfile;
 
-	fence = sync_fence_fdget(fd);
-	if (!fence)
+	sfile = kbase_sync_file_fdget(fd);
+	if (!sfile)
 		return -EINVAL;
 
-	sync_fence_put(fence);
+	fput(sfile->file);
 	return 0;
 }
 

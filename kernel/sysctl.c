@@ -1692,17 +1692,6 @@ static struct ctl_table vm_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec,
 	},
-#ifdef CONFIG_DISK_BASED_SWAP
-	{
-		.procname	= "disk_based_swap",
-		.data		= &sysctl_disk_based_swap,
-		.maxlen		= sizeof(sysctl_disk_based_swap),
-		.mode		= 0644,
-		.proc_handler	= proc_dointvec_minmax,
-		.extra1		= &zero,
-		.extra2		= &one,
-	},
-#endif
 	{ }
 };
 
@@ -2557,6 +2546,7 @@ static int __do_proc_doulongvec_minmax(void *data, struct ctl_table *table, int 
 				break;
 			if (neg)
 				continue;
+			val = convmul * val / convdiv;
 			if ((min && val < *min) || (max && val > *max))
 				continue;
 			*i = val;

@@ -28,6 +28,7 @@
 #include <linux/firmware.h>
 #include <linux/pm_runtime.h>
 #include <linux/pm_qos.h>
+#include <linux/dmi.h>
 #include <linux/acpi.h>
 #include <asm/platform_sst_audio.h>
 #include <sound/core.h>
@@ -237,6 +238,7 @@ static int sst_acpi_probe(struct platform_device *pdev)
 		dev_err(dev, "No matching machine driver found\n");
 		return -ENODEV;
 	}
+
 	pdata = mach->pdata;
 
 	ret = kstrtouint(id->id, 16, &dev_id);
@@ -313,22 +315,96 @@ static int sst_acpi_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static unsigned long cht_machine_id;
+
+#define CHT_SURFACE_MACH 1
+
+static int cht_surface_quirk_cb(const struct dmi_system_id *id)
+{
+	cht_machine_id = CHT_SURFACE_MACH;
+	return 1;
+}
+
+static const struct dmi_system_id cht_table[] = {
+	{
+		.callback = cht_surface_quirk_cb,
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Surface 3"),
+		},
+	},
+};
+
+static struct sst_acpi_mach cht_surface_mach = {
+	.id = "10EC5640",
+	.drv_name = "cht-bsw-rt5645",
+	.fw_filename = "intel/fw_sst_22a8.bin",
+	.board = "cht-bsw",
+	.pdata = &chv_platform_data,
+};
+
+struct sst_acpi_mach *cht_quirk(void *arg)
+{
+	struct sst_acpi_mach *mach = arg;
+
+	dmi_check_system(cht_table);
+
+	if (cht_machine_id == CHT_SURFACE_MACH)
+		return &cht_surface_mach;
+	else
+		return mach;
+}
+
 static struct sst_acpi_mach sst_acpi_bytcr[] = {
-	{"10EC5640", "bytt100_rt5640", "intel/fw_sst_0f28.bin", "T100", NULL,
-						&byt_rvp_platform_data },
+	{
+		.id = "10EC5640",
+		.drv_name = "bytt100_rt5640",
+		.fw_filename = "intel/fw_sst_0f28.bin",
+		.board = "T100",
+		.pdata = &byt_rvp_platform_data,
+	},
 	{},
 };
 
 /* Cherryview-based platforms: CherryTrail and Braswell */
 static struct sst_acpi_mach sst_acpi_chv[] = {
-	{"10EC5670", "cht-bsw-rt5672", "intel/fw_sst_22a8.bin", "cht-bsw", NULL,
-						&chv_platform_data },
-	{"10EC5645", "cht-bsw-rt5645", "intel/fw_sst_22a8.bin", "cht-bsw", NULL,
-						&chv_platform_data },
-	{"10EC5650", "cht-bsw-rt5645", "intel/fw_sst_22a8.bin", "cht-bsw", NULL,
-						&chv_platform_data },
-	{"193C9890", "cht-bsw-max98090", "intel/fw_sst_22a8.bin", "cht-bsw", NULL,
-						&chv_platform_data },
+	{
+		.id = "10EC5670",
+		.drv_name = "cht-bsw-rt5672",
+		.fw_filename = "intel/fw_sst_22a8.bin",
+		.board = "cht-bsw",
+		.pdata = &chv_platform_data
+	},
+	{
+		.id = "10EC5645",
+		.drv_name = "cht-bsw-rt5645",
+		.fw_filename = "intel/fw_sst_22a8.bin",
+		.board = "cht-bsw",
+		.pdata = &chv_platform_data
+	},
+	{
+		.id = "10EC5650",
+		.drv_name = "cht-bsw-rt5645",
+		.fw_filename = "intel/fw_sst_22a8.bin",
+		.board = "cht-bsw",
+		.pdata = &chv_platform_data
+	},
+	{
+		.id = "193C9890",
+		.drv_name = "cht-bsw-max98090",
+		.fw_filename = "intel/fw_sst_22a8.bin",
+		.board = "cht-bsw",
+		.pdata = &chv_platform_data
+	},
+	/* some CHT-T platforms rely on RT5640, use Baytrail machine driver */
+	{
+		.id = "10EC5640",
+		.drv_name = "bytcr_rt5640",
+		.fw_filename = "intel/fw_sst_22a8.bin",
+		.board = "bytcr_rt5640",
+		.machine_quirk = cht_quirk,
+		.pdata = &chv_platform_data
+	},
 	{},
 };
 

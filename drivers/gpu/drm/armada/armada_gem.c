@@ -275,7 +275,7 @@ int armada_gem_dumb_map_offset(struct drm_file *file, struct drm_device *dev,
 	int ret = 0;
 
 	mutex_lock(&dev->struct_mutex);
-	obj = armada_gem_object_lookup(dev, file, handle);
+	obj = armada_gem_object_lookup(file, handle);
 	if (!obj) {
 		DRM_ERROR("failed to lookup gem object\n");
 		ret = -EINVAL;
@@ -347,7 +347,7 @@ int armada_gem_mmap_ioctl(struct drm_device *dev, void *data,
 	struct armada_gem_object *dobj;
 	unsigned long addr;
 
-	dobj = armada_gem_object_lookup(dev, file, args->handle);
+	dobj = armada_gem_object_lookup(file, args->handle);
 	if (dobj == NULL)
 		return -ENOENT;
 
@@ -390,7 +390,7 @@ int armada_gem_pwrite_ioctl(struct drm_device *dev, void *data,
 	if (ret)
 		return ret;
 
-	dobj = armada_gem_object_lookup(dev, file, args->handle);
+	dobj = armada_gem_object_lookup(file, args->handle);
 	if (dobj == NULL)
 		return -ENOENT;
 
@@ -546,7 +546,7 @@ armada_gem_prime_export(struct drm_device *dev, struct drm_gem_object *obj,
 	exp_info.flags = O_RDWR;
 	exp_info.priv = obj;
 
-	return dma_buf_export(&exp_info);
+	return drm_gem_dmabuf_export(dev, &exp_info);
 }
 
 struct drm_gem_object *

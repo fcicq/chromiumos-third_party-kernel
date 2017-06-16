@@ -1,7 +1,9 @@
 /*
- * coreboot_table.c: module providing coreboot table access.
+ * coreboot_table.c
  *
- * Copyright 2015 Google Inc.
+ * Module providing coreboot table access.
+ *
+ * Copyright 2017 Google Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License v2.0 as published by
@@ -58,9 +60,12 @@ int coreboot_table_find(int tag, void *data, size_t data_size)
 		if (entry.tag == tag) {
 			if (data_size < entry.size)
 				return -EINVAL;
+
 			memcpy_fromio(data, ptr_entry, entry.size);
+
 			return 0;
 		}
+
 		ptr_entry += entry.size;
 	}
 
@@ -68,10 +73,10 @@ int coreboot_table_find(int tag, void *data, size_t data_size)
 }
 EXPORT_SYMBOL(coreboot_table_find);
 
-
 int coreboot_table_init(void __iomem *ptr)
 {
 	ptr_header = ptr;
+
 	return 0;
 }
 EXPORT_SYMBOL(coreboot_table_init);
@@ -80,6 +85,7 @@ int coreboot_table_exit(void)
 {
 	if (ptr_header)
 		iounmap(ptr_header);
+
 	return 0;
 }
 EXPORT_SYMBOL(coreboot_table_exit);

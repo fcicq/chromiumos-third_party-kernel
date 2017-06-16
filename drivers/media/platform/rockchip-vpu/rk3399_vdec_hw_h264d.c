@@ -26,16 +26,19 @@
 /* Size with u32 units. */
 #define RKV_CABAC_INIT_BUFFER_SIZE	(3680 + 128)
 #define RKV_RPS_SIZE			(128 + 128)
-#define RKV_SPSPPS_SIZE			(256 * 32 + 128)
 #define RKV_SCALING_LIST_SIZE		(6 * 16 + 6 * 64 + 128)
 #define RKV_ERROR_INFO_SIZE		(256 * 144 * 4)
+
+struct hw_sps_pps_packet {
+	u8 info[32];
+};
 
 /* Data structure describing auxiliary buffer format. */
 struct rk3399_vdec_h264d_priv_tbl {
 	u8 cabac_table[RKV_CABAC_INIT_BUFFER_SIZE];
 	u8 scaling_list[RKV_SCALING_LIST_SIZE];
 	u8 rps[RKV_RPS_SIZE];
-	u8 pps[RKV_SPSPPS_SIZE];
+	struct hw_sps_pps_packet param_set[256];
 	u8 err_info[RKV_ERROR_INFO_SIZE];
 };
 
@@ -208,16 +211,20 @@ static void rk3399_vdec_h264d_assemble_hw_pps(struct rockchip_vpu_ctx *ctx)
 		ctx->hw.h264d.priv_tbl.cpu;
 	u32 scaling_distance;
 	dma_addr_t scaling_list_address;
-	u8 *hw_pps = priv_tbl->pps;
+	struct hw_sps_pps_packet *hw_ps;
 	u32 i;
 
-	memset(hw_pps, 0, RKV_SPSPPS_SIZE);
+	/*
+	 * HW read the SPS/PPS informantion from PPS packet index by PPS id.
+	 * offset from the base can be calculated by PPS_id * 32 (size per PPS
+	 * packet unit). so the driver copy SPS/PPS information to the exact PPS
+	 * packet unit for HW accessing.
+	 */
+	hw_ps = &priv_tbl->param_set[pps->pic_parameter_set_id];
+	memset(hw_ps, 0, sizeof(*hw_ps));
 
-#define WRITE_PPS(value, field)	WRITE_HEADER(value, (u32 *)hw_pps, field)
+#define WRITE_PPS(value, field)	WRITE_HEADER(value, (u32 *)hw_ps, field)
 	/* write sps */
-	WRITE_PPS(-1, SEQ_PARAMETER_SET_ID);
-	WRITE_PPS(-1, PROFILE_IDC);
-	WRITE_PPS(-1, CONSTRAINT_SET3_FLAG);
 	WRITE_PPS(sps->chroma_format_idc, CHROMA_FORMAT_IDC);
 	WRITE_PPS(sps->bit_depth_luma_minus8 + 8, BIT_DEPTH_LUMA);
 	WRITE_PPS(sps->bit_depth_chroma_minus8 + 8, BIT_DEPTH_CHROMA);
@@ -241,8 +248,6 @@ static void rk3399_vdec_h264d_assemble_hw_pps(struct rockchip_vpu_ctx *ctx)
 		  DIRECT_8X8_INFERENCE_FLAG);
 
 	/* write pps */
-	WRITE_PPS(-1, PIC_PARAMETER_SET_ID);
-	WRITE_PPS(-1, PPS_SEQ_PARAMETER_SET_ID);
 	WRITE_PPS(pps->flags & V4L2_H264_PPS_FLAG_ENTROPY_CODING_MODE,
 		  ENTROPY_CODING_MODE_FLAG);
 	WRITE_PPS((pps->flags &
@@ -270,9 +275,9 @@ static void rk3399_vdec_h264d_assemble_hw_pps(struct rockchip_vpu_ctx *ctx)
 		  TRANSFORM_8X8_MODE_FLAG);
 	WRITE_PPS(pps->second_chroma_qp_index_offset,
 		  SECOND_CHROMA_QP_INDEX_OFFSET);
-	WRITE_PPS((pps->flags &
-		   V4L2_H264_PPS_FLAG_PIC_SCALING_MATRIX_PRESENT) >> 7,
-		  SCALING_LIST_ENABLE_FLAG);
+
+	/* always use the matrix sent from userspace */
+	WRITE_PPS(1, SCALING_LIST_ENABLE_FLAG);
 
 	scaling_distance =
 		offsetof(struct rk3399_vdec_h264d_priv_tbl, scaling_list);
@@ -284,7 +289,7 @@ static void rk3399_vdec_h264d_assemble_hw_pps(struct rockchip_vpu_ctx *ctx)
 	for (i = 0; i < 16; i++)
 		write_header((dpb[i].flags &
 			      V4L2_H264_DPB_ENTRY_FLAG_LONG_TERM) ?
-			     1 : 0, (u32 *)hw_pps, IS_LONG_TERM_OFF(i),
+			     1 : 0, (u32 *)hw_ps, IS_LONG_TERM_OFF(i),
 			     IS_LONG_TERM_LEN);
 }
 
@@ -302,8 +307,15 @@ static void rk3399_vdec_h264d_assemble_hw_rps(struct rockchip_vpu_ctx *ctx)
 
 	memset(hw_rps, 0, RKV_RPS_SIZE);
 
+	/*
+	 * Assign an invalid pic_num if DPB entry at that position is inactive.
+	 * If we assign 0 in that position hardware will treat that as a real
+	 * reference picture with pic_num 0, triggering output picture
+	 * corruption.
+	 */
 	for (i = 0; i < 16; i++)
-		p[i] = dpb[i].pic_num;
+		p[i] = (dpb[i].flags & V4L2_H264_DPB_ENTRY_FLAG_ACTIVE) ?
+			dpb[i].pic_num : 0xff;
 
 	for (j = 0; j < 3; j++) {
 		for (i = 0; i < 32; i++) {
@@ -334,16 +346,56 @@ static void rk3399_vdec_h264d_assemble_hw_rps(struct rockchip_vpu_ctx *ctx)
 	}
 }
 
-static void rk3399_vdec_h264d_assemble_scaling_list(
-	struct rockchip_vpu_ctx *ctx)
+/*
+ * NOTE: The values in a scaling list are in zig-zag order, apply inverse
+ * scanning process to get the values in matrix order.
+ */
+
+static const u32 zig_zag_4x4[16] = {
+	0, 1, 4, 8, 5, 2, 3, 6, 9, 12, 13, 10, 7, 11, 14, 15
+};
+
+static const u32 zig_zag_8x8[64] = {
+	0,  1,  8, 16,  9,  2,  3, 10, 17, 24, 32, 25, 18, 11,  4,  5,
+	12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13,  6,  7, 14, 21, 28,
+	35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51,
+	58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63
+};
+
+static void rk3399_vpu_h264d_reorder_scaling_list(struct rockchip_vpu_ctx *ctx)
 {
 	const struct v4l2_ctrl_h264_scaling_matrix *scaling =
 		ctx->run.h264d.scaling_matrix;
-	struct rk3399_vdec_h264d_priv_tbl *priv_tbl =
-		ctx->hw.h264d.priv_tbl.cpu;
-	u8 *hw_scaling = priv_tbl->scaling_list;
+	const size_t num_list_4x4 = ARRAY_SIZE(scaling->scaling_list_4x4);
+	const size_t list_len_4x4 = ARRAY_SIZE(scaling->scaling_list_4x4[0]);
+	const size_t num_list_8x8 = ARRAY_SIZE(scaling->scaling_list_8x8);
+	const size_t list_len_8x8 = ARRAY_SIZE(scaling->scaling_list_8x8[0]);
+	struct rk3399_vdec_h264d_priv_tbl *tbl = ctx->hw.h264d.priv_tbl.cpu;
+	u8 *dst = tbl->scaling_list;
+	const u8 *src;
+	int i, j;
 
-	memcpy(hw_scaling, scaling, sizeof(*scaling));
+	BUILD_BUG_ON(ARRAY_SIZE(zig_zag_4x4) != list_len_4x4);
+	BUILD_BUG_ON(ARRAY_SIZE(zig_zag_8x8) != list_len_8x8);
+	BUILD_BUG_ON(ARRAY_SIZE(tbl->scaling_list) <
+		     num_list_4x4 * list_len_4x4 +
+		     num_list_8x8 * list_len_8x8);
+
+	src = &scaling->scaling_list_4x4[0][0];
+	for (i = 0; i < num_list_4x4; ++i) {
+		for (j = 0; j < list_len_4x4; ++j)
+			dst[zig_zag_4x4[j]] = src[j];
+		src += list_len_4x4;
+		dst += list_len_4x4;
+	}
+
+	src = &scaling->scaling_list_8x8[0][0];
+	for (i = 0; i < num_list_8x8; ++i) {
+		for (j = 0; j < list_len_8x8; ++j)
+			dst[zig_zag_8x8[j]] = src[j];
+		src += list_len_8x8;
+		dst += list_len_8x8;
+	}
 }
 
 int rk3399_vdec_h264d_init(struct rockchip_vpu_ctx *ctx)
@@ -380,7 +432,7 @@ void rk3399_vdec_h264d_exit(struct rockchip_vpu_ctx *ctx)
 
 static void rk3399_vdec_h264d_prepare_table(struct rockchip_vpu_ctx *ctx)
 {
-	rk3399_vdec_h264d_assemble_scaling_list(ctx);
+	rk3399_vpu_h264d_reorder_scaling_list(ctx);
 	rk3399_vdec_h264d_assemble_hw_pps(ctx);
 	rk3399_vdec_h264d_assemble_hw_rps(ctx);
 }
@@ -532,7 +584,7 @@ static void rk3399_vdec_h264d_config_registers(struct rockchip_vpu_ctx *ctx)
 	vdpu_write_relaxed(vpu, reg, RKVDEC_REG_CUR_POC1);
 
 	/* config hw pps address */
-	offset = offsetof(struct rk3399_vdec_h264d_priv_tbl, pps);
+	offset = offsetof(struct rk3399_vdec_h264d_priv_tbl, param_set);
 	vdpu_write_relaxed(vpu, priv_start_addr + offset, RKVDEC_REG_PPS_BASE);
 
 	/* config hw rps address */

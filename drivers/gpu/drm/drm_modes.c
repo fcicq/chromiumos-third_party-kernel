@@ -98,7 +98,7 @@ void drm_mode_destroy(struct drm_device *dev, struct drm_display_mode *mode)
 	if (!mode)
 		return;
 
-	drm_mode_object_put(dev, &mode->base);
+	drm_mode_object_unregister(dev, &mode->base);
 
 	kfree(mode);
 }
@@ -1075,7 +1075,7 @@ static const char * const drm_mode_status_names[] = {
 	MODE_STATUS(ONE_SIZE),
 	MODE_STATUS(NO_REDUCED),
 	MODE_STATUS(NO_STEREO),
-	MODE_STATUS(UNVERIFIED),
+	MODE_STATUS(STALE),
 	MODE_STATUS(BAD),
 	MODE_STATUS(ERROR),
 };
@@ -1185,30 +1185,50 @@ EXPORT_SYMBOL(drm_mode_sort);
 void drm_mode_connector_list_update(struct drm_connector *connector,
 				    bool merge_type_bits)
 {
-	struct drm_display_mode *mode;
 	struct drm_display_mode *pmode, *pt;
-	int found_it;
 
 	WARN_ON(!mutex_is_locked(&connector->dev->mode_config.mutex));
 
-	list_for_each_entry_safe(pmode, pt, &connector->probed_modes,
-				 head) {
-		found_it = 0;
+	list_for_each_entry_safe(pmode, pt, &connector->probed_modes, head) {
+		struct drm_display_mode *mode;
+		bool found_it = false;
+
 		/* go through current modes checking for the new probed mode */
 		list_for_each_entry(mode, &connector->modes, head) {
-			if (drm_mode_equal(pmode, mode)) {
-				found_it = 1;
-				/* if equal delete the probed mode */
-				mode->status = pmode->status;
-				/* Merge type bits together */
+			if (!drm_mode_equal(pmode, mode))
+				continue;
+
+			found_it = true;
+
+			/*
+			 * If the old matching mode is stale (ie. left over
+			 * from a previous probe) just replace it outright.
+			 * Otherwise just merge the type bits between all
+			 * equal probed modes.
+			 *
+			 * If two probed modes are considered equal, pick the
+			 * actual timings from the one that's marked as
+			 * preferred (in case the match isn't 100%). If
+			 * multiple or zero preferred modes are present, favor
+			 * the mode added to the probed_modes list first.
+			 */
+			if (mode->status == MODE_STALE) {
+				drm_mode_copy(mode, pmode);
+			} else if ((mode->type & DRM_MODE_TYPE_PREFERRED) == 0 &&
+				   (pmode->type & DRM_MODE_TYPE_PREFERRED) != 0) {
+				if (merge_type_bits)
+					pmode->type |= mode->type;
+				drm_mode_copy(mode, pmode);
+			} else {
 				if (merge_type_bits)
 					mode->type |= pmode->type;
 				else
 					mode->type = pmode->type;
-				list_del(&pmode->head);
-				drm_mode_destroy(connector->dev, pmode);
-				break;
 			}
+
+			list_del(&pmode->head);
+			drm_mode_destroy(connector->dev, pmode);
+			break;
 		}
 
 		if (!found_it) {
@@ -1420,6 +1440,13 @@ drm_mode_create_from_cmdline_mode(struct drm_device *dev,
 		return NULL;
 
 	mode->type |= DRM_MODE_TYPE_USERDEF;
+	/* fix up 1368x768: GFT/CVT can't express 1366 width due to alignment */
+	if (cmd->xres == 1366 && mode->hdisplay == 1368) {
+		mode->hdisplay = 1366;
+		mode->hsync_start--;
+		mode->hsync_end--;
+		drm_mode_set_name(mode);
+	}
 	drm_mode_set_crtcinfo(mode, CRTC_INTERLACE_HALVE_V);
 	return mode;
 }

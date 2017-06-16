@@ -22,6 +22,7 @@
  */
 
 #include <linux/module.h>
+#include <linux/acpi.h>
 #include <linux/bitops.h>
 #include <linux/i2c.h>
 #include <linux/input.h>
@@ -30,6 +31,7 @@
 #include <linux/notifier.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
+#include <linux/sysrq.h>
 #include <linux/input/matrix_keypad.h>
 #include <linux/mfd/cros_ec.h>
 #include <linux/mfd/cros_ec_commands.h>
@@ -287,6 +289,12 @@ static int cros_ec_keyb_work(struct notifier_block *nb,
 		cros_ec_keyb_process(ckdev,
 				     ckdev->ec->event_data.data.key_matrix,
 				     ckdev->ec->event_size);
+		break;
+
+	case EC_MKBP_EVENT_SYSRQ:
+		val = get_unaligned_le32(&ckdev->ec->event_data.data.sysrq);
+		dev_dbg(ckdev->dev, "sysrq code from EC : %#x\n", val);
+		handle_sysrq(val);
 		break;
 
 	case EC_MKBP_EVENT_BUTTON:
@@ -623,6 +631,13 @@ static int cros_ec_keyb_probe(struct platform_device *pdev)
 	struct cros_ec_keyb *ckdev;
 	int err;
 
+	/*
+	 * If the parent ec device has not been probed yet, defer the probe of
+	 * this keyboard/button driver until later.
+	 */
+	if (ec == NULL)
+		return -EPROBE_DEFER;
+
 	ckdev = devm_kzalloc(dev, sizeof(*ckdev), GFP_KERNEL);
 	if (!ckdev)
 		return -ENOMEM;
@@ -666,6 +681,12 @@ static int cros_ec_keyb_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static const struct acpi_device_id cros_ec_keyb_acpi_match[] = {
+	{ "GOOG0007", 0 },
+	{ }
+};
+MODULE_DEVICE_TABLE(acpi, cros_ec_keyb_acpi_match);
+
 #ifdef CONFIG_OF
 static const struct of_device_id cros_ec_keyb_of_match[] = {
 	{ .compatible = "google,cros-ec-keyb" },
@@ -682,6 +703,7 @@ static struct platform_driver cros_ec_keyb_driver = {
 	.driver = {
 		.name = "cros-ec-keyb",
 		.of_match_table = of_match_ptr(cros_ec_keyb_of_match),
+		.acpi_match_table = ACPI_PTR(cros_ec_keyb_acpi_match),
 		.pm = &cros_ec_keyb_pm_ops,
 	},
 };

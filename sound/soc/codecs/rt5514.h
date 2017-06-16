@@ -14,6 +14,7 @@
 
 #include <linux/clk.h>
 #include <sound/rt5514.h>
+#include <linux/workqueue.h>
 
 #define RT5514_DEVICE_ID			0x10ec5514
 
@@ -117,6 +118,8 @@
 #define RT5514_POW_ADCFEDL_BIT			0
 
 /* RT5514_I2S_CTRL1 (0x2010) */
+#define RT5514_TDM_MODE2			(0x1 << 30)
+#define RT5514_TDM_MODE2_SFT			30
 #define RT5514_TDM_MODE				(0x1 << 28)
 #define RT5514_TDM_MODE_SFT			28
 #define RT5514_I2S_LR_MASK			(0x1 << 26)
@@ -136,6 +139,8 @@
 #define RT5514_TDMSLOT_SEL_RX_MASK		(0x3 << 10)
 #define RT5514_TDMSLOT_SEL_RX_SFT		10
 #define RT5514_TDMSLOT_SEL_RX_4CH		(0x1 << 10)
+#define RT5514_TDMSLOT_SEL_RX_6CH		(0x2 << 10)
+#define RT5514_TDMSLOT_SEL_RX_8CH		(0x3 << 10)
 #define RT5514_CH_LEN_RX_MASK			(0x3 << 8)
 #define RT5514_CH_LEN_RX_SFT			8
 #define RT5514_CH_LEN_RX_16			(0x0 << 8)
@@ -145,6 +150,8 @@
 #define RT5514_TDMSLOT_SEL_TX_MASK		(0x3 << 6)
 #define RT5514_TDMSLOT_SEL_TX_SFT		6
 #define RT5514_TDMSLOT_SEL_TX_4CH		(0x1 << 6)
+#define RT5514_TDMSLOT_SEL_TX_6CH		(0x2 << 6)
+#define RT5514_TDMSLOT_SEL_TX_8CH		(0x3 << 6)
 #define RT5514_CH_LEN_TX_MASK			(0x3 << 4)
 #define RT5514_CH_LEN_TX_SFT			4
 #define RT5514_CH_LEN_TX_16			(0x0 << 4)
@@ -228,8 +235,10 @@
 #define RT5514_PLL_INP_MAX			40000000
 #define RT5514_PLL_INP_MIN			256000
 
-#define RT5514_FIRMWARE1	"rt5514_dsp_fw1.bin"
-#define RT5514_FIRMWARE2	"rt5514_dsp_fw2.bin"
+#define RT5514_FIRMWARE1			"rockchip/rt5514_dsp_fw1.bin"
+#define RT5514_FIRMWARE2			"rockchip/rt5514_dsp_fw2.bin"
+#define RT5514_DSP_START_DELAY_MS		500
+#define RT5514_DSP_STREAM_DELAY_MS		10
 
 /* System Clock Source */
 enum {
@@ -243,6 +252,18 @@ enum {
 	RT5514_PLL1_S_BCLK,
 };
 
+enum rt5514_state {
+	RT5514_IDLE,
+	RT5514_AIF1_ON,
+	RT5514_AIF1_ON_DSP_PENDING,
+	RT5514_DSP_START,
+	RT5514_DSP_ARMED,
+	RT5514_DSP_TRIGGERED,
+	RT5514_DSP_STREAM,
+};
+
+struct rt5514_dsp;
+
 struct rt5514_priv {
 	struct rt5514_platform_data pdata;
 	struct snd_soc_codec *codec;
@@ -255,7 +276,23 @@ struct rt5514_priv {
 	int pll_src;
 	int pll_in;
 	int pll_out;
-	int dsp_enabled;
+
+	enum rt5514_state state;
+	struct mutex dsp_lock;
+	struct rt5514_dsp *dsp;
+};
+
+struct rt5514_dsp {
+	struct device *dev;
+	struct rt5514_priv *priv;
+	struct delayed_work work;
+
+	struct snd_pcm_substream *substream;
+	u32 buf_base, buf_limit, buf_rp;
+	size_t buf_size;
+	size_t dma_offset;
+	size_t dsp_offset;
+
 };
 
 #endif /* __RT5514_H__ */

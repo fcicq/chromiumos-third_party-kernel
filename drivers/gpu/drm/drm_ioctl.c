@@ -135,68 +135,11 @@ static int drm_set_busid(struct drm_device *dev, struct drm_file *file_priv)
 			return ret;
 		}
 	} else {
-		if (WARN(dev->unique == NULL,
-			 "No drm_driver.set_busid() implementation provided by "
-			 "%ps. Use drm_dev_set_unique() to set the unique "
-			 "name explicitly.", dev->driver))
-			return -EINVAL;
-
+		WARN_ON(!dev->unique);
 		master->unique = kstrdup(dev->unique, GFP_KERNEL);
 		if (master->unique)
 			master->unique_len = strlen(dev->unique);
 	}
-
-	return 0;
-}
-
-/*
- * Get a mapping information.
- *
- * \param inode device inode.
- * \param file_priv DRM file private.
- * \param cmd command.
- * \param arg user argument, pointing to a drm_map structure.
- *
- * \return zero on success or a negative number on failure.
- *
- * Searches for the mapping with the specified offset and copies its information
- * into userspace
- */
-static int drm_getmap(struct drm_device *dev, void *data,
-	       struct drm_file *file_priv)
-{
-	struct drm_map *map = data;
-	struct drm_map_list *r_list = NULL;
-	struct list_head *list;
-	int idx;
-	int i;
-
-	idx = map->offset;
-	if (idx < 0)
-		return -EINVAL;
-
-	i = 0;
-	mutex_lock(&dev->struct_mutex);
-	list_for_each(list, &dev->maplist) {
-		if (i == idx) {
-			r_list = list_entry(list, struct drm_map_list, head);
-			break;
-		}
-		i++;
-	}
-	if (!r_list || !r_list->map) {
-		mutex_unlock(&dev->struct_mutex);
-		return -EINVAL;
-	}
-
-	map->offset = r_list->map->offset;
-	map->size = r_list->map->size;
-	map->type = r_list->map->type;
-	map->flags = r_list->map->flags;
-	map->handle = (void *)(unsigned long) r_list->user_token;
-	map->mtrr = arch_phys_wc_index(r_list->map->mtrr);
-
-	mutex_unlock(&dev->struct_mutex);
 
 	return 0;
 }
@@ -271,6 +214,7 @@ static int drm_getstats(struct drm_device *dev, void *data,
 static int drm_getcap(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
 	struct drm_get_cap *req = data;
+	struct drm_crtc *crtc;
 
 	req->value = 0;
 	switch (req->capability) {
@@ -296,6 +240,13 @@ static int drm_getcap(struct drm_device *dev, void *data, struct drm_file *file_
 		break;
 	case DRM_CAP_ASYNC_PAGE_FLIP:
 		req->value = dev->mode_config.async_page_flip;
+		break;
+	case DRM_CAP_PAGE_FLIP_TARGET:
+		req->value = 1;
+		drm_for_each_crtc(crtc, dev) {
+			if (!crtc->funcs->page_flip_target)
+				req->value = 0;
+		}
 		break;
 	case DRM_CAP_CURSOR_WIDTH:
 		if (dev->mode_config.cursor_width)
@@ -525,7 +476,8 @@ int drm_ioctl_permit(u32 flags, struct drm_file *file_priv)
 		return -EACCES;
 
 	/* MASTER is only for master or control clients */
-	if (unlikely((flags & DRM_MASTER) && !file_priv->is_master &&
+	if (unlikely((flags & DRM_MASTER) && 
+		     !drm_is_current_master(file_priv) &&
 		     !drm_is_control_client(file_priv)))
 		return -EACCES;
 
@@ -556,9 +508,9 @@ static const struct drm_ioctl_desc drm_ioctls[] = {
 	DRM_IOCTL_DEF(DRM_IOCTL_VERSION, drm_version,
 		      DRM_UNLOCKED|DRM_RENDER_ALLOW|DRM_CONTROL_ALLOW),
 	DRM_IOCTL_DEF(DRM_IOCTL_GET_UNIQUE, drm_getunique, 0),
-	DRM_IOCTL_DEF(DRM_IOCTL_GET_MAGIC, drm_getmagic, 0),
+	DRM_IOCTL_DEF(DRM_IOCTL_GET_MAGIC, drm_getmagic, DRM_UNLOCKED),
 	DRM_IOCTL_DEF(DRM_IOCTL_IRQ_BUSID, drm_irq_by_busid, DRM_MASTER|DRM_ROOT_ONLY),
-	DRM_IOCTL_DEF(DRM_IOCTL_GET_MAP, drm_getmap, DRM_UNLOCKED),
+	DRM_IOCTL_DEF(DRM_IOCTL_GET_MAP, drm_legacy_getmap_ioctl, DRM_UNLOCKED),
 	DRM_IOCTL_DEF(DRM_IOCTL_GET_CLIENT, drm_getclient, DRM_UNLOCKED),
 	DRM_IOCTL_DEF(DRM_IOCTL_GET_STATS, drm_getstats, DRM_UNLOCKED),
 	DRM_IOCTL_DEF(DRM_IOCTL_GET_CAP, drm_getcap, DRM_UNLOCKED|DRM_RENDER_ALLOW),
@@ -568,7 +520,7 @@ static const struct drm_ioctl_desc drm_ioctls[] = {
 	DRM_IOCTL_DEF(DRM_IOCTL_SET_UNIQUE, drm_setunique, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
 	DRM_IOCTL_DEF(DRM_IOCTL_BLOCK, drm_noop, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
 	DRM_IOCTL_DEF(DRM_IOCTL_UNBLOCK, drm_noop, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
-	DRM_IOCTL_DEF(DRM_IOCTL_AUTH_MAGIC, drm_authmagic, DRM_AUTH|DRM_MASTER),
+	DRM_IOCTL_DEF(DRM_IOCTL_AUTH_MAGIC, drm_authmagic, DRM_AUTH|DRM_UNLOCKED|DRM_MASTER),
 
 	DRM_IOCTL_DEF(DRM_IOCTL_ADD_MAP, drm_legacy_addmap_ioctl, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
 	DRM_IOCTL_DEF(DRM_IOCTL_RM_MAP, drm_legacy_rmmap_ioctl, DRM_AUTH),
@@ -576,8 +528,8 @@ static const struct drm_ioctl_desc drm_ioctls[] = {
 	DRM_IOCTL_DEF(DRM_IOCTL_SET_SAREA_CTX, drm_legacy_setsareactx, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
 	DRM_IOCTL_DEF(DRM_IOCTL_GET_SAREA_CTX, drm_legacy_getsareactx, DRM_AUTH),
 
-	DRM_IOCTL_DEF(DRM_IOCTL_SET_MASTER, drm_setmaster_ioctl, DRM_ROOT_ONLY),
-	DRM_IOCTL_DEF(DRM_IOCTL_DROP_MASTER, drm_dropmaster_ioctl, DRM_ROOT_ONLY),
+	DRM_IOCTL_DEF(DRM_IOCTL_SET_MASTER, drm_setmaster_ioctl, DRM_UNLOCKED|DRM_ROOT_ONLY),
+	DRM_IOCTL_DEF(DRM_IOCTL_DROP_MASTER, drm_dropmaster_ioctl, DRM_UNLOCKED|DRM_ROOT_ONLY),
 
 	DRM_IOCTL_DEF(DRM_IOCTL_ADD_CTX, drm_legacy_addctx, DRM_AUTH|DRM_ROOT_ONLY),
 	DRM_IOCTL_DEF(DRM_IOCTL_RM_CTX, drm_legacy_rmctx, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
@@ -690,7 +642,7 @@ long drm_ioctl(struct file *filp,
 	int retcode = -EINVAL;
 	char stack_kdata[128];
 	char *kdata = NULL;
-	unsigned int usize, asize, drv_size;
+	unsigned int in_size, out_size, drv_size, ksize;
 	bool is_driver_ioctl;
 	int flags;
 
@@ -711,9 +663,12 @@ long drm_ioctl(struct file *filp,
 	}
 
 	drv_size = _IOC_SIZE(ioctl->cmd);
-	usize = _IOC_SIZE(cmd);
-	asize = max(usize, drv_size);
-	cmd = ioctl->cmd;
+	out_size = in_size = _IOC_SIZE(cmd);
+	if ((cmd & ioctl->cmd & IOC_IN) == 0)
+		in_size = 0;
+	if ((cmd & ioctl->cmd & IOC_OUT) == 0)
+		out_size = 0;
+	ksize = max(max(in_size, out_size), drv_size);
 
 	DRM_DEBUG("pid=%d, dev=0x%lx, auth=%d, %s\n",
 		  task_pid_nr(current),
@@ -742,29 +697,23 @@ long drm_ioctl(struct file *filp,
 	if (unlikely(retcode))
 		goto err_i1;
 
-	if (cmd & (IOC_IN | IOC_OUT)) {
-		if (asize <= sizeof(stack_kdata)) {
-			kdata = stack_kdata;
-		} else {
-			kdata = kmalloc(asize, GFP_KERNEL);
-			if (!kdata) {
-				retcode = -ENOMEM;
-				goto err_i1;
-			}
-		}
-		if (asize > usize)
-			memset(kdata + usize, 0, asize - usize);
-	}
-
-	if (cmd & IOC_IN) {
-		if (copy_from_user(kdata, (void __user *)arg,
-				   usize) != 0) {
-			retcode = -EFAULT;
+	if (ksize <= sizeof(stack_kdata)) {
+		kdata = stack_kdata;
+	} else {
+		kdata = kmalloc(ksize, GFP_KERNEL);
+		if (!kdata) {
+			retcode = -ENOMEM;
 			goto err_i1;
 		}
-	} else if (cmd & IOC_OUT) {
-		memset(kdata, 0, usize);
 	}
+
+	if (copy_from_user(kdata, (void __user *)arg, in_size) != 0) {
+		retcode = -EFAULT;
+		goto err_i1;
+	}
+
+	if (ksize > in_size)
+		memset(kdata + in_size, 0, ksize - in_size);
 
 	/* Enforce sane locking for kms driver ioctls. Core ioctls are
 	 * too messy still. */
@@ -777,11 +726,8 @@ long drm_ioctl(struct file *filp,
 		mutex_unlock(&drm_global_mutex);
 	}
 
-	if (cmd & IOC_OUT) {
-		if (copy_to_user((void __user *)arg, kdata,
-				 usize) != 0)
-			retcode = -EFAULT;
-	}
+	if (copy_to_user((void __user *)arg, kdata, out_size) != 0)
+		retcode = -EFAULT;
 
       err_i1:
 	if (!ioctl)

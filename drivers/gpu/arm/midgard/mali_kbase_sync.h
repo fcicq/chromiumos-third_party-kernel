@@ -52,6 +52,11 @@ int kbase_stream_create(const char *name, int *const out_fd);
 int kbase_stream_create_fence(int tl_fd);
 
 /*
+ * Get sync file struct for fd, increment refcount.
+ */
+struct sync_file *kbase_sync_file_fdget(int fd);
+
+/*
  * Validate a fd to be a valid fence
  * No reference is taken.
  *
@@ -75,7 +80,7 @@ struct sync_timeline *kbase_sync_timeline_alloc(const char *name);
  *
  * Sync points must be triggered in *exactly* the same order as they are allocated.
  */
-struct sync_pt *kbase_sync_pt_alloc(struct sync_timeline *parent);
+struct fence *kbase_fence_alloc(struct sync_timeline *parent);
 
 /* Signals a particular sync point
  *
@@ -86,6 +91,6 @@ struct sync_pt *kbase_sync_pt_alloc(struct sync_timeline *parent);
  *
  * result can be negative to indicate error, any other value is interpreted as success.
  */
-void kbase_sync_signal_pt(struct sync_pt *pt, int result);
+void kbase_sync_signal_fence(struct fence *fence, int result);
 
 #endif

@@ -21,10 +21,24 @@
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
 #include <drm/drmP.h>
+#include <soc/mediatek/cmdq.h>
+
 #include "mtk_drm_drv.h"
 #include "mtk_drm_plane.h"
 #include "mtk_drm_ddp_comp.h"
 #include "mtk_drm_crtc.h"
+
+static phys_addr_t addr_va2pa(void __iomem *va)
+{
+	struct page *pg = vmalloc_to_page(va);
+
+	return (page_to_pfn(pg) << PAGE_SHIFT) + ((unsigned long)va & 0xfff);
+}
+
+#define cmdq_write(handle, val, reg) \
+		cmdq_rec_write((handle), (val), addr_va2pa(reg))
+#define cmdq_write_mask(handle, val, reg, mask) \
+		cmdq_rec_write_mask((handle), (val), addr_va2pa(reg), (mask))
 
 #define DISP_OD_EN				0x0000
 #define DISP_OD_INTEN				0x0008
@@ -36,7 +50,11 @@
 #define DISP_DITHER_15				0x013c
 #define DISP_DITHER_16				0x0140
 
+#define DISP_REG_SPLIT_START			0x0000
+
 #define DISP_REG_UFO_START			0x0000
+#define DISP_REG_UFO_WIDTH			0x0050
+#define DISP_REG_UFO_HEIGHT			0x0054
 
 #define DISP_COLOR_CFG_MAIN			0x0400
 #define DISP_COLOR_START			0x0c00
@@ -59,6 +77,7 @@
 #define OD_RELAYMODE				BIT(0)
 
 #define UFO_BYPASS				BIT(2)
+#define UFO_LR					BIT(3) | BIT(0)
 
 #define AAL_EN					BIT(0)
 
@@ -81,116 +100,132 @@
 #define DITHER_ADD_RSHIFT_G(x)			(((x) & 0x7) << 0)
 
 void mtk_dither_set(struct mtk_ddp_comp *comp, unsigned int bpc,
-		    unsigned int CFG)
+		    unsigned int CFG, struct cmdq_rec *handle)
 {
 	/* If bpc equal to 0, the dithering function didn't be enabled */
 	if (bpc == 0)
 		return;
 
 	if (bpc >= MTK_MIN_BPC) {
-		writel(0, comp->regs + DISP_DITHER_5);
-		writel(0, comp->regs + DISP_DITHER_7);
-		writel(DITHER_LSB_ERR_SHIFT_R(MTK_MAX_BPC - bpc) |
+		cmdq_write(handle, 0, comp->regs + DISP_DITHER_5);
+		cmdq_write(handle, 0, comp->regs + DISP_DITHER_7);
+		cmdq_write(handle, DITHER_LSB_ERR_SHIFT_R(MTK_MAX_BPC - bpc) |
 		       DITHER_ADD_LSHIFT_R(MTK_MAX_BPC - bpc) |
 		       DITHER_NEW_BIT_MODE,
 		       comp->regs + DISP_DITHER_15);
-		writel(DITHER_LSB_ERR_SHIFT_B(MTK_MAX_BPC - bpc) |
+		cmdq_write(handle, DITHER_LSB_ERR_SHIFT_B(MTK_MAX_BPC - bpc) |
 		       DITHER_ADD_LSHIFT_B(MTK_MAX_BPC - bpc) |
 		       DITHER_LSB_ERR_SHIFT_G(MTK_MAX_BPC - bpc) |
 		       DITHER_ADD_LSHIFT_G(MTK_MAX_BPC - bpc),
 		       comp->regs + DISP_DITHER_16);
-		writel(DISP_DITHERING, comp->regs + CFG);
+		cmdq_write(handle, DISP_DITHERING, comp->regs + CFG);
 	}
 }
 
 static void mtk_color_config(struct mtk_ddp_comp *comp, unsigned int w,
 			     unsigned int h, unsigned int vrefresh,
-			     unsigned int bpc)
+			     unsigned int bpc, struct cmdq_rec *handle)
 {
-	writel(w, comp->regs + DISP_COLOR_WIDTH);
-	writel(h, comp->regs + DISP_COLOR_HEIGHT);
+	cmdq_write(handle, w, comp->regs + DISP_COLOR_WIDTH);
+	cmdq_write(handle, h, comp->regs + DISP_COLOR_HEIGHT);
 }
 
-static void mtk_color_start(struct mtk_ddp_comp *comp)
+static void mtk_color_start(struct mtk_ddp_comp *comp, struct cmdq_rec *handle)
 {
-	writel(COLOR_BYPASS_ALL | COLOR_SEQ_SEL,
+	cmdq_write(handle, COLOR_BYPASS_ALL | COLOR_SEQ_SEL,
 	       comp->regs + DISP_COLOR_CFG_MAIN);
-	writel(0x1, comp->regs + DISP_COLOR_START);
+	cmdq_write(handle, 0x1, comp->regs + DISP_COLOR_START);
 }
 
 static void mtk_od_config(struct mtk_ddp_comp *comp, unsigned int w,
 			  unsigned int h, unsigned int vrefresh,
-			  unsigned int bpc)
+			  unsigned int bpc, struct cmdq_rec *handle)
 {
-	writel(w << 16 | h, comp->regs + DISP_OD_SIZE);
-	writel(OD_RELAYMODE, comp->regs + DISP_OD_CFG);
-	mtk_dither_set(comp, bpc, DISP_OD_CFG);
+	cmdq_write(handle, w << 16 | h, comp->regs + DISP_OD_SIZE);
+	cmdq_write(handle, OD_RELAYMODE, comp->regs + DISP_OD_CFG);
+	mtk_dither_set(comp, bpc, DISP_OD_CFG, handle);
 }
 
-static void mtk_od_start(struct mtk_ddp_comp *comp)
+static void mtk_od_start(struct mtk_ddp_comp *comp, struct cmdq_rec *handle)
 {
-	writel(1, comp->regs + DISP_OD_EN);
+	cmdq_write(handle, 1, comp->regs + DISP_OD_EN);
 }
 
-static void mtk_ufoe_start(struct mtk_ddp_comp *comp)
+static void mtk_ufoe_config(struct mtk_ddp_comp *comp, unsigned int w,
+			    unsigned int h, unsigned int vrefresh,
+			    unsigned int bpc, struct cmdq_rec *handle)
 {
-	writel(UFO_BYPASS, comp->regs + DISP_REG_UFO_START);
+	cmdq_write(handle, w, comp->regs + DISP_REG_UFO_WIDTH);
+	cmdq_write(handle, h, comp->regs + DISP_REG_UFO_HEIGHT);
+}
+
+static void mtk_ufoe_start(struct mtk_ddp_comp *comp, struct cmdq_rec *handle)
+{
+	if (comp->dual_dsi_mode)
+		cmdq_write(handle, UFO_LR, comp->regs + DISP_REG_UFO_START);
+	else
+		cmdq_write(handle, UFO_BYPASS, comp->regs + DISP_REG_UFO_START);
+}
+
+static void mtk_split_start(struct mtk_ddp_comp *comp, struct cmdq_rec *handle)
+{
+	cmdq_write(handle, 1, comp->regs + DISP_REG_SPLIT_START);
 }
 
 static void mtk_aal_config(struct mtk_ddp_comp *comp, unsigned int w,
 			   unsigned int h, unsigned int vrefresh,
-			   unsigned int bpc)
+			   unsigned int bpc, struct cmdq_rec *handle)
 {
-	writel(h << 16 | w, comp->regs + DISP_AAL_SIZE);
+	cmdq_write(handle, h << 16 | w, comp->regs + DISP_AAL_SIZE);
 }
 
-static void mtk_aal_start(struct mtk_ddp_comp *comp)
+static void mtk_aal_start(struct mtk_ddp_comp *comp, struct cmdq_rec *handle)
 {
-	writel(AAL_EN, comp->regs + DISP_AAL_EN);
+	cmdq_write(handle, AAL_EN, comp->regs + DISP_AAL_EN);
 }
 
-static void mtk_aal_stop(struct mtk_ddp_comp *comp)
+static void mtk_aal_stop(struct mtk_ddp_comp *comp, struct cmdq_rec *handle)
 {
-	writel_relaxed(0x0, comp->regs + DISP_AAL_EN);
+	cmdq_write(handle, 0x0, comp->regs + DISP_AAL_EN);
 }
 
 static void mtk_gamma_config(struct mtk_ddp_comp *comp, unsigned int w,
 			     unsigned int h, unsigned int vrefresh,
-			     unsigned int bpc)
+			     unsigned int bpc, struct cmdq_rec *handle)
 {
-	writel(h << 16 | w, comp->regs + DISP_GAMMA_SIZE);
-	mtk_dither_set(comp, bpc, DISP_GAMMA_CFG);
+	cmdq_write(handle, h << 16 | w, comp->regs + DISP_GAMMA_SIZE);
+	mtk_dither_set(comp, bpc, DISP_GAMMA_CFG, handle);
 }
 
-static void mtk_gamma_start(struct mtk_ddp_comp *comp)
+static void mtk_gamma_start(struct mtk_ddp_comp *comp, struct cmdq_rec *handle)
 {
-	writel(GAMMA_EN, comp->regs  + DISP_GAMMA_EN);
+	cmdq_write(handle, GAMMA_EN, comp->regs  + DISP_GAMMA_EN);
 }
 
-static void mtk_gamma_stop(struct mtk_ddp_comp *comp)
+static void mtk_gamma_stop(struct mtk_ddp_comp *comp, struct cmdq_rec *handle)
 {
-	writel_relaxed(0x0, comp->regs  + DISP_GAMMA_EN);
+	cmdq_write(handle, 0x0, comp->regs  + DISP_GAMMA_EN);
 }
 
 static void mtk_gamma_set(struct mtk_ddp_comp *comp,
-			  struct drm_crtc_state *state)
+			  struct drm_crtc_state *state,
+			  struct cmdq_rec *handle)
 {
-	unsigned int i, reg;
+	unsigned int i;
 	struct drm_color_lut *lut;
 	void __iomem *lut_base;
 	u32 word;
 
 	if (state->gamma_lut) {
-		reg = readl(comp->regs + DISP_GAMMA_CFG);
-		reg = reg | GAMMA_LUT_EN;
-		writel(reg, comp->regs + DISP_GAMMA_CFG);
+		cmdq_write_mask(handle, GAMMA_LUT_EN,
+				comp->regs + DISP_GAMMA_CFG, GAMMA_LUT_EN);
 		lut_base = comp->regs + DISP_GAMMA_LUT;
 		lut = (struct drm_color_lut *)state->gamma_lut->data;
 		for (i = 0; i < MTK_LUT_SIZE; i++) {
 			word = (((lut[i].red >> 6) & LUT_10BIT_MASK) << 20) +
 				(((lut[i].green >> 6) & LUT_10BIT_MASK) << 10) +
 				((lut[i].blue >> 6) & LUT_10BIT_MASK);
-			writel(word, (lut_base + i * 4));
+			cmdq_write(handle, word, (lut_base + i * 4));
 		}
 	}
 }
@@ -221,6 +256,11 @@ static const struct mtk_ddp_comp_funcs ddp_od = {
 
 static const struct mtk_ddp_comp_funcs ddp_ufoe = {
 	.start = mtk_ufoe_start,
+	.config = mtk_ufoe_config,
+};
+
+static const struct mtk_ddp_comp_funcs ddp_split = {
+	.start = mtk_split_start,
 };
 
 static const char * const mtk_ddp_comp_stem[MTK_DDP_COMP_TYPE_MAX] = {
@@ -236,6 +276,7 @@ static const char * const mtk_ddp_comp_stem[MTK_DDP_COMP_TYPE_MAX] = {
 	[MTK_DISP_PWM] = "pwm",
 	[MTK_DISP_MUTEX] = "mutex",
 	[MTK_DISP_OD] = "od",
+	[MTK_DISP_SPLIT] = "split",
 };
 
 struct mtk_ddp_comp_match {
@@ -262,6 +303,8 @@ static const struct mtk_ddp_comp_match mtk_ddp_matches[DDP_COMPONENT_ID_MAX] = {
 	[DDP_COMPONENT_UFOE]	= { MTK_DISP_UFOE,	0, &ddp_ufoe },
 	[DDP_COMPONENT_WDMA0]	= { MTK_DISP_WDMA,	0, NULL },
 	[DDP_COMPONENT_WDMA1]	= { MTK_DISP_WDMA,	1, NULL },
+	[DDP_COMPONENT_SPLIT0]	= { MTK_DISP_SPLIT,	0, &ddp_split },
+	[DDP_COMPONENT_SPLIT1]	= { MTK_DISP_SPLIT,	1, &ddp_split },
 };
 
 int mtk_ddp_comp_get_id(struct device_node *node,
@@ -309,6 +352,7 @@ int mtk_ddp_comp_init(struct device *dev, struct device_node *node,
 		comp->clk = NULL;
 
 	type = mtk_ddp_matches[comp_id].type;
+	comp->type = type;
 
 	/* Only DMA capable components need the LARB property */
 	comp->larb_dev = NULL;
@@ -355,4 +399,10 @@ void mtk_ddp_comp_unregister(struct drm_device *drm, struct mtk_ddp_comp *comp)
 	struct mtk_drm_private *private = drm->dev_private;
 
 	private->ddp_comp[comp->id] = NULL;
+}
+
+void mtk_ddp_comp_set_dual_dsi_mode(struct mtk_ddp_comp *comp,
+		bool dual_dsi_mode)
+{
+	comp->dual_dsi_mode = dual_dsi_mode;
 }

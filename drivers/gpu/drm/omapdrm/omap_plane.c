@@ -109,8 +109,8 @@ static void omap_plane_atomic_update(struct drm_plane *plane,
 	win.src_y = state->src_y >> 16;
 
 	switch (state->rotation & DRM_ROTATE_MASK) {
-	case BIT(DRM_ROTATE_90):
-	case BIT(DRM_ROTATE_270):
+	case DRM_ROTATE_90:
+	case DRM_ROTATE_270:
 		win.src_w = state->src_h >> 16;
 		win.src_h = state->src_w >> 16;
 		break;
@@ -149,7 +149,7 @@ static void omap_plane_atomic_disable(struct drm_plane *plane,
 	struct omap_plane_state *omap_state = to_omap_plane_state(plane->state);
 	struct omap_plane *omap_plane = to_omap_plane(plane);
 
-	plane->state->rotation = BIT(DRM_ROTATE_0);
+	plane->state->rotation = DRM_ROTATE_0;
 	omap_state->zorder = plane->type == DRM_PLANE_TYPE_PRIMARY
 			   ? 0 : omap_plane->id;
 
@@ -187,33 +187,6 @@ static const struct drm_plane_helper_funcs omap_plane_helper_funcs = {
 	.atomic_update = omap_plane_atomic_update,
 	.atomic_disable = omap_plane_atomic_disable,
 };
-
-static void omap_plane_reset(struct drm_plane *plane)
-{
-	struct omap_plane *omap_plane = to_omap_plane(plane);
-	struct omap_plane_state *omap_state;
-
-	if (plane->state && plane->state->fb)
-		drm_framebuffer_unreference(plane->state->fb);
-
-	kfree(plane->state);
-	plane->state = NULL;
-
-	omap_state = kzalloc(sizeof(*omap_state), GFP_KERNEL);
-	if (omap_state == NULL)
-		return;
-
-	/*
-	 * Set defaults depending on whether we are a primary or overlay
-	 * plane.
-	 */
-	omap_state->zorder = plane->type == DRM_PLANE_TYPE_PRIMARY
-			   ? 0 : omap_plane->id;
-	omap_state->base.rotation = BIT(DRM_ROTATE_0);
-
-	plane->state = &omap_state->base;
-	plane->state->plane = plane;
-}
 
 static void omap_plane_destroy(struct drm_plane *plane)
 {
@@ -268,6 +241,33 @@ static void omap_plane_atomic_destroy_state(struct drm_plane *plane,
 {
 	__drm_atomic_helper_plane_destroy_state(plane, state);
 	kfree(to_omap_plane_state(state));
+}
+
+static void omap_plane_reset(struct drm_plane *plane)
+{
+	struct omap_plane *omap_plane = to_omap_plane(plane);
+	struct omap_plane_state *omap_state;
+
+	if (plane->state && plane->state->fb)
+		drm_framebuffer_unreference(plane->state->fb);
+
+	kfree(plane->state);
+	plane->state = NULL;
+
+	omap_state = kzalloc(sizeof(*omap_state), GFP_KERNEL);
+	if (omap_state == NULL)
+		return;
+
+	/*
+	 * Set defaults depending on whether we are a primary or overlay
+	 * plane.
+	 */
+	omap_state->zorder = plane->type == DRM_PLANE_TYPE_PRIMARY
+			   ? 0 : omap_plane->id;
+	omap_state->base.rotation = DRM_ROTATE_0;
+
+	plane->state = &omap_state->base;
+	plane->state->plane = plane;
 }
 
 static int omap_plane_atomic_set_property(struct drm_plane *plane,

@@ -131,8 +131,6 @@ static inline void drm_crtc_helper_add(struct drm_crtc *crtc,
 /**
  * struct drm_encoder_helper_funcs - helper operations for encoders
  * @dpms: set power state
- * @save: save connector state
- * @restore: restore connector state
  * @mode_fixup: try to fixup proposed mode for this connector
  * @prepare: part of the disable sequence, called before the CRTC modeset
  * @commit: called after the CRTC modeset
@@ -154,8 +152,6 @@ static inline void drm_crtc_helper_add(struct drm_crtc *crtc,
  */
 struct drm_encoder_helper_funcs {
 	void (*dpms)(struct drm_encoder *encoder, int mode);
-	void (*save)(struct drm_encoder *encoder);
-	void (*restore)(struct drm_encoder *encoder);
 
 	bool (*mode_fixup)(struct drm_encoder *encoder,
 			   const struct drm_display_mode *mode,
@@ -203,7 +199,62 @@ struct drm_connector_helper_funcs {
 	int (*get_modes)(struct drm_connector *connector);
 	enum drm_mode_status (*mode_valid)(struct drm_connector *connector,
 					   struct drm_display_mode *mode);
+	/**
+	 * @best_encoder:
+	 *
+	 * This function should select the best encoder for the given connector.
+	 *
+	 * This function is used by both the atomic helpers (in the
+	 * drm_atomic_helper_check_modeset() function) and in the legacy CRTC
+	 * helpers.
+	 *
+	 * NOTE:
+	 *
+	 * In atomic drivers this function is called in the check phase of an
+	 * atomic update. The driver is not allowed to change or inspect
+	 * anything outside of arguments passed-in. Atomic drivers which need to
+	 * inspect dynamic configuration state should instead use
+	 * @atomic_best_encoder.
+	 *
+	 * You can leave this function to NULL if the connector is only
+	 * attached to a single encoder and you are using the atomic helpers.
+	 * In this case, the core will call drm_atomic_helper_best_encoder()
+	 * for you.
+	 *
+	 * RETURNS:
+	 *
+	 * Encoder that should be used for the given connector and connector
+	 * state, or NULL if no suitable encoder exists. Note that the helpers
+	 * will ensure that encoders aren't used twice, drivers should not check
+	 * for this.
+	 */
 	struct drm_encoder *(*best_encoder)(struct drm_connector *connector);
+
+	/**
+	 * @atomic_best_encoder:
+	 *
+	 * This is the atomic version of @best_encoder for atomic drivers which
+	 * need to select the best encoder depending upon the desired
+	 * configuration and can't select it statically.
+	 *
+	 * This function is used by drm_atomic_helper_check_modeset().
+	 * If it is not implemented, the core will fallback to @best_encoder
+	 * (or drm_atomic_helper_best_encoder() if @best_encoder is NULL).
+	 *
+	 * NOTE:
+	 *
+	 * This function is called in the check phase of an atomic update. The
+	 * driver is not allowed to change anything outside of the free-standing
+	 * state objects passed-in or assembled in the overall &drm_atomic_state
+	 * update tracking structure.
+	 *
+	 * RETURNS:
+	 *
+	 * Encoder that should be used for the given connector and connector
+	 * state, or NULL if no suitable encoder exists. Note that the helpers
+	 * will ensure that encoders aren't used twice, drivers should not check
+	 * for this.
+	 */
 	struct drm_encoder *(*atomic_best_encoder)(struct drm_connector *connector,
 						   struct drm_connector_state *connector_state);
 };
@@ -253,5 +304,44 @@ static inline void drm_plane_helper_add(struct drm_plane *plane,
 {
 	plane->helper_private = funcs;
 }
+
+/**
+ * struct drm_mode_config_helper_funcs - global modeset helper operations
+ *
+ * These helper functions are used by the atomic helpers.
+ */
+struct drm_mode_config_helper_funcs {
+	/**
+	 * @atomic_commit_tail:
+	 *
+	 * This hook is used by the default atomic_commit() hook implemented in
+	 * drm_atomic_helper_commit() together with the nonblocking commit
+	 * helpers (see drm_atomic_helper_setup_commit() for a starting point)
+	 * to implement blocking and nonblocking commits easily. It is not used
+	 * by the atomic helpers
+	 *
+	 * This hook should first commit the given atomic state to the hardware.
+	 * But drivers can add more waiting calls at the start of their
+	 * implementation, e.g. to wait for driver-internal request for implicit
+	 * syncing, before starting to commit the update to the hardware.
+	 *
+	 * After the atomic update is committed to the hardware this hook needs
+	 * to call drm_atomic_helper_commit_hw_done(). Then wait for the upate
+	 * to be executed by the hardware, for example using
+	 * drm_atomic_helper_wait_for_vblanks(), and then clean up the old
+	 * framebuffers using drm_atomic_helper_cleanup_planes().
+	 *
+	 * When disabling a CRTC this hook _must_ stall for the commit to
+	 * complete. Vblank waits don't work on disabled CRTC, hence the core
+	 * can't take care of this. And it also can't rely on the vblank event,
+	 * since that can be signalled already when the screen shows black,
+	 * which can happen much earlier than the last hardware access needed to
+	 * shut off the display pipeline completely.
+	 *
+	 * This hook is optional, the default implementation is
+	 * drm_atomic_helper_commit_tail().
+	 */
+	void (*atomic_commit_tail)(struct drm_atomic_state *state);
+};
 
 #endif

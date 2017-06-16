@@ -105,10 +105,10 @@ static void ip_cmsg_recv_checksum(struct msghdr *msg, struct sk_buff *skb,
 	if (skb->ip_summed != CHECKSUM_COMPLETE)
 		return;
 
-	if (offset != 0)
-		csum = csum_sub(csum,
-				csum_partial(skb->data + tlen,
-					     offset, 0));
+	if (offset != 0) {
+		int tend_off = skb_transport_offset(skb) + tlen;
+		csum = csum_sub(csum, skb_checksum(skb, tend_off, offset, 0));
+	}
 
 	put_cmsg(msg, SOL_IP, IP_CHECKSUM, sizeof(__wsum), &csum);
 }
@@ -636,7 +636,7 @@ static int do_ip_setsockopt(struct sock *sk, int level,
 		if (err)
 			break;
 		old = rcu_dereference_protected(inet->inet_opt,
-						sock_owned_by_user(sk));
+						lockdep_sock_is_held(sk));
 		if (inet->is_icsk) {
 			struct inet_connection_sock *icsk = inet_csk(sk);
 #if IS_ENABLED(CONFIG_IPV6)
@@ -1303,7 +1303,7 @@ static int do_ip_getsockopt(struct sock *sk, int level, int optname,
 		struct ip_options_rcu *inet_opt;
 
 		inet_opt = rcu_dereference_protected(inet->inet_opt,
-						     sock_owned_by_user(sk));
+						     lockdep_sock_is_held(sk));
 		opt->optlen = 0;
 		if (inet_opt)
 			memcpy(optbuf, &inet_opt->opt,

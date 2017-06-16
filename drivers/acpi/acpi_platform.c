@@ -17,6 +17,7 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/dma-mapping.h>
+#include <linux/pci.h>
 #include <linux/platform_device.h>
 
 #include "internal.h"
@@ -24,11 +25,29 @@
 ACPI_MODULE_NAME("platform");
 
 static const struct acpi_device_id forbidden_id_list[] = {
-	{"PNP0000", 0},	/* PIC */
-	{"PNP0100", 0},	/* Timer */
-	{"PNP0200", 0},	/* AT DMA Controller */
+	{"PNP0000",  0},	/* PIC */
+	{"PNP0100",  0},	/* Timer */
+	{"PNP0200",  0},	/* AT DMA Controller */
+	{"ACPI0009", 0},	/* IOxAPIC */
+	{"ACPI000A", 0},	/* IOAPIC */
 	{"", 0},
 };
+
+static void acpi_platform_fill_resource(struct acpi_device *adev,
+	const struct resource *src, struct resource *dest)
+{
+	struct device *parent;
+
+	*dest = *src;
+
+	/*
+	 * If the device has parent we need to take its resources into
+	 * account as well because this device might consume part of those.
+	 */
+	parent = acpi_get_first_physical_node(adev->parent);
+	if (parent && dev_is_pci(parent))
+		dest->parent = pci_find_resource(to_pci_dev(parent), dest);
+}
 
 /**
  * acpi_create_platform_device - Create platform device for ACPI device node
@@ -43,7 +62,6 @@ static const struct acpi_device_id forbidden_id_list[] = {
 struct platform_device *acpi_create_platform_device(struct acpi_device *adev)
 {
 	struct platform_device *pdev = NULL;
-	struct acpi_device *acpi_parent;
 	struct platform_device_info pdevinfo;
 	struct resource_entry *rentry;
 	struct list_head resource_list;
@@ -71,7 +89,8 @@ struct platform_device *acpi_create_platform_device(struct acpi_device *adev)
 		}
 		count = 0;
 		list_for_each_entry(rentry, &resource_list, node)
-			resources[count++] = *rentry->res;
+			acpi_platform_fill_resource(adev, rentry->res,
+						    &resources[count++]);
 
 		acpi_dev_free_resource_list(&resource_list);
 	}
@@ -82,22 +101,8 @@ struct platform_device *acpi_create_platform_device(struct acpi_device *adev)
 	 * attached to it, that physical device should be the parent of the
 	 * platform device we are about to create.
 	 */
-	pdevinfo.parent = NULL;
-	acpi_parent = adev->parent;
-	if (acpi_parent) {
-		struct acpi_device_physical_node *entry;
-		struct list_head *list;
-
-		mutex_lock(&acpi_parent->physical_node_lock);
-		list = &acpi_parent->physical_node_list;
-		if (!list_empty(list)) {
-			entry = list_first_entry(list,
-					struct acpi_device_physical_node,
-					node);
-			pdevinfo.parent = entry->dev;
-		}
-		mutex_unlock(&acpi_parent->physical_node_lock);
-	}
+	pdevinfo.parent = adev->parent ?
+		acpi_get_first_physical_node(adev->parent) : NULL;
 	pdevinfo.name = dev_name(&adev->dev);
 	pdevinfo.id = -1;
 	pdevinfo.res = resources;

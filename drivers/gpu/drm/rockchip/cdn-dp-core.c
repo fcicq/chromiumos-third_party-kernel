@@ -19,14 +19,18 @@
 #include <drm/drm_edid.h>
 #include <drm/drm_of.h>
 
+#include <linux/arm-smccc.h>
 #include <linux/clk.h>
 #include <linux/component.h>
+#include <linux/crc16.h>
 #include <linux/extcon.h>
 #include <linux/firmware.h>
 #include <linux/hdmi-notifier.h>
+#include <linux/iopoll.h>
 #include <linux/regmap.h>
 #include <linux/reset.h>
 #include <linux/mfd/syscon.h>
+#include <linux/nvmem-consumer.h>
 #include <linux/phy/phy.h>
 
 #include <sound/hdmi-codec.h>
@@ -34,6 +38,16 @@
 #include "cdn-dp-core.h"
 #include "cdn-dp-reg.h"
 #include "rockchip_drm_vop.h"
+
+#define HDCP_RETRY_INTERVAL_MS		100
+#define HDCP_EVENT_TIMEOUT_MS		500
+#define HDCP_AUTHENTICATE_DELAY_MS	100
+
+#define HDCP_KEY_DATA_START_TRANSFER	0
+#define HDCP_KEY_DATA_START_DECRYPT	1
+
+#define RK_SIP_HDCP_CONTROL		0x82000009
+#define RK_SIP_HDCP_KEY_DATA64		0xC200000A
 
 #define connector_to_dp(c) \
 		container_of(c, struct cdn_dp_device, connector)
@@ -44,8 +58,6 @@
 #define GRF_SOC_CON9		0x6224
 #define DP_SEL_VOP_LIT		BIT(12)
 #define GRF_SOC_CON26		0x6268
-#define UPHY_SEL_BIT		3
-#define UPHY_SEL_MASK		BIT(19)
 #define DPTX_HPD_SEL		(3 << 12)
 #define DPTX_HPD_DEL		(2 << 12)
 #define DPTX_HPD_SEL_MASK	(3 << 28)
@@ -95,7 +107,7 @@ static int cdn_dp_grf_write(struct cdn_dp_device *dp,
 static int cdn_dp_clk_enable(struct cdn_dp_device *dp)
 {
 	int ret;
-	u32 rate;
+	unsigned long rate;
 
 	ret = clk_prepare_enable(dp->pclk);
 	if (ret < 0) {
@@ -112,7 +124,7 @@ static int cdn_dp_clk_enable(struct cdn_dp_device *dp)
 	ret = pm_runtime_get_sync(dp->dev);
 	if (ret < 0) {
 		DRM_DEV_ERROR(dp->dev, "cannot get pm runtime %d\n", ret);
-		goto err_pclk;
+		goto err_pm_runtime_get;
 	}
 
 	reset_control_assert(dp->core_rst);
@@ -123,8 +135,9 @@ static int cdn_dp_clk_enable(struct cdn_dp_device *dp)
 	reset_control_deassert(dp->apb_rst);
 
 	rate = clk_get_rate(dp->core_clk);
-	if (rate < 0) {
-		DRM_DEV_ERROR(dp->dev, "get clk rate failed: %d\n", rate);
+	if (!rate) {
+		DRM_DEV_ERROR(dp->dev, "get clk rate failed\n");
+		ret = -EINVAL;
 		goto err_set_rate;
 	}
 
@@ -134,6 +147,8 @@ static int cdn_dp_clk_enable(struct cdn_dp_device *dp)
 	return 0;
 
 err_set_rate:
+	pm_runtime_put(dp->dev);
+err_pm_runtime_get:
 	clk_disable_unprepare(dp->core_clk);
 err_core_clk:
 	clk_disable_unprepare(dp->pclk);
@@ -182,6 +197,50 @@ static int cdn_dp_get_sink_count(struct cdn_dp_device *dp, u8 *sink_count)
 
 	*sink_count = DP_GET_SINK_COUNT(value);
 	return 0;
+}
+
+static int cdn_dp_start_hdcp1x_auth(struct cdn_dp_device *dp)
+{
+	int ret;
+	struct arm_smccc_res res;
+	uint64_t *buf;
+
+	mutex_lock(&dp->lock);
+	if (!dp->active) {
+		dev_err(dp->dev, "firmware is not active\n");
+		goto out;
+	}
+
+	arm_smccc_smc(RK_SIP_HDCP_CONTROL, HDCP_KEY_DATA_START_TRANSFER,
+		      0, 0, 0, 0, 0, 0, &res);
+
+	buf = (uint64_t *)&dp->key;
+
+	for (; !res.a0 && (u8 *)buf - (u8 *)&dp->key < sizeof(dp->key);
+	     buf += 6)
+		arm_smccc_smc(RK_SIP_HDCP_KEY_DATA64, buf[0], buf[1],
+			      buf[2], buf[3], buf[4], buf[5], 0, &res);
+
+	if (res.a0) {
+		dev_err(dp->dev, "send hdcp keys failed: %ld\n", res.a0);
+		ret = -EIO;
+		goto out;
+	}
+	arm_smccc_smc(RK_SIP_HDCP_CONTROL, HDCP_KEY_DATA_START_DECRYPT,
+		      0, 0, 0, 0, 0, 0, &res);
+
+	ret = cdn_dp_hdcp_tx_configuration(dp, HDCP_TX_1, true);
+	if (ret) {
+		dev_err(dp->dev, "start hdcp authentication failed: %d\n", ret);
+		goto out;
+	}
+
+	schedule_delayed_work(&dp->hdcp_event_work,
+			      msecs_to_jiffies(HDCP_AUTHENTICATE_DELAY_MS));
+
+out:
+	mutex_unlock(&dp->lock);
+	return ret;
 }
 
 static struct cdn_dp_port *cdn_dp_connected_port(struct cdn_dp_device *dp)
@@ -251,12 +310,71 @@ static void cdn_dp_connector_destroy(struct drm_connector *connector)
 	drm_connector_cleanup(connector);
 }
 
+static int cdn_dp_set_content_protection(struct cdn_dp_device *dp,
+					  struct drm_mode_object *obj,
+					  struct drm_property *property,
+					  uint64_t val)
+{
+	int ret;
+
+	switch (val) {
+	case DRM_MODE_CONTENT_PROTECTION_UNDESIRED:
+		ret = cdn_dp_hdcp_tx_configuration(dp, HDCP_TX_1, false);
+		break;
+
+	case DRM_MODE_CONTENT_PROTECTION_DESIRED:
+		ret = cdn_dp_start_hdcp1x_auth(dp);
+		break;
+
+	case DRM_MODE_CONTENT_PROTECTION_ENABLED:
+		ret = -EINVAL;
+	}
+	return ret;
+}
+
+static int cdn_dp_connector_set_property(struct drm_connector *connector,
+						struct drm_property *property,
+						uint64_t val)
+{
+	struct cdn_dp_device *dp = connector_to_dp(connector);
+	int ret = 0;
+
+	if (strcmp(property->name, "Content Protection") == 0)
+		ret = cdn_dp_set_content_protection(dp, &connector->base,
+						    property, val);
+
+	return ret;
+}
+
+static int cdn_dp_connector_atomic_get_property(
+					struct drm_connector *connector,
+					const struct drm_connector_state *state,
+					struct drm_property *property,
+					uint64_t *val)
+{
+	struct drm_mode_config *mc = &connector->dev->mode_config;
+	int i;
+
+	if (property == mc->content_protection_property) {
+		for (i = 0; i < connector->properties.count; i++) {
+			if (connector->properties.properties[i] == property) {
+				*val = connector->properties.values[i];
+				return 0;
+			}
+		}
+	}
+
+	return -EINVAL;
+}
+
 static struct drm_connector_funcs cdn_dp_atomic_connector_funcs = {
 	.dpms = drm_atomic_helper_connector_dpms,
 	.detect = cdn_dp_connector_detect,
 	.destroy = cdn_dp_connector_destroy,
 	.fill_modes = drm_helper_probe_single_connector_modes,
 	.reset = drm_atomic_helper_connector_reset,
+	.set_property = cdn_dp_connector_set_property,
+	.atomic_get_property = cdn_dp_connector_atomic_get_property,
 	.atomic_duplicate_state = drm_atomic_helper_connector_duplicate_state,
 	.atomic_destroy_state = drm_atomic_helper_connector_destroy_state,
 };
@@ -403,11 +521,6 @@ static int cdn_dp_enable_phy(struct cdn_dp_device *dp, struct cdn_dp_port *port)
 {
 	union extcon_property_value property;
 	int ret;
-
-	ret = cdn_dp_grf_write(dp, GRF_SOC_CON26,
-			       (port->id << UPHY_SEL_BIT) | UPHY_SEL_MASK);
-	if (ret)
-		return ret;
 
 	if (!port->phy_enabled) {
 		ret = phy_power_on(port->phy);
@@ -569,9 +682,7 @@ static void cdn_dp_encoder_mode_set(struct drm_encoder *encoder,
 {
 	struct cdn_dp_device *dp = encoder_to_dp(encoder);
 	struct drm_display_info *display_info = &dp->connector.display_info;
-	struct rockchip_crtc_state *state;
 	struct video_info *video = &dp->video_info;
-	int ret, val;
 
 	switch (display_info->bpc) {
 	case 10:
@@ -586,29 +697,8 @@ static void cdn_dp_encoder_mode_set(struct drm_encoder *encoder,
 	}
 
 	video->color_fmt = PXL_RGB;
-
 	video->v_sync_polarity = !!(mode->flags & DRM_MODE_FLAG_NVSYNC);
 	video->h_sync_polarity = !!(mode->flags & DRM_MODE_FLAG_NHSYNC);
-
-	state = to_rockchip_crtc_state(encoder->crtc->state);
-	switch (vop_get_crtc_vop_id(encoder->crtc)) {
-	case RK3399_VOP_LIT:
-		DRM_DEV_DEBUG_KMS(dp->dev, "vop LIT output to cdn-dp\n");
-		val = DP_SEL_VOP_LIT | (DP_SEL_VOP_LIT << 16);
-		state->output_mode = ROCKCHIP_OUT_MODE_P888;
-		break;
-	case RK3399_VOP_BIG:
-		DRM_DEV_DEBUG_KMS(dp->dev, "vop BIG output to cdn-dp\n");
-		val = DP_SEL_VOP_LIT << 16;
-		state->output_mode = ROCKCHIP_OUT_MODE_AAAA;
-		break;
-	default:
-		break;
-	}
-
-	ret = cdn_dp_grf_write(dp, GRF_SOC_CON9, val);
-	if (ret)
-		return;
 
 	memcpy(&dp->mode, adjusted, sizeof(*mode));
 }
@@ -635,9 +725,33 @@ static bool cdn_dp_check_link_status(struct cdn_dp_device *dp)
 static void cdn_dp_encoder_enable(struct drm_encoder *encoder)
 {
 	struct cdn_dp_device *dp = encoder_to_dp(encoder);
-	int ret;
+	int ret, val;
+	struct rockchip_crtc_state *state;
+
+	state = to_rockchip_crtc_state(encoder->crtc->state);
+	switch (vop_get_crtc_vop_id(encoder->crtc)) {
+	case RK3399_VOP_LIT:
+		DRM_DEV_DEBUG_KMS(dp->dev, "vop LIT output to cdn-dp\n");
+		val = DP_SEL_VOP_LIT | (DP_SEL_VOP_LIT << 16);
+		state->output_mode = ROCKCHIP_OUT_MODE_P888;
+		break;
+	case RK3399_VOP_BIG:
+		DRM_DEV_DEBUG_KMS(dp->dev, "vop BIG output to cdn-dp\n");
+		val = DP_SEL_VOP_LIT << 16;
+		state->output_mode = ROCKCHIP_OUT_MODE_AAAA;
+		break;
+	default:
+		break;
+	}
+
+	ret = cdn_dp_grf_write(dp, GRF_SOC_CON9, val);
+	if (ret) {
+		DRM_DEV_ERROR(dp->dev, "Failed to switch VOP %d\n", ret);
+		return;
+	}
 
 	mutex_lock(&dp->lock);
+
 	ret = cdn_dp_enable(dp);
 	if (ret) {
 		DRM_DEV_ERROR(dp->dev, "Failed to enable encoder %d\n",
@@ -1037,6 +1151,88 @@ static int cdn_dp_pd_event(struct notifier_block *nb,
 	return NOTIFY_DONE;
 }
 
+static int cdn_dp_set_hdcp_drm_property(struct cdn_dp_device *dp, uint64_t val)
+{
+	struct drm_connector *connector = &dp->connector;
+	struct drm_mode_config *mc = &connector->dev->mode_config;
+
+	return drm_object_property_set_value(&connector->base,
+					     mc->content_protection_property,
+					     val);
+}
+
+static bool cdn_dp_hdcp_authorize(struct cdn_dp_device *dp)
+{
+	bool auth_done = false;
+	u16 tx_status;
+	u32 sw_event;
+	int ret;
+
+	mutex_lock(&dp->lock);
+
+	/*
+	 * HDCP authentication might cause the disconnect hpd event, just
+	 * stop the hdcp event SM.
+	 */
+	if (!dp->connected) {
+		auth_done = true;
+		goto out;
+	}
+
+	sw_event = cdn_dp_get_event(dp);
+
+	if (sw_event & HDCP_TX_STATUS_EVENT) {
+		auth_done = true;
+
+		ret = cdn_dp_hdcp_tx_status_req(dp, &tx_status);
+		if (ret)
+			goto out;
+		if (HDCP_TX_STATUS_ERROR(tx_status)) {
+			dev_err(dp->dev, "hdcp status error: %x\n",
+				HDCP_TX_STATUS_ERROR(tx_status));
+			goto out;
+		} else if (tx_status & HDCP_TX_STATUS_AUTHENTICATED) {
+			cdn_dp_set_hdcp_drm_property(dp,
+				DRM_MODE_CONTENT_PROTECTION_ENABLED);
+			goto out;
+		} else {
+			auth_done = false;
+		}
+	}
+
+	if (sw_event & HDCP_TX_IS_RECEIVER_ID_VALID_EVENT) {
+		ret = cdn_dp_hdcp_tx_is_receiver_id_valid_req(dp);
+		if (ret) {
+			auth_done = true;
+			goto out;
+		}
+		ret = cdn_dp_hdcp_tx_respond_id_valid(dp, true);
+		if (ret)
+			auth_done = true;
+	}
+
+out:
+	mutex_unlock(&dp->lock);
+
+	return auth_done;
+}
+
+static void cdn_dp_hdcp_event_work(struct work_struct *work)
+{
+	struct cdn_dp_device *dp = container_of(work, struct cdn_dp_device,
+						hdcp_event_work.work);
+	unsigned long timeout = jiffies +
+				msecs_to_jiffies(HDCP_EVENT_TIMEOUT_MS);
+
+	while (time_before(jiffies, timeout)) {
+		if (cdn_dp_hdcp_authorize(dp))
+			return;
+		msleep(HDCP_RETRY_INTERVAL_MS);
+	}
+
+	dev_err(dp->dev, "Failed to authorize hdcp\n");
+}
+
 static int cdn_dp_bind(struct device *dev, struct device *master, void *data)
 {
 	struct cdn_dp_device *dp = dev_get_drvdata(dev);
@@ -1044,6 +1240,7 @@ static int cdn_dp_bind(struct device *dev, struct device *master, void *data)
 	struct drm_connector *connector;
 	struct cdn_dp_port *port;
 	struct drm_device *drm_dev = data;
+	struct drm_mode_config *mode_config;
 	int ret, i;
 
 	ret = cdn_dp_parse_dt(dp);
@@ -1056,6 +1253,7 @@ static int cdn_dp_bind(struct device *dev, struct device *master, void *data)
 	dp->active_port = -1;
 
 	INIT_WORK(&dp->event_work, cdn_dp_pd_event_work);
+	INIT_DELAYED_WORK(&dp->hdcp_event_work, cdn_dp_hdcp_event_work);
 
 	encoder = &dp->encoder;
 
@@ -1112,6 +1310,11 @@ static int cdn_dp_bind(struct device *dev, struct device *master, void *data)
 
 	schedule_work(&dp->event_work);
 
+	mode_config = &connector->dev->mode_config;
+	drm_object_attach_property(&connector->base,
+				   mode_config->content_protection_property,
+				   DRM_MODE_CONTENT_PROTECTION_UNDESIRED);
+
 	return 0;
 
 err_free_connector:
@@ -1143,6 +1346,67 @@ static const struct component_ops cdn_dp_component_ops = {
 	.bind = cdn_dp_bind,
 	.unbind = cdn_dp_unbind,
 };
+
+static ssize_t hdcp_key_store(struct device *dev,
+				      struct device_attribute *attr,
+				      const char *buf, size_t count)
+{
+	struct nvmem_cell *cell;
+	struct cdn_dp_device *dp = dev_get_drvdata(dev);
+	u8 *cpu_id;
+	int ret;
+	size_t len;
+
+	/*
+	 * The HDCP Key format should look like this: "12345678...",
+	 * every two characters stand for a byte, so the total key size
+	 * would be (308 * 2) byte.
+	 */
+	if (count != (CDN_DP_HDCP_KEY_LEN * 2)) {
+		dev_err(dev, "mis-match hdcp cipher length\n");
+		return -EINVAL;
+	}
+
+	cell = nvmem_cell_get(dev, "cpu-id");
+	if (IS_ERR(cell)) {
+		dev_err(dev, "missing cpu-id nvmen cell property\n");
+		return -ENODEV;
+	}
+
+	cpu_id = (u8 *)nvmem_cell_read(cell, &len);
+	nvmem_cell_put(cell);
+
+	if (IS_ERR(cpu_id))
+		return PTR_ERR(cpu_id);
+
+	if (len != CDN_DP_HDCP_UID_LEN) {
+		dev_err(dev, "mismatch cpu-id size\n");
+		ret = -EINVAL;
+		goto err;
+	}
+
+	/*
+	 * The format of input HDCP Key should be "12345678...".
+	 * there is no standard format for HDCP keys, so it is
+	 * just made up for this driver.
+	 *
+	 * The "ksv & device_key & sha" should parsed from input data
+	 * buffer, and the "seed" would take the crc16 of cpu uid.
+	 */
+	ret = hex2bin((u8 *)&dp->key, buf, CDN_DP_HDCP_KEY_LEN);
+	if (ret) {
+		dev_err(dev, "failed to decode the input HDCP key format\n");
+		goto err;
+	}
+
+	memcpy(dp->key.uid, cpu_id, CDN_DP_HDCP_UID_LEN);
+	dp->key.seed = crc16(0xffff, cpu_id, 16);
+	ret = count;
+err:
+	kfree(cpu_id);
+	return ret;
+}
+static DEVICE_ATTR(hdcp_key, S_IWUSR, NULL, hdcp_key_store);
 
 int cdn_dp_suspend(struct device *dev)
 {
@@ -1180,7 +1444,7 @@ static int cdn_dp_probe(struct platform_device *pdev)
 	struct cdn_dp_device *dp;
 	struct extcon_dev *extcon;
 	struct phy *phy;
-	int i;
+	int ret, i;
 
 	dp = devm_kzalloc(dev, sizeof(*dp), GFP_KERNEL);
 	if (!dp)
@@ -1220,7 +1484,19 @@ static int cdn_dp_probe(struct platform_device *pdev)
 	mutex_init(&dp->lock);
 	dev_set_drvdata(dev, dp);
 
-	return component_add(dev, &cdn_dp_component_ops);
+	ret = device_create_file(dev, &dev_attr_hdcp_key);
+	if (ret)
+		return ret;
+
+	ret = component_add(dev, &cdn_dp_component_ops);
+	if (ret)
+		goto err;
+
+	return 0;
+
+err:
+	device_remove_file(dev, &dev_attr_hdcp_key);
+	return ret;
 }
 
 static int cdn_dp_remove(struct platform_device *pdev)
@@ -1229,6 +1505,7 @@ static int cdn_dp_remove(struct platform_device *pdev)
 
 	cdn_dp_suspend(dp->dev);
 	component_del(&pdev->dev, &cdn_dp_component_ops);
+	device_remove_file(&pdev->dev, &dev_attr_hdcp_key);
 
 	return 0;
 }

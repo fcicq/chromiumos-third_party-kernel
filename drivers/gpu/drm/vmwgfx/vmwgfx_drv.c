@@ -1053,7 +1053,7 @@ static struct vmw_master *vmw_master_check(struct drm_device *dev,
 	if (unlikely(ret != 0))
 		return ERR_PTR(-ERESTARTSYS);
 
-	if (file_priv->is_master) {
+	if (drm_is_current_master(file_priv)) {
 		mutex_unlock(&dev->master_mutex);
 		return NULL;
 	}
@@ -1231,8 +1231,7 @@ static int vmw_master_set(struct drm_device *dev,
 }
 
 static void vmw_master_drop(struct drm_device *dev,
-			    struct drm_file *file_priv,
-			    bool from_release)
+			    struct drm_file *file_priv)
 {
 	struct vmw_private *dev_priv = vmw_priv(dev);
 	struct vmw_fpriv *vmw_fp = vmw_fpriv(file_priv);
@@ -1552,10 +1551,8 @@ static int __init vmwgfx_init(void)
 {
 	int ret;
 
-#ifdef CONFIG_VGA_CONSOLE
 	if (vgacon_text_force())
 		return -EINVAL;
-#endif
 
 	ret = drm_pci_init(&driver, &vmw_pci_driver);
 	if (ret)

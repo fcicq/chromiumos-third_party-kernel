@@ -76,11 +76,11 @@
 #include <linux/binfmts.h>
 #include <linux/context_tracking.h>
 #include <linux/compiler.h>
+#include <linux/mutex.h>
 
 #include <asm/switch_to.h>
 #include <asm/tlb.h>
 #include <asm/irq_regs.h>
-#include <asm/mutex.h>
 #ifdef CONFIG_PARAVIRT
 #include <asm/paravirt.h>
 #endif
@@ -5149,7 +5149,8 @@ void show_state_filter(unsigned long state_filter)
 	}
 
 #ifdef CONFIG_SCHED_DEBUG
-	sysrq_sched_debug_show();
+	if (!state_filter)
+		sysrq_sched_debug_show();
 #endif
 	rcu_read_unlock();
 	/*

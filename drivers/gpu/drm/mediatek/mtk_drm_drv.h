@@ -35,6 +35,7 @@ struct mtk_drm_private {
 	struct drm_crtc *crtc[MAX_CRTC];
 	unsigned int num_pipes;
 
+	struct platform_device *gce_pdev;
 	struct device_node *mutex_node;
 	struct device *mutex_dev;
 	void __iomem *config_regs;
@@ -42,12 +43,20 @@ struct mtk_drm_private {
 	struct mtk_ddp_comp *ddp_comp[DDP_COMPONENT_ID_MAX];
 
 	struct {
-		struct drm_atomic_state *state;
-		struct work_struct work;
-		struct mutex lock;
+		uint32_t crtcs;
+		wait_queue_head_t crtcs_event;
+		uint32_t flush_for_cursor;
 	} commit;
 
 	struct drm_atomic_state *suspend_state;
+
+	struct {
+		struct work_struct	work;
+		struct list_head	list;
+		spinlock_t		lock;
+	} unreference;
+
+	struct mutex hw_lock;
 };
 
 extern struct platform_driver mtk_ddp_driver;
@@ -56,5 +65,8 @@ extern struct platform_driver mtk_disp_rdma_driver;
 extern struct platform_driver mtk_dpi_driver;
 extern struct platform_driver mtk_dsi_driver;
 extern struct platform_driver mtk_mipi_tx_driver;
+
+void mtk_atomic_state_get(struct drm_atomic_state *state);
+void mtk_atomic_state_put_queue(struct drm_atomic_state *state);
 
 #endif /* MTK_DRM_DRV_H */

@@ -177,24 +177,24 @@ void omap_framebuffer_update_scanout(struct drm_framebuffer *fb,
 					(uint32_t)win->rotation);
 			/* fallthru to default to no rotation */
 		case 0:
-		case BIT(DRM_ROTATE_0):
+		case DRM_ROTATE_0:
 			orient = 0;
 			break;
-		case BIT(DRM_ROTATE_90):
+		case DRM_ROTATE_90:
 			orient = MASK_XY_FLIP | MASK_X_INVERT;
 			break;
-		case BIT(DRM_ROTATE_180):
+		case DRM_ROTATE_180:
 			orient = MASK_X_INVERT | MASK_Y_INVERT;
 			break;
-		case BIT(DRM_ROTATE_270):
+		case DRM_ROTATE_270:
 			orient = MASK_XY_FLIP | MASK_Y_INVERT;
 			break;
 		}
 
-		if (win->rotation & BIT(DRM_REFLECT_X))
+		if (win->rotation & DRM_REFLECT_X)
 			orient ^= MASK_X_INVERT;
 
-		if (win->rotation & BIT(DRM_REFLECT_Y))
+		if (win->rotation & DRM_REFLECT_Y)
 			orient ^= MASK_Y_INVERT;
 
 		/* adjust x,y offset for flip/invert: */
@@ -211,7 +211,7 @@ void omap_framebuffer_update_scanout(struct drm_framebuffer *fb,
 	} else {
 		switch (win->rotation & DRM_ROTATE_MASK) {
 		case 0:
-		case BIT(DRM_ROTATE_0):
+		case DRM_ROTATE_0:
 			/* OK */
 			break;
 
@@ -370,7 +370,7 @@ struct drm_framebuffer *omap_framebuffer_create(struct drm_device *dev,
 	struct drm_framebuffer *fb;
 	int ret;
 
-	ret = objects_lookup(dev, file, mode_cmd->pixel_format,
+	ret = objects_lookup(file, mode_cmd->pixel_format,
 			bos, mode_cmd->handles);
 	if (ret)
 		return ERR_PTR(ret);

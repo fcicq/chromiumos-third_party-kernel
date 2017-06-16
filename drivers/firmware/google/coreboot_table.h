@@ -1,7 +1,9 @@
 /*
- * coreboot_table.c: Internal header for coreboot table access.
+ * coreboot_table.h
  *
- * Copyright 2015 Google Inc.
+ * Internal header for coreboot table access.
+ *
+ * Copyright 2017 Google Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License v2.0 as published by

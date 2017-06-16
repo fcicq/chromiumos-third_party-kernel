@@ -172,8 +172,7 @@ rockchip_user_fb_create(struct drm_device *dev, struct drm_file *file_priv,
 		unsigned int height = mode_cmd->height / (i ? vsub : 1);
 		unsigned int min_size;
 
-		obj = drm_gem_object_lookup(dev, file_priv,
-					    mode_cmd->handles[i]);
+		obj = drm_gem_object_lookup(file_priv, mode_cmd->handles[i]);
 		if (!obj) {
 			dev_err(dev->dev, "Failed to lookup GEM object\n");
 			ret = -ENXIO;
@@ -389,9 +388,9 @@ void rockchip_drm_atomic_work(struct kthread_work *work)
 	rockchip_atomic_commit_complete(commit);
 }
 
-int rockchip_drm_atomic_commit(struct drm_device *dev,
-			       struct drm_atomic_state *state,
-			       bool nonblock)
+static int rockchip_drm_atomic_commit(struct drm_device *dev,
+				      struct drm_atomic_state *state,
+				      bool nonblock)
 {
 	struct rockchip_drm_private *private = dev->dev_private;
 	struct rockchip_atomic_commit *commit = &private->commit;
@@ -426,7 +425,7 @@ int rockchip_drm_atomic_commit(struct drm_device *dev,
 		}
 	}
 
-	drm_atomic_helper_swap_state(dev, state);
+	drm_atomic_helper_swap_state(state, true);
 
 	commit->dev = dev;
 	commit->state = state;
@@ -464,6 +463,8 @@ rockchip_drm_framebuffer_init(struct drm_device *dev,
 
 void rockchip_drm_mode_config_init(struct drm_device *dev)
 {
+	unsigned long rotation_flags = DRM_ROTATE_0 | DRM_REFLECT_Y;
+
 	dev->mode_config.min_width = 0;
 	dev->mode_config.min_height = 0;
 
@@ -476,6 +477,8 @@ void rockchip_drm_mode_config_init(struct drm_device *dev)
 	dev->mode_config.max_height = 4096;
 
 	dev->mode_config.allow_fb_modifiers = true;
+	dev->mode_config.rotation_property =
+		drm_mode_create_rotation_property(dev, rotation_flags);
 
 	dev->mode_config.funcs = &rockchip_drm_mode_config_funcs;
 }

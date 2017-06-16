@@ -1126,23 +1126,10 @@ static u32 dce_v10_0_latency_watermark(struct dce10_wm_params *wm)
 	a.full = dfixed_const(available_bandwidth);
 	b.full = dfixed_const(wm->num_heads);
 	a.full = dfixed_div(a, b);
+	tmp = div_u64((u64) dmif_size * (u64) wm->disp_clk, mc_latency + 512);
+	tmp = min(dfixed_trunc(a), tmp);
 
-	b.full = dfixed_const(mc_latency + 512);
-	c.full = dfixed_const(wm->disp_clk);
-	b.full = dfixed_div(b, c);
-
-	c.full = dfixed_const(dmif_size);
-	b.full = dfixed_div(c, b);
-
-	tmp = min(dfixed_trunc(a), dfixed_trunc(b));
-
-	b.full = dfixed_const(1000);
-	c.full = dfixed_const(wm->disp_clk);
-	b.full = dfixed_div(c, b);
-	c.full = dfixed_const(wm->bytes_per_pixel);
-	b.full = dfixed_mul(b, c);
-
-	lb_fill_bw = min(tmp, dfixed_trunc(b));
+	lb_fill_bw = min(tmp, wm->disp_clk * wm->bytes_per_pixel / 1000);
 
 	a.full = dfixed_const(max_src_lines_per_dst_line * wm->src_width * wm->bytes_per_pixel);
 	b.full = dfixed_const(1000);
@@ -1250,14 +1237,14 @@ static void dce_v10_0_program_watermarks(struct amdgpu_device *adev,
 {
 	struct drm_display_mode *mode = &amdgpu_crtc->base.mode;
 	struct dce10_wm_params wm_low, wm_high;
-	u32 pixel_period;
+	u32 active_time;
 	u32 line_time = 0;
 	u32 latency_watermark_a = 0, latency_watermark_b = 0;
 	u32 tmp, wm_mask, lb_vblank_lead_lines = 0;
 
 	if (amdgpu_crtc->base.enabled && num_heads && mode) {
-		pixel_period = 1000000 / (u32)mode->clock;
-		line_time = min((u32)mode->crtc_htotal * pixel_period, (u32)65535);
+		active_time = 1000000UL * (u32)mode->crtc_hdisplay / (u32)mode->clock;
+		line_time = min((u32) (1000000UL * (u32)mode->crtc_htotal / (u32)mode->clock), (u32)65535);
 
 		/* watermark for high clocks */
 		if (adev->pm.dpm_enabled) {
@@ -1272,7 +1259,7 @@ static void dce_v10_0_program_watermarks(struct amdgpu_device *adev,
 
 		wm_high.disp_clk = mode->clock;
 		wm_high.src_width = mode->crtc_hdisplay;
-		wm_high.active_time = mode->crtc_hdisplay * pixel_period;
+		wm_high.active_time = active_time;
 		wm_high.blank_time = line_time - wm_high.active_time;
 		wm_high.interlaced = false;
 		if (mode->flags & DRM_MODE_FLAG_INTERLACE)
@@ -1311,7 +1298,7 @@ static void dce_v10_0_program_watermarks(struct amdgpu_device *adev,
 
 		wm_low.disp_clk = mode->clock;
 		wm_low.src_width = mode->crtc_hdisplay;
-		wm_low.active_time = mode->crtc_hdisplay * pixel_period;
+		wm_low.active_time = active_time;
 		wm_low.blank_time = line_time - wm_low.active_time;
 		wm_low.interlaced = false;
 		if (mode->flags & DRM_MODE_FLAG_INTERLACE)
@@ -2057,6 +2044,7 @@ static int dce_v10_0_crtc_do_set_base(struct drm_crtc *crtc,
 	u32 tmp, viewport_w, viewport_h;
 	int r;
 	bool bypass_lut = false;
+	char *format_name;
 
 	/* no fb bound */
 	if (!atomic && !crtc->primary->fb) {
@@ -2169,8 +2157,9 @@ static int dce_v10_0_crtc_do_set_base(struct drm_crtc *crtc,
 		bypass_lut = true;
 		break;
 	default:
-		DRM_ERROR("Unsupported screen format %s\n",
-			drm_get_format_name(target_fb->pixel_format));
+		format_name = drm_get_format_name(target_fb->pixel_format);
+		DRM_ERROR("Unsupported screen format %s\n", format_name);
+		kfree(format_name);
 		return -EINVAL;
 	}
 
@@ -2580,7 +2569,7 @@ static int dce_v10_0_crtc_cursor_set2(struct drm_crtc *crtc,
 		return -EINVAL;
 	}
 
-	obj = drm_gem_object_lookup(crtc->dev, file_priv, handle);
+	obj = drm_gem_object_lookup(file_priv, handle);
 	if (!obj) {
 		DRM_ERROR("Cannot find cursor object %x for crtc %d\n", handle, amdgpu_crtc->crtc_id);
 		return -ENOENT;

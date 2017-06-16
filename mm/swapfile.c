@@ -2195,10 +2195,6 @@ static struct swap_info_struct *alloc_swap_info(void)
 	return p;
 }
 
-#ifdef CONFIG_DISK_BASED_SWAP
-int sysctl_disk_based_swap;
-#endif
-
 static int claim_swapfile(struct swap_info_struct *p, struct inode *inode)
 {
 	int error;
@@ -2223,13 +2219,12 @@ static int claim_swapfile(struct swap_info_struct *p, struct inode *inode)
 		if (error < 0)
 			return error;
 		p->flags |= SWP_BLKDEV;
-#ifdef CONFIG_DISK_BASED_SWAP
-	} else if (sysctl_disk_based_swap && S_ISREG(inode->i_mode)) {
+	} else if (S_ISREG(inode->i_mode) &&
+		   IS_ENABLED(CONFIG_DISK_BASED_SWAP)) {
 		p->bdev = inode->i_sb->s_bdev;
 		mutex_lock(&inode->i_mutex);
 		if (IS_SWAPFILE(inode))
 			return -EBUSY;
-#endif
 	} else
 		return -EINVAL;
 
@@ -2607,7 +2602,8 @@ bad_swap:
 	vfree(cluster_info);
 	if (swap_file) {
 		if (inode && S_ISREG(inode->i_mode)) {
-			mutex_unlock(&inode->i_mutex);
+			if (IS_ENABLED(CONFIG_DISK_BASED_SWAP))
+				mutex_unlock(&inode->i_mutex);
 			inode = NULL;
 		}
 		filp_close(swap_file, NULL);

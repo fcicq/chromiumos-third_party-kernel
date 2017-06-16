@@ -377,7 +377,7 @@ out:
 enum drm_connector_status
 intel_panel_detect(struct drm_device *dev)
 {
-	struct drm_i915_private *dev_priv = dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(dev);
 
 	/* Assume that the BIOS does not lie through the OpRegion... */
 	if (!i915.panel_ignore_lid && dev_priv->opregion.lid_state) {
@@ -504,7 +504,7 @@ static u32 i9xx_get_backlight(struct intel_connector *connector)
 	if (panel->backlight.combination_mode) {
 		u8 lbpc;
 
-		pci_read_config_byte(dev_priv->dev->pdev, LBPC, &lbpc);
+		pci_read_config_byte(dev_priv->drm.pdev, LBPC, &lbpc);
 		val *= lbpc;
 	}
 
@@ -592,7 +592,7 @@ static void i9xx_set_backlight(struct intel_connector *connector, u32 level)
 
 		lbpc = level * 0xfe / panel->backlight.max + 1;
 		level /= lbpc;
-		pci_write_config_byte(dev_priv->dev->pdev, LBPC, lbpc);
+		pci_write_config_byte(dev_priv->drm.pdev, LBPC, lbpc);
 	}
 
 	if (IS_GEN4(dev_priv)) {
@@ -822,7 +822,7 @@ void intel_panel_disable_backlight(struct intel_connector *connector)
 	 * backlight. This will leave the backlight on unnecessarily when
 	 * another client is not activated.
 	 */
-	if (dev_priv->dev->switch_power_state == DRM_SWITCH_POWER_CHANGING) {
+	if (dev_priv->drm.switch_power_state == DRM_SWITCH_POWER_CHANGING) {
 		DRM_DEBUG_DRIVER("Skipping backlight disable on vga switch\n");
 		return;
 	}
@@ -1141,7 +1141,7 @@ static int intel_backlight_device_get_brightness(struct backlight_device *bd)
 {
 	struct intel_connector *connector = bl_get_data(bd);
 	struct drm_device *dev = connector->base.dev;
-	struct drm_i915_private *dev_priv = dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(dev);
 	u32 hw_level;
 	int ret;
 
@@ -1162,7 +1162,7 @@ static const struct backlight_ops intel_backlight_device_ops = {
 	.get_brightness = intel_backlight_device_get_brightness,
 };
 
-static int intel_backlight_device_register(struct intel_connector *connector)
+int intel_backlight_device_register(struct intel_connector *connector)
 {
 	struct intel_panel *panel = &connector->panel;
 	struct backlight_properties props;
@@ -1215,7 +1215,7 @@ static int intel_backlight_device_register(struct intel_connector *connector)
 	return 0;
 }
 
-static void intel_backlight_device_unregister(struct intel_connector *connector)
+void intel_backlight_device_unregister(struct intel_connector *connector)
 {
 	struct intel_panel *panel = &connector->panel;
 
@@ -1223,14 +1223,6 @@ static void intel_backlight_device_unregister(struct intel_connector *connector)
 		backlight_device_unregister(panel->backlight.device);
 		panel->backlight.device = NULL;
 	}
-}
-#else /* CONFIG_BACKLIGHT_CLASS_DEVICE */
-static int intel_backlight_device_register(struct intel_connector *connector)
-{
-	return 0;
-}
-static void intel_backlight_device_unregister(struct intel_connector *connector)
-{
 }
 #endif /* CONFIG_BACKLIGHT_CLASS_DEVICE */
 
@@ -1323,7 +1315,7 @@ static u32 i9xx_hz_to_pwm(struct intel_connector *connector, u32 pwm_freq_hz)
 static u32 i965_hz_to_pwm(struct intel_connector *connector, u32 pwm_freq_hz)
 {
 	struct drm_device *dev = connector->base.dev;
-	struct drm_i915_private *dev_priv = dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(dev);
 	int clock;
 
 	if (IS_G4X(dev_priv))
@@ -1723,6 +1715,10 @@ intel_panel_init_backlight_funcs(struct intel_panel *panel)
 		container_of(panel, struct intel_connector, panel);
 	struct drm_i915_private *dev_priv = to_i915(connector->base.dev);
 
+	if (connector->base.connector_type == DRM_MODE_CONNECTOR_eDP &&
+	    intel_dp_aux_init_backlight_funcs(connector) == 0)
+		return;
+
 	if (IS_BROXTON(dev_priv)) {
 		panel->backlight.setup = bxt_setup_backlight;
 		panel->backlight.enable = bxt_enable_backlight;
@@ -1802,20 +1798,4 @@ void intel_panel_fini(struct intel_panel *panel)
 	if (panel->downclock_mode)
 		drm_mode_destroy(intel_connector->base.dev,
 				panel->downclock_mode);
-}
-
-void intel_backlight_register(struct drm_device *dev)
-{
-	struct intel_connector *connector;
-
-	for_each_intel_connector(dev, connector)
-		intel_backlight_device_register(connector);
-}
-
-void intel_backlight_unregister(struct drm_device *dev)
-{
-	struct intel_connector *connector;
-
-	for_each_intel_connector(dev, connector)
-		intel_backlight_device_unregister(connector);
 }

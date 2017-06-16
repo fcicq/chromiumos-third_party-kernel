@@ -7052,7 +7052,7 @@ int l2cap_chan_connect(struct l2cap_chan *chan, __le16 psm, u16 cid,
 	BT_DBG("%pMR -> %pMR (type %u) psm 0x%2.2x", &chan->src, dst,
 	       dst_type, __le16_to_cpu(psm));
 
-	hdev = hci_get_route(dst, &chan->src);
+	hdev = hci_get_route(dst, &chan->src, chan->src_type);
 	if (!hdev)
 		return -EHOSTUNREACH;
 
@@ -7468,7 +7468,7 @@ void l2cap_recv_acldata(struct hci_conn *hcon, struct sk_buff *skb, u16 flags)
 	int len;
 
 	/* For AMP controller do not create l2cap conn */
-	if (!conn && hcon->hdev->dev_type != HCI_BREDR)
+	if (!conn && hcon->hdev->dev_type != HCI_PRIMARY)
 		goto drop;
 
 	if (!conn)
