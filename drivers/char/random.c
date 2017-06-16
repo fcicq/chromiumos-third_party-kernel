@@ -698,15 +698,18 @@ retry:
 	}
 }
 
-static void credit_entropy_bits_safe(struct entropy_store *r, int nbits)
+static int credit_entropy_bits_safe(struct entropy_store *r, int nbits)
 {
 	const int nbits_max = (int)(~0U >> (ENTROPY_SHIFT + 1));
 
+	if (nbits < 0)
+		return -EINVAL;
+
 	/* Cap the value to avoid overflows */
 	nbits = min(nbits,  nbits_max);
-	nbits = max(nbits, -nbits_max);
 
 	credit_entropy_bits(r, nbits);
+	return 0;
 }
 
 /*********************************************************************
@@ -1063,8 +1066,8 @@ static void extract_buf(struct entropy_store *r, __u8 *out)
 	 * pool while mixing, and hash one final time.
 	 */
 	sha_transform(hash.w, extract, workspace);
-	memset(extract, 0, sizeof(extract));
-	memset(workspace, 0, sizeof(workspace));
+	memzero_explicit(extract, sizeof(extract));
+	memzero_explicit(workspace, sizeof(workspace));
 
 	/*
 	 * In case the hash function has some recognizable output
@@ -1076,7 +1079,7 @@ static void extract_buf(struct entropy_store *r, __u8 *out)
 	hash.w[2] ^= rol32(hash.w[2], 16);
 
 	memcpy(out, &hash, EXTRACT_SIZE);
-	memset(&hash, 0, sizeof(hash));
+	memzero_explicit(&hash, sizeof(hash));
 }
 
 static ssize_t extract_entropy(struct entropy_store *r, void *buf,
@@ -1124,7 +1127,7 @@ static ssize_t extract_entropy(struct entropy_store *r, void *buf,
 	}
 
 	/* Wipe data just returned from memory */
-	memset(tmp, 0, sizeof(tmp));
+	memzero_explicit(tmp, sizeof(tmp));
 
 	return ret;
 }
@@ -1162,7 +1165,7 @@ static ssize_t extract_entropy_user(struct entropy_store *r, void __user *buf,
 	}
 
 	/* Wipe data just returned from memory */
-	memset(tmp, 0, sizeof(tmp));
+	memzero_explicit(tmp, sizeof(tmp));
 
 	return ret;
 }
@@ -1420,8 +1423,7 @@ static long random_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 			return -EPERM;
 		if (get_user(ent_count, p))
 			return -EFAULT;
-		credit_entropy_bits_safe(&input_pool, ent_count);
-		return 0;
+		return credit_entropy_bits_safe(&input_pool, ent_count);
 	case RNDADDENTROPY:
 		if (!capable(CAP_SYS_ADMIN))
 			return -EPERM;
@@ -1435,8 +1437,7 @@ static long random_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 				    size);
 		if (retval < 0)
 			return retval;
-		credit_entropy_bits_safe(&input_pool, ent_count);
-		return 0;
+		return credit_entropy_bits_safe(&input_pool, ent_count);
 	case RNDZAPENTCNT:
 	case RNDCLEARPOOL:
 		/*
@@ -1656,6 +1657,28 @@ unsigned int get_random_int(void)
 	return ret;
 }
 EXPORT_SYMBOL(get_random_int);
+
+/*
+ * Same as get_random_int(), but returns unsigned long.
+ */
+unsigned long get_random_long(void)
+{
+	__u32 *hash;
+	unsigned long ret;
+
+	if (arch_get_random_long(&ret))
+		return ret;
+
+	hash = get_cpu_var(get_random_int_hash);
+
+	hash[0] += current->pid + jiffies + random_get_entropy();
+	md5_transform(hash, random_int_secret);
+	ret = *(unsigned long *)hash;
+	put_cpu_var(get_random_int_hash);
+
+	return ret;
+}
+EXPORT_SYMBOL(get_random_long);
 
 /*
  * randomize_range() returns a start address such that

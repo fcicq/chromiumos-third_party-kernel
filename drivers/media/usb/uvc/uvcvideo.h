@@ -567,7 +567,6 @@ struct uvc_driver {
 #define UVC_TRACE_FORMAT	(1 << 3)
 #define UVC_TRACE_CAPTURE	(1 << 4)
 #define UVC_TRACE_CALLS		(1 << 5)
-#define UVC_TRACE_IOCTL		(1 << 6)
 #define UVC_TRACE_FRAME		(1 << 7)
 #define UVC_TRACE_SUSPEND	(1 << 8)
 #define UVC_TRACE_STATUS	(1 << 9)
@@ -616,8 +615,12 @@ extern int uvc_alloc_buffers(struct uvc_video_queue *queue,
 extern void uvc_free_buffers(struct uvc_video_queue *queue);
 extern int uvc_query_buffer(struct uvc_video_queue *queue,
 		struct v4l2_buffer *v4l2_buf);
+extern int uvc_create_buffers(struct uvc_video_queue *queue,
+		struct v4l2_create_buffers *v4l2_cb);
 extern int uvc_queue_buffer(struct uvc_video_queue *queue,
 		struct v4l2_buffer *v4l2_buf);
+extern int uvc_export_buffer(struct uvc_video_queue *queue,
+		struct v4l2_exportbuffer *exp);
 extern int uvc_dequeue_buffer(struct uvc_video_queue *queue,
 		struct v4l2_buffer *v4l2_buf, int nonblocking);
 extern int uvc_queue_enable(struct uvc_video_queue *queue, int enable);
@@ -639,6 +642,7 @@ static inline int uvc_queue_streaming(struct uvc_video_queue *queue)
 }
 
 /* V4L2 interface */
+extern const struct v4l2_ioctl_ops uvc_ioctl_ops;
 extern const struct v4l2_file_operations uvc_fops;
 
 /* Media controller */

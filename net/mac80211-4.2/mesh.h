@@ -15,6 +15,7 @@
 #include <linux/jhash.h>
 #include "ieee80211_i.h"
 
+#define MESH_BYPASS_ROUTING_FOR_TEST_FRAMES
 
 /* Data structures */
 
@@ -67,6 +68,16 @@ enum mesh_deferred_task_flags {
 	MESH_WORK_ROOT,
 	MESH_WORK_DRIFT_ADJUST,
 	MESH_WORK_MBSS_CHANGED,
+	MESH_WORK_MPATH_STATS,
+	MESH_WORK_UPDATE_PATH_DEBUGFS,
+};
+
+struct mpath_stats {
+	unsigned long aggr_qlen;
+	u32 nz_qlen_count;
+	u32 aggr_hop_count;
+	u32 path_change_count;
+	u32 sample_size;
 };
 
 /**
@@ -95,7 +106,8 @@ enum mesh_deferred_task_flags {
  * @last_preq_to_root: Timestamp of last PREQ sent to root
  * @is_root: the destination station of this path is a root node
  * @is_gate: the destination station of this path is a mesh gate
- *
+ * @pstats: path statistics
+ * @debugfs: debug filesystem info
  *
  * The combination of dst and sdata is unique in the mesh path table. Since the
  * next_hop STA is only protected by RCU as well, deleting the STA must also
@@ -123,6 +135,13 @@ struct mesh_path {
 	unsigned long last_preq_to_root;
 	bool is_root;
 	bool is_gate;
+	struct mpath_stats pstats;
+#ifdef CONFIG_MAC80211_DEBUGFS
+	struct mpath_debugfsdentries {
+		struct dentry *dir;
+		bool add_has_run;
+	} debugfs;
+#endif
 };
 
 /**
@@ -190,9 +209,18 @@ struct mesh_rmc {
 	u32 idx_mask;
 };
 
+struct path_debugfs_work {
+	struct list_head list;
+	bool add_entry;
+	u8 dst[ETH_ALEN];
+	struct dentry *dst_dir;
+};
+
 #define IEEE80211_MESH_HOUSEKEEPING_INTERVAL (60 * HZ)
 
 #define MESH_PATH_EXPIRE (600 * HZ)
+
+#define MESH_PATH_STATS_UPDATE_INTERVAL (1 * HZ)
 
 /* Default maximum number of plinks per interface */
 #define MESH_MAX_PLINKS		256
@@ -203,13 +231,16 @@ struct mesh_rmc {
 /* Number of frames buffered per destination for unresolved destinations */
 #define MESH_FRAME_QUEUE_LEN	10
 
+/* Threshold of link metric difference (in percent) to switch path selection */
+#define MESH_PATH_SWITCH_TH		15
+
 /* Public interfaces */
 /* Various */
 int ieee80211_fill_mesh_addresses(struct ieee80211_hdr *hdr, __le16 *fc,
 				  const u8 *da, const u8 *sa);
-int ieee80211_new_mesh_header(struct ieee80211_sub_if_data *sdata,
-			      struct ieee80211s_hdr *meshhdr,
-			      const char *addr4or5, const char *addr6);
+unsigned int ieee80211_new_mesh_header(struct ieee80211_sub_if_data *sdata,
+				       struct ieee80211s_hdr *meshhdr,
+				       const char *addr4or5, const char *addr6);
 int mesh_rmc_check(struct ieee80211_sub_if_data *sdata,
 		   const u8 *addr, struct ieee80211s_hdr *mesh_hdr);
 bool mesh_matches_local(struct ieee80211_sub_if_data *sdata,
@@ -227,11 +258,15 @@ int mesh_add_ht_cap_ie(struct ieee80211_sub_if_data *sdata,
 		       struct sk_buff *skb);
 int mesh_add_ht_oper_ie(struct ieee80211_sub_if_data *sdata,
 			struct sk_buff *skb);
+int mesh_add_vht_cap_ie(struct ieee80211_sub_if_data *sdata,
+			struct sk_buff *skb);
+int mesh_add_vht_oper_ie(struct ieee80211_sub_if_data *sdata,
+			 struct sk_buff *skb);
 void mesh_rmc_free(struct ieee80211_sub_if_data *sdata);
 int mesh_rmc_init(struct ieee80211_sub_if_data *sdata);
 void ieee80211s_init(void);
 void ieee80211s_update_metric(struct ieee80211_local *local,
-			      struct sta_info *sta, struct sk_buff *skb);
+			struct sta_info *sta, struct sk_buff *skb, int retry_count);
 void ieee80211_mesh_init_sdata(struct ieee80211_sub_if_data *sdata);
 int ieee80211_start_mesh(struct ieee80211_sub_if_data *sdata);
 void ieee80211_stop_mesh(struct ieee80211_sub_if_data *sdata);
@@ -274,6 +309,7 @@ struct mesh_path *
 mpp_path_lookup_by_idx(struct ieee80211_sub_if_data *sdata, int idx);
 void mesh_path_fix_nexthop(struct mesh_path *mpath, struct sta_info *next_hop);
 void mesh_path_expire(struct ieee80211_sub_if_data *sdata);
+void mesh_path_update_stats(struct ieee80211_sub_if_data *sdata);
 void mesh_rx_path_sel_frame(struct ieee80211_sub_if_data *sdata,
 			    struct ieee80211_mgmt *mgmt, size_t len);
 struct mesh_path *
@@ -282,10 +318,15 @@ mesh_path_add(struct ieee80211_sub_if_data *sdata, const u8 *dst);
 int mesh_path_add_gate(struct mesh_path *mpath);
 int mesh_path_send_to_gates(struct mesh_path *mpath);
 int mesh_gate_num(struct ieee80211_sub_if_data *sdata);
+void mesh_path_table_debug_dump(struct ieee80211_sub_if_data *sdata);
+void mpp_path_table_debug_dump(struct ieee80211_sub_if_data *sdata);
+u32 airtime_link_metric_get(struct ieee80211_local *local,
+		struct sta_info *sta);
 
 /* Mesh plinks */
 void mesh_neighbour_update(struct ieee80211_sub_if_data *sdata,
-			   u8 *hw_addr, struct ieee802_11_elems *ie);
+			   u8 *hw_addr, struct ieee802_11_elems *ie,
+			   int rx_signal);
 bool mesh_peer_accepts_plinks(struct ieee802_11_elems *ie);
 u32 mesh_accept_plinks_update(struct ieee80211_sub_if_data *sdata);
 void mesh_plink_broken(struct sta_info *sta);
@@ -311,11 +352,17 @@ void mesh_path_tx_pending(struct mesh_path *mpath);
 int mesh_pathtbl_init(void);
 void mesh_pathtbl_unregister(void);
 int mesh_path_del(struct ieee80211_sub_if_data *sdata, const u8 *addr);
+#if CONFIG_MAC80211_DEBUGFS
+void path_debugfs_free(struct ieee80211_sub_if_data *sdata);
+int path_debugfs_init(struct ieee80211_sub_if_data *sdata);
+void mesh_path_debugfs_work(struct ieee80211_sub_if_data *sdata);
+#endif
 void mesh_path_timer(unsigned long data);
 void mesh_path_flush_by_nexthop(struct sta_info *sta);
 void mesh_path_discard_frame(struct ieee80211_sub_if_data *sdata,
 			     struct sk_buff *skb);
 void mesh_path_tx_root_frame(struct ieee80211_sub_if_data *sdata);
+void mesh_hwmp_init(void);
 
 bool mesh_action_is_path_sel(struct ieee80211_mgmt *mgmt);
 extern int mesh_paths_generation;

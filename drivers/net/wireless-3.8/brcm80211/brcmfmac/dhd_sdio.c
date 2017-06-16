@@ -618,6 +618,8 @@ static const struct sdiod_drive_str sdiod_drvstr_tab2_3v3[] = {
 #define BCM4345_NVRAM_NAME		"brcm/brcmfmac4345-sdio.txt"
 #define BCM4354_FIRMWARE_NAME		"brcm/brcmfmac4354-sdio.bin"
 #define BCM4354_NVRAM_NAME		"brcm/brcmfmac4354-sdio.txt"
+#define BCM4371_FIRMWARE_NAME		"brcm/brcmfmac4371-sdio.bin"
+#define BCM4371_NVRAM_NAME		"brcm/brcmfmac4371-sdio.txt"
 
 MODULE_FIRMWARE(BCM43143_FIRMWARE_NAME);
 MODULE_FIRMWARE(BCM43143_NVRAM_NAME);
@@ -641,6 +643,8 @@ MODULE_FIRMWARE(BCM4345_FIRMWARE_NAME);
 MODULE_FIRMWARE(BCM4345_NVRAM_NAME);
 MODULE_FIRMWARE(BCM4354_FIRMWARE_NAME);
 MODULE_FIRMWARE(BCM4354_NVRAM_NAME);
+MODULE_FIRMWARE(BCM4371_FIRMWARE_NAME);
+MODULE_FIRMWARE(BCM4371_NVRAM_NAME);
 
 struct brcmf_firmware_names {
 	u32 chipid;
@@ -668,7 +672,8 @@ static const struct brcmf_firmware_names brcmf_fwname_data[] = {
 	{ BRCM_CC_43362_CHIP_ID, 0xFFFFFFFE, BRCMF_FIRMWARE_NVRAM(BCM43362) },
 	{ BRCM_CC_4339_CHIP_ID, 0xFFFFFFFF, BRCMF_FIRMWARE_NVRAM(BCM4339) },
 	{ BRCM_CC_4345_CHIP_ID, 0xFFFFFFFF, BRCMF_FIRMWARE_NVRAM(BCM4345) },
-	{ BRCM_CC_4354_CHIP_ID, 0xFFFFFFFF, BRCMF_FIRMWARE_NVRAM(BCM4354) }
+	{ BRCM_CC_4354_CHIP_ID, 0xFFFFFFFF, BRCMF_FIRMWARE_NVRAM(BCM4354) },
+	{ BRCM_CC_4371_CHIP_ID, 0xFFFFFFFF, BRCMF_FIRMWARE_NVRAM(BCM4371) }
 };
 
 static int brcmf_sdio_get_fwnames(struct brcmf_chip *ci,
@@ -1025,6 +1030,7 @@ brcmf_sdio_bus_sleep(struct brcmf_sdio *bus, bool sleep, bool pendok)
 			/* Don't sleep if something is pending */
 			if (atomic_read(&bus->intstatus) ||
 			    atomic_read(&bus->ipend) > 0 ||
+			    bus->ctrl_frame_stat ||
 			    (!atomic_read(&bus->fcstate) &&
 			    brcmu_pktq_mlen(&bus->txq, ~bus->flowcontrol) &&
 			    data_ok(bus))) {

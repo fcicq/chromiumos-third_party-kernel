@@ -31,15 +31,6 @@ struct drm_device;
 struct drm_connector;
 
 /*
- * Rockchip drm_file private structure.
- *
- * @gem_cpu_acquire_list: list of GEM objects we hold acquires on
- */
-struct rockchip_drm_file_private {
-	struct list_head		gem_cpu_acquire_list;
-};
-
-/*
  * Rockchip drm private structure.
  *
  * @crtc: array of enabled CRTCs, used to map from "pipe" to drm_crtc.

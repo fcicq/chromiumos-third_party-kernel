@@ -459,6 +459,10 @@ static struct ecm_db_iface_instance *ecm_interface_ethernet_interface_establish(
 
 	if (ii) {
 		DEBUG_TRACE("%p: iface established\n", ii);
+		/*
+		 * Update the NSS interface identifier, just in case it was changed.
+		 */
+		ecm_db_iface_nss_interface_identifier_set(ii, nss_interface_num);
 		return ii;
 	}
 

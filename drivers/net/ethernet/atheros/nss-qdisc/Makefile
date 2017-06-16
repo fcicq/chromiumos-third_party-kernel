@@ -12,7 +12,7 @@
 # OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ##########################################################################
 
-ccflags-y := -I$(obj)/../exports -I$(srctree)/net/bridge -DNSS_QDISC_DEBUG_LEVEL=2
+ccflags-y := -I$(obj)/../exports -I$(srctree)/net/bridge -DNSS_QDISC_DEBUG_LEVEL=1
 ccflags-y += -I$(src)/../nss-drv/exports
 obj-m += qca-nss-qdisc.o
 qca-nss-qdisc-objs := 	nss_qdisc.o \

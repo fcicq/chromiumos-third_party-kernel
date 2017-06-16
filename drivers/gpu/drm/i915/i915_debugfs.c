@@ -2024,6 +2024,19 @@ static int i915_power_domain_info(struct seq_file *m, void *unused)
 	return 0;
 }
 
+static int i915_crtc_errors(struct seq_file *m, void *unused)
+{
+	struct drm_info_node *node = (struct drm_info_node *) m->private;
+	struct drm_device *dev = node->minor->dev;
+	struct intel_crtc *crtc;
+
+	list_for_each_entry(crtc, &dev->mode_config.crtc_list, base.head)
+		seq_printf(m, "Crtc %d Pipe %c errors:		%08x\n",
+			   crtc->base.base.id, pipe_name(crtc->pipe),
+			   atomic_read(&crtc->error_count));
+	return 0;
+}
+
 struct pipe_crc_info {
 	const char *name;
 	struct drm_device *dev;
@@ -3300,6 +3313,7 @@ static const struct drm_info_list i915_debugfs_list[] = {
 	{"i915_energy_uJ", i915_energy_uJ, 0},
 	{"i915_pc8_status", i915_pc8_status, 0},
 	{"i915_power_domain_info", i915_power_domain_info, 0},
+	{"i915_crtc_errors", i915_crtc_errors, 0},
 };
 #define I915_DEBUGFS_ENTRIES ARRAY_SIZE(i915_debugfs_list)
 

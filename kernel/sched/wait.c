@@ -592,6 +592,15 @@ void wake_up_atomic_t(atomic_t *p)
 }
 EXPORT_SYMBOL(wake_up_atomic_t);
 
+__sched int bit_wait_io(void *word)
+{
+	if (signal_pending_state(current->state, current))
+		return 1;
+	io_schedule();
+	return 0;
+}
+EXPORT_SYMBOL(bit_wait_io);
+
 __sched int bit_wait_timeout(struct wait_bit_key *word)
 {
 	unsigned long now = ACCESS_ONCE(jiffies);

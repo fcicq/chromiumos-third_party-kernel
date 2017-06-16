@@ -249,6 +249,12 @@ struct iattr {
  */
 #include <linux/quota.h>
 
+/*
+ * Maximum number of layers of fs stack.  Needs to be limited to
+ * prevent kernel stack overflow
+ */
+#define FILESYSTEM_MAX_STACK_DEPTH 2
+
 /** 
  * enum positive_aop_returns - aop return codes with specific semantics
  *
@@ -640,7 +646,9 @@ enum inode_i_mutex_lock_class
 	I_MUTEX_PARENT,
 	I_MUTEX_CHILD,
 	I_MUTEX_XATTR,
-	I_MUTEX_NONDIR2
+	I_MUTEX_QUOTA,
+	I_MUTEX_NONDIR2,
+	I_MUTEX_PARENT2,
 };
 
 void lock_two_nondirectories(struct inode *, struct inode*);
@@ -1329,6 +1337,11 @@ struct super_block {
 	struct list_lru		s_dentry_lru ____cacheline_aligned_in_smp;
 	struct list_lru		s_inode_lru ____cacheline_aligned_in_smp;
 	struct rcu_head		rcu;
+
+	/*
+	 * Indicates how deep in a filesystem stack this SB is
+	 */
+	int s_stack_depth;
 };
 
 extern struct timespec current_fs_time(struct super_block *sb);
@@ -2559,6 +2572,9 @@ static inline ssize_t blockdev_direct_IO(int rw, struct kiocb *iocb,
 
 void inode_dio_wait(struct inode *inode);
 void inode_dio_done(struct inode *inode);
+
+extern void inode_set_flags(struct inode *inode, unsigned int flags,
+			    unsigned int mask);
 
 extern const struct file_operations generic_ro_fops;
 

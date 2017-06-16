@@ -11,6 +11,7 @@
  */
 
 #include <linux/module.h>
+#include <linux/regmap.h>
 #include <linux/moduleparam.h>
 #include <linux/init.h>
 #include <linux/delay.h>
@@ -34,31 +35,79 @@
 #include "rl6231.h"
 
 /**
- * rl6231_calc_dmic_clk - Calculate the parameter of dmic.
+ * rl6231_get_pre_div - Return the value of pre divider.
+ *
+ * @map: map for setting.
+ * @reg: register.
+ * @sft: shift.
+ *
+ * Return the value of pre divider from given register value.
+ * Return negative error code for unexpected register value.
+ */
+int rl6231_get_pre_div(struct regmap *map, unsigned int reg, int sft)
+{
+	int pd, val;
+
+	regmap_read(map, reg, &val);
+
+	val = (val >> sft) & 0x7;
+
+	switch (val) {
+	case 0:
+	case 1:
+	case 2:
+	case 3:
+		pd = val + 1;
+		break;
+	case 4:
+		pd = 6;
+		break;
+	case 5:
+		pd = 8;
+		break;
+	case 6:
+		pd = 12;
+		break;
+	case 7:
+		pd = 16;
+		break;
+	default:
+		pd = -EINVAL;
+		break;
+	}
+
+	return pd;
+}
+EXPORT_SYMBOL_GPL(rl6231_get_pre_div);
+
+/**
+ * rl6231_calc_dmic_clk - Calculate the frequency divider parameter of dmic.
  *
  * @rate: base clock rate.
  *
- * Choose dmic clock between 1MHz and 3MHz.
- * It is better for clock to approximate 3MHz.
+ * Choose divider parameter that gives the highest possible DMIC frequency in
+ * 1MHz - 3MHz range.
  */
 int rl6231_calc_dmic_clk(int rate)
 {
-	int div[] = {2, 3, 4, 6, 8, 12}, idx = -EINVAL;
-	int i, red, bound, temp;
+	int div[] = {2, 3, 4, 6, 8, 12};
+	int i;
 
-	red = 3000000 * 12;
-	for (i = 0; i < ARRAY_SIZE(div); i++) {
-		bound = div[i] * 3000000;
-		if (rate > bound)
-			continue;
-		temp = bound - rate;
-		if (temp < red) {
-			red = temp;
-			idx = i;
-		}
+	if (rate < 1000000 * div[0]) {
+		pr_warn("Base clock rate %d is too low\n", rate);
+		return -EINVAL;
 	}
 
-	return idx;
+	for (i = 0; i < ARRAY_SIZE(div); i++) {
+		if ((div[i] % 3) == 0)
+			continue;
+		/* find divider that gives DMIC frequency below 3.072MHz */
+		if (3072000 * div[i] >= rate)
+			return i;
+	}
+
+	pr_warn("Base clock rate %d is too high\n", rate);
+	return -EINVAL;
 }
 EXPORT_SYMBOL_GPL(rl6231_calc_dmic_clk);
 

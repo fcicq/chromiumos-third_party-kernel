@@ -1296,19 +1296,6 @@ static inline int drm_dev_to_irq(struct drm_device *dev)
 	return dev->driver->bus->get_irq(dev);
 }
 
-static inline void drm_device_set_unplugged(struct drm_device *dev)
-{
-	smp_wmb();
-	atomic_set(&dev->unplugged, 1);
-}
-
-static inline int drm_device_is_unplugged(struct drm_device *dev)
-{
-	int ret = atomic_read(&dev->unplugged);
-	smp_rmb();
-	return ret;
-}
-
 static inline bool drm_is_render_client(struct drm_file *file_priv)
 {
 	return file_priv->minor->type == DRM_MINOR_RENDER;

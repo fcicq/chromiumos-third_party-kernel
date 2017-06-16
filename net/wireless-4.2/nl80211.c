@@ -10478,7 +10478,6 @@ static const struct genl_ops nl80211_ops[] = {
 		.doit = nl80211_get_mpath,
 		.dumpit = nl80211_dump_mpath,
 		.policy = nl80211_policy,
-		.flags = GENL_ADMIN_PERM,
 		.internal_flags = NL80211_FLAG_NEED_NETDEV_UP |
 				  NL80211_FLAG_NEED_RTNL,
 	},
@@ -10487,7 +10486,6 @@ static const struct genl_ops nl80211_ops[] = {
 		.doit = nl80211_get_mpp,
 		.dumpit = nl80211_dump_mpp,
 		.policy = nl80211_policy,
-		.flags = GENL_ADMIN_PERM,
 		.internal_flags = NL80211_FLAG_NEED_NETDEV_UP |
 				  NL80211_FLAG_NEED_RTNL,
 	},
@@ -12770,6 +12768,33 @@ void cfg80211_tdls_oper_request(struct net_device *dev, const u8 *peer,
 	nlmsg_free(msg);
 }
 EXPORT_SYMBOL(cfg80211_tdls_oper_request);
+
+void cfg80211_new_mpath(struct net_device *dev, u8 *dst, gfp_t gfp)
+{
+	struct wiphy *wiphy = dev->ieee80211_ptr->wiphy;
+	struct cfg80211_registered_device *rdev = wiphy_to_rdev(wiphy);
+	struct mpath_info pinfo;
+	struct sk_buff *msg;
+	u8 next_hop[ETH_ALEN];
+
+	memset(&pinfo, 0, sizeof(pinfo));
+
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, gfp);
+	if (!msg)
+		return;
+
+	if (rdev_get_mpath(rdev, dev, dst, next_hop, &pinfo))
+		return;
+
+	if (nl80211_send_mpath(msg, 0, 0, 0, dev, dst, next_hop, &pinfo) < 0) {
+		nlmsg_free(msg);
+		return;
+	}
+
+	genlmsg_multicast_netns(&nl80211_fam, wiphy_net(&rdev->wiphy), msg, 0,
+				NL80211_MCGRP_MLME, gfp);
+}
+EXPORT_SYMBOL(cfg80211_new_mpath);
 
 static int nl80211_netlink_notify(struct notifier_block * nb,
 				  unsigned long state,

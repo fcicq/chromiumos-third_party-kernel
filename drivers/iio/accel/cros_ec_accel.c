@@ -68,6 +68,9 @@ typedef int (*read_ec_accel_data_t)(struct iio_dev *indio_dev,
 struct cros_ec_accel_state {
 	struct cros_ec_device *ec;
 
+	/* use new format: need to use scale, need to change axis */
+	bool new_format;
+
 	/* Number of sensors (accel + gyro) */
 	unsigned sensor_num;
 
@@ -88,6 +91,8 @@ struct cros_ec_accel_state {
 	struct calib_data {
 		int scale;
 		int offset;
+		int peak;
+		s8  sign;
 	} *calib;
 
 	/*
@@ -168,8 +173,14 @@ static unsigned idx_to_reg(struct cros_ec_accel_state *st,
 static s16 apply_calibration(struct cros_ec_accel_state *st,
 			     s16 data, unsigned sensor_id)
 {
-	return (data * st->calib[sensor_id].scale / CALIB_SCALE_SCALAR) +
-		st->calib[sensor_id].offset;
+	s32 calib_data = (data * st->calib[sensor_id].scale /
+			  CALIB_SCALE_SCALAR) + st->calib[sensor_id].offset;
+	if (st->new_format) {
+		calib_data *= st->calib[sensor_id].peak;
+		/* 2^15 == Peak in g, but we want to return data in 1/1024 G */
+		calib_data >>= 5;
+	}
+	return calib_data;
 }
 
 /*
@@ -225,6 +236,7 @@ static void read_ec_accel_data_unsafe(struct iio_dev *indio_dev,
 	 */
 	for_each_set_bit(i, &scan_mask, indio_dev->masklength) {
 		ec->cmd_read_u16(st->ec, idx_to_reg(st, i), data);
+		*data *= st->calib[i].sign;
 
 		/* Calibrate the data if desired. */
 		if (ret_format == CALIBRATED)
@@ -334,15 +346,16 @@ static int read_ec_accel_data_cmd(struct iio_dev *indio_dev,
 
 	for_each_set_bit(i, &scan_mask, indio_dev->masklength) {
 		sensor_num = idx_to_sensor_num(st, i);
-		if (sensor_num == UNKNOWN_SENSOR_NUM)
+		if (sensor_num == UNKNOWN_SENSOR_NUM) {
 			*data = 0;
-		else
+		} else {
 			*data = st->resp->dump.sensor[
 				sensor_num].data[i % MAX_AXIS];
-		/* Calibrate the data if desired. */
-		if (ret_format == CALIBRATED)
-			*data = apply_calibration(st, *data, i);
-
+			*data *= st->calib[i].sign;
+			/* Calibrate the data if desired. */
+			if (ret_format == CALIBRATED)
+				*data = apply_calibration(st, *data, i);
+		}
 		data++;
 	}
 	return 0;
@@ -513,7 +526,7 @@ static int ec_accel_write(struct iio_dev *indio_dev,
 
 		if (send_motion_host_cmd(st, st->resp, 0) <= 0)
 			ret = -EIO;
-
+		st->calib[chan->scan_index].peak = val;
 		break;
 	case IIO_CHAN_INFO_FREQUENCY:
 		if (sensor_num == UNKNOWN_SENSOR_NUM) {
@@ -623,7 +636,7 @@ static int configure_buffer(struct iio_dev *indio_dev)
 	indio_dev->setup_ops = &iio_simple_dummy_buffer_setup_ops;
 	indio_dev->pollfunc =
 		iio_alloc_pollfunc(NULL, &accel_capture, IRQF_ONESHOT,
-				   indio_dev, "");
+				   indio_dev, "cros-ec-accel");
 
 	if (indio_dev->pollfunc == NULL) {
 		ret = -ENOMEM;
@@ -655,6 +668,7 @@ static int ec_accel_probe(struct platform_device *pdev)
 	struct iio_dev *indio_dev;
 	struct cros_ec_accel_state *state;
 	struct ec_response_motion_sense resp;
+	struct ec_response_motion_sense resp_range;
 	struct iio_chan_spec *channel, *channels;
 	int ret, i, j, samples_size, idx, channel_num;
 
@@ -671,9 +685,16 @@ static int ec_accel_probe(struct platform_device *pdev)
 
 	state = iio_priv(indio_dev);
 	state->ec = ec;
+	state->new_format = true;
+
 	mutex_init(&state->cmd_lock);
 	/* Set up the host command structure. */
-	state->msg.version = 1;
+
+	/*
+	 * Try version 2 first, to see if the firmware is using the
+	 * revised interface
+	 */
+	state->msg.version = 2;
 	state->msg.command = EC_CMD_MOTION_SENSE_CMD;
 	state->msg.outdata = (u8 *)&state->param;
 	state->msg.outsize = sizeof(struct ec_params_motion_sense);
@@ -681,10 +702,16 @@ static int ec_accel_probe(struct platform_device *pdev)
 	/* Check how many accel sensors */
 	state->param.cmd = MOTIONSENSE_CMD_DUMP;
 	state->param.dump.max_sensor_count = 0;
-	if ((send_motion_host_cmd(state, &resp, 0) <= 0) ||
-	    (resp.dump.sensor_count == 0))
+	ret = send_motion_host_cmd(state, &resp, 0);
+	if (send_motion_host_cmd(state, &resp, 0) <= -EECRESULT) {
+		state->new_format = false;
+		state->msg.version = 1;
+		ret  = send_motion_host_cmd(state, &resp, 0);
+	}
+	if (ret <= 0 || resp.dump.sensor_count == 0)
 		return -ENODEV;
 
+	state->msg.version = 1;
 	state->sensor_num = resp.dump.sensor_count;
 	state->accel_num = 0;
 
@@ -695,6 +722,12 @@ static int ec_accel_probe(struct platform_device *pdev)
 			sizeof(struct iio_chan_spec),
 			GFP_KERNEL);
 	if (channels == NULL)
+		return -ENOMEM;
+
+	/* Set nominal calibration offset and scale. */
+	state->calib = devm_kcalloc(&pdev->dev, channel_num,
+			sizeof(struct calib_data), GFP_KERNEL);
+	if (state->calib == NULL)
 		return -ENOMEM;
 
 	/* For each retrieve type and location */
@@ -708,6 +741,14 @@ static int ec_accel_probe(struct platform_device *pdev)
 				 i, ret);
 			return -EIO;
 		}
+		state->param.cmd = MOTIONSENSE_CMD_SENSOR_RANGE;
+		state->param.sensor_range.data = EC_MOTION_SENSE_NO_VALUE;
+		state->param.sensor_range.sensor_num = i;
+
+		ret = send_motion_host_cmd(state, &resp_range, 0);
+		if (ret <= 0)
+			return -EIO;
+
 		if (resp.info.type == MOTIONSENSE_TYPE_ACCEL)
 			state->accel_num++;
 		for (j = X; j <= Z; j++, channel++, idx++) {
@@ -736,11 +777,26 @@ static int ec_accel_probe(struct platform_device *pdev)
 			channel->scan_type.realbits = 16;
 			channel->scan_type.storagebits = 16;
 			channel->scan_type.shift = 0;
+			/* Need to invert X and Y channel for newer sensor */
 			channel->channel2 = IIO_MOD_X + j;
+			if (state->new_format && j < Z) {
+				if (j == X)
+					channel->scan_index = idx + 1;
+				else
+					channel->scan_index = idx - 1;
+			} else {
+				channel->scan_index = idx;
+			}
+			if (state->new_format &&
+			    resp.info.location == MOTIONSENSE_LOC_LID && j != X)
+				state->calib[idx].sign = -1;
+			else
+				state->calib[idx].sign = 1;
 			channel->extend_name =
 				cros_ec_loc[resp.info.location];
-			channel->scan_index = idx;
+			state->calib[idx].peak = resp_range.sensor_range.ret;
 		}
+
 	}
 	/* Hack to display the lid angle. Not all firmware has it. */
 	if (state->accel_num >= 2) {
@@ -772,12 +828,6 @@ static int ec_accel_probe(struct platform_device *pdev)
 
 	indio_dev->channels = channels;
 	indio_dev->num_channels = idx;
-
-	/* Set nominal calibration offset and scale. */
-	state->calib = devm_kcalloc(&pdev->dev, channel_num,
-			sizeof(struct calib_data), GFP_KERNEL);
-	if (state->calib == NULL)
-		return -ENOMEM;
 
 	for (i = 0; i < channel_num; i++) {
 		state->calib[i].offset = 0;

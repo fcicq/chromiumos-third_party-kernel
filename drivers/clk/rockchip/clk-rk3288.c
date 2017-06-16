@@ -84,30 +84,43 @@ struct rockchip_pll_rate_table rk3288_pll_rates[] = {
 	RK3066_PLL_RATE( 768000000, 1, 64, 2),
 	RK3066_PLL_RATE( 742500000, 8, 495, 2),
 	RK3066_PLL_RATE( 696000000, 1, 58, 2),
+	RK3066_PLL_RATE_NB(621000000, 1, 207, 8, 1),   /* Fvco = 4.968 GHz */
 	RK3066_PLL_RATE( 600000000, 1, 50, 2),
 	RK3066_PLL_RATE_NB(594000000, 1, 198, 8, 1),
 	RK3066_PLL_RATE( 552000000, 1, 46, 2),
 	RK3066_PLL_RATE( 504000000, 1, 84, 4),
 	RK3066_PLL_RATE( 500000000, 3, 125, 2),
 	RK3066_PLL_RATE( 456000000, 1, 76, 4),
+	RK3066_PLL_RATE( 428000000, 1, 107, 6),        /* Fvco = 2.568 GHz */
 	RK3066_PLL_RATE( 408000000, 1, 68, 4),
 	RK3066_PLL_RATE( 400000000, 3, 100, 2),
+	RK3066_PLL_RATE_NB( 394000000, 1, 197, 12, 1), /* Fvco = 4.728 GHz */
 	RK3066_PLL_RATE( 384000000, 2, 128, 4),
 	RK3066_PLL_RATE( 360000000, 1, 60, 4),
+	RK3066_PLL_RATE_NB( 356000000, 1, 178, 12, 1), /* Fvco = 4.272 GHz */
 	RK3066_PLL_RATE_NB( 324000000, 1, 189, 14, 1), /* Fvco = 4.536 GHz */
 	RK3066_PLL_RATE( 312000000, 1, 52, 4),
 	RK3066_PLL_RATE_NB( 308000000, 1, 154, 12, 1), /* Fvco = 3.696 GHz */
+	RK3066_PLL_RATE_NB( 303000000, 1, 202, 16, 1), /* Fvco = 4.848 GHz */
 	RK3066_PLL_RATE( 300000000, 1, 75, 6),
+	RK3066_PLL_RATE_NB( 297750000, 2, 397, 16, 1), /* Fvco = 4.764 GHz */
+	RK3066_PLL_RATE_NB( 293250000, 2, 391, 16, 1), /* Fvco = 4.692 GHz */
 	RK3066_PLL_RATE_NB( 292500000, 1, 195, 16, 1), /* Fvco = 4.680 GHz */
 	RK3066_PLL_RATE( 273600000, 1, 114, 10),       /* Fvco = 2.736 GHz */
+	RK3066_PLL_RATE_NB( 273000000, 1, 182, 16, 1), /* Fvco = 4.368 GHz */
 	RK3066_PLL_RATE_NB( 270000000, 1, 180, 16, 1), /* Fvco = 4.320 GHz */
+	RK3066_PLL_RATE_NB( 266250000, 2, 355, 16, 1), /* Fvco = 4.260 GHz */
 	RK3066_PLL_RATE_NB( 256500000, 1, 171, 16, 1), /* Fvco = 4.104 GHz */
 	RK3066_PLL_RATE( 252000000, 1, 84, 8),
+	RK3066_PLL_RATE_NB( 250500000, 1, 167, 16, 1), /* Fvco = 4.008 GHz */
 	RK3066_PLL_RATE_NB( 243428571, 1, 142, 14, 1), /* Fvco = 3.408 GHz */
 	RK3066_PLL_RATE( 238000000, 1, 119, 12),       /* Fvco = 2.856 GHz */
-	RK3066_PLL_RATE( 216000000, 1, 72, 8),
+	RK3066_PLL_RATE_NB( 219750000, 2, 293, 16, 1), /* Fvco = 3.516 GHz */
+	RK3066_PLL_RATE_NB( 216000000, 1, 144, 16, 1), /* Fvco = 3.456 GHz */
+	RK3066_PLL_RATE_NB( 213000000, 1, 142, 16, 1), /* Fvco = 3.408 GHz */
 	RK3066_PLL_RATE( 195428571, 1, 114, 14),       /* Fvco = 2.736 GHz */
 	RK3066_PLL_RATE( 160000000, 1, 80, 12),
+	RK3066_PLL_RATE( 157500000, 1, 105, 16),       /* Fvco = 2.520 GHz */
 	RK3066_PLL_RATE( 126000000, 1, 84, 16),
 	{ /* sentinel */ },
 };
@@ -185,8 +198,8 @@ PNAME(mux_pll_src_cpll_gpll_p)			= { "cpll", "gpll" };
 PNAME(mux_pll_src_dmynpll_cpll_gpll_p)		= { "dummy_npll", "cpll", "gpll" };
 PNAME(mux_pll_src_dmycpll_dmygpll_npll_p)	= { "dummy_cpll", "dummy_gpll", "npll" };
 PNAME(mux_pll_src_cpll_gpll_dmynpll_p)		= { "cpll", "gpll", "dummy_npll" };
-PNAME(mux_pll_src_cpll_gpll_usb480m_p)		= { "cpll", "gpll", "usbphy480m_src" };
-PNAME(mux_pll_src_cpll_gpll_usb_dmynpll_p)	= { "cpll", "gpll", "usbphy480m_src", "dummy_npll" };
+PNAME(mux_pll_src_cpll_gpll_dmyusb480m_p)	= { "cpll", "gpll", "dummy_usbphy480m_src" };
+PNAME(mux_pll_src_cpll_gpll_dmyusb_dmynpll_p)	= { "cpll", "gpll", "dummy_usbphy480m_src", "dummy_npll" };
 
 PNAME(mux_mmc_src_p)	= { "cpll", "gpll", "xin24m", "xin24m" };
 PNAME(mux_i2s_pre_p)	= { "i2s_src", "i2s_frac", "ext_i2s", "xin12m" };
@@ -232,6 +245,10 @@ static struct clk_div_table div_hclk_cpu_t[] = {
 #define MFLAGS CLK_MUX_HIWORD_MASK
 #define DFLAGS CLK_DIVIDER_HIWORD_MASK
 #define GFLAGS (CLK_GATE_HIWORD_MASK | CLK_GATE_SET_TO_DISABLE)
+
+static struct rockchip_clk_branch rk3288_uart0_fracmux __initdata =
+	MUX(SCLK_UART0, "sclk_uart0", mux_uart0_p, CLK_SET_RATE_PARENT,
+	    RK3288_CLKSEL_CON(13), 8, 2, MFLAGS);
 
 static struct rockchip_clk_branch rk3288_clk_branches[] __initdata = {
 	/*
@@ -364,10 +381,10 @@ static struct rockchip_clk_branch rk3288_clk_branches[] __initdata = {
 	 * Clock-Architecture Diagram 2
 	 */
 
-	COMPOSITE(0, "aclk_vepu", mux_pll_src_cpll_gpll_usb480m_p, 0,
+	COMPOSITE(0, "aclk_vepu", mux_pll_src_cpll_gpll_dmyusb480m_p, 0,
 			RK3288_CLKSEL_CON(32), 6, 2, MFLAGS, 0, 5, DFLAGS,
 			RK3288_CLKGATE_CON(3), 9, GFLAGS),
-	COMPOSITE(0, "aclk_vdpu", mux_pll_src_cpll_gpll_usb480m_p, 0,
+	COMPOSITE(0, "aclk_vdpu", mux_pll_src_cpll_gpll_dmyusb480m_p, 0,
 			RK3288_CLKSEL_CON(32), 14, 2, MFLAGS, 8, 5, DFLAGS,
 			RK3288_CLKGATE_CON(3), 11, GFLAGS),
 	/*
@@ -385,19 +402,19 @@ static struct rockchip_clk_branch rk3288_clk_branches[] __initdata = {
 	GATE(HCLK_VCODEC, "hclk_vcodec", "hclk_vcodec_pre", 0,
 		RK3288_CLKGATE_CON(9), 1, GFLAGS),
 
-	COMPOSITE(0, "aclk_vio0", mux_pll_src_cpll_gpll_usb480m_p, CLK_IGNORE_UNUSED,
+	COMPOSITE(0, "aclk_vio0", mux_pll_src_cpll_gpll_dmyusb480m_p, CLK_IGNORE_UNUSED,
 			RK3288_CLKSEL_CON(31), 6, 2, MFLAGS, 0, 5, DFLAGS,
 			RK3288_CLKGATE_CON(3), 0, GFLAGS),
 	DIV(0, "hclk_vio", "aclk_vio0", 0,
 			RK3288_CLKSEL_CON(28), 8, 5, DFLAGS),
-	COMPOSITE(0, "aclk_vio1", mux_pll_src_cpll_gpll_usb480m_p, CLK_IGNORE_UNUSED,
+	COMPOSITE(0, "aclk_vio1", mux_pll_src_cpll_gpll_dmyusb480m_p, CLK_IGNORE_UNUSED,
 			RK3288_CLKSEL_CON(31), 14, 2, MFLAGS, 8, 5, DFLAGS,
 			RK3288_CLKGATE_CON(3), 2, GFLAGS),
 
-	COMPOSITE(0, "aclk_rga_pre", mux_pll_src_cpll_gpll_usb480m_p, 0,
+	COMPOSITE(0, "aclk_rga_pre", mux_pll_src_cpll_gpll_dmyusb480m_p, 0,
 			RK3288_CLKSEL_CON(30), 6, 2, MFLAGS, 0, 5, DFLAGS,
 			RK3288_CLKGATE_CON(3), 5, GFLAGS),
-	COMPOSITE(SCLK_RGA, "sclk_rga", mux_pll_src_cpll_gpll_usb480m_p, 0,
+	COMPOSITE(SCLK_RGA, "sclk_rga", mux_pll_src_cpll_gpll_dmyusb480m_p, 0,
 			RK3288_CLKSEL_CON(30), 14, 2, MFLAGS, 8, 5, DFLAGS,
 			RK3288_CLKGATE_CON(3), 4, GFLAGS),
 
@@ -452,7 +469,7 @@ static struct rockchip_clk_branch rk3288_clk_branches[] __initdata = {
 			RK3288_CLKSEL_CON(33), 0, 5, DFLAGS,
 			RK3288_CLKGATE_CON(5), 8, GFLAGS),
 
-	COMPOSITE(SCLK_GPU, "sclk_gpu", mux_pll_src_cpll_gpll_usb_dmynpll_p, 0,
+	COMPOSITE(SCLK_GPU, "sclk_gpu", mux_pll_src_cpll_gpll_dmyusb_dmynpll_p, 0,
 			RK3288_CLKSEL_CON(34), 6, 2, MFLAGS, 0, 5, DFLAGS,
 			RK3288_CLKGATE_CON(5), 7, GFLAGS),
 
@@ -541,14 +558,13 @@ static struct rockchip_clk_branch rk3288_clk_branches[] __initdata = {
 			RK3288_CLKSEL_CON(38), 15, 1, MFLAGS, 8, 5, DFLAGS,
 			RK3288_CLKGATE_CON(5), 6, GFLAGS),
 
-	COMPOSITE(0, "uart0_src", mux_pll_src_cpll_gpll_usb_dmynpll_p, 0,
+	COMPOSITE(0, "uart0_src", mux_pll_src_cpll_gpll_dmyusb_dmynpll_p, 0,
 			RK3288_CLKSEL_CON(13), 13, 2, MFLAGS, 0, 7, DFLAGS,
 			RK3288_CLKGATE_CON(1), 8, GFLAGS),
-	COMPOSITE_FRAC(0, "uart0_frac", "uart0_src", CLK_SET_RATE_PARENT,
+	COMPOSITE_FRACMUX(0, "uart0_frac", "uart0_src", CLK_SET_RATE_PARENT,
 			RK3288_CLKSEL_CON(17), 0,
-			RK3288_CLKGATE_CON(1), 9, GFLAGS),
-	MUX(SCLK_UART0, "sclk_uart0", mux_uart0_p, CLK_SET_RATE_PARENT,
-			RK3288_CLKSEL_CON(13), 8, 2, MFLAGS),
+			RK3288_CLKGATE_CON(1), 9, GFLAGS,
+			rk3288_uart0_fracmux),
 	MUX(0, "uart_src", mux_pll_src_cpll_gpll_p, 0,
 			RK3288_CLKSEL_CON(13), 15, 1, MFLAGS),
 	COMPOSITE_NOMUX(0, "uart1_src", "uart_src", 0,

@@ -86,6 +86,7 @@ enum {
  * @dout_size: size of dout buffer to allocate (zero to use static dout)
  * @wake_enabled: true if this device can wake the system from sleep
  * @lock: one transaction at a time
+ * @suspended: true if this device had been suspended
  * @cmd_xfer: send command to EC and get response
  *     Returns the number of bytes received if the communication succeeded, but
  *     that doesn't mean the EC was happy with the command. The caller
@@ -120,6 +121,7 @@ struct cros_ec_device {
 	int dout_size;
 	bool wake_enabled;
 	struct mutex lock;
+	bool suspended;
 	int (*cmd_xfer)(struct cros_ec_device *ec,
 			struct cros_ec_command *msg);
 	int (*pkt_xfer)(struct cros_ec_device *ec,

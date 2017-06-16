@@ -167,6 +167,7 @@ struct scsi_device {
 	unsigned is_visible:1;	/* is the device visible in sysfs */
 	unsigned wce_default_on:1;	/* Cache is ON by default */
 	unsigned no_dif:1;	/* T10 PI (DIF) should be disabled */
+	unsigned send_stop_reboot:1;	/* Send START_STOP_UNIT at reboot */
 
 	atomic_t disk_events_disable_depth; /* disable depth for disk events */
 

@@ -35,6 +35,13 @@ enum dw_hdmi_devtype {
 	RK3288_HDMI,
 };
 
+struct dw_hdmi_audio_tmds_n {
+	unsigned long tmds;
+	unsigned int n_32k;
+	unsigned int n_44k1;
+	unsigned int n_48k;
+};
+
 struct dw_hdmi_mpll_config {
 	unsigned long mpixelclock;
 	struct {
@@ -68,8 +75,10 @@ struct dw_hdmi_audio_data {
 	void (*write)(struct dw_hdmi *hdmi, u8 val, int offset);
 	void (*mod)(struct dw_hdmi *hdmi, u8 data, u8 mask, unsigned reg);
 
+	/* NOTE: enable/disable may be called with IRQs disabled */
 	void (*enable)(struct dw_hdmi *hdmi);
 	void (*disable)(struct dw_hdmi *hdmi);
+
 	void (*set_sample_rate)(struct dw_hdmi *hdmi, unsigned int rate);
 };
 
@@ -82,6 +91,7 @@ struct dw_hdmi_hdcp_key_1x {
 
 struct dw_hdmi_plat_data {
 	enum dw_hdmi_devtype dev_type;
+	const struct dw_hdmi_audio_tmds_n *tmds_n_table;
 	const struct dw_hdmi_mpll_config *mpll_cfg;
 	const struct dw_hdmi_curr_ctrl *cur_ctr;
 	const struct dw_hdmi_phy_config *phy_config;

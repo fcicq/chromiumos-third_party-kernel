@@ -164,6 +164,8 @@ void ath10k_htt_tx_free(struct ath10k_htt *htt)
 {
 	int size;
 
+	tasklet_kill(&htt->txrx_compl_task);
+
 	idr_for_each(&htt->pending_tx, ath10k_htt_tx_clean_up_pending, htt->ar);
 	idr_destroy(&htt->pending_tx);
 
@@ -476,6 +478,13 @@ int ath10k_htt_mgmt_tx(struct ath10k_htt *htt, struct sk_buff *msdu)
 		goto err_tx_dec;
 
 	msdu_id = res;
+
+	if ((ieee80211_is_action(hdr->frame_control) ||
+	     ieee80211_is_deauth(hdr->frame_control) ||
+	     ieee80211_is_disassoc(hdr->frame_control)) &&
+	     ieee80211_has_protected(hdr->frame_control)) {
+		skb_put(msdu, IEEE80211_CCMP_MIC_LEN);
+	}
 
 	txdesc = ath10k_htc_alloc_skb(ar, len);
 	if (!txdesc) {

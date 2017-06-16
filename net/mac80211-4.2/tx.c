@@ -35,6 +35,10 @@
 #include "wme.h"
 #include "rate.h"
 
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+#include "wifi_diag.h"
+#endif
+
 #ifdef CONFIG_QCA_NSS_DRV
 #include <net/ip.h>
 #include <net/dsfield.h>
@@ -317,9 +321,6 @@ ieee80211_tx_h_check_assoc(struct ieee80211_tx_data *tx)
 	if (tx->sdata->vif.type == NL80211_IFTYPE_WDS)
 		return TX_CONTINUE;
 
-	if (tx->sdata->vif.type == NL80211_IFTYPE_MESH_POINT)
-		return TX_CONTINUE;
-
 	if (tx->flags & IEEE80211_TX_PS_BUFFERED)
 		return TX_CONTINUE;
 
@@ -599,6 +600,9 @@ ieee80211_tx_h_select_key(struct ieee80211_tx_data *tx)
 	else if (tx->sta &&
 		 (key = rcu_dereference(tx->sta->ptk[tx->sta->ptk_idx])))
 		tx->key = key;
+	else if (ieee80211_is_group_privacy_action(tx->skb) &&
+		(key = rcu_dereference(tx->sdata->default_multicast_key)))
+		tx->key = key;
 	else if (ieee80211_is_mgmt(hdr->frame_control) &&
 		 is_multicast_ether_addr(hdr->addr1) &&
 		 ieee80211_is_robust_mgmt_frame(tx->skb) &&
@@ -632,7 +636,8 @@ ieee80211_tx_h_select_key(struct ieee80211_tx_data *tx)
 		case WLAN_CIPHER_SUITE_GCMP_256:
 			if (!ieee80211_is_data_present(hdr->frame_control) &&
 			    !ieee80211_use_mfp(hdr->frame_control, tx->sta,
-					       tx->skb))
+					       tx->skb) &&
+			    !ieee80211_is_group_privacy_action(tx->skb))
 				tx->key = NULL;
 			else
 				skip_hw = (tx->key->conf.flags &
@@ -1481,13 +1486,26 @@ static int invoke_tx_handlers(struct ieee80211_tx_data *tx)
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(tx->skb);
 	ieee80211_tx_result res = TX_DROP;
 
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+	struct ieee80211_sub_if_data *sdata = tx->sdata;
+	struct sk_buff *skb = tx->skb;
+
+#define CALL_TXH(txh) \
+	do {				\
+		res = txh(tx);		\
+		if (res != TX_CONTINUE) \
+			WIFI_DIAG_TX_SDATA_DBG(sdata, skb, res, "%s", #txh); \
+		if (res != TX_CONTINUE)	\
+			goto txh_done;	\
+	} while (0)
+#else
 #define CALL_TXH(txh) \
 	do {				\
 		res = txh(tx);		\
 		if (res != TX_CONTINUE)	\
 			goto txh_done;	\
 	} while (0)
-
+#endif
 	CALL_TXH(ieee80211_tx_h_dynamic_ps);
 	CALL_TXH(ieee80211_tx_h_check_assoc);
 	CALL_TXH(ieee80211_tx_h_ps_buf);
@@ -1536,8 +1554,15 @@ bool ieee80211_tx_prepare_skb(struct ieee80211_hw *hw,
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
 	struct ieee80211_tx_data tx;
 	struct sk_buff *skb2;
+	ieee80211_tx_result r;
 
-	if (ieee80211_tx_prepare(sdata, &tx, NULL, skb) == TX_DROP)
+	r = ieee80211_tx_prepare(sdata, &tx, NULL, skb);
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+	if (r != TX_CONTINUE)
+		WIFI_DIAG_TX_SDATA_DBG(sdata, skb, r,
+				       "ieee80211_tx_prepare_skb");
+#endif
+	if (r == TX_DROP)
 		return false;
 
 	info->band = band;
@@ -1679,6 +1704,9 @@ void ieee80211_xmit(struct ieee80211_sub_if_data *sdata,
 	}
 
 	ieee80211_set_qos_hdr(sdata, skb);
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+	WIFI_DIAG_SET_TX_INFO(local, sta, skb);
+#endif
 	ieee80211_tx(sdata, sta, skb, false);
 }
 
@@ -2116,10 +2144,14 @@ static struct sk_buff *ieee80211_build_hdr(struct ieee80211_sub_if_data *sdata,
 					mpp_lookup = true;
 			}
 
-			if (mpp_lookup)
+			if (mpp_lookup) {
 				mppath = mpp_path_lookup(sdata, skb->data);
+				if (mppath)
+					mppath->exp_time = jiffies;
+			}
 
-			if (mppath && mpath)
+			if (mppath && mpath &&
+			    !ether_addr_equal(mppath->mpp, mpath->dst))
 				mesh_path_del(mpath->sdata, mpath->dst);
 		}
 
@@ -2151,6 +2183,35 @@ static struct sk_buff *ieee80211_build_hdr(struct ieee80211_sub_if_data *sdata,
 
 			hdrlen = ieee80211_fill_mesh_addresses(&hdr, &fc,
 					mesh_da, sdata->vif.addr);
+
+#ifdef MESH_BYPASS_ROUTING_FOR_TEST_FRAMES
+			if (is_multicast_ether_addr(mesh_da)) {
+				/* DA TA mSA AE:SA */
+				meshhdrlen = ieee80211_new_mesh_header(
+						sdata, &mesh_hdr,
+						skb->data + ETH_ALEN, NULL);
+			} else {
+				if (!mppath && !mpath && is_zero_ether_addr(mesh_da)) {
+					/*
+					 * Special Test frame. DA is 0, SA is the address of the
+					 * peer. Force 4 address frame format. Call to
+					 * iee80211_fill_mesh_addresses function above would have
+					 * set addr1 and addr3 to DA which is 0 where as addr2 and
+					 * addr 4 are set to the interface address which is
+					 * sdata->vif.addr. Now set the addr1(RA) to the peer
+					 * address(SA from ether header) and later during path
+					 * lookup addr3 will also be set the SA.
+					 */
+					memcpy(hdr.addr1, skb->data + ETH_ALEN, ETH_ALEN);
+					meshhdrlen = ieee80211_new_mesh_header(sdata, &mesh_hdr,
+							NULL, NULL);
+				} else {
+					/* RA TA mDA mSA AE:DA SA */
+					meshhdrlen = ieee80211_new_mesh_header(sdata, &mesh_hdr,
+							skb->data, skb->data + ETH_ALEN);
+				}
+			}
+#else
 			if (is_multicast_ether_addr(mesh_da))
 				/* DA TA mSA AE:SA */
 				meshhdrlen = ieee80211_new_mesh_header(
@@ -2161,6 +2222,7 @@ static struct sk_buff *ieee80211_build_hdr(struct ieee80211_sub_if_data *sdata,
 				meshhdrlen = ieee80211_new_mesh_header(
 						sdata, &mesh_hdr, skb->data,
 						skb->data + ETH_ALEN);
+#endif
 
 		}
 		chanctx_conf = rcu_dereference(sdata->vif.chanctx_conf);
@@ -2793,6 +2855,10 @@ static bool ieee80211_xmit_fast(struct ieee80211_sub_if_data *sdata,
 		sdata->sequence_number += 0x10;
 	}
 
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+	WIFI_DIAG_SET_TX_INFO(local, sta, skb);
+#endif
+
 	sta->tx_msdu[tid]++;
 
 	info->hw_queue = sdata->vif.hw_queue[skb_get_queue_mapping(skb)];
@@ -2811,9 +2877,12 @@ static bool ieee80211_xmit_fast(struct ieee80211_sub_if_data *sdata,
 	if (!ieee80211_hw_check(&local->hw, HAS_RATE_CONTROL)) {
 		tx.skb = skb;
 		r = ieee80211_tx_h_rate_ctrl(&tx);
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+		if (r != TX_CONTINUE)
+			WIFI_DIAG_TX_DBG(&tx, r, "ieee80211_xmit_fast");
+#endif
 		skb = tx.skb;
 		tx.skb = NULL;
-
 		if (r != TX_CONTINUE) {
 			if (r != TX_QUEUED)
 				kfree_skb(skb);

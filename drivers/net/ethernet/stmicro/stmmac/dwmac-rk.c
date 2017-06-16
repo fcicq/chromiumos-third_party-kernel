@@ -33,6 +33,7 @@ struct rk_priv_data {
 	struct platform_device *pdev;
 	int phy_iface;
 	struct regulator *regulator;
+	bool suspended;
 
 	bool clk_enabled;
 	bool clock_input;
@@ -391,9 +392,8 @@ static void *rk_gmac_setup(struct platform_device *pdev)
 	return bsp_priv;
 }
 
-static int rk_gmac_init(struct platform_device *pdev, void *priv)
+static int rk_gmac_powerup(struct rk_priv_data *bsp_priv)
 {
-	struct rk_priv_data *bsp_priv = priv;
 	int ret;
 
 	ret = phy_power_on(bsp_priv, true);
@@ -407,12 +407,48 @@ static int rk_gmac_init(struct platform_device *pdev, void *priv)
 	return 0;
 }
 
-static void rk_gmac_exit(struct platform_device *pdev, void *priv)
+static void rk_gmac_powerdown(struct rk_priv_data *gmac)
 {
-	struct rk_priv_data *gmac = priv;
-
 	phy_power_on(gmac, false);
 	gmac_clk_enable(gmac, false);
+}
+
+static int rk_gmac_init(struct platform_device *pdev, void *priv)
+{
+	struct rk_priv_data *bsp_priv = priv;
+
+	return rk_gmac_powerup(bsp_priv);
+}
+
+static void rk_gmac_exit(struct platform_device *pdev, void *priv)
+{
+	struct rk_priv_data *bsp_priv = priv;
+
+	rk_gmac_powerdown(bsp_priv);
+}
+
+static void rk_gmac_suspend(struct platform_device *pdev, void *priv)
+{
+	struct rk_priv_data *bsp_priv = priv;
+
+	/* Keep the PHY up if we use Wake-on-Lan. */
+	if (device_may_wakeup(&pdev->dev))
+		return;
+
+	rk_gmac_powerdown(bsp_priv);
+	bsp_priv->suspended = true;
+}
+
+static void rk_gmac_resume(struct platform_device *pdev, void *priv)
+{
+	struct rk_priv_data *bsp_priv = priv;
+
+	/* The PHY was up for Wake-on-Lan. */
+	if (!bsp_priv->suspended)
+		return;
+
+	rk_gmac_powerup(bsp_priv);
+	bsp_priv->suspended = false;
 }
 
 static void rk_fix_speed(void *priv, unsigned int speed)
@@ -434,4 +470,6 @@ const struct stmmac_of_data rk3288_gmac_data = {
 	.setup = rk_gmac_setup,
 	.init = rk_gmac_init,
 	.exit = rk_gmac_exit,
+	.suspend = rk_gmac_suspend,
+	.resume = rk_gmac_resume,
 };
