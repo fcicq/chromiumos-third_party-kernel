@@ -1522,6 +1522,15 @@ struct i915_gem_mm {
 	 */
 	bool interruptible;
 
+	/**
+	 * Workqueue to fault in userptr pages, flushed by the execbuf
+	 * when required but otherwise left to userspace to try again
+	 * on EAGAIN.
+	 */
+	struct workqueue_struct *userptr_wq;
+
+	u64 unordered_timeline;
+
 	/* the indicator for dispatch video commands on two BSD rings */
 	atomic_t bsd_engine_dispatch_index;
 
@@ -3218,7 +3227,8 @@ int i915_gem_set_tiling_ioctl(struct drm_device *dev, void *data,
 			      struct drm_file *file_priv);
 int i915_gem_get_tiling_ioctl(struct drm_device *dev, void *data,
 			      struct drm_file *file_priv);
-void i915_gem_init_userptr(struct drm_i915_private *dev_priv);
+int i915_gem_init_userptr(struct drm_i915_private *dev_priv);
+void i915_gem_cleanup_userptr(struct drm_i915_private *dev_priv);
 int i915_gem_userptr_ioctl(struct drm_device *dev, void *data,
 			   struct drm_file *file);
 int i915_gem_get_aperture_ioctl(struct drm_device *dev, void *data,
