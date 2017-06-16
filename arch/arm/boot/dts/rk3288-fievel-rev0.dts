@@ -177,6 +177,10 @@
 	};
 };
 
+&dmc {
+	status = "disabled";
+};
+
 &pinctrl {
 	pinctrl-names = "default", "sleep";
 	pinctrl-0 = <
