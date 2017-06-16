@@ -418,6 +418,12 @@ typedef struct drm_i915_irq_wait {
  */
 #define I915_PARAM_HAS_EXEC_CAPTURE	 45
 
+/*
+ * Query whether DRM_I915_GEM_EXECBUFFER2 supports supplying the batch buffer
+ * as the first execobject as opposed to the last. See I915_EXEC_BATCH_FIRST.
+ */
+#define I915_PARAM_HAS_EXEC_BATCH_FIRST	 48
+
 typedef struct drm_i915_getparam {
 	__s32 param;
 	/*
@@ -902,7 +908,17 @@ struct drm_i915_gem_execbuffer2 {
  */
 #define I915_EXEC_FENCE_OUT		(1<<17)
 
-#define __I915_EXEC_UNKNOWN_FLAGS (-(I915_EXEC_FENCE_OUT<<1))
+/*
+ * Traditionally the execbuf ioctl has only considered the final element in
+ * the execobject[] to be the executable batch. Often though, the client
+ * will known the batch object prior to construction and being able to place
+ * it into the execobject[] array first can simplify the relocation tracking.
+ * Setting I915_EXEC_BATCH_FIRST tells execbuf to use element 0 of the
+ * execobject[] as the * batch instead (the default is to use the last
+ * element).
+ */
+#define I915_EXEC_BATCH_FIRST		(1<<18)
+#define __I915_EXEC_UNKNOWN_FLAGS (-(I915_EXEC_BATCH_FIRST<<1))
 
 #define I915_EXEC_CONTEXT_ID_MASK	(0xffffffff)
 #define i915_execbuffer2_set_context_id(eb2, context) \
