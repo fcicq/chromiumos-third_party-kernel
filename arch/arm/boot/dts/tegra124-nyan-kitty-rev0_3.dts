@@ -40,9 +40,11 @@
 
 		panel: panel {
 			compatible = "auo,t215hvn01.0", "simple-panel";
+			no-powerwash;
 		};
 
 		dpaux: dpaux@545c0000 {
+			vdd-supply = <&_3v3_run>;
 			status = "okay";
 		};
 	};
@@ -80,7 +82,7 @@
 	i2c@7000c400 {
 		clock-frequency = <400000>;
 		touchscreen {
-			compatible = "elan,i2c_touchscreen";
+			compatible = "elan,ekth3500";
 			reg = <0x10>;
 			interrupt-parent = <&gpio>;
 			interrupts = <TEGRA_GPIO(K, 2) IRQ_TYPE_EDGE_FALLING>;

@@ -20,20 +20,16 @@ static int tegra_connector_get_modes(struct drm_connector *connector)
 	struct edid *edid = NULL;
 	int err = 0;
 
-	/*
-	 * If the panel provides one or more modes, use them exclusively and
-	 * ignore any other means of obtaining a mode.
-	 */
-	if (output->panel) {
+
+	if (output->edid) {
+		edid = kmemdup(output->edid, sizeof(*edid), GFP_KERNEL);
+	} else if (output->ddc) {
+		edid = drm_get_edid(connector, output->ddc);
+	} else if (output->panel) {
 		err = output->panel->funcs->get_modes(output->panel);
 		if (err > 0)
 			return err;
 	}
-
-	if (output->edid)
-		edid = kmemdup(output->edid, sizeof(*edid), GFP_KERNEL);
-	else if (output->ddc)
-		edid = drm_get_edid(connector, output->ddc);
 
 	drm_mode_connector_update_edid_property(connector, edid);
 
@@ -112,12 +108,118 @@ static void tegra_connector_destroy(struct drm_connector *connector)
 	drm_connector_clear(connector);
 }
 
+static void tegra_connector_dpms(struct drm_connector *connector, int mode)
+{
+	/*
+	 * We don't make use of connector->dpms.
+	 * But we need this function otherwise kernel crashes in
+	 * drm_crtc_helper_set_config because it calls connector->dpms
+	 * without checking whether it is defined.
+	 */
+}
+
+static void tegra_connector_save(struct drm_connector *connector)
+{
+	struct tegra_output *output = connector_to_output(connector);
+
+	output->suspended = true;
+}
+
+static void tegra_connector_restore(struct drm_connector *connector)
+{
+	struct tegra_output *output = connector_to_output(connector);
+
+	output->suspended = false;
+}
+
 static const struct drm_connector_funcs connector_funcs = {
-	.dpms = drm_helper_connector_dpms,
+	.dpms = tegra_connector_dpms,
 	.detect = tegra_connector_detect,
 	.fill_modes = drm_helper_probe_single_connector_modes,
 	.destroy = tegra_connector_destroy,
+	.save = tegra_connector_save,
+	.restore = tegra_connector_restore,
 };
+
+int tegra_output_panel_enable(struct tegra_output *output)
+{
+	int err;
+
+	if (!output->panel)
+		return 0;
+
+	if (output->panel_enabled)
+		return 0;
+
+	err = drm_panel_enable(output->panel);
+	if (err < 0) {
+		dev_err(output->dev, "panel enable failed: %d\n", err);
+		return err;
+	}
+
+	output->panel_enabled = true;
+	return 0;
+}
+
+int tegra_output_panel_disable(struct tegra_output *output)
+{
+	int err;
+
+	if (!output->panel)
+		return 0;
+
+	if (!output->panel_enabled)
+		return 0;
+
+	err = drm_panel_disable(output->panel);
+	if (err < 0) {
+		dev_err(output->dev, "panel disable failed: %d\n", err);
+		return err;
+	}
+
+	output->panel_enabled = false;
+	return 0;
+}
+
+int tegra_output_panel_prepare(struct tegra_output *output)
+{
+	int err;
+
+	if (!output->panel)
+		return 0;
+
+	if (output->panel_prepared)
+		return 0;
+
+	err = drm_panel_prepare(output->panel);
+	if (err < 0) {
+		dev_err(output->dev, "panel prepare failed: %d\n", err);
+		return err;
+	}
+
+	output->panel_prepared = true;
+	return 0;
+}
+
+int tegra_output_panel_unprepare(struct tegra_output *output)
+{
+	int err;
+
+	if (!output->panel)
+		return 0;
+
+	if (!output->panel_prepared)
+		return 0;
+
+	err = drm_panel_unprepare(output->panel);
+	if (err < 0) {
+		dev_err(output->dev, "panel unprepare failed: %d\n", err);
+		return err;
+	}
+
+	output->panel_prepared = false;
+	return 0;
+}
 
 static void drm_encoder_clear(struct drm_encoder *encoder)
 {
@@ -134,18 +236,30 @@ static const struct drm_encoder_funcs encoder_funcs = {
 	.destroy = tegra_encoder_destroy,
 };
 
-static void tegra_encoder_dpms(struct drm_encoder *encoder, int mode)
+static void tegra_encoder_disable(struct drm_encoder *encoder)
 {
 	struct tegra_output *output = encoder_to_output(encoder);
-	struct drm_panel *panel = output->panel;
 
-	if (mode != DRM_MODE_DPMS_ON) {
-		drm_panel_disable(panel);
-		tegra_output_disable(output);
-	} else {
-		tegra_output_enable(output);
-		drm_panel_enable(panel);
-	}
+	if (!output->enabled)
+		return;
+
+	tegra_output_panel_disable(output);
+	tegra_output_disable(output);
+
+	output->enabled = false;
+}
+
+static void tegra_encoder_enable(struct drm_encoder *encoder)
+{
+	struct tegra_output *output = encoder_to_output(encoder);
+
+	if (output->enabled)
+		return;
+
+	tegra_output_enable(output);
+	tegra_output_panel_enable(output);
+
+	output->enabled = true;
 }
 
 static bool tegra_encoder_mode_fixup(struct drm_encoder *encoder,
@@ -157,12 +271,23 @@ static bool tegra_encoder_mode_fixup(struct drm_encoder *encoder,
 
 static void tegra_encoder_prepare(struct drm_encoder *encoder)
 {
-	tegra_encoder_dpms(encoder, DRM_MODE_DPMS_OFF);
-}
+	struct tegra_output *output = encoder_to_output(encoder);
+	bool mode_changed = false;
 
-static void tegra_encoder_commit(struct drm_encoder *encoder)
-{
-	tegra_encoder_dpms(encoder, DRM_MODE_DPMS_ON);
+	if (encoder->crtc)
+		mode_changed = !drm_mode_equal(&encoder->crtc->mode,
+						&output->saved_mode);
+	if (mode_changed) {
+		output->saved_mode = encoder->crtc->mode;
+		/*
+		 * For some outputs(like HDMI), userspace may change resolutions
+		 * without disable output first. So we check mode change here.
+		 * In addition, in order to not break the output enable/disable
+		 * & panel enable/disable refcounting balance, we disable
+		 * encoder manually.
+		 */
+		tegra_encoder_disable(encoder);
+	}
 }
 
 static void tegra_encoder_mode_set(struct drm_encoder *encoder,
@@ -172,10 +297,10 @@ static void tegra_encoder_mode_set(struct drm_encoder *encoder,
 }
 
 static const struct drm_encoder_helper_funcs encoder_helper_funcs = {
-	.dpms = tegra_encoder_dpms,
+	.disable = tegra_encoder_disable,
 	.mode_fixup = tegra_encoder_mode_fixup,
 	.prepare = tegra_encoder_prepare,
-	.commit = tegra_encoder_commit,
+	.commit = tegra_encoder_enable,
 	.mode_set = tegra_encoder_mode_set,
 };
 
@@ -183,7 +308,8 @@ static irqreturn_t hpd_irq(int irq, void *data)
 {
 	struct tegra_output *output = data;
 
-	drm_helper_hpd_irq_event(output->connector.dev);
+	if (output->connector.dev && !output->suspended)
+		drm_helper_hpd_irq_event(output->connector.dev);
 
 	return IRQ_HANDLED;
 }
@@ -255,6 +381,13 @@ int tegra_output_probe(struct tegra_output *output)
 		}
 
 		output->connector.polled = DRM_CONNECTOR_POLL_HPD;
+
+		/*
+		 * Disable the interrupt until the connector has been
+		 * initialized to avoid a race in the hotplug interrupt
+		 * handler.
+		 */
+		disable_irq(output->hpd_irq);
 	}
 
 	return 0;
@@ -318,12 +451,36 @@ int tegra_output_init(struct drm_device *drm, struct tegra_output *output)
 	drm_mode_connector_attach_encoder(&output->connector, &output->encoder);
 	drm_sysfs_connector_add(&output->connector);
 
-	output->encoder.possible_crtcs = 0x3;
+	switch (output->type) {
+	case TEGRA_OUTPUT_EDP:
+		output->encoder.possible_crtcs = 0x1;
+		break;
+	case TEGRA_OUTPUT_HDMI:
+		output->encoder.possible_crtcs = 0x2;
+		break;
+	default:
+		output->encoder.possible_crtcs = 0x3;
+		break;
+	}
+
+	/*
+	 * The connector is now registered and ready to receive hotplug events
+	 * so the hotplug interrupt can be enabled.
+	 */
+	if (gpio_is_valid(output->hpd_gpio))
+		enable_irq(output->hpd_irq);
 
 	return 0;
 }
 
 int tegra_output_exit(struct tegra_output *output)
 {
+	/*
+	 * The connector is going away, so the interrupt must be disabled to
+	 * prevent the hotplug interrupt handler from potentially crashing.
+	 */
+	if (gpio_is_valid(output->hpd_gpio))
+		disable_irq(output->hpd_irq);
+
 	return 0;
 }

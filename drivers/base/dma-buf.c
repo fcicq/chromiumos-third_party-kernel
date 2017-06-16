@@ -29,6 +29,9 @@
 #include <linux/export.h>
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
+#include <linux/uaccess.h>
+
+#include <uapi/linux/dma-buf.h>
 
 static inline int is_dma_buf_file(struct file *);
 
@@ -38,6 +41,56 @@ struct dma_buf_list {
 };
 
 static struct dma_buf_list db_list;
+
+/**
+ * dma_buf_set_drvdata - Set driver specific data to dmabuf. The data
+ * will remain even if the device is detached from the device. This is useful
+ * if the device requires some buffer specific parameters that should be
+ * available when the buffer is accessed next time.
+ *
+ * The exporter calls the destroy callback:
+ *  - the buffer is freed
+ *  - the device/driver is removed
+ *  - new device private data is set
+ *
+ * @dmabuf	[in]	Buffer object
+ * @device	[in]	Device to which the data is related to.
+ * @priv	[in]	Private data
+ * @destroy	[in]	Function callback to destroy function. Called when the
+ *			data is not needed anymore (device or dmabuf is
+ *			removed)
+ *
+ * The function returns 0 on success. Otherwise the function returns a negative
+ * errorcode
+ */
+int dma_buf_set_drvdata(struct dma_buf * dmabuf, struct device *device,
+			void *priv, void (*destroy)(void *))
+{
+	if (!(dmabuf && dmabuf->ops && dmabuf->ops->set_drvdata))
+		return -ENOSYS;
+
+	return dmabuf->ops->set_drvdata(dmabuf, device, priv, destroy);
+}
+EXPORT_SYMBOL(dma_buf_set_drvdata);
+
+/**
+ * dma_buf_get_drvdata - Get driver specific data to dmabuf.
+ *
+ * @dmabuf	[in]	Buffer object
+ * @device	[in]	Device to which the data is related to.
+ *
+ * The function returns the user data structure on success. Otherwise NULL
+ * is returned.
+ */
+void *dma_buf_get_drvdata(struct dma_buf *dmabuf, struct device *device)
+{
+	if (!(dmabuf && dmabuf->ops && dmabuf->ops->get_drvdata))
+		return ERR_PTR(-ENOSYS);
+
+	return dmabuf->ops->get_drvdata(dmabuf, device);
+}
+EXPORT_SYMBOL(dma_buf_get_drvdata);
+
 
 static int dma_buf_release(struct inode *inode, struct file *file)
 {
@@ -77,9 +130,53 @@ static int dma_buf_mmap_internal(struct file *file, struct vm_area_struct *vma)
 	return dmabuf->ops->mmap(dmabuf, vma);
 }
 
+static long dma_buf_ioctl(struct file *file,
+				unsigned int cmd, unsigned long arg)
+{
+	struct dma_buf *dmabuf;
+	struct dma_buf_sync sync;
+	enum dma_data_direction direction;
+	int ret;
+
+	dmabuf = file->private_data;
+
+	switch (cmd) {
+	case DMA_BUF_IOCTL_SYNC:
+		if (copy_from_user(&sync, (void __user *) arg, sizeof(sync)))
+			return -EFAULT;
+
+		if (sync.flags & ~DMA_BUF_SYNC_VALID_FLAGS_MASK)
+			return -EINVAL;
+
+		switch (sync.flags & DMA_BUF_SYNC_RW) {
+		case DMA_BUF_SYNC_READ:
+			direction = DMA_FROM_DEVICE;
+			break;
+		case DMA_BUF_SYNC_WRITE:
+			direction = DMA_TO_DEVICE;
+			break;
+		case DMA_BUF_SYNC_RW:
+			direction = DMA_BIDIRECTIONAL;
+			break;
+		default:
+			return -EINVAL;
+		}
+
+		if (sync.flags & DMA_BUF_SYNC_END)
+			ret = dma_buf_end_cpu_access(dmabuf, direction);
+		else
+			ret = dma_buf_begin_cpu_access(dmabuf, direction);
+
+		return ret;
+	default:
+		return -ENOTTY;
+	}
+}
+
 static const struct file_operations dma_buf_fops = {
 	.release	= dma_buf_release,
 	.mmap		= dma_buf_mmap_internal,
+	.unlocked_ioctl = dma_buf_ioctl,
 };
 
 /*
@@ -337,13 +434,11 @@ EXPORT_SYMBOL_GPL(dma_buf_unmap_attachment);
  * preparations. Coherency is only guaranteed in the specified range for the
  * specified access direction.
  * @dmabuf:	[in]	buffer to prepare cpu access for.
- * @start:	[in]	start of range for cpu access.
- * @len:	[in]	length of range for cpu access.
  * @direction:	[in]	length of range for cpu access.
  *
  * Can return negative error values, returns 0 on success.
  */
-int dma_buf_begin_cpu_access(struct dma_buf *dmabuf, size_t start, size_t len,
+int dma_buf_begin_cpu_access(struct dma_buf *dmabuf,
 			     enum dma_data_direction direction)
 {
 	int ret = 0;
@@ -352,7 +447,7 @@ int dma_buf_begin_cpu_access(struct dma_buf *dmabuf, size_t start, size_t len,
 		return -EINVAL;
 
 	if (dmabuf->ops->begin_cpu_access)
-		ret = dmabuf->ops->begin_cpu_access(dmabuf, start, len, direction);
+		ret = dmabuf->ops->begin_cpu_access(dmabuf, direction);
 
 	return ret;
 }
@@ -364,19 +459,21 @@ EXPORT_SYMBOL_GPL(dma_buf_begin_cpu_access);
  * actions. Coherency is only guaranteed in the specified range for the
  * specified access direction.
  * @dmabuf:	[in]	buffer to complete cpu access for.
- * @start:	[in]	start of range for cpu access.
- * @len:	[in]	length of range for cpu access.
  * @direction:	[in]	length of range for cpu access.
  *
  * This call must always succeed.
  */
-void dma_buf_end_cpu_access(struct dma_buf *dmabuf, size_t start, size_t len,
-			    enum dma_data_direction direction)
+int dma_buf_end_cpu_access(struct dma_buf *dmabuf,
+			   enum dma_data_direction direction)
 {
+	int ret = 0;
+
 	WARN_ON(!dmabuf);
 
 	if (dmabuf->ops->end_cpu_access)
-		dmabuf->ops->end_cpu_access(dmabuf, start, len, direction);
+		ret = dmabuf->ops->end_cpu_access(dmabuf, direction);
+
+	return ret;
 }
 EXPORT_SYMBOL_GPL(dma_buf_end_cpu_access);
 

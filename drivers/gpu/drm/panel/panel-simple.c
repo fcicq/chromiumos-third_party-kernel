@@ -45,6 +45,24 @@ struct panel_desc {
 		unsigned int width;
 		unsigned int height;
 	} size;
+
+	/**
+	 * @prepare: the time (in milliseconds) that it takes for the panel to
+	 *           become ready and start receiving video data
+	 * @enable: the time (in milliseconds) that it takes for the panel to
+	 *          display the first valid frame after starting to receive
+	 *          video data
+	 * @disable: the time (in milliseconds) that it takes for the panel to
+	 *           turn the display off (no content is visible)
+	 * @unprepare: the time (in milliseconds) that it takes for the panel
+	 *             to power itself down completely
+	 */
+	struct {
+		unsigned int prepare;
+		unsigned int enable;
+		unsigned int disable;
+		unsigned int unprepare;
+	} delay;
 };
 
 /* TODO: convert to gpiod_*() API once it's been merged */
@@ -52,6 +70,7 @@ struct panel_desc {
 
 struct panel_simple {
 	struct drm_panel base;
+	bool prepared;
 	bool enabled;
 
 	const struct panel_desc *desc;
@@ -114,6 +133,21 @@ static int panel_simple_disable(struct drm_panel *panel)
 		backlight_update_status(p->backlight);
 	}
 
+	if (p->desc->delay.disable)
+		msleep(p->desc->delay.disable);
+
+	p->enabled = false;
+
+	return 0;
+}
+
+static int panel_simple_unprepare(struct drm_panel *panel)
+{
+	struct panel_simple *p = to_panel_simple(panel);
+
+	if (!p->prepared)
+		return 0;
+
 	if (gpio_is_valid(p->enable_gpio)) {
 		if (p->enable_gpio_flags & GPIO_ACTIVE_LOW)
 			gpio_set_value(p->enable_gpio, 1);
@@ -122,17 +156,21 @@ static int panel_simple_disable(struct drm_panel *panel)
 	}
 
 	regulator_disable(p->supply);
-	p->enabled = false;
+
+	if (p->desc->delay.unprepare)
+		msleep(p->desc->delay.unprepare);
+
+	p->prepared = false;
 
 	return 0;
 }
 
-static int panel_simple_enable(struct drm_panel *panel)
+static int panel_simple_prepare(struct drm_panel *panel)
 {
 	struct panel_simple *p = to_panel_simple(panel);
 	int err;
 
-	if (p->enabled)
+	if (p->prepared)
 		return 0;
 
 	err = regulator_enable(p->supply);
@@ -147,6 +185,24 @@ static int panel_simple_enable(struct drm_panel *panel)
 		else
 			gpio_set_value(p->enable_gpio, 1);
 	}
+
+	if (p->desc->delay.prepare)
+		msleep(p->desc->delay.prepare);
+
+	p->prepared = true;
+
+	return 0;
+}
+
+static int panel_simple_enable(struct drm_panel *panel)
+{
+	struct panel_simple *p = to_panel_simple(panel);
+
+	if (p->enabled)
+		return 0;
+
+	if (p->desc->delay.enable)
+		msleep(p->desc->delay.enable);
 
 	if (p->backlight) {
 		p->backlight->props.power = FB_BLANK_UNBLANK;
@@ -181,9 +237,33 @@ static int panel_simple_get_modes(struct drm_panel *panel)
 
 static const struct drm_panel_funcs panel_simple_funcs = {
 	.disable = panel_simple_disable,
+	.unprepare = panel_simple_unprepare,
+	.prepare = panel_simple_prepare,
 	.enable = panel_simple_enable,
 	.get_modes = panel_simple_get_modes,
 };
+
+static void panel_simple_powerwash(struct panel_simple *p)
+{
+	int err;
+
+	dev_info(p->base.dev, "starting panel powerwash.\n");
+	if (p->backlight) {
+		p->backlight->props.power = FB_BLANK_POWERDOWN;
+		backlight_update_status(p->backlight);
+	}
+
+	if (p->desc->delay.disable)
+		msleep(p->desc->delay.disable);
+
+	err = regulator_enable(p->supply);
+	if (err < 0)
+		dev_err(p->base.dev, "failed to enable supply: %d\n", err);
+	regulator_disable(p->supply);
+
+	if (p->desc->delay.unprepare)
+		msleep(p->desc->delay.unprepare);
+}
 
 static int panel_simple_probe(struct device *dev, const struct panel_desc *desc)
 {
@@ -197,6 +277,7 @@ static int panel_simple_probe(struct device *dev, const struct panel_desc *desc)
 		return -ENOMEM;
 
 	panel->enabled = false;
+	panel->prepared = false;
 	panel->desc = desc;
 
 	panel->supply = devm_regulator_get(dev, "power");
@@ -258,8 +339,10 @@ static int panel_simple_probe(struct device *dev, const struct panel_desc *desc)
 	err = drm_panel_add(&panel->base);
 	if (err < 0)
 		goto free_ddc;
-
 	dev_set_drvdata(dev, panel);
+
+	if (!of_find_property(dev->of_node, "no-powerwash", NULL))
+		panel_simple_powerwash(panel);
 
 	return 0;
 
@@ -341,6 +424,37 @@ static const struct panel_desc auo_b133xtn01 = {
 		.width = 293,
 		.height = 165,
 	},
+	.delay = {
+		.disable = 10,
+		.unprepare = 500,
+	}
+};
+
+static const struct drm_display_mode auo_t215hvn01_mode = {
+	.clock = 148800,
+	.hdisplay = 1920,
+	.hsync_start = 1920 + 88,
+	.hsync_end = 1920 + 88 + 44,
+	.htotal = 1920 + 88 + 44 + 148,
+	.vdisplay = 1080,
+	.vsync_start = 1080 + 4,
+	.vsync_end = 1080 + 4 + 5,
+	.vtotal = 1080 + 4 + 5 + 36,
+	.vrefresh = 60,
+};
+
+static const struct panel_desc auo_t215hvn01 = {
+	.modes = &auo_t215hvn01_mode,
+	.num_modes = 1,
+	.bpc = 8,
+	.size = {
+		.width = 430,
+		.height = 270,
+	},
+	.delay = {
+		.disable = 5,
+		.unprepare = 1000,
+	}
 };
 
 static const struct drm_display_mode chunghwa_claa101wa01a_mode = {
@@ -488,6 +602,9 @@ static const struct of_device_id platform_of_match[] = {
 	}, {
 		.compatible = "auo,b133xtn01.2", "auo,b133xtn01.0",
 		.data = &auo_b133xtn01,
+	}, {
+		.compatible = "auo,t215hvn01.0",
+		.data = &auo_t215hvn01,
 	}, {
 		.compatible = "chunghwa,claa101wa01a",
 		.data = &chunghwa_claa101wa01a

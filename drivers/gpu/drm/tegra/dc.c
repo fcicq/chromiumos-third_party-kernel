@@ -8,6 +8,7 @@
  */
 
 #include <linux/clk.h>
+#include <linux/clk-provider.h>
 #include <linux/debugfs.h>
 #include <linux/iommu.h>
 #include <linux/reset.h>
@@ -16,6 +17,8 @@
 #include "dc.h"
 #include "drm.h"
 #include "gem.h"
+
+extern struct iommu_domain *tegradrm_iommu_domain;
 
 struct tegra_dc_soc_info {
 	bool supports_interlacing;
@@ -469,6 +472,59 @@ static int tegra_dc_add_planes(struct drm_device *drm, struct tegra_dc *dc)
 	return 0;
 }
 
+static void tegra_dc_retain_fb(struct tegra_dc *dc,
+				struct tegra_bo *bo, u32 offset)
+{
+	INIT_LIST_HEAD(&dc->fb->list);
+	dc->fb->bo = bo;
+	dc->fb->offset = offset;
+
+	spin_lock(&dc->dirty_fbs_lock);
+	list_add_tail(&dc->fb->list, &dc->dirty_fbs);
+	spin_unlock(&dc->dirty_fbs_lock);
+
+	drm_gem_object_reference(&bo->gem);
+}
+
+static void tegra_dc_cleanup_dirty_fbs(struct work_struct *work)
+{
+	struct tegra_dc *dc = container_of(work, struct tegra_dc,
+						dirty_fbs_work);
+	struct dirty_fb *loop_fb;
+	struct dirty_fb *temp_fb;
+	struct dirty_fb *fb_to_release = NULL;
+	unsigned long winbuf_addr;
+
+	spin_lock(&dc->dirty_fbs_lock);
+	if (!dc->enabled) {
+		spin_unlock(&dc->dirty_fbs_lock);
+		return;
+	}
+
+	if (list_empty(&dc->dirty_fbs)) {
+		spin_unlock(&dc->dirty_fbs_lock);
+		return;
+	}
+
+	tegra_dc_writel(dc, READ_MUX, DC_CMD_STATE_ACCESS);
+	winbuf_addr = tegra_dc_readl(dc, DC_WINBUF_START_ADDR);
+	tegra_dc_writel(dc, 0, DC_CMD_STATE_ACCESS);
+
+	list_for_each_entry_safe(loop_fb, temp_fb, &dc->dirty_fbs, list) {
+		if ((loop_fb->bo->paddr + loop_fb->offset) != winbuf_addr) {
+			list_del(&loop_fb->list);
+			fb_to_release = loop_fb;
+			break;
+		}
+	}
+	spin_unlock(&dc->dirty_fbs_lock);
+
+	if (fb_to_release) {
+		drm_gem_object_unreference_unlocked(&fb_to_release->bo->gem);
+		kfree(fb_to_release);
+	}
+}
+
 static int tegra_dc_set_base(struct tegra_dc *dc, int x, int y,
 			     struct drm_framebuffer *fb)
 {
@@ -487,6 +543,8 @@ static int tegra_dc_set_base(struct tegra_dc *dc, int x, int y,
 
 	value = fb->offsets[0] + y * fb->pitches[0] +
 		x * fb->bits_per_pixel / 8;
+
+	tegra_dc_retain_fb(dc, bo, value);
 
 	tegra_dc_writel(dc, bo->paddr + value, DC_WINBUF_START_ADDR);
 	tegra_dc_writel(dc, fb->pitches[0], DC_WIN_LINE_STRIDE);
@@ -617,7 +675,8 @@ static int tegra_dc_cursor_set2(struct drm_crtc *crtc, struct drm_file *file,
 		break;
 
 	default:
-		return -EINVAL;
+		if (handle)
+			return -EINVAL;
 	}
 
 	if (handle) {
@@ -633,6 +692,45 @@ static int tegra_dc_cursor_set2(struct drm_crtc *crtc, struct drm_file *file,
 #ifdef CONFIG_ARCH_DMA_ADDR_T_64BIT
 		unsigned long high = (bo->paddr & 0xfffffffc) >> 32;
 #endif
+		int i;
+
+		if (!dc->shadow_cursor)
+			dc->shadow_cursor =
+				tegra_bo_create(crtc->dev, bo->size, 0);
+
+		if (dc->shadow_cursor->size < bo->size) {
+			drm_gem_object_release(&bo->gem);
+			kfree(bo);
+			dc->shadow_cursor =
+				tegra_bo_create(crtc->dev, bo->size, 0);
+		}
+
+		/* Convert DRM_FORMAT_ARGB8888 to DRM_FORMAT_RGBA8888 */
+		for (i = 0; i < bo->num_pages; i++) {
+			void *c_addr, *s_addr;
+			int j;
+
+			c_addr = kmap(bo->pages[i]);
+			if (!c_addr)
+				return -ENOMEM;
+
+			s_addr = kmap(dc->shadow_cursor->pages[i]);
+			if (!s_addr) {
+				kunmap(bo->pages[i]);
+				return -ENOMEM;
+			}
+
+			for (j = 0; j < PAGE_SIZE / 4; j++)
+				asm volatile ("ROR %[Rd], %[Rs], %[Imm]" :
+					      [Rd] "=r" (*((int *)s_addr + j)) :
+					      [Rs] "r" (*((int *)c_addr + j)),
+					      [Imm] "i" (24));
+
+			kunmap(bo->pages[i]);
+			kunmap(dc->shadow_cursor->pages[i]);
+		}
+
+		addr = (dc->shadow_cursor->paddr & 0xfffffc00) >> 10;
 
 		tegra_dc_writel(dc, value | addr, DC_DISP_CURSOR_START_ADDR);
 
@@ -695,23 +793,27 @@ static void tegra_dc_finish_page_flip(struct tegra_dc *dc)
 	unsigned long flags, base;
 	struct tegra_bo *bo;
 
-	if (!dc->event)
-		return;
+	spin_lock_irqsave(&drm->event_lock, flags);
 
-	bo = tegra_fb_get_plane(crtc->fb, 0);
+	if (!dc->event) {
+		spin_unlock_irqrestore(&drm->event_lock, flags);
+		return;
+	}
+
+	bo = tegra_fb_get_plane(crtc->primary->fb, 0);
 
 	/* check if new start address has been latched */
 	tegra_dc_writel(dc, READ_MUX, DC_CMD_STATE_ACCESS);
 	base = tegra_dc_readl(dc, DC_WINBUF_START_ADDR);
 	tegra_dc_writel(dc, 0, DC_CMD_STATE_ACCESS);
 
-	if (base == bo->paddr + crtc->fb->offsets[0]) {
-		spin_lock_irqsave(&drm->event_lock, flags);
+	if (base == bo->paddr + crtc->primary->fb->offsets[0]) {
 		drm_send_vblank_event(drm, dc->pipe, dc->event);
 		drm_vblank_put(drm, dc->pipe);
 		dc->event = NULL;
-		spin_unlock_irqrestore(&drm->event_lock, flags);
 	}
+
+	spin_unlock_irqrestore(&drm->event_lock, flags);
 }
 
 void tegra_dc_cancel_page_flip(struct drm_crtc *crtc, struct drm_file *file)
@@ -736,18 +838,35 @@ static int tegra_dc_page_flip(struct drm_crtc *crtc, struct drm_framebuffer *fb,
 {
 	struct tegra_dc *dc = to_tegra_dc(crtc);
 	struct drm_device *drm = crtc->dev;
+	unsigned long flags;
 
 	if (dc->event)
 		return -EBUSY;
 
+	dc->fb = kzalloc(sizeof(struct dirty_fb), GFP_KERNEL);
+	if (!dc->fb) {
+		dev_err(dc->dev, "allocate struct dirty_fb failed.\n");
+		return -ENOMEM;
+	}
+
+	/*
+	 * drm_vblank_get can't be called inside spinlock since that brings
+	 * a deadlock between tegra_dc_irq->drm_handle_vblank and this func.
+	 * These 2 functions acquire 2 locks(event_lock & vblank_time_lock)
+	 * in different orders.
+	 */
+	if (event)
+		drm_vblank_get(drm, dc->pipe);
+
+	spin_lock_irqsave(&drm->event_lock, flags);
 	if (event) {
 		event->pipe = dc->pipe;
 		dc->event = event;
-		drm_vblank_get(drm, dc->pipe);
 	}
 
 	tegra_dc_set_base(dc, 0, 0, fb);
-	crtc->fb = fb;
+	crtc->primary->fb = fb;
+	spin_unlock_irqrestore(&drm->event_lock, flags);
 
 	return 0;
 }
@@ -776,8 +895,22 @@ static void tegra_crtc_disable(struct drm_crtc *crtc)
 	struct tegra_dc *dc = to_tegra_dc(crtc);
 	struct drm_device *drm = crtc->dev;
 	struct drm_plane *plane;
+	struct dirty_fb *loop_fb;
+	struct dirty_fb *temp_fb;
+	unsigned long flags;
 
-	list_for_each_entry(plane, &drm->mode_config.plane_list, head) {
+	if (!dc->enabled)
+		return;
+
+	spin_lock_irqsave(&drm->event_lock, flags);
+	if (dc->event) {
+		drm_send_vblank_event(drm, dc->pipe, dc->event);
+		drm_vblank_put(drm, dc->pipe);
+		dc->event = NULL;
+	}
+	spin_unlock_irqrestore(&drm->event_lock, flags);
+
+	drm_for_each_legacy_plane(plane, &drm->mode_config.plane_list) {
 		if (plane->crtc == crtc) {
 			tegra_plane_disable(plane);
 			plane->crtc = NULL;
@@ -789,10 +922,22 @@ static void tegra_crtc_disable(struct drm_crtc *crtc)
 		}
 	}
 
+	disable_irq(dc->irq);
 	drm_vblank_off(drm, dc->pipe);
 
+	cancel_work_sync(&dc->dirty_fbs_work);
+	list_for_each_entry_safe(loop_fb, temp_fb, &dc->dirty_fbs, list) {
+		drm_gem_object_unreference_unlocked(&loop_fb->bo->gem);
+		list_del(&loop_fb->list);
+		kfree(loop_fb);
+	}
+
+	reset_control_assert(dc->rst);
+	clk_disable_unprepare(dc->clk);
 	if (dc->emc_clk)
 		clk_set_rate(dc->emc_clk, 0);
+	tegra_dc_powergate_locked(dc);
+	dc->enabled = false;
 }
 
 static bool tegra_crtc_mode_fixup(struct drm_crtc *crtc,
@@ -919,12 +1064,13 @@ static int tegra_crtc_mode_set(struct drm_crtc *crtc,
 			       struct drm_display_mode *adjusted,
 			       int x, int y, struct drm_framebuffer *old_fb)
 {
-	struct tegra_bo *bo = tegra_fb_get_plane(crtc->fb, 0);
+	struct tegra_bo *bo = tegra_fb_get_plane(crtc->primary->fb, 0);
 	struct tegra_dc *dc = to_tegra_dc(crtc);
 	struct tegra_dc_window window;
 	u32 value;
 	int err;
 
+	drm_vblank_on(crtc->dev, dc->pipe);
 	drm_vblank_pre_modeset(crtc->dev, dc->pipe);
 
 	err = tegra_crtc_setup_clk(crtc, mode);
@@ -953,10 +1099,19 @@ static int tegra_crtc_mode_set(struct drm_crtc *crtc,
 	window.dst.y = 0;
 	window.dst.w = mode->hdisplay;
 	window.dst.h = mode->vdisplay;
-	window.format = tegra_dc_format(crtc->fb->pixel_format, &window.swap);
-	window.bits_per_pixel = crtc->fb->bits_per_pixel;
-	window.stride[0] = crtc->fb->pitches[0];
+	window.format = tegra_dc_format(crtc->primary->fb->pixel_format,
+					&window.swap);
+	window.bits_per_pixel = crtc->primary->fb->bits_per_pixel;
+	window.stride[0] = crtc->primary->fb->pitches[0];
 	window.base[0] = bo->paddr;
+	window.tiling = bo->tiling;
+
+	dc->fb = kzalloc(sizeof(struct dirty_fb), GFP_KERNEL);
+	if (!dc->fb) {
+		dev_err(dc->dev, "allocate struct dirty_fb failed.\n");
+		return -ENOMEM;
+	}
+	tegra_dc_retain_fb(dc, bo, 0);
 
 	err = tegra_dc_setup_window(dc, 0, &window);
 	if (err < 0)
@@ -966,6 +1121,12 @@ static int tegra_crtc_mode_set(struct drm_crtc *crtc,
 	if (err)
 		dev_err(dc->dev, "failed to program the EMC clock\n");
 
+	if (!err) {
+		if (!dc->enabled)
+			enable_irq(dc->irq);
+		dc->enabled = true;
+	}
+
 	return err;
 }
 
@@ -974,7 +1135,13 @@ static int tegra_crtc_mode_set_base(struct drm_crtc *crtc, int x, int y,
 {
 	struct tegra_dc *dc = to_tegra_dc(crtc);
 
-	return tegra_dc_set_base(dc, x, y, crtc->fb);
+	dc->fb = kzalloc(sizeof(struct dirty_fb), GFP_KERNEL);
+	if (!dc->fb) {
+		dev_err(dc->dev, "allocate struct dirty_fb failed.\n");
+		return -ENOMEM;
+	}
+
+	return tegra_dc_set_base(dc, x, y, crtc->primary->fb);
 }
 
 static void tegra_crtc_prepare(struct drm_crtc *crtc)
@@ -982,10 +1149,21 @@ static void tegra_crtc_prepare(struct drm_crtc *crtc)
 	struct tegra_dc *dc = to_tegra_dc(crtc);
 	unsigned int syncpt;
 	unsigned long value;
+	int ret;
+
+	tegra_crtc_disable(crtc);
+	tegra_dc_unpowergate_locked(dc);
 
 	/* hardware initialization */
-	reset_control_deassert(dc->rst);
-	usleep_range(10000, 20000);
+	if (!__clk_is_enabled(dc->clk)) {
+		ret = clk_prepare_enable(dc->clk);
+		if (ret < 0) {
+			WARN(1, "Enable dc clock failed: %d\n", ret);
+			return;
+		}
+		reset_control_deassert(dc->rst);
+		usleep_range(10000, 20000);
+	}
 
 	if (dc->pipe)
 		syncpt = SYNCPT_VBLANK1;
@@ -1067,6 +1245,7 @@ static irqreturn_t tegra_dc_irq(int irq, void *data)
 		*/
 		drm_handle_vblank(dc->base.dev, dc->pipe);
 		tegra_dc_finish_page_flip(dc);
+		queue_work(system_freezable_wq, &dc->dirty_fbs_work);
 	}
 
 	if (status & (WIN_A_UF_INT | WIN_B_UF_INT | WIN_C_UF_INT)) {
@@ -1082,6 +1261,14 @@ static int tegra_dc_show_regs(struct seq_file *s, void *data)
 {
 	struct drm_info_node *node = s->private;
 	struct tegra_dc *dc = node->info_ent->data;
+	unsigned long flags;
+	u32 win_header_save;
+	u32 state_access_save;
+	int i;
+
+	spin_lock_irqsave(&dc->lock, flags);
+	state_access_save = tegra_dc_readl(dc, DC_CMD_STATE_ACCESS);
+	tegra_dc_writel(dc, state_access_save | READ_MUX, DC_CMD_STATE_ACCESS);
 
 #define DUMP_REG(name)						\
 	seq_printf(s, "%-40s %#05x %08lx\n", #name, name,	\
@@ -1264,44 +1451,55 @@ static int tegra_dc_show_regs(struct seq_file *s, void *data)
 	DUMP_REG(DC_DISP_SD_MAN_K_VALUES);
 	DUMP_REG(DC_DISP_CURSOR_START_ADDR_HI);
 	DUMP_REG(DC_DISP_BLEND_CURSOR_CONTROL);
-	DUMP_REG(DC_WIN_WIN_OPTIONS);
-	DUMP_REG(DC_WIN_BYTE_SWAP);
-	DUMP_REG(DC_WIN_BUFFER_CONTROL);
-	DUMP_REG(DC_WIN_COLOR_DEPTH);
-	DUMP_REG(DC_WIN_POSITION);
-	DUMP_REG(DC_WIN_SIZE);
-	DUMP_REG(DC_WIN_PRESCALED_SIZE);
-	DUMP_REG(DC_WIN_H_INITIAL_DDA);
-	DUMP_REG(DC_WIN_V_INITIAL_DDA);
-	DUMP_REG(DC_WIN_DDA_INC);
-	DUMP_REG(DC_WIN_LINE_STRIDE);
-	DUMP_REG(DC_WIN_BUF_STRIDE);
-	DUMP_REG(DC_WIN_UV_BUF_STRIDE);
-	DUMP_REG(DC_WIN_BUFFER_ADDR_MODE);
-	DUMP_REG(DC_WIN_DV_CONTROL);
-	DUMP_REG(DC_WIN_BLEND_NOKEY);
-	DUMP_REG(DC_WIN_BLEND_1WIN);
-	DUMP_REG(DC_WIN_BLEND_2WIN_X);
-	DUMP_REG(DC_WIN_BLEND_2WIN_Y);
-	DUMP_REG(DC_WIN_BLEND_3WIN_XY);
-	DUMP_REG(DC_WIN_HP_FETCH_CONTROL);
-	DUMP_REG(DC_WINBUF_START_ADDR);
-	DUMP_REG(DC_WINBUF_START_ADDR_NS);
-	DUMP_REG(DC_WINBUF_START_ADDR_U);
-	DUMP_REG(DC_WINBUF_START_ADDR_U_NS);
-	DUMP_REG(DC_WINBUF_START_ADDR_V);
-	DUMP_REG(DC_WINBUF_START_ADDR_V_NS);
-	DUMP_REG(DC_WINBUF_ADDR_H_OFFSET);
-	DUMP_REG(DC_WINBUF_ADDR_H_OFFSET_NS);
-	DUMP_REG(DC_WINBUF_ADDR_V_OFFSET);
-	DUMP_REG(DC_WINBUF_ADDR_V_OFFSET_NS);
-	DUMP_REG(DC_WINBUF_UFLOW_STATUS);
-	DUMP_REG(DC_WINBUF_AD_UFLOW_STATUS);
-	DUMP_REG(DC_WINBUF_BD_UFLOW_STATUS);
-	DUMP_REG(DC_WINBUF_CD_UFLOW_STATUS);
+
+	win_header_save = tegra_dc_readl(dc, DC_CMD_DISPLAY_WINDOW_HEADER);
+	for (i = 0; i < 3; i++) {
+		seq_printf(s, "\nWindow %c registers:\n", 'A' + i);
+
+		tegra_dc_writel(dc, WINDOW_A_SELECT << i,
+				DC_CMD_DISPLAY_WINDOW_HEADER);
+
+		DUMP_REG(DC_WIN_WIN_OPTIONS);
+		DUMP_REG(DC_WIN_BYTE_SWAP);
+		DUMP_REG(DC_WIN_BUFFER_CONTROL);
+		DUMP_REG(DC_WIN_COLOR_DEPTH);
+		DUMP_REG(DC_WIN_POSITION);
+		DUMP_REG(DC_WIN_SIZE);
+		DUMP_REG(DC_WIN_PRESCALED_SIZE);
+		DUMP_REG(DC_WIN_H_INITIAL_DDA);
+		DUMP_REG(DC_WIN_V_INITIAL_DDA);
+		DUMP_REG(DC_WIN_DDA_INC);
+		DUMP_REG(DC_WIN_LINE_STRIDE);
+		DUMP_REG(DC_WIN_BUF_STRIDE);
+		DUMP_REG(DC_WIN_UV_BUF_STRIDE);
+		DUMP_REG(DC_WIN_BUFFER_ADDR_MODE);
+		DUMP_REG(DC_WIN_DV_CONTROL);
+		DUMP_REG(DC_WIN_BLEND_NOKEY);
+		DUMP_REG(DC_WIN_BLEND_1WIN);
+		DUMP_REG(DC_WIN_BLEND_2WIN_X);
+		DUMP_REG(DC_WIN_BLEND_2WIN_Y);
+		DUMP_REG(DC_WIN_BLEND_3WIN_XY);
+		DUMP_REG(DC_WIN_HP_FETCH_CONTROL);
+		DUMP_REG(DC_WINBUF_START_ADDR);
+		DUMP_REG(DC_WINBUF_START_ADDR_NS);
+		DUMP_REG(DC_WINBUF_START_ADDR_U);
+		DUMP_REG(DC_WINBUF_START_ADDR_U_NS);
+		DUMP_REG(DC_WINBUF_START_ADDR_V);
+		DUMP_REG(DC_WINBUF_START_ADDR_V_NS);
+		DUMP_REG(DC_WINBUF_ADDR_H_OFFSET);
+		DUMP_REG(DC_WINBUF_ADDR_H_OFFSET_NS);
+		DUMP_REG(DC_WINBUF_ADDR_V_OFFSET);
+		DUMP_REG(DC_WINBUF_ADDR_V_OFFSET_NS);
+		DUMP_REG(DC_WINBUF_UFLOW_STATUS);
+		DUMP_REG(DC_WINBUF_SURFACE_KIND);
+	}
+
+	tegra_dc_writel(dc, win_header_save, DC_CMD_DISPLAY_WINDOW_HEADER);
+	tegra_dc_writel(dc, state_access_save, DC_CMD_STATE_ACCESS);
 
 #undef DUMP_REG
 
+	spin_unlock_irqrestore(&dc->lock, flags);
 	return 0;
 }
 
@@ -1373,17 +1571,6 @@ static int tegra_dc_init(struct host1x_client *client)
 	struct tegra_dc *dc = host1x_client_to_dc(client);
 	int err;
 
-	if (tegra->domain) {
-		err = iommu_attach_device(tegra->domain, dc->dev);
-		if (err < 0) {
-			dev_err(dc->dev, "failed to attach to domain: %d\n",
-				err);
-			return err;
-		}
-
-		dc->domain = tegra->domain;
-	}
-
 	drm_crtc_init(tegra->drm, &dc->base, &tegra_crtc_funcs);
 	drm_mode_crtc_set_gamma_size(&dc->base, 256);
 	drm_crtc_helper_add(&dc->base, &tegra_crtc_helper_funcs);
@@ -1418,6 +1605,7 @@ static int tegra_dc_init(struct host1x_client *client)
 			err);
 		return err;
 	}
+	disable_irq(dc->irq);
 
 	return 0;
 }
@@ -1439,11 +1627,6 @@ static int tegra_dc_exit(struct host1x_client *client)
 	if (err) {
 		dev_err(dc->dev, "failed to shutdown RGB output: %d\n", err);
 		return err;
-	}
-
-	if (dc->domain) {
-		iommu_detach_device(dc->domain, dc->dev);
-		dc->domain = NULL;
 	}
 
 	return 0;
@@ -1537,11 +1720,28 @@ static int tegra_dc_probe(struct platform_device *pdev)
 	const struct of_device_id *id;
 	struct resource *regs;
 	struct tegra_dc *dc;
+	struct host1x_client *client;
 	int err;
 
-	dc = devm_kzalloc(&pdev->dev, sizeof(*dc), GFP_KERNEL);
-	if (!dc)
-		return -ENOMEM;
+	client = drm_host1x_get_client(&pdev->dev);
+	if (client) {
+		dc = host1x_client_to_dc(client);
+	} else {
+		dc = kzalloc(sizeof(*dc), GFP_KERNEL);
+		if (!dc)
+			return -ENOMEM;
+
+		INIT_LIST_HEAD(&dc->client.list);
+		dc->client.ops = &dc_client_ops;
+		dc->client.dev = &pdev->dev;
+	}
+
+	err = drm_host1x_register(&dc->client);
+	if (err < 0) {
+		dev_err(&pdev->dev, "failed to register host1x client: %d\n",
+			err);
+		return err;
+	}
 
 	id = of_match_node(tegra_dc_of_match, pdev->dev.of_node);
 	if (!id)
@@ -1549,14 +1749,15 @@ static int tegra_dc_probe(struct platform_device *pdev)
 
 	spin_lock_init(&dc->lock);
 	INIT_LIST_HEAD(&dc->list);
+	INIT_LIST_HEAD(&dc->dirty_fbs);
+	spin_lock_init(&dc->dirty_fbs_lock);
+	INIT_WORK(&dc->dirty_fbs_work, tegra_dc_cleanup_dirty_fbs);
 	dc->dev = &pdev->dev;
 	dc->soc = id->data;
 
 	err = tegra_dc_parse_dt(dc);
 	if (err < 0)
 		return err;
-
-	tegra_dc_unpowergate_locked(dc);
 
 	dc->clk = devm_clk_get(&pdev->dev, NULL);
 	if (IS_ERR(dc->clk)) {
@@ -1591,25 +1792,22 @@ static int tegra_dc_probe(struct platform_device *pdev)
 		return -ENXIO;
 	}
 
-	INIT_LIST_HEAD(&dc->client.list);
-	dc->client.ops = &dc_client_ops;
-	dc->client.dev = &pdev->dev;
-
 	err = tegra_dc_rgb_probe(dc);
 	if (err < 0 && err != -ENODEV) {
 		dev_err(&pdev->dev, "failed to probe RGB output: %d\n", err);
 		return err;
 	}
 
-	err = host1x_client_register(&dc->client);
+	err = iommu_attach_device(tegradrm_iommu_domain, dc->dev);
 	if (err < 0) {
-		dev_err(&pdev->dev, "failed to register host1x client: %d\n",
-			err);
+		dev_err(dc->dev, "failed to attach to domain: %d\n", err);
 		return err;
 	}
+	dc->domain = tegradrm_iommu_domain;
 
 	platform_set_drvdata(pdev, dc);
-
+	dc->client.driver_probed = 1;
+	dev_info(&pdev->dev, "initialized\n");
 	return 0;
 }
 
@@ -1618,7 +1816,7 @@ static int tegra_dc_remove(struct platform_device *pdev)
 	struct tegra_dc *dc = platform_get_drvdata(pdev);
 	int err;
 
-	err = host1x_client_unregister(&dc->client);
+	err = drm_host1x_unregister(&dc->client);
 	if (err < 0) {
 		dev_err(&pdev->dev, "failed to unregister host1x client: %d\n",
 			err);
@@ -1636,6 +1834,13 @@ static int tegra_dc_remove(struct platform_device *pdev)
 		clk_disable_unprepare(dc->emc_clk);
 
 	tegra_dc_powergate_locked(dc);
+
+	if (dc->domain) {
+		iommu_detach_device(dc->domain, dc->dev);
+		dc->domain = NULL;
+	}
+
+	kfree(dc);
 
 	return 0;
 }

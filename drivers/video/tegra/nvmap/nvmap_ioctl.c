@@ -56,11 +56,24 @@ static ssize_t rw_handle(struct nvmap_client *client, struct nvmap_handle *h,
  */
 static ulong __attribute__((unused)) fd_to_handle_id(int handle)
 {
-	ulong id;
+	ulong id = (unsigned long)-EINVAL;
 
-	id = nvmap_get_id_from_dmabuf_fd(NULL, (int)handle);
+#ifdef CONFIG_NVMAP_USE_FD_FOR_HANDLE
+	if (handle >= NVMAP_HANDLE_NATIVE_FD_START &&
+			handle < NVMAP_HANDLE_FOREIGN_FD_START)
+		/* nvmap dmabuf */
+		id = nvmap_get_id_from_dmabuf_fd(NULL, (int)handle);
+	else if (handle >= NVMAP_HANDLE_FOREIGN_FD_START &&
+			handle < NVMAP_HANDLE_FOREIGN_FD_END)
+		/* foreign dmabuf */
+		id = (ulong)nvmap_foreign_dmabuf_find_by_fd(handle);
+#else
+		id = nvmap_get_id_from_dmabuf_fd(NULL, (int)handle);
+#endif
+
 	if (!IS_ERR_VALUE(id))
 		return id;
+
 	return 0;
 }
 
@@ -284,6 +297,25 @@ const struct file_operations nvmap_fd_fops = {
 	.mmap		= nvmap_share_mmap,
 };
 
+int nvmap_install_fd(struct nvmap_client *client,
+	struct nvmap_handle *handle, int fd, void __user *arg,
+	void *op, size_t op_size)
+{
+	int err = 0;
+
+	if (fd < 0)
+		return fd;
+
+	if (copy_to_user(arg, op, op_size)) {
+		err = -EFAULT;
+		put_unused_fd(fd);
+		return err;
+	}
+
+	fd_install(fd, handle->dmabuf->file);
+	return err;
+}
+
 int nvmap_ioctl_getfd(struct file *filp, void __user *arg)
 {
 	ulong handle;
@@ -299,14 +331,9 @@ int nvmap_ioctl_getfd(struct file *filp, void __user *arg)
 
 	op.fd = nvmap_get_dmabuf_fd(client, handle);
 	nvmap_handle_put((struct nvmap_handle *)handle);
-	if (op.fd < 0)
-		return op.fd;
 
-	if (copy_to_user(arg, &op, sizeof(op))) {
-		sys_close(op.fd);
-		return -EFAULT;
-	}
-	return 0;
+	return nvmap_install_fd(client, (struct nvmap_handle *)handle,
+				op.fd, arg, &op, sizeof(op));
 }
 
 int nvmap_ioctl_alloc(struct file *filp, void __user *arg)
@@ -388,6 +415,11 @@ int nvmap_create_fd(struct nvmap_handle *h)
 	 * to balance ref count, ref count dma_buf.
 	 */
 	get_dma_buf(h->dmabuf);
+
+	if (nvmap_dmabuf_is_foreign_dmabuf(h->dmabuf))
+		nvmap_foreign_dmabuf_add(h, h->dmabuf, fd);
+
+	fd_install(fd, h->dmabuf->file);
 	return fd;
 }
 
@@ -429,6 +461,14 @@ int nvmap_ioctl_create(struct file *filp, unsigned int cmd, void __user *arg)
 
 	if (copy_to_user(arg, &op, sizeof(op))) {
 		err = -EFAULT;
+#ifdef CONFIG_NVMAP_USE_FD_FOR_HANDLE
+		if (nvmap_dmabuf_is_foreign_dmabuf(ref->handle->dmabuf) &&
+				(int)op.handle > 0) {
+			if (nvmap_foreign_dmabuf_put(ref->handle->dmabuf))
+				dma_buf_detach(ref->handle->dmabuf,
+						ref->handle->attachment);
+		}
+#endif
 		nvmap_free_handle_id(client, __nvmap_ref_to_id(ref));
 	}
 
@@ -559,9 +599,9 @@ int nvmap_ioctl_get_param(struct file *filp, void __user *arg)
 {
 	struct nvmap_handle_param op;
 	struct nvmap_client *client = filp->private_data;
-	struct nvmap_handle_ref *ref;
-	struct nvmap_handle *h;
-	u64 result;
+	struct nvmap_handle_ref *ref = NULL;
+	struct nvmap_handle *h = NULL;
+	u64 result = 0;
 	int err = 0;
 	ulong handle;
 
@@ -581,6 +621,8 @@ int nvmap_ioctl_get_param(struct file *filp, void __user *arg)
 	}
 
 	err = nvmap_get_handle_param(client, ref, op.param, &result);
+	if (err)
+		goto ref_fail;
 	op.result = (long unsigned int)result;
 
 	if (!err && copy_to_user(arg, &op, sizeof(op)))

@@ -235,15 +235,20 @@ static int udl_crtc_write_mode_to_hw(struct drm_crtc *crtc)
 	char *buf;
 	int retval;
 
+	mutex_lock(&udl->transfer_lock);
 	urb = udl_get_urb(dev);
-	if (!urb)
+	if (!urb) {
+		mutex_unlock(&udl->transfer_lock);
 		return -ENOMEM;
+	}
 
 	buf = (char *)urb->transfer_buffer;
 
 	memcpy(buf, udl->mode_buf, udl->mode_buf_len);
 	retval = udl_submit_urb(dev, urb, udl->mode_buf_len);
 	DRM_INFO("write mode info %d\n", udl->mode_buf_len);
+	mutex_unlock(&udl->transfer_lock);
+
 	return retval;
 }
 
@@ -257,9 +262,12 @@ static void udl_crtc_dpms(struct drm_crtc *crtc, int mode)
 	if (mode == DRM_MODE_DPMS_OFF) {
 		char *buf;
 		struct urb *urb;
+		mutex_lock(&udl->transfer_lock);
 		urb = udl_get_urb(dev);
-		if (!urb)
+		if (!urb) {
+			mutex_unlock(&udl->transfer_lock);
 			return;
+		}
 
 		buf = (char *)urb->transfer_buffer;
 		buf = udl_vidreg_lock(buf);
@@ -269,6 +277,7 @@ static void udl_crtc_dpms(struct drm_crtc *crtc, int mode)
 		buf = udl_dummy_render(buf);
 		retval = udl_submit_urb(dev, urb, buf - (char *)
 					urb->transfer_buffer);
+		mutex_unlock(&udl->transfer_lock);
 	} else {
 		if (udl->mode_buf_len == 0) {
 			DRM_ERROR("Trying to enable DPMS with no mode\n");
@@ -321,7 +330,7 @@ static int udl_crtc_mode_set(struct drm_crtc *crtc,
 
 {
 	struct drm_device *dev = crtc->dev;
-	struct udl_framebuffer *ufb = to_udl_fb(crtc->fb);
+	struct udl_framebuffer *ufb = to_udl_fb(crtc->primary->fb);
 	struct udl_device *udl = dev->dev_private;
 	struct udl_flip_queue *flip_queue = udl->flip_queue;
 	char *buf;
@@ -398,7 +407,7 @@ static void udl_sched_page_flip(struct work_struct *work)
 	crtc = flip_queue->crtc;
 	dev = crtc->dev;
 	event = flip_queue->event;
-	fb = crtc->fb;
+	fb = crtc->primary->fb;
 	flip_queue->event = NULL;
 	mutex_unlock(&flip_queue->lock);
 
@@ -433,13 +442,13 @@ static int udl_crtc_page_flip(struct drm_crtc *crtc,
 		struct drm_framebuffer *old_fb;
 		struct udl_framebuffer *ufb;
 		ufb = to_udl_fb(fb);
-		old_fb = crtc->fb;
+		old_fb = crtc->primary->fb;
 		if (old_fb) {
 			struct udl_framebuffer *uold_fb = to_udl_fb(old_fb);
 			uold_fb->active_16 = false;
 		}
 		ufb->active_16 = true;
-		crtc->fb = fb;
+		crtc->primary->fb = fb;
 	}
 	if (event) {
 		if (flip_queue->event) {
@@ -618,10 +627,10 @@ void udl_modeset_restore(struct drm_device *dev)
 {
 	struct udl_device *udl = dev->dev_private;
 	struct udl_framebuffer *ufb;
-	if (!udl->crtc || !udl->crtc->fb)
+	if (!udl->crtc || !udl->crtc->primary->fb)
 		return;
 	udl_crtc_commit(udl->crtc);
-	ufb = to_udl_fb(udl->crtc->fb);
+	ufb = to_udl_fb(udl->crtc->primary->fb);
 	udl_handle_damage(ufb, 0, 0, ufb->base.width, ufb->base.height);
 }
 

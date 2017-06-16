@@ -47,6 +47,7 @@
 #include "nvhost_memmgr.h"
 #include "chip_support.h"
 #include "nvhost_acm.h"
+#include "nvhost_vm.h"
 
 #include "nvhost_syncpt.h"
 #include "nvhost_channel.h"
@@ -59,6 +60,10 @@ static int validate_reg(struct platform_device *ndev, u32 offset, int count)
 	int err = 0;
 	struct resource *r;
 	struct nvhost_device_data *pdata = platform_get_drvdata(ndev);
+
+	/* check if offset is u32 aligned */
+	if (offset & 3)
+		return -EINVAL;
 
 	r = platform_get_resource(pdata->master ? pdata->master : ndev,
 			IORESOURCE_MEM, 0);
@@ -162,17 +167,28 @@ struct nvhost_channel_userctx {
 	u32 priority;
 	int clientid;
 	bool timeout_debug_dump;
+
+	/* lock to protect this structure from concurrent ioctl usage */
+	struct mutex ioctl_lock;
+
+	/* context address space */
+	struct nvhost_vm *vm;
 };
 
 static int nvhost_channelrelease(struct inode *inode, struct file *filp)
 {
 	struct nvhost_channel_userctx *priv = filp->private_data;
 
+	if (!priv)
+		return 0;
+
 	trace_nvhost_channel_release(dev_name(&priv->ch->dev->dev));
 
 	filp->private_data = NULL;
 
 	nvhost_module_remove_client(priv->ch->dev, priv);
+
+	nvhost_vm_put(priv->vm);
 
 	if (priv->hwctx) {
 		struct nvhost_channel *ch = priv->ch;
@@ -215,7 +231,6 @@ static int __nvhost_channelopen(struct inode *inode,
 		nvhost_putchannel(ch);
 		return -ENOMEM;
 	}
-	filp->private_data = priv;
 	priv->ch = ch;
 	if (nvhost_module_add_client(ch->dev, priv))
 		goto fail;
@@ -233,7 +248,11 @@ static int __nvhost_channelopen(struct inode *inode,
 	pdata = dev_get_drvdata(ch->dev->dev.parent);
 	priv->timeout = pdata->nvhost_timeout_default;
 	priv->timeout_debug_dump = true;
+	mutex_init(&priv->ioctl_lock);
 
+	priv->vm = nvhost_vm_allocate(ch->dev);
+
+	filp->private_data = priv;
 	return 0;
 fail:
 	nvhost_channelrelease(inode, filp);
@@ -388,10 +407,14 @@ static int nvhost_ioctl_channel_submit(struct nvhost_channel_userctx *ctx,
 	u32 __user *waitbases = (u32 *)(uintptr_t)args->waitbases;
 	u32 __user *fences = (u32 *)(uintptr_t)args->fences;
 	u32 __user *class_ids = (u32 *)(uintptr_t)args->class_ids;
+	struct nvhost_device_data *pdata = platform_get_drvdata(ctx->ch->dev);
 
 	struct nvhost_master *host = nvhost_get_host(ctx->ch->dev);
 	u32 *local_waitbases = NULL, *local_class_ids = NULL;
 	int err, i, hwctx_syncpt_idx = -1;
+
+	if (num_cmdbufs < 0 || num_syncpt_incrs < 0)
+		return -EINVAL;
 
 	if (num_syncpt_incrs > host->info.nb_pts)
 		return -EINVAL;
@@ -410,6 +433,8 @@ static int nvhost_ioctl_channel_submit(struct nvhost_channel_userctx *ctx,
 	job->num_syncpts = args->num_syncpt_incrs;
 	job->priority = ctx->priority;
 	job->clientid = ctx->clientid;
+	job->vm = ctx->vm;
+	nvhost_vm_get(job->vm);
 
 	/* mass copy class_ids */
 	if (args->class_ids) {
@@ -434,6 +459,13 @@ static int nvhost_ioctl_channel_submit(struct nvhost_channel_userctx *ctx,
 		err = copy_from_user(&cmdbuf, cmdbufs + i, sizeof(cmdbuf));
 		if (err)
 			goto fail;
+
+		if (class_id &&
+		    class_id != pdata->class &&
+		    class_id != NV_HOST1X_CLASS_ID) {
+			err = -EINVAL;
+			goto fail;
+		}
 
 		nvhost_job_add_gather(job, cmdbuf.mem, cmdbuf.words,
 				cmdbuf.offset, class_id);
@@ -489,6 +521,8 @@ static int nvhost_ioctl_channel_submit(struct nvhost_channel_userctx *ctx,
 	for (i = 0; i < num_syncpt_incrs; ++i) {
 		u32 waitbase;
 		struct nvhost_syncpt_incr sp;
+		bool found = false;
+		int j;
 
 		/* Copy */
 		err = copy_from_user(&sp, syncpt_incrs + i, sizeof(sp));
@@ -496,7 +530,19 @@ static int nvhost_ioctl_channel_submit(struct nvhost_channel_userctx *ctx,
 			goto fail;
 
 		/* Validate */
-		if (sp.syncpt_id > host->info.nb_pts) {
+		if (sp.syncpt_id == 0) {
+			err = -EINVAL;
+			goto fail;
+		}
+
+		for (j = 0; j < NVHOST_MODULE_MAX_SYNCPTS; ++j) {
+			if (pdata->syncpts[j] == sp.syncpt_id) {
+				found = true;
+				break;
+			}
+		}
+
+		if (!found) {
 			err = -EINVAL;
 			goto fail;
 		}
@@ -723,6 +769,158 @@ static int nvhost_ioctl_channel_read_3d_reg(struct nvhost_channel_userctx *ctx,
 			args->offset, &args->value);
 }
 
+static int nvhost_ioctl_channel_map_buffer(struct nvhost_channel_userctx *ctx,
+				struct nvhost_channel_map_buffer_args *args)
+{
+	struct nvhost_channel_buffer __user *__buffers =
+		(struct nvhost_channel_buffer *)(uintptr_t)args->table_address;
+	struct nvhost_channel_buffer *buffers;
+	int err = 0, i = 0, num_handled_buffers = 0;
+	dma_addr_t addr = 0;
+
+	/* ensure that reserved fields are kept clear */
+	if (args->reserved)
+		return -EINVAL;
+
+	/* allocate room for buffers */
+	buffers = kzalloc(args->num_buffers * sizeof(*buffers), GFP_KERNEL);
+	if (!buffers) {
+		err = -ENOMEM;
+		goto err_alloc_buffers;
+	}
+
+	/* copy the buffers from user space */
+	err = copy_from_user(buffers, __buffers,
+			     sizeof(*__buffers) * args->num_buffers);
+	if (err)
+		goto err_copy_from_user;
+
+	/* go through all the buffers */
+	for (i = 0, num_handled_buffers = 0;
+	     i < args->num_buffers;
+	     i++, num_handled_buffers++) {
+		struct dma_buf *dmabuf;
+
+		/* ensure that reserved fields are kept clear */
+		if (buffers[i].reserved0 ||
+		    buffers[i].reserved1[0] ||
+		    buffers[i].reserved1[1]) {
+			err = -EINVAL;
+			goto err_map_buffers;
+		}
+
+		/* validate dmabuf fd */
+		dmabuf = dma_buf_get(buffers[i].dmabuf_fd);
+		if (IS_ERR(dmabuf)) {
+			err = PTR_ERR(dmabuf);
+			goto err_map_buffers;
+		}
+
+		/* map it into context vm */
+		err = nvhost_vm_map_dmabuf(ctx->vm, dmabuf,
+					   &addr);
+		buffers[i].address = (u64)addr;
+
+		/* not needed anymore, vm keeps reference now */
+		dma_buf_put(dmabuf);
+
+		if (err)
+			goto err_map_buffers;
+	}
+
+	/* finally, copy the addresses back to userspace */
+	err = copy_to_user(__buffers, buffers,
+			   args->num_buffers * sizeof(*buffers));
+	if (err)
+		goto err_copy_buffers_to_user;
+
+	kfree(buffers);
+	return err;
+
+err_copy_buffers_to_user:
+err_map_buffers:
+	for (i = 0; i < num_handled_buffers; i++) {
+		struct dma_buf *dmabuf;
+
+		dmabuf = dma_buf_get(buffers[i].dmabuf_fd);
+		if (IS_ERR(dmabuf))
+			continue;
+		nvhost_vm_unmap_dmabuf(ctx->vm, dmabuf);
+		dma_buf_put(dmabuf);
+	}
+err_copy_from_user:
+	kfree(buffers);
+err_alloc_buffers:
+	return err;
+}
+
+static int nvhost_ioctl_channel_unmap_buffer(struct nvhost_channel_userctx *ctx,
+				struct nvhost_channel_unmap_buffer_args *args)
+{
+	struct nvhost_channel_buffer __user *__buffers =
+		(struct nvhost_channel_buffer *)(uintptr_t)args->table_address;
+	struct nvhost_channel_buffer *buffers;
+	int err = 0, i = 0, num_handled_buffers = 0;
+	struct dma_buf **dmabufs;
+
+	/* ensure that reserved fields are kept clear */
+	if (args->reserved)
+		return -EINVAL;
+
+	/* allocate room for buffers */
+	buffers = kzalloc(args->num_buffers * sizeof(*buffers), GFP_KERNEL);
+	if (!buffers) {
+		err = -ENOMEM;
+		goto err_alloc_buffers;
+	}
+
+	/* allocate room for buffers */
+	dmabufs = kzalloc(args->num_buffers * sizeof(*dmabufs), GFP_KERNEL);
+	if (!buffers) {
+		err = -ENOMEM;
+		goto err_alloc_dmabufs;
+	}
+
+	/* copy the buffers from user space */
+	err = copy_from_user(buffers, __buffers,
+			     sizeof(*__buffers) * args->num_buffers);
+	if (err)
+		goto err_copy_from_user;
+
+	/* first get all dmabufs... */
+	for (i = 0, num_handled_buffers = 0;
+	     i < args->num_buffers;
+	     i++, num_handled_buffers++) {
+		/* ensure that reserved fields are kept clear */
+		if (buffers[i].reserved0 ||
+		    buffers[i].reserved1[0] ||
+		    buffers[i].reserved1[1]) {
+			err = -EINVAL;
+			goto err_get_dmabufs;
+		}
+
+		dmabufs[i] = dma_buf_get(buffers[i].dmabuf_fd);
+		if (IS_ERR(dmabufs[i])) {
+			err = PTR_ERR(dmabufs[i]);
+			goto err_get_dmabufs;
+		}
+	}
+
+	/* ..then unmap */
+	for (i = 0; i < args->num_buffers; i++)
+		nvhost_vm_unmap_dmabuf(ctx->vm, dmabufs[i]);
+
+err_get_dmabufs:
+	for (i = 0; i < num_handled_buffers; i++)
+		dma_buf_put(dmabufs[i]);
+err_copy_from_user:
+	kfree(dmabufs);
+err_alloc_dmabufs:
+	kfree(buffers);
+err_alloc_buffers:
+	return err;
+}
+
 static int moduleid_to_index(struct platform_device *dev, u32 moduleid)
 {
 	int i;
@@ -850,6 +1048,9 @@ static long nvhost_channelctl(struct file *filp,
 			return -EFAULT;
 	}
 
+	/* serialize calls from this fd */
+	mutex_lock(&priv->ioctl_lock);
+
 	switch (cmd) {
 	case NVHOST_IOCTL_CHANNEL_OPEN:
 	{
@@ -877,7 +1078,6 @@ static long nvhost_channelctl(struct file *filp,
 			put_unused_fd(fd);
 			break;
 		}
-		fd_install(fd, file);
 
 		err = __nvhost_channelopen(NULL, priv->ch, file);
 		if (err) {
@@ -887,6 +1087,7 @@ static long nvhost_channelctl(struct file *filp,
 		}
 
 		((struct nvhost_channel_open_args *)buf)->channel_fd = fd;
+		fd_install(fd, file);
 		break;
 	}
 	case NVHOST_IOCTL_CHANNEL_GET_SYNCPOINTS:
@@ -904,8 +1105,10 @@ static long nvhost_channelctl(struct file *filp,
 		struct nvhost_get_param_arg *arg =
 			(struct nvhost_get_param_arg *)buf;
 		if (arg->param >= NVHOST_MODULE_MAX_SYNCPTS
-				|| !pdata->syncpts[arg->param])
-			return -EINVAL;
+				|| !pdata->syncpts[arg->param]) {
+			err = -EINVAL;
+			break;
+		}
 		arg->value = pdata->syncpts[arg->param];
 		break;
 	}
@@ -925,8 +1128,10 @@ static long nvhost_channelctl(struct file *filp,
 		struct nvhost_get_param_arg *arg =
 			(struct nvhost_get_param_arg *)buf;
 		if (arg->param >= NVHOST_MODULE_MAX_WAITBASES
-				|| !pdata->waitbases[arg->param])
-			return -EINVAL;
+				|| !pdata->waitbases[arg->param]) {
+			err = -EINVAL;
+			break;
+		}
 		arg->value = pdata->waitbases[arg->param];
 		break;
 	}
@@ -946,8 +1151,10 @@ static long nvhost_channelctl(struct file *filp,
 		struct nvhost_get_param_arg *arg =
 			(struct nvhost_get_param_arg *)buf;
 		if (arg->param >= NVHOST_MODULE_MAX_MODMUTEXES
-				|| !pdata->modulemutexes[arg->param])
-			return -EINVAL;
+				|| !pdata->modulemutexes[arg->param]) {
+			err = -EINVAL;
+			break;
+		}
 		arg->value = pdata->modulemutexes[arg->param];
 		break;
 	}
@@ -1045,6 +1252,12 @@ static long nvhost_channelctl(struct file *filp,
 	case NVHOST_IOCTL_CHANNEL_SUBMIT:
 		err = nvhost_ioctl_channel_submit(priv, (void *)buf);
 		break;
+	case NVHOST_IOCTL_CHANNEL_MAP_BUFFER:
+		err = nvhost_ioctl_channel_map_buffer(priv, (void *)buf);
+		break;
+	case NVHOST_IOCTL_CHANNEL_UNMAP_BUFFER:
+		err = nvhost_ioctl_channel_unmap_buffer(priv, (void *)buf);
+		break;
 	case NVHOST_IOCTL_CHANNEL_SET_TIMEOUT_EX:
 	{
 		u32 timeout =
@@ -1071,6 +1284,8 @@ static long nvhost_channelctl(struct file *filp,
 		err = -ENOTTY;
 		break;
 	}
+
+	mutex_unlock(&priv->ioctl_lock);
 
 	if ((err == 0) && (_IOC_DIR(cmd) & _IOC_READ))
 		err = copy_to_user((void __user *)arg, buf, _IOC_SIZE(cmd));

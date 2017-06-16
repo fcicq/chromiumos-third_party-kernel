@@ -98,6 +98,12 @@ int tegra_drm_exit(struct tegra_drm *tegra);
 struct tegra_dc_soc_info;
 struct tegra_output;
 
+struct dirty_fb {
+	struct list_head list;
+	struct tegra_bo *bo;
+	u32 offset;
+};
+
 struct tegra_dc {
 	struct host1x_client client;
 	struct device *dev;
@@ -115,6 +121,10 @@ struct tegra_dc {
 	struct tegra_output *rgb;
 
 	struct list_head list;
+	struct dirty_fb *fb;
+	struct list_head dirty_fbs;
+	spinlock_t dirty_fbs_lock;
+	struct work_struct dirty_fbs_work;
 
 	struct drm_info_list *debugfs_files;
 	struct drm_minor *minor;
@@ -126,6 +136,9 @@ struct tegra_dc {
 	const struct tegra_dc_soc_info *soc;
 
 	struct iommu_domain *domain;
+	struct tegra_bo *shadow_cursor;
+
+	bool enabled;
 };
 
 static inline struct tegra_dc *
@@ -205,10 +218,17 @@ struct tegra_output {
 	enum tegra_output_type type;
 
 	struct drm_panel *panel;
+	bool panel_enabled;
+	bool panel_prepared;
 	struct i2c_adapter *ddc;
 	const struct edid *edid;
 	unsigned int hpd_irq;
 	int hpd_gpio;
+
+	bool enabled;
+	bool suspended;
+
+	struct drm_display_mode saved_mode;
 
 	struct drm_encoder encoder;
 	struct drm_connector connector;
@@ -263,6 +283,12 @@ static inline int tegra_output_check_mode(struct tegra_output *output,
 /* from bus.c */
 int drm_host1x_init(struct drm_driver *driver, struct host1x_device *device);
 void drm_host1x_exit(struct drm_driver *driver, struct host1x_device *device);
+int drm_host1x_register(struct host1x_client *client);
+int drm_host1x_unregister(struct host1x_client *client);
+int drm_host1x_device_init(struct drm_device *drm, struct host1x_device *device);
+int drm_host1x_device_exit(struct host1x_device *device);
+struct host1x_client *drm_host1x_get_client(struct device *dev);
+int drm_host1x_check_clients_probed(void);
 
 /* from rgb.c */
 int tegra_dc_rgb_probe(struct tegra_dc *dc);
@@ -275,6 +301,10 @@ int tegra_output_probe(struct tegra_output *output);
 int tegra_output_remove(struct tegra_output *output);
 int tegra_output_init(struct drm_device *drm, struct tegra_output *output);
 int tegra_output_exit(struct tegra_output *output);
+int tegra_output_panel_enable(struct tegra_output *output);
+int tegra_output_panel_disable(struct tegra_output *output);
+int tegra_output_panel_prepare(struct tegra_output *output);
+int tegra_output_panel_unprepare(struct tegra_output *output);
 
 /* from dpaux.c */
 struct tegra_dpaux;
@@ -286,9 +316,6 @@ int tegra_dpaux_attach(struct tegra_dpaux *dpaux, struct tegra_output *output);
 int tegra_dpaux_detach(struct tegra_dpaux *dpaux);
 int tegra_dpaux_enable(struct tegra_dpaux *dpaux);
 int tegra_dpaux_disable(struct tegra_dpaux *dpaux);
-int tegra_dpaux_prepare(struct tegra_dpaux *dpaux, u8 encoding);
-int tegra_dpaux_train(struct tegra_dpaux *dpaux, struct drm_dp_link *link,
-		      u8 pattern);
 
 /* from fb.c */
 struct tegra_bo *tegra_fb_get_plane(struct drm_framebuffer *framebuffer,

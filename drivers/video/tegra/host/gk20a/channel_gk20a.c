@@ -3,7 +3,7 @@
  *
  * GK20A Graphics channel
  *
- * Copyright (c) 2011-2013, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2011-2016, NVIDIA CORPORATION.  All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
@@ -31,7 +31,10 @@
 #include "debug.h"
 
 #include "gk20a.h"
+
+#ifdef CONFIG_TEGRA_GK20A_DEBUG_SESSION
 #include "dbg_gpu_gk20a.h"
+#endif
 
 #include "hw_ram_gk20a.h"
 #include "hw_fifo_gk20a.h"
@@ -532,13 +535,21 @@ int gk20a_channel_cycle_stats(struct channel_gk20a *ch,
 #endif
 
 int gk20a_init_error_notifier(struct nvhost_hwctx *ctx,
-		u32 memhandle, u64 offset) {
+		u32 memhandle, u64 offset)
+{
 	struct channel_gk20a *ch = ctx->priv;
 	struct platform_device *dev = ch->ch->dev;
-	void *va;
-
 	struct mem_mgr *memmgr;
 	struct mem_handle *handle_ref;
+	void *va;
+	u64 end = offset + sizeof(struct nvhost_notification);
+	u64 buf_size;
+	int err;
+
+	if (offset > (u64)(~0ULL) - sizeof(struct nvhost_notification)) {
+		pr_err("gk20a_init_error_notifier: invalid offset\n");
+		return -EINVAL;
+	}
 
 	if (!memhandle) {
 		pr_err("gk20a_init_error_notifier: invalid memory handle\n");
@@ -548,13 +559,28 @@ int gk20a_init_error_notifier(struct nvhost_hwctx *ctx,
 	memmgr = gk20a_channel_mem_mgr(ch);
 	handle_ref = nvhost_memmgr_get(memmgr, memhandle, dev);
 
-	if (ctx->error_notifier_ref)
-		gk20a_free_error_notifiers(ctx);
+	gk20a_free_error_notifiers(ctx);
 
 	if (IS_ERR(handle_ref)) {
 		pr_err("Invalid handle: %d\n", memhandle);
 		return -EINVAL;
 	}
+
+	err = nvhost_memmgr_get_param(memmgr, handle_ref,
+				NVMAP_HANDLE_PARAM_SIZE,
+				&buf_size);
+	if (err) {
+		nvhost_memmgr_put(memmgr, handle_ref);
+		pr_err("Cannot query notifier size\n");
+		return err;
+	}
+
+	if (end > buf_size) {
+		nvhost_memmgr_put(memmgr, handle_ref);
+		pr_err("gk20a_init_error_notifier: offset over notifier size\n");
+		return -EINVAL;
+	}
+
 	/* map handle */
 	va = nvhost_memmgr_mmap(handle_ref);
 	if (!va) {
@@ -563,14 +589,22 @@ int gk20a_init_error_notifier(struct nvhost_hwctx *ctx,
 		return -ENOMEM;
 	}
 
-	/* set hwctx notifiers pointer */
-	ctx->error_notifier_ref = handle_ref;
 	ctx->error_notifier = va + offset;
 	ctx->error_notifier_va = va;
+
+	/* set hwctx notifiers pointer */
+	mutex_lock(&ctx->error_notifier_mutex);
+	ctx->error_notifier_ref = handle_ref;
+	mutex_unlock(&ctx->error_notifier_mutex);
+
 	return 0;
 }
 
-void gk20a_set_error_notifier(struct nvhost_hwctx *ctx, __u32 error)
+/*
+ * gk20a_set_error_notifier_locked()
+ * Should be called with ch->error_notifier_mutex held
+ */
+void gk20a_set_error_notifier_locked(struct nvhost_hwctx *ctx, __u32 error)
 {
 	if (ctx->error_notifier_ref) {
 		struct timespec time_data;
@@ -589,8 +623,16 @@ void gk20a_set_error_notifier(struct nvhost_hwctx *ctx, __u32 error)
 	}
 }
 
+void gk20a_set_error_notifier(struct nvhost_hwctx *ctx, __u32 error)
+{
+	mutex_lock(&ctx->error_notifier_mutex);
+	gk20a_set_error_notifier_locked(ctx, error);
+	mutex_unlock(&ctx->error_notifier_mutex);
+}
+
 void gk20a_free_error_notifiers(struct nvhost_hwctx *ctx)
 {
+	mutex_lock(&ctx->error_notifier_mutex);
 	if (ctx->error_notifier_ref) {
 		struct channel_gk20a *ch = ctx->priv;
 		struct mem_mgr *memmgr = gk20a_channel_mem_mgr(ch);
@@ -598,7 +640,10 @@ void gk20a_free_error_notifiers(struct nvhost_hwctx *ctx)
 				ctx->error_notifier_va);
 		nvhost_memmgr_put(memmgr, ctx->error_notifier_ref);
 		ctx->error_notifier_ref = 0;
+		ctx->error_notifier_ref = NULL;
+		ctx->error_notifier_va = NULL;
 	}
+	mutex_unlock(&ctx->error_notifier_mutex);
 }
 
 void gk20a_free_channel(struct nvhost_hwctx *ctx, bool finish)
@@ -610,7 +655,9 @@ void gk20a_free_channel(struct nvhost_hwctx *ctx, bool finish)
 	struct gr_gk20a *gr = &g->gr;
 	struct vm_gk20a *ch_vm = ch->vm;
 	unsigned long timeout = gk20a_get_gr_idle_timeout(g);
+#ifdef CONFIG_TEGRA_GK20A_DEBUG_SESSION
 	struct dbg_session_gk20a *dbg_s;
+#endif
 
 	nvhost_dbg_fn("");
 
@@ -678,10 +725,12 @@ unbind:
 	/* unlink all debug sessions */
 	mutex_lock(&ch->dbg_s_lock);
 
+#ifdef CONFIG_TEGRA_GK20A_DEBUG_SESSION
 	list_for_each_entry(dbg_s, &ch->dbg_s_list, dbg_s_list_node) {
 		dbg_s->ch = NULL;
 		list_del_init(&dbg_s->dbg_s_list_node);
 	}
+#endif
 
 	mutex_unlock(&ch->dbg_s_lock);
 
@@ -1847,6 +1896,8 @@ int gk20a_channel_wait(struct channel_gk20a *ch,
 	u32 offset;
 	unsigned long timeout;
 	int remain, ret = 0;
+	u64 end;
+	u64 buf_size;
 
 	nvhost_dbg_fn("");
 
@@ -1862,6 +1913,12 @@ int gk20a_channel_wait(struct channel_gk20a *ch,
 	case NVHOST_WAIT_TYPE_NOTIFIER:
 		id = args->condition.notifier.nvmap_handle;
 		offset = args->condition.notifier.offset;
+		if (offset > (u32)(~0U) - sizeof(struct notification)) {
+			nvhost_err(d, "invalid notifier offset");
+			return -EINVAL;
+		}
+
+		end = offset + sizeof(struct notification);
 
 		handle_ref = nvhost_memmgr_get(memmgr, id, dev);
 		if (IS_ERR(handle_ref)) {
@@ -1870,8 +1927,24 @@ int gk20a_channel_wait(struct channel_gk20a *ch,
 			return -EINVAL;
 		}
 
+		ret = nvhost_memmgr_get_param(memmgr, handle_ref,
+					NVMAP_HANDLE_PARAM_SIZE,
+					&buf_size);
+		if (ret) {
+			nvhost_memmgr_put(memmgr, handle_ref);
+			nvhost_err(d, "Cannot query notifier size");
+			return ret;
+		}
+
+		if (end > buf_size) {
+			nvhost_memmgr_put(memmgr, handle_ref);
+			nvhost_err(d, "notifier offset over buffer size");
+			return -EINVAL;
+		}
+
 		notif = nvhost_memmgr_mmap(handle_ref);
 		if (!notif) {
+			nvhost_memmgr_put(memmgr, handle_ref);
 			nvhost_err(d, "failed to map notifier memory");
 			return -ENOMEM;
 		}
