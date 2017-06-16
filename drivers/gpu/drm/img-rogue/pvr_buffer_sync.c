@@ -3,6 +3,7 @@
 /*************************************************************************/ /*!
 @File
 @Title          Linux buffer sync interface
+@Codingstyle    LinuxKernel
 @Copyright      Copyright (c) Imagination Technologies Ltd. All Rights Reserved
 @License        Dual MIT/GPLv2
 
@@ -42,18 +43,21 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */ /**************************************************************************/
 
+#include <linux/dma-buf.h>
 #include <linux/reservation.h>
 
 #include "pvr_buffer_sync.h"
 #include "pvr_buffer_sync_shared.h"
 #include "pvr_fence.h"
-#include "pvrsrv.h"
-#include "pvrsrv_error.h"
-#include "sync_internal.h"
-#include "physmem_dmabuf.h"
+#include "services_kernel_client.h"
+
+struct pvr_buffer_sync_context {
+	struct pvr_fence_context *fence_ctx;
+	struct ww_acquire_ctx acquire_ctx;
+};
 
 struct pvr_buffer_sync_check_data {
-	struct fence_cb base;
+	struct dma_fence_cb base;
 
 	u32 nr_fences;
 	struct pvr_fence **fences;
@@ -62,28 +66,26 @@ struct pvr_buffer_sync_check_data {
 struct pvr_buffer_sync_append_data {
 	bool appended;
 
+	struct pvr_buffer_sync_context *ctx;
+
 	u32 nr_checks;
-	PRGXFWIF_UFO_ADDR *check_ufo_addresses;
+	struct _RGXFWIF_DEV_VIRTADDR_ *check_ufo_addrs;
 	u32 *check_values;
 
 	u32 nr_updates;
-	PRGXFWIF_UFO_ADDR *update_ufo_addresses;
+	struct _RGXFWIF_DEV_VIRTADDR_ *update_ufo_addrs;
 	u32 *update_values;
 
 	u32 nr_pmrs;
-	PMR **pmrs;
+	struct _PMR_ **pmrs;
 	u32 *pmr_flags;
 
 	struct pvr_fence *update_fence;
 };
 
-static IMG_HANDLE dev_cookie;
-static struct pvr_fence_context *fence_ctx;
-static struct ww_acquire_ctx acquire_ctx;
-
 
 static struct reservation_object *
-pmr_reservation_object_get(PMR *pmr)
+pmr_reservation_object_get(struct _PMR_ *pmr)
 {
 	struct dma_buf *dmabuf;
 
@@ -95,12 +97,14 @@ pmr_reservation_object_get(PMR *pmr)
 }
 
 static int
-pvr_buffer_sync_pmrs_lock(u32 nr_pmrs, PMR **pmrs)
+pvr_buffer_sync_pmrs_lock(struct ww_acquire_ctx *acquire_ctx,
+			  u32 nr_pmrs,
+			  struct _PMR_ **pmrs)
 {
 	struct reservation_object *resv, *cresv = NULL, *lresv = NULL;
 	int i, err;
 
-	ww_acquire_init(&acquire_ctx, &reservation_ww_class);
+	ww_acquire_init(acquire_ctx, &reservation_ww_class);
 retry:
 	for (i = 0; i < nr_pmrs; i++) {
 		resv = pmr_reservation_object_get(pmrs[i]);
@@ -113,7 +117,7 @@ retry:
 
 		if (resv != lresv) {
 			err = ww_mutex_lock_interruptible(&resv->lock,
-							  &acquire_ctx);
+							  acquire_ctx);
 			if (err) {
 				cresv = (err == -EDEADLK) ? resv : NULL;
 				goto fail;
@@ -123,7 +127,7 @@ retry:
 		}
 	}
 
-	ww_acquire_done(&acquire_ctx);
+	ww_acquire_done(acquire_ctx);
 
 	return 0;
 
@@ -140,7 +144,7 @@ fail:
 
 	if (cresv) {
 		err = ww_mutex_lock_slow_interruptible(&cresv->lock,
-						       &acquire_ctx);
+						       acquire_ctx);
 		if (!err) {
 			lresv = cresv;
 			cresv = NULL;
@@ -152,7 +156,9 @@ fail:
 }
 
 static void
-pvr_buffer_sync_pmrs_unlock(u32 nr_pmrs, PMR **pmrs)
+pvr_buffer_sync_pmrs_unlock(struct ww_acquire_ctx *acquire_ctx,
+			    u32 nr_pmrs,
+			    struct _PMR_ **pmrs)
 {
 	struct reservation_object *resv;
 	int i;
@@ -164,15 +170,16 @@ pvr_buffer_sync_pmrs_unlock(u32 nr_pmrs, PMR **pmrs)
 		ww_mutex_unlock(&resv->lock);
 	}
 
-	ww_acquire_fini(&acquire_ctx);
+	ww_acquire_fini(acquire_ctx);
 }
 
 static u32
-pvr_buffer_sync_pmrs_fence_count(u32 nr_pmrs, PMR **pmrs, u32 *pmr_flags)
+pvr_buffer_sync_pmrs_fence_count(u32 nr_pmrs, struct _PMR_ **pmrs,
+				 u32 *pmr_flags)
 {
 	struct reservation_object *resv;
 	struct reservation_object_list *resv_list;
-	struct fence *fence;
+	struct dma_fence *fence;
 	u32 fence_count = 0;
 	bool exclusive;
 	int i;
@@ -199,12 +206,15 @@ pvr_buffer_sync_pmrs_fence_count(u32 nr_pmrs, PMR **pmrs, u32 *pmr_flags)
 }
 
 static struct pvr_buffer_sync_check_data *
-pvr_buffer_sync_check_fences_create(u32 nr_pmrs, PMR **pmrs, u32 *pmr_flags)
+pvr_buffer_sync_check_fences_create(struct pvr_fence_context *fence_ctx,
+				    u32 nr_pmrs,
+				    struct _PMR_ **pmrs,
+				    u32 *pmr_flags)
 {
 	struct pvr_buffer_sync_check_data *data;
 	struct reservation_object *resv;
 	struct reservation_object_list *resv_list;
-	struct fence *fence;
+	struct dma_fence *fence;
 	u32 fence_count;
 	bool exclusive;
 	int i, j;
@@ -246,8 +256,9 @@ pvr_buffer_sync_check_fences_create(u32 nr_pmrs, PMR **pmrs, u32 *pmr_flags)
 							    "exclusive check fence");
 			if (!data->fences[data->nr_fences - 1]) {
 				data->nr_fences--;
-				PVR_FENCE_TRACE(fence, "waiting on exclusive fence\n");
-				WARN_ON(fence_wait(fence, true) <= 0);
+				PVR_FENCE_TRACE(fence,
+						"waiting on exclusive fence\n");
+				WARN_ON(dma_fence_wait(fence, true) <= 0);
 			}
 		}
 
@@ -261,8 +272,9 @@ pvr_buffer_sync_check_fences_create(u32 nr_pmrs, PMR **pmrs, u32 *pmr_flags)
 								    "check fence");
 				if (!data->fences[data->nr_fences - 1]) {
 					data->nr_fences--;
-					PVR_FENCE_TRACE(fence, "waiting on non-exclusive fence\n");
-					WARN_ON(fence_wait(fence, true) <= 0);
+					PVR_FENCE_TRACE(fence,
+							"waiting on non-exclusive fence\n");
+					WARN_ON(dma_fence_wait(fence, true) <= 0);
 				}
 			}
 		}
@@ -294,7 +306,8 @@ pvr_buffer_sync_check_fences_destroy(struct pvr_buffer_sync_check_data *data)
 }
 
 static void
-pvr_buffer_sync_check_data_cleanup(struct fence *fence, struct fence_cb *cb)
+pvr_buffer_sync_check_data_cleanup(struct dma_fence *fence,
+				   struct dma_fence_cb *cb)
 {
 	struct pvr_buffer_sync_check_data *data =
 		container_of(cb, struct pvr_buffer_sync_check_data, base);
@@ -307,16 +320,17 @@ pvr_buffer_sync_check_data_cleanup(struct fence *fence, struct fence_cb *cb)
 
 static int
 pvr_buffer_sync_append_fences(u32 nr,
-			      PRGXFWIF_UFO_ADDR *ufo_addresses,
+			      struct _RGXFWIF_DEV_VIRTADDR_ *ufo_addrs,
 			      u32 *values,
 			      u32 nr_fences,
 			      struct pvr_fence **pvr_fences,
 			      u32 *nr_out,
-			      PRGXFWIF_UFO_ADDR **ufo_addresses_out,
+			      struct _RGXFWIF_DEV_VIRTADDR_ **ufo_addrs_out,
 			      u32 **values_out)
 {
 	u32 nr_new = nr + nr_fences;
-	PRGXFWIF_UFO_ADDR *ufo_addresses_new = NULL;
+	struct _RGXFWIF_DEV_VIRTADDR_ *ufo_addrs_new = NULL;
+	u32 sync_addr;
 	u32 *values_new = NULL;
 	int i;
 	int err;
@@ -324,62 +338,108 @@ pvr_buffer_sync_append_fences(u32 nr,
 	if (!nr_new)
 		goto finish;
 
-	ufo_addresses_new = kmalloc_array(nr_new, sizeof(*ufo_addresses_new),
-					  GFP_KERNEL);
-	if (!ufo_addresses_new)
+	ufo_addrs_new = kmalloc_array(nr_new, sizeof(*ufo_addrs_new),
+				      GFP_KERNEL);
+	if (!ufo_addrs_new)
 		return -ENOMEM;
 
 	values_new = kmalloc_array(nr_new, sizeof(*values_new), GFP_KERNEL);
 	if (!values_new) {
 		err = -ENOMEM;
-		goto err_free_ufo_addresses;
+		goto err_free_ufo_addrs;
 	}
 
 	/* Copy the original data */
 	if (nr) {
-		memcpy(ufo_addresses_new, ufo_addresses, sizeof(*ufo_addresses) * nr);
+		memcpy(ufo_addrs_new, ufo_addrs, sizeof(*ufo_addrs) * nr);
 		memcpy(values_new, values, sizeof(*values) * nr);
 	}
 
 	/* Append the fence data */
 	for (i = 0; i < nr_fences; i++) {
-		ufo_addresses_new[i + nr].ui32Addr =
-			SyncPrimGetFirmwareAddr(pvr_fences[i]->sync);
+		PVRSRV_ERROR srv_err;
+
+		srv_err = SyncPrimGetFirmwareAddr(pvr_fences[i]->sync,
+						  &sync_addr);
+		if (srv_err != PVRSRV_OK) {
+			err = -EINVAL;
+			goto err_free_values;
+		}
+		ufo_addrs_new[i + nr].ui32Addr = sync_addr;
 		values_new[i + nr] = PVR_FENCE_SYNC_VAL_SIGNALED;
 	}
 
 finish:
 	*nr_out = nr_new;
-	*ufo_addresses_out = ufo_addresses_new;
+	*ufo_addrs_out = ufo_addrs_new;
 	*values_out = values_new;
 
 	return 0;
 
-err_free_ufo_addresses:
-	kfree(ufo_addresses_new);
+err_free_values:
+	kfree(values_new);
+err_free_ufo_addrs:
+	kfree(ufo_addrs_new);
 	return err;
 }
 
+struct pvr_buffer_sync_context *
+pvr_buffer_sync_context_create(void *dev_cookie)
+{
+	struct pvr_buffer_sync_context *ctx;
+	int err;
+
+	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+	if (!ctx) {
+		err = -ENOMEM;
+		goto err_exit;
+	}
+
+	ctx->fence_ctx = pvr_fence_context_create(dev_cookie, "rogue-gpu");
+	if (!ctx->fence_ctx) {
+		err = -ENOMEM;
+		goto err_free_ctx;
+	}
+
+	return ctx;
+
+err_free_ctx:
+	kfree(ctx);
+err_exit:
+	return ERR_PTR(err);
+}
+
+void pvr_buffer_sync_context_destroy(struct pvr_buffer_sync_context *ctx)
+{
+	pvr_fence_context_destroy(ctx->fence_ctx);
+	kfree(ctx);
+}
+
 int
-pvr_buffer_sync_append_start(u32 nr_pmrs,
-			     PMR **pmrs,
+pvr_buffer_sync_append_start(struct pvr_buffer_sync_context *ctx,
+			     u32 nr_pmrs,
+			     struct _PMR_ **pmrs,
 			     u32 *pmr_flags,
 			     u32 nr_checks,
-			     PRGXFWIF_UFO_ADDR *check_ufo_addresses,
+			     struct _RGXFWIF_DEV_VIRTADDR_ *check_ufo_addrs,
 			     u32 *check_values,
 			     u32 nr_updates,
-			     PRGXFWIF_UFO_ADDR *update_ufo_addresses,
+			     struct _RGXFWIF_DEV_VIRTADDR_ *update_ufo_addrs,
 			     u32 *update_values,
 			     struct pvr_buffer_sync_append_data **data_out)
 {
 	struct pvr_buffer_sync_append_data *data;
 	struct pvr_buffer_sync_check_data *check_data;
+	const size_t data_size = sizeof(*data);
+	const size_t pmrs_size = sizeof(*pmrs) * nr_pmrs;
+	const size_t pmr_flags_size = sizeof(*pmr_flags) * nr_pmrs;
 	int i;
+	int j;
 	int err;
 
 	if ((nr_pmrs && !(pmrs && pmr_flags)) ||
-	    (nr_updates && (!update_ufo_addresses || !update_values)) ||
-	    (nr_checks && (!check_ufo_addresses || !check_values)))
+	    (nr_updates && (!update_ufo_addrs || !update_values)) ||
+	    (nr_checks && (!check_ufo_addrs || !check_values)))
 		return -EINVAL;
 
 	for (i = 0; i < nr_pmrs; i++) {
@@ -390,7 +450,7 @@ pvr_buffer_sync_append_start(u32 nr_pmrs,
 		}
 	}
 
-	data = kzalloc(sizeof(*data), GFP_KERNEL);
+	data = kzalloc(data_size + pmrs_size + pmr_flags_size, GFP_KERNEL);
 	if (!data)
 		return -ENOMEM;
 
@@ -406,57 +466,83 @@ pvr_buffer_sync_append_start(u32 nr_pmrs,
 	if (!nr_pmrs) {
 		data->appended = false;
 		data->nr_checks = nr_checks;
-		data->check_ufo_addresses = check_ufo_addresses;
+		data->check_ufo_addrs = check_ufo_addrs;
 		data->check_values = check_values;
 		data->nr_updates = nr_updates;
-		data->update_ufo_addresses = update_ufo_addresses;
+		data->update_ufo_addrs = update_ufo_addrs;
 		data->update_values = update_values;
 		goto finish;
 	}
 
 	data->appended = true;
-	data->nr_pmrs = nr_pmrs;
-	data->pmrs = pmrs;
-	data->pmr_flags = pmr_flags;
+	data->ctx = ctx;
+	data->pmrs = (struct _PMR_ **)((char *)data + data_size);
+	data->pmr_flags = (u32 *)((char *)data->pmrs + pmrs_size);
 
-	err = pvr_buffer_sync_pmrs_lock(nr_pmrs, pmrs);
+	/*
+	 * It's expected that user space will provide a set of unique PMRs
+	 * but, as a PMR can have multiple handles, it's still possible to
+	 * end up here with duplicates. Take this opportunity to filter out
+	 * any remaining duplicates (updating flags when necessary) before
+	 * trying to process them further.
+	 */
+	for (i = 0; i < nr_pmrs; i++) {
+		for (j = 0; j < data->nr_pmrs; j++) {
+			if (data->pmrs[j] == pmrs[i]) {
+				data->pmr_flags[j] |= pmr_flags[i];
+				break;
+			}
+		}
+
+		if (j == data->nr_pmrs) {
+			data->pmrs[j] = pmrs[i];
+			data->pmr_flags[j] = pmr_flags[i];
+			data->nr_pmrs++;
+		}
+	}
+
+	err = pvr_buffer_sync_pmrs_lock(&ctx->acquire_ctx,
+					data->nr_pmrs,
+					data->pmrs);
 	if (err) {
 		pr_err("%s: failed to lock pmrs (errno=%d)\n",
 		       __func__, err);
 		goto err_free_data;
 	}
 
-	check_data = pvr_buffer_sync_check_fences_create(nr_pmrs, pmrs,
-							 pmr_flags);
+	check_data = pvr_buffer_sync_check_fences_create(ctx->fence_ctx,
+							 data->nr_pmrs,
+							 data->pmrs,
+							 data->pmr_flags);
 	if (!check_data) {
 		err = -ENOMEM;
 		goto err_pmrs_unlock;
 	}
 
-	data->update_fence = pvr_fence_create(fence_ctx, "update fence");
+	data->update_fence = pvr_fence_create(ctx->fence_ctx, "update fence");
 	if (!data->update_fence) {
 		err = -ENOMEM;
 		goto err_free_check_data;
 	}
 
 	err = pvr_buffer_sync_append_fences(nr_checks,
-					    check_ufo_addresses,
+					    check_ufo_addrs,
 					    check_values,
 					    check_data->nr_fences,
 					    check_data->fences,
 					    &data->nr_checks,
-					    &data->check_ufo_addresses,
+					    &data->check_ufo_addrs,
 					    &data->check_values);
 	if (err)
 		goto err_cleanup_update_fence;
 
 	err = pvr_buffer_sync_append_fences(nr_updates,
-					    update_ufo_addresses,
+					    update_ufo_addrs,
 					    update_values,
 					    1,
 					    &data->update_fence,
 					    &data->nr_updates,
-					    &data->update_ufo_addresses,
+					    &data->update_ufo_addrs,
 					    &data->update_values);
 	if (err)
 		goto err_free_data_checks;
@@ -471,10 +557,11 @@ pvr_buffer_sync_append_start(u32 nr_pmrs,
 	 * Note: we take an additional reference on the update fence in case
 	 * it signals before we can add it to a reservation object.
 	 */
-	fence_get(&data->update_fence->base);
+	dma_fence_get(&data->update_fence->base);
 
-	err = fence_add_callback(&data->update_fence->base, &check_data->base,
-				 pvr_buffer_sync_check_data_cleanup);
+	err = dma_fence_add_callback(&data->update_fence->base,
+				     &check_data->base,
+				     pvr_buffer_sync_check_data_cleanup);
 	if (err) {
 		/*
 		 * We should only ever get -ENOENT if the fence has already
@@ -490,17 +577,19 @@ finish:
 	return 0;
 
 err_free_data_updates:
-	kfree(data->update_ufo_addresses);
+	kfree(data->update_ufo_addrs);
 	kfree(data->update_values);
 err_free_data_checks:
-	kfree(data->check_ufo_addresses);
+	kfree(data->check_ufo_addrs);
 	kfree(data->check_values);
 err_cleanup_update_fence:
 	pvr_fence_destroy(data->update_fence);
 err_free_check_data:
 	pvr_buffer_sync_check_fences_destroy(check_data);
 err_pmrs_unlock:
-	pvr_buffer_sync_pmrs_unlock(nr_pmrs, pmrs);
+	pvr_buffer_sync_pmrs_unlock(&ctx->acquire_ctx,
+				    data->nr_pmrs,
+				    data->pmrs);
 err_free_data:
 	kfree(data);
 	return err;
@@ -540,13 +629,15 @@ pvr_buffer_sync_append_finish(struct pvr_buffer_sync_append_data *data)
 	 * objects we can safely drop the extra reference we took in
 	 * pvr_buffer_sync_append_start.
 	 */
-	fence_put(&data->update_fence->base);
+	dma_fence_put(&data->update_fence->base);
 
-	pvr_buffer_sync_pmrs_unlock(data->nr_pmrs, data->pmrs);
+	pvr_buffer_sync_pmrs_unlock(&data->ctx->acquire_ctx,
+				    data->nr_pmrs,
+				    data->pmrs);
 
-	kfree(data->check_ufo_addresses);
+	kfree(data->check_ufo_addrs);
 	kfree(data->check_values);
-	kfree(data->update_ufo_addresses);
+	kfree(data->update_ufo_addrs);
 	kfree(data->update_values);
 
 finish:
@@ -567,12 +658,14 @@ pvr_buffer_sync_append_abort(struct pvr_buffer_sync_append_data *data)
 	 * reference taken in pvr_buffer_sync_append_start.
 	 */
 	pvr_fence_sync_sw_signal(data->update_fence);
-	fence_put(&data->update_fence->base);
-	pvr_buffer_sync_pmrs_unlock(data->nr_pmrs, data->pmrs);
+	dma_fence_put(&data->update_fence->base);
+	pvr_buffer_sync_pmrs_unlock(&data->ctx->acquire_ctx,
+				    data->nr_pmrs,
+				    data->pmrs);
 
-	kfree(data->check_ufo_addresses);
+	kfree(data->check_ufo_addrs);
 	kfree(data->check_values);
-	kfree(data->update_ufo_addresses);
+	kfree(data->update_ufo_addrs);
 	kfree(data->update_values);
 
 finish:
@@ -582,32 +675,35 @@ finish:
 void
 pvr_buffer_sync_append_checks_get(struct pvr_buffer_sync_append_data *data,
 				  u32 *nr_checks_out,
-				  PRGXFWIF_UFO_ADDR **check_ufo_addresses_out,
+				  struct _RGXFWIF_DEV_VIRTADDR_ **check_ufo_addrs_out,
 				  u32 **check_values_out)
 {
 	*nr_checks_out = data->nr_checks;
-	*check_ufo_addresses_out = data->check_ufo_addresses;
+	*check_ufo_addrs_out = data->check_ufo_addrs;
 	*check_values_out = data->check_values;
 }
 
 void
 pvr_buffer_sync_append_updates_get(struct pvr_buffer_sync_append_data *data,
 				   u32 *nr_updates_out,
-				   PRGXFWIF_UFO_ADDR **update_ufo_addresses_out,
+				   struct _RGXFWIF_DEV_VIRTADDR_ **update_ufo_addrs_out,
 				   u32 **update_values_out)
 {
 	*nr_updates_out = data->nr_updates;
-	*update_ufo_addresses_out = data->update_ufo_addresses;
+	*update_ufo_addrs_out = data->update_ufo_addrs;
 	*update_values_out = data->update_values;
 }
 
 int
-pvr_buffer_sync_wait(PMR *pmr, bool intr, unsigned long timeout)
+pvr_buffer_sync_wait(struct pvr_buffer_sync_context *ctx,
+		     struct _PMR_ *pmr,
+		     bool intr,
+		     unsigned long timeout)
 {
 	struct reservation_object *resv;
 	struct reservation_object_list *resv_list = NULL;
-	struct fence *fence, *wait_fence = NULL;
-	unsigned seq;
+	struct dma_fence *fence, *wait_fence = NULL;
+	unsigned int seq;
 	int i;
 	long lerr;
 
@@ -629,9 +725,10 @@ retry:
 	if (resv_list) {
 		for (i = 0; i < resv_list->shared_count; i++) {
 			fence = rcu_dereference(resv_list->shared[i]);
-			if (is_our_fence(fence_ctx, fence) &&
-			    !test_bit(FENCE_FLAG_SIGNALED_BIT, &fence->flags)) {
-				wait_fence = fence_get_rcu(fence);
+			if (is_our_fence(ctx->fence_ctx, fence) &&
+			    !test_bit(DMA_FENCE_FLAG_SIGNALED_BIT,
+				      &fence->flags)) {
+				wait_fence = dma_fence_get_rcu(fence);
 				if (!wait_fence)
 					goto unlock_retry;
 				break;
@@ -646,8 +743,8 @@ retry:
 			goto unlock_retry;
 
 		if (fence &&
-		    !test_bit(FENCE_FLAG_SIGNALED_BIT, &fence->flags)) {
-			wait_fence = fence_get_rcu(fence);
+		    !test_bit(DMA_FENCE_FLAG_SIGNALED_BIT, &fence->flags)) {
+			wait_fence = dma_fence_get_rcu(fence);
 			if (!wait_fence)
 				goto unlock_retry;
 		}
@@ -655,12 +752,13 @@ retry:
 	rcu_read_unlock();
 
 	if (wait_fence) {
-		if (fence_is_signaled(wait_fence))
+		if (dma_fence_is_signaled(wait_fence))
 			lerr = timeout;
 		else
-			lerr = fence_wait_timeout(wait_fence, intr, timeout);
+			lerr = dma_fence_wait_timeout(wait_fence, intr,
+						      timeout);
 
-		fence_put(wait_fence);
+		dma_fence_put(wait_fence);
 		if (!lerr)
 			return -EBUSY;
 		else if (lerr < 0)
@@ -672,38 +770,4 @@ retry:
 unlock_retry:
 	rcu_read_unlock();
 	goto retry;
-}
-
-int
-pvr_buffer_sync_init(void)
-{
-	PVRSRV_ERROR srv_err;
-	int err;
-
-	srv_err = PVRSRVAcquireDeviceDataKM(0, PVRSRV_DEVICE_TYPE_RGX,
-					    &dev_cookie);
-	if (srv_err != PVRSRV_OK) {
-		pr_err("%s: Failed to acquire device data (%s)\n",
-		       __func__, PVRSRVGetErrorStringKM(srv_err));
-		return -ENODEV;
-	}
-
-	fence_ctx = pvr_fence_context_create(dev_cookie, "rogue-gpu");
-	if (!fence_ctx) {
-		err = -ENOMEM;
-		goto err_release_dev_data;
-	}
-
-	return 0;
-
-err_release_dev_data:
-	PVRSRVReleaseDeviceDataKM(dev_cookie);
-	return err;
-}
-
-void
-pvr_buffer_sync_deinit(void)
-{
-	pvr_fence_context_destroy(fence_ctx);
-	PVRSRVReleaseDeviceDataKM(dev_cookie);
 }

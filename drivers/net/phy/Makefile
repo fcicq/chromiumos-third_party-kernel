@@ -3,6 +3,7 @@
 libphy-objs			:= phy.o phy_device.o mdio_bus.o
 
 obj-$(CONFIG_PHYLIB)		+= libphy.o
+obj-$(CONFIG_SWCONFIG)          += swconfig.o
 obj-$(CONFIG_MARVELL_PHY)	+= marvell.o
 obj-$(CONFIG_DAVICOM_PHY)	+= davicom.o
 obj-$(CONFIG_CICADA_PHY)	+= cicada.o
@@ -35,3 +36,5 @@ obj-$(CONFIG_MDIO_SUN4I)	+= mdio-sun4i.o
 obj-$(CONFIG_MDIO_MOXART)	+= mdio-moxart.o
 obj-$(CONFIG_AMD_XGBE_PHY)	+= amd-xgbe-phy.o
 obj-$(CONFIG_MDIO_BCM_UNIMAC)	+= mdio-bcm-unimac.o
+obj-$(CONFIG_MDIO_IPQ40XX)      += mdio-ipq40xx.o
+obj-$(CONFIG_AR40XX_PHY)        += ar40xx.o

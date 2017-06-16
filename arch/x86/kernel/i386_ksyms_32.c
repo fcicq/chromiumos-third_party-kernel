@@ -44,3 +44,5 @@ EXPORT_SYMBOL(___preempt_schedule);
 EXPORT_SYMBOL(___preempt_schedule_context);
 #endif
 #endif
+
+EXPORT_SYMBOL(__sw_hweight32);

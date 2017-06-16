@@ -61,6 +61,13 @@ static const u32 hpd_cpt[HPD_NUM_PINS] = {
 	[HPD_PORT_D] = SDE_PORTD_HOTPLUG_CPT
 };
 
+static const u32 hpd_spt[HPD_NUM_PINS] = {
+	[HPD_PORT_B] = SDE_PORTB_HOTPLUG_CPT,
+	[HPD_PORT_C] = SDE_PORTC_HOTPLUG_CPT,
+	[HPD_PORT_D] = SDE_PORTD_HOTPLUG_CPT,
+	[HPD_PORT_E] = SDE_PORTE_HOTPLUG_SPT
+};
+
 static const u32 hpd_mask_i915[HPD_NUM_PINS] = {
 	[HPD_CRT] = CRT_HOTPLUG_INT_EN,
 	[HPD_SDVO_B] = SDVOB_HOTPLUG_INT_EN,
@@ -90,6 +97,7 @@ static const u32 hpd_status_i915[HPD_NUM_PINS] = {
 
 /* BXT hpd list */
 static const u32 hpd_bxt[HPD_NUM_PINS] = {
+	[HPD_PORT_A] = BXT_DE_PORT_HP_DDIA,
 	[HPD_PORT_B] = BXT_DE_PORT_HP_DDIB,
 	[HPD_PORT_C] = BXT_DE_PORT_HP_DDIC
 };
@@ -604,12 +612,11 @@ static u32 i915_get_vblank_counter(struct drm_device *dev, unsigned int pipe)
 	return (((high1 << 8) | low) + (pixel >= vbl_start)) & 0xffffff;
 }
 
-static u32 gm45_get_vblank_counter(struct drm_device *dev, unsigned int pipe)
+static u32 g4x_get_vblank_counter(struct drm_device *dev, unsigned int pipe)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
-	int reg = PIPE_FRMCOUNT_GM45(pipe);
 
-	return I915_READ(reg);
+	return I915_READ(PIPE_FRMCOUNT_G4X(pipe));
 }
 
 /* raw reads, only for fast reads of display block, no need for forcewake etc. */
@@ -950,6 +957,14 @@ static void gen6_pm_rps_work(struct work_struct *work)
 		spin_unlock_irq(&dev_priv->irq_lock);
 		return;
 	}
+
+	/*
+	 * The RPS work is synced during runtime suspend, we don't require a
+	 * wakeref. TODO: instead of disabling the asserts make sure that we
+	 * always hold an RPM reference while the work is running.
+	 */
+	DISABLE_RPM_WAKEREF_ASSERTS(dev_priv);
+
 	pm_iir = dev_priv->rps.pm_iir;
 	dev_priv->rps.pm_iir = 0;
 	/* Make sure not to corrupt PMIMR state used by ringbuffer on GEN6 */
@@ -962,7 +977,7 @@ static void gen6_pm_rps_work(struct work_struct *work)
 	WARN_ON(pm_iir & ~dev_priv->pm_rps_events);
 
 	if ((pm_iir & dev_priv->pm_rps_events) == 0 && !client_boost)
-		return;
+		goto out;
 
 	mutex_lock(&dev_priv->rps.hw_lock);
 
@@ -1017,6 +1032,8 @@ static void gen6_pm_rps_work(struct work_struct *work)
 	intel_set_rps(dev_priv->dev, new_delay);
 
 	mutex_unlock(&dev_priv->rps.hw_lock);
+out:
+	ENABLE_RPM_WAKEREF_ASSERTS(dev_priv);
 }
 
 
@@ -1226,6 +1243,22 @@ static irqreturn_t gen8_gt_irq_handler(struct drm_i915_private *dev_priv,
 	return ret;
 }
 
+static bool bxt_port_hotplug_long_detect(enum port port, u32 val)
+{
+	switch (port) {
+	case PORT_A:
+		return val & BXT_PORTA_HOTPLUG_LONG_DETECT;
+	case PORT_B:
+		return val & PORTB_HOTPLUG_LONG_DETECT;
+	case PORT_C:
+		return val & PORTC_HOTPLUG_LONG_DETECT;
+	case PORT_D:
+		return val & PORTD_HOTPLUG_LONG_DETECT;
+	default:
+		return false;
+	}
+}
+
 static bool pch_port_hotplug_long_detect(enum port port, u32 val)
 {
 	switch (port) {
@@ -1235,6 +1268,8 @@ static bool pch_port_hotplug_long_detect(enum port port, u32 val)
 		return val & PORTC_HOTPLUG_LONG_DETECT;
 	case PORT_D:
 		return val & PORTD_HOTPLUG_LONG_DETECT;
+	case PORT_E:
+		return val & PORTE_HOTPLUG_LONG_DETECT;
 	default:
 		return false;
 	}
@@ -1255,9 +1290,10 @@ static bool i9xx_port_hotplug_long_detect(enum port port, u32 val)
 }
 
 /* Get a bit mask of pins that have triggered, and which ones may be long. */
-static void pch_get_hpd_pins(u32 *pin_mask, u32 *long_mask,
+static void intel_get_hpd_pins(u32 *pin_mask, u32 *long_mask,
 			     u32 hotplug_trigger, u32 dig_hotplug_reg,
-			     const u32 hpd[HPD_NUM_PINS])
+			     const u32 hpd[HPD_NUM_PINS],
+			     bool long_pulse_detect(enum port port, u32 val))
 {
 	enum port port;
 	int i;
@@ -1271,42 +1307,16 @@ static void pch_get_hpd_pins(u32 *pin_mask, u32 *long_mask,
 
 		*pin_mask |= BIT(i);
 
-		port = intel_hpd_pin_to_port(i);
-		if (pch_port_hotplug_long_detect(port, dig_hotplug_reg))
+		if (!intel_hpd_pin_to_port(i, &port))
+			continue;
+
+		if (long_pulse_detect(port, dig_hotplug_reg))
 			*long_mask |= BIT(i);
 	}
 
 	DRM_DEBUG_DRIVER("hotplug event received, stat 0x%08x, dig 0x%08x, pins 0x%08x\n",
 			 hotplug_trigger, dig_hotplug_reg, *pin_mask);
 
-}
-
-/* Get a bit mask of pins that have triggered, and which ones may be long. */
-static void i9xx_get_hpd_pins(u32 *pin_mask, u32 *long_mask,
-			      u32 hotplug_trigger, const u32 hpd[HPD_NUM_PINS])
-{
-	enum port port;
-	int i;
-
-	*pin_mask = 0;
-	*long_mask = 0;
-
-	if (!hotplug_trigger)
-		return;
-
-	for_each_hpd_pin(i) {
-		if ((hpd[i] & hotplug_trigger) == 0)
-			continue;
-
-		*pin_mask |= BIT(i);
-
-		port = intel_hpd_pin_to_port(i);
-		if (i9xx_port_hotplug_long_detect(port, hotplug_trigger))
-			*long_mask |= BIT(i);
-	}
-
-	DRM_DEBUG_DRIVER("hotplug event received, stat 0x%08x, pins 0x%08x\n",
-			 hotplug_trigger, *pin_mask);
 }
 
 static void gmbus_irq_handler(struct drm_device *dev)
@@ -1546,7 +1556,9 @@ static void i9xx_hpd_irq_handler(struct drm_device *dev)
 	if (IS_G4X(dev) || IS_VALLEYVIEW(dev)) {
 		u32 hotplug_trigger = hotplug_status & HOTPLUG_INT_STATUS_G4X;
 
-		i9xx_get_hpd_pins(&pin_mask, &long_mask, hotplug_trigger, hpd_status_g4x);
+		intel_get_hpd_pins(&pin_mask, &long_mask, hotplug_trigger,
+				   hotplug_trigger, hpd_status_g4x,
+				   i9xx_port_hotplug_long_detect);
 		intel_hpd_irq_handler(dev, pin_mask, long_mask);
 
 		if (hotplug_status & DP_AUX_CHANNEL_MASK_INT_STATUS_G4X)
@@ -1554,7 +1566,9 @@ static void i9xx_hpd_irq_handler(struct drm_device *dev)
 	} else {
 		u32 hotplug_trigger = hotplug_status & HOTPLUG_INT_STATUS_I915;
 
-		i9xx_get_hpd_pins(&pin_mask, &long_mask, hotplug_trigger, hpd_status_i915);
+		intel_get_hpd_pins(&pin_mask, &long_mask, hotplug_trigger,
+				   hotplug_trigger, hpd_status_g4x,
+				   i9xx_port_hotplug_long_detect);
 		intel_hpd_irq_handler(dev, pin_mask, long_mask);
 	}
 }
@@ -1568,6 +1582,9 @@ static irqreturn_t valleyview_irq_handler(int irq, void *arg)
 
 	if (!intel_irqs_enabled(dev_priv))
 		return IRQ_NONE;
+
+	/* IRQs are synced during runtime_suspend, we don't require a wakeref */
+	disable_rpm_wakeref_asserts(dev_priv);
 
 	while (true) {
 		/* Find, clear, then process each source of interrupt */
@@ -1603,6 +1620,8 @@ static irqreturn_t valleyview_irq_handler(int irq, void *arg)
 	}
 
 out:
+	enable_rpm_wakeref_asserts(dev_priv);
+
 	return ret;
 }
 
@@ -1615,6 +1634,9 @@ static irqreturn_t cherryview_irq_handler(int irq, void *arg)
 
 	if (!intel_irqs_enabled(dev_priv))
 		return IRQ_NONE;
+
+	/* IRQs are synced during runtime_suspend, we don't require a wakeref */
+	disable_rpm_wakeref_asserts(dev_priv);
 
 	for (;;) {
 		master_ctl = I915_READ(GEN8_MASTER_IRQ) & ~GEN8_MASTER_IRQ_CONTROL;
@@ -1646,6 +1668,8 @@ static irqreturn_t cherryview_irq_handler(int irq, void *arg)
 		POSTING_READ(GEN8_MASTER_IRQ);
 	}
 
+	enable_rpm_wakeref_asserts(dev_priv);
+
 	return ret;
 }
 
@@ -1661,8 +1685,9 @@ static void ibx_irq_handler(struct drm_device *dev, u32 pch_iir)
 		dig_hotplug_reg = I915_READ(PCH_PORT_HOTPLUG);
 		I915_WRITE(PCH_PORT_HOTPLUG, dig_hotplug_reg);
 
-		pch_get_hpd_pins(&pin_mask, &long_mask, hotplug_trigger,
-				 dig_hotplug_reg, hpd_ibx);
+		intel_get_hpd_pins(&pin_mask, &long_mask, hotplug_trigger,
+				   dig_hotplug_reg, hpd_ibx,
+				   pch_port_hotplug_long_detect);
 		intel_hpd_irq_handler(dev, pin_mask, long_mask);
 	}
 
@@ -1755,15 +1780,36 @@ static void cpt_irq_handler(struct drm_device *dev, u32 pch_iir)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	int pipe;
-	u32 hotplug_trigger = pch_iir & SDE_HOTPLUG_MASK_CPT;
+	u32 hotplug_trigger;
+
+	if (HAS_PCH_SPT(dev))
+		hotplug_trigger = pch_iir & SDE_HOTPLUG_MASK_SPT;
+	else
+		hotplug_trigger = pch_iir & SDE_HOTPLUG_MASK_CPT;
 
 	if (hotplug_trigger) {
 		u32 dig_hotplug_reg, pin_mask, long_mask;
 
 		dig_hotplug_reg = I915_READ(PCH_PORT_HOTPLUG);
 		I915_WRITE(PCH_PORT_HOTPLUG, dig_hotplug_reg);
-		pch_get_hpd_pins(&pin_mask, &long_mask, hotplug_trigger,
-				 dig_hotplug_reg, hpd_cpt);
+
+		if (HAS_PCH_SPT(dev)) {
+			intel_get_hpd_pins(&pin_mask, &long_mask,
+					   hotplug_trigger,
+					   dig_hotplug_reg, hpd_spt,
+					   pch_port_hotplug_long_detect);
+
+			/* detect PORTE HP event */
+			dig_hotplug_reg = I915_READ(PCH_PORT_HOTPLUG2);
+			if (pch_port_hotplug_long_detect(PORT_E,
+							 dig_hotplug_reg))
+				long_mask |= 1 << HPD_PORT_E;
+		} else
+			intel_get_hpd_pins(&pin_mask, &long_mask,
+					   hotplug_trigger,
+					   dig_hotplug_reg, hpd_cpt,
+					   pch_port_hotplug_long_detect);
+
 		intel_hpd_irq_handler(dev, pin_mask, long_mask);
 	}
 
@@ -1900,6 +1946,9 @@ static irqreturn_t ironlake_irq_handler(int irq, void *arg)
 	if (!intel_irqs_enabled(dev_priv))
 		return IRQ_NONE;
 
+	/* IRQs are synced during runtime_suspend, we don't require a wakeref */
+	disable_rpm_wakeref_asserts(dev_priv);
+
 	/* We get interrupts on unclaimed registers, so check for this before we
 	 * do any I915_{READ,WRITE}. */
 	intel_uncore_check_errors(dev);
@@ -1958,6 +2007,9 @@ static irqreturn_t ironlake_irq_handler(int irq, void *arg)
 		POSTING_READ(SDEIER);
 	}
 
+	/* IRQs are synced during runtime_suspend, we don't require a wakeref */
+	enable_rpm_wakeref_asserts(dev_priv);
+
 	return ret;
 }
 
@@ -1980,7 +2032,8 @@ static void bxt_hpd_handler(struct drm_device *dev, uint32_t iir_status)
 	/* Clear sticky bits in hpd status */
 	I915_WRITE(BXT_HOTPLUG_CTL, hp_control);
 
-	pch_get_hpd_pins(&pin_mask, &long_mask, hp_trigger, hp_control, hpd_bxt);
+	intel_get_hpd_pins(&pin_mask, &long_mask, hp_trigger, hp_control,
+			   hpd_bxt, bxt_port_hotplug_long_detect);
 	intel_hpd_irq_handler(dev, pin_mask, long_mask);
 }
 
@@ -1997,6 +2050,9 @@ static irqreturn_t gen8_irq_handler(int irq, void *arg)
 	if (!intel_irqs_enabled(dev_priv))
 		return IRQ_NONE;
 
+	/* IRQs are synced during runtime_suspend, we don't require a wakeref */
+	disable_rpm_wakeref_asserts(dev_priv);
+
 	if (IS_GEN9(dev))
 		aux_mask |=  GEN9_AUX_CHANNEL_B | GEN9_AUX_CHANNEL_C |
 			GEN9_AUX_CHANNEL_D;
@@ -2004,7 +2060,7 @@ static irqreturn_t gen8_irq_handler(int irq, void *arg)
 	master_ctl = I915_READ_FW(GEN8_MASTER_IRQ);
 	master_ctl &= ~GEN8_MASTER_IRQ_CONTROL;
 	if (!master_ctl)
-		return IRQ_NONE;
+		goto out;
 
 	I915_WRITE_FW(GEN8_MASTER_IRQ, 0);
 
@@ -2121,6 +2177,9 @@ static irqreturn_t gen8_irq_handler(int irq, void *arg)
 
 	I915_WRITE_FW(GEN8_MASTER_IRQ, GEN8_MASTER_IRQ_CONTROL);
 	POSTING_READ_FW(GEN8_MASTER_IRQ);
+
+out:
+	enable_rpm_wakeref_asserts(dev_priv);
 
 	return ret;
 }
@@ -2700,6 +2759,13 @@ static void i915_hangcheck_elapsed(struct work_struct *work)
 	if (!i915.enable_hangcheck)
 		return;
 
+	/*
+	 * The hangcheck work is synced during runtime suspend, we don't
+	 * require a wakeref. TODO: instead of disabling the asserts make
+	 * sure that we hold a reference when this work is running.
+	 */
+	DISABLE_RPM_WAKEREF_ASSERTS(dev_priv);
+
 	for_each_ring(ring, dev_priv, i) {
 		u64 acthd;
 		u32 seqno;
@@ -2791,13 +2857,18 @@ static void i915_hangcheck_elapsed(struct work_struct *work)
 		}
 	}
 
-	if (rings_hung)
-		return i915_handle_error(dev, true, "Ring hung");
+	if (rings_hung) {
+		i915_handle_error(dev, true, "Ring hung");
+		goto out;
+	}
 
 	if (busy_count)
 		/* Reset timer case chip hangs without another request
 		 * being added */
 		i915_queue_hangcheck(dev);
+
+out:
+	ENABLE_RPM_WAKEREF_ASSERTS(dev_priv);
 }
 
 void i915_queue_hangcheck(struct drm_device *dev)
@@ -2973,22 +3044,34 @@ static void cherryview_irq_preinstall(struct drm_device *dev)
 	vlv_display_irq_reset(dev_priv);
 }
 
+static u32 intel_hpd_enabled_irqs(struct drm_device *dev,
+				  const u32 hpd[HPD_NUM_PINS])
+{
+	struct drm_i915_private *dev_priv = to_i915(dev);
+	struct intel_encoder *encoder;
+	u32 enabled_irqs = 0;
+
+	for_each_intel_encoder(dev, encoder)
+		if (dev_priv->hotplug.stats[encoder->hpd_pin].state == HPD_ENABLED)
+			enabled_irqs |= hpd[encoder->hpd_pin];
+
+	return enabled_irqs;
+}
+
 static void ibx_hpd_irq_setup(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
-	struct intel_encoder *intel_encoder;
-	u32 hotplug_irqs, hotplug, enabled_irqs = 0;
+	u32 hotplug_irqs, hotplug, enabled_irqs;
 
 	if (HAS_PCH_IBX(dev)) {
 		hotplug_irqs = SDE_HOTPLUG_MASK;
-		for_each_intel_encoder(dev, intel_encoder)
-			if (dev_priv->hotplug.stats[intel_encoder->hpd_pin].state == HPD_ENABLED)
-				enabled_irqs |= hpd_ibx[intel_encoder->hpd_pin];
+		enabled_irqs = intel_hpd_enabled_irqs(dev, hpd_ibx);
+	} else if (HAS_PCH_SPT(dev)) {
+		hotplug_irqs = SDE_HOTPLUG_MASK_SPT;
+		enabled_irqs = intel_hpd_enabled_irqs(dev, hpd_spt);
 	} else {
 		hotplug_irqs = SDE_HOTPLUG_MASK_CPT;
-		for_each_intel_encoder(dev, intel_encoder)
-			if (dev_priv->hotplug.stats[intel_encoder->hpd_pin].state == HPD_ENABLED)
-				enabled_irqs |= hpd_cpt[intel_encoder->hpd_pin];
+		enabled_irqs = intel_hpd_enabled_irqs(dev, hpd_cpt);
 	}
 
 	ibx_display_interrupt_update(dev_priv, hotplug_irqs, enabled_irqs);
@@ -3005,39 +3088,36 @@ static void ibx_hpd_irq_setup(struct drm_device *dev)
 	hotplug |= PORTC_HOTPLUG_ENABLE | PORTC_PULSE_DURATION_2ms;
 	hotplug |= PORTB_HOTPLUG_ENABLE | PORTB_PULSE_DURATION_2ms;
 	I915_WRITE(PCH_PORT_HOTPLUG, hotplug);
+
+	/* enable SPT PORTE hot plug */
+	if (HAS_PCH_SPT(dev)) {
+		hotplug = I915_READ(PCH_PORT_HOTPLUG2);
+		hotplug |= PORTE_HOTPLUG_ENABLE;
+		I915_WRITE(PCH_PORT_HOTPLUG2, hotplug);
+	}
 }
 
 static void bxt_hpd_irq_setup(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
-	struct intel_encoder *intel_encoder;
-	u32 hotplug_port = 0;
+	u32 hotplug_port;
 	u32 hotplug_ctrl;
 
-	/* Now, enable HPD */
-	for_each_intel_encoder(dev, intel_encoder) {
-		if (dev_priv->hotplug.stats[intel_encoder->hpd_pin].state
-				== HPD_ENABLED)
-			hotplug_port |= hpd_bxt[intel_encoder->hpd_pin];
-	}
+	hotplug_port = intel_hpd_enabled_irqs(dev, hpd_bxt);
 
-	/* Mask all HPD control bits */
 	hotplug_ctrl = I915_READ(BXT_HOTPLUG_CTL) & ~BXT_HOTPLUG_CTL_MASK;
 
-	/* Enable requested port in hotplug control */
-	/* TODO: implement (short) HPD support on port A */
-	WARN_ON_ONCE(hotplug_port & BXT_DE_PORT_HP_DDIA);
+	if (hotplug_port & BXT_DE_PORT_HP_DDIA)
+		hotplug_ctrl |= BXT_DDIA_HPD_ENABLE;
 	if (hotplug_port & BXT_DE_PORT_HP_DDIB)
 		hotplug_ctrl |= BXT_DDIB_HPD_ENABLE;
 	if (hotplug_port & BXT_DE_PORT_HP_DDIC)
 		hotplug_ctrl |= BXT_DDIC_HPD_ENABLE;
 	I915_WRITE(BXT_HOTPLUG_CTL, hotplug_ctrl);
 
-	/* Unmask DDI hotplug in IMR */
 	hotplug_ctrl = I915_READ(GEN8_DE_PORT_IMR) & ~hotplug_port;
 	I915_WRITE(GEN8_DE_PORT_IMR, hotplug_ctrl);
 
-	/* Enable DDI hotplug in IER */
 	hotplug_ctrl = I915_READ(GEN8_DE_PORT_IER) | hotplug_port;
 	I915_WRITE(GEN8_DE_PORT_IER, hotplug_ctrl);
 	POSTING_READ(GEN8_DE_PORT_IER);
@@ -3530,13 +3610,18 @@ static irqreturn_t i8xx_irq_handler(int irq, void *arg)
 	u16 flip_mask =
 		I915_DISPLAY_PLANE_A_FLIP_PENDING_INTERRUPT |
 		I915_DISPLAY_PLANE_B_FLIP_PENDING_INTERRUPT;
+	irqreturn_t ret;
 
 	if (!intel_irqs_enabled(dev_priv))
 		return IRQ_NONE;
 
+	/* IRQs are synced during runtime_suspend, we don't require a wakeref */
+	disable_rpm_wakeref_asserts(dev_priv);
+
+	ret = IRQ_NONE;
 	iir = I915_READ16(IIR);
 	if (iir == 0)
-		return IRQ_NONE;
+		goto out;
 
 	while (iir & ~flip_mask) {
 		/* Can't rely on pipestat interrupt bit in iir as it might
@@ -3585,8 +3670,12 @@ static irqreturn_t i8xx_irq_handler(int irq, void *arg)
 
 		iir = new_iir;
 	}
+	ret = IRQ_HANDLED;
 
-	return IRQ_HANDLED;
+out:
+	enable_rpm_wakeref_asserts(dev_priv);
+
+	return ret;
 }
 
 static void i8xx_irq_uninstall(struct drm_device * dev)
@@ -3715,6 +3804,9 @@ static irqreturn_t i915_irq_handler(int irq, void *arg)
 	if (!intel_irqs_enabled(dev_priv))
 		return IRQ_NONE;
 
+	/* IRQs are synced during runtime_suspend, we don't require a wakeref */
+	disable_rpm_wakeref_asserts(dev_priv);
+
 	iir = I915_READ(IIR);
 	do {
 		bool irq_received = (iir & ~flip_mask) != 0;
@@ -3796,6 +3888,8 @@ static irqreturn_t i915_irq_handler(int irq, void *arg)
 		ret = IRQ_HANDLED;
 		iir = new_iir;
 	} while (iir & ~flip_mask);
+
+	enable_rpm_wakeref_asserts(dev_priv);
 
 	return ret;
 }
@@ -3899,7 +3993,6 @@ static int i965_irq_postinstall(struct drm_device *dev)
 static void i915_hpd_irq_setup(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
-	struct intel_encoder *intel_encoder;
 	u32 hotplug_en;
 
 	assert_spin_locked(&dev_priv->irq_lock);
@@ -3908,9 +4001,7 @@ static void i915_hpd_irq_setup(struct drm_device *dev)
 	hotplug_en &= ~HOTPLUG_INT_EN_MASK;
 	/* Note HDMI and DP share hotplug bits */
 	/* enable bits are the same for all generations */
-	for_each_intel_encoder(dev, intel_encoder)
-		if (dev_priv->hotplug.stats[intel_encoder->hpd_pin].state == HPD_ENABLED)
-			hotplug_en |= hpd_mask_i915[intel_encoder->hpd_pin];
+	hotplug_en |= intel_hpd_enabled_irqs(dev, hpd_mask_i915);
 	/* Programming the CRT detection parameters tends
 	   to generate a spurious hotplug event about three
 	   seconds later.  So just do it once.
@@ -3937,6 +4028,9 @@ static irqreturn_t i965_irq_handler(int irq, void *arg)
 
 	if (!intel_irqs_enabled(dev_priv))
 		return IRQ_NONE;
+
+	/* IRQs are synced during runtime_suspend, we don't require a wakeref */
+	disable_rpm_wakeref_asserts(dev_priv);
 
 	iir = I915_READ(IIR);
 
@@ -4023,6 +4117,8 @@ static irqreturn_t i965_irq_handler(int irq, void *arg)
 		iir = new_iir;
 	}
 
+	enable_rpm_wakeref_asserts(dev_priv);
+
 	return ret;
 }
 
@@ -4075,14 +4171,12 @@ void intel_irq_init(struct drm_i915_private *dev_priv)
 	INIT_DELAYED_WORK(&dev_priv->gpu_error.hangcheck_work,
 			  i915_hangcheck_elapsed);
 
-	pm_qos_add_request(&dev_priv->pm_qos, PM_QOS_CPU_DMA_LATENCY, PM_QOS_DEFAULT_VALUE);
-
 	if (IS_GEN2(dev_priv)) {
 		dev->max_vblank_count = 0;
 		dev->driver->get_vblank_counter = i8xx_get_vblank_counter;
 	} else if (IS_G4X(dev_priv) || INTEL_INFO(dev_priv)->gen >= 5) {
 		dev->max_vblank_count = 0xffffffff; /* full 32 bit counter */
-		dev->driver->get_vblank_counter = gm45_get_vblank_counter;
+		dev->driver->get_vblank_counter = g4x_get_vblank_counter;
 	} else {
 		dev->driver->get_vblank_counter = i915_get_vblank_counter;
 		dev->max_vblank_count = 0xffffff; /* only 24 bits of frame count */

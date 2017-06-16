@@ -23,7 +23,6 @@
  */
 
 #include <linux/console.h>
-#include <linux/kthread.h>
 #include <linux/module.h>
 #include <linux/pci.h>
 #include <linux/pm_runtime.h>
@@ -287,7 +286,7 @@ nouveau_accel_init(struct nouveau_drm *drm)
 		}
 	}
 
-	drm->gem_unmap_wq = alloc_ordered_workqueue("nouveau-gem-unmap", 0);
+	drm->gem_unmap_wq = alloc_ordered_workqueue("nouveau-gem-unmap", WQ_FREEZABLE);
 	if (!drm->gem_unmap_wq) {
 		nouveau_accel_fini(drm);
 		return;
@@ -384,6 +383,7 @@ nouveau_drm_load(struct drm_device *dev, unsigned long flags)
 {
 	struct pci_dev *pdev = dev->pdev;
 	struct nouveau_drm *drm;
+	struct nvkm_device *device;
 	int ret;
 
 	ret = nouveau_cli_create(nouveau_name(dev), "DRM", sizeof(*drm),
@@ -465,9 +465,14 @@ nouveau_drm_load(struct drm_device *dev, unsigned long flags)
 	if (ret)
 		goto fail_bios;
 
-	ret = nouveau_display_create(dev);
-	if (ret)
-		goto fail_dispctor;
+	device = nvxx_device(&drm->device);
+	if (device->oclass[NVDEV_ENGINE_DISP]) {
+		ret = nouveau_display_create(dev);
+		if (ret)
+			goto fail_dispctor;
+	} else {
+		drm_mode_config_init(dev);
+	}
 
 	if (dev->mode_config.num_crtc) {
 		ret = nouveau_display_init(dev);
@@ -490,7 +495,10 @@ nouveau_drm_load(struct drm_device *dev, unsigned long flags)
 	return 0;
 
 fail_dispinit:
-	nouveau_display_destroy(dev);
+	if (device->oclass[NVDEV_ENGINE_DISP])
+		nouveau_display_destroy(dev);
+	else
+		drm_mode_config_cleanup(dev);
 fail_dispctor:
 	nouveau_bios_takedown(dev);
 fail_bios:
@@ -508,6 +516,7 @@ static int
 nouveau_drm_unload(struct drm_device *dev)
 {
 	struct nouveau_drm *drm = nouveau_drm(dev);
+	struct nvkm_device *device = nvxx_device(&drm->device);
 
 	if (nouveau_runtime_pm != 0)
 		pm_runtime_forbid(dev->dev);
@@ -518,7 +527,10 @@ nouveau_drm_unload(struct drm_device *dev)
 
 	if (dev->mode_config.num_crtc)
 		nouveau_display_fini(dev);
-	nouveau_display_destroy(dev);
+	if (device->oclass[NVDEV_ENGINE_DISP])
+		nouveau_display_destroy(dev);
+	else
+		drm_mode_config_cleanup(dev);
 
 	nouveau_bios_takedown(dev);
 
@@ -573,8 +585,6 @@ nouveau_do_suspend(struct drm_device *dev, bool runtime)
 			return ret;
 	}
 
-	flush_workqueue(drm->gem_unmap_wq);
-
 	if (dev->pdev) {
 		NV_INFO(drm, "evicting buffers...\n");
 		ttm_bo_evict_mm(&drm->ttm.bdev, TTM_PL_VRAM);
@@ -582,14 +592,12 @@ nouveau_do_suspend(struct drm_device *dev, bool runtime)
 
 	NV_INFO(drm, "waiting for kernel channels to go idle...\n");
 	if (drm->cechan) {
-		kthread_park(drm->cechan->pushbuf_thread);
 		ret = nouveau_channel_idle(drm->cechan);
 		if (ret)
 			goto fail_display;
 	}
 
 	if (drm->channel) {
-		kthread_park(drm->channel->pushbuf_thread);
 		ret = nouveau_channel_idle(drm->channel);
 		if (ret)
 			goto fail_display;
@@ -597,13 +605,32 @@ nouveau_do_suspend(struct drm_device *dev, bool runtime)
 
 	NV_INFO(drm, "waiting for client channels to go idle...\n");
 	list_for_each_entry(cli, &drm->clients, head) {
-		mutex_lock(&cli->mutex);
+		/*
+		 * XXX
+		 * For system suspend we should be able to get the lock all the
+		 * time. To prevent a potential softhang during system suspend,
+		 * we use trylock and warn users if we can't get the lock. Then
+		 * we shall know we have some incorrect locking for this mutex
+		 * somewhere.
+		 */
+		if (!runtime) {
+			ret = mutex_trylock(&cli->mutex);
+			if (WARN_ON(!ret)) {
+				ret = -EBUSY;
+				goto fail_display;
+			}
+
+		} else {
+			mutex_lock(&cli->mutex);
+		}
+
 		if (cli->abi16) {
 			struct nouveau_abi16 *abi16 = cli->abi16;
 			struct nouveau_abi16_chan *chan;
 
 			list_for_each_entry(chan, &abi16->channels, head) {
-				kthread_park(chan->chan->pushbuf_thread);
+				if (chan->chan->faulty)
+					continue;
 				ret = nouveau_channel_idle(chan->chan);
 				if (ret) {
 					mutex_unlock(&cli->mutex);
@@ -634,6 +661,8 @@ nouveau_do_suspend(struct drm_device *dev, bool runtime)
 		goto fail_client;
 
 	nouveau_agp_fini(drm);
+
+	NV_INFO(drm, "nouveau suspended\n");
 	return 0;
 
 fail_client:
@@ -645,23 +674,6 @@ fail_client:
 		nouveau_fence(drm)->resume(drm);
 
 fail_display:
-	/* It doesn't hurt if we didn't call kthread_park before */
-	if (drm->cechan)
-		kthread_unpark(drm->cechan->pushbuf_thread);
-	if (drm->channel)
-		kthread_unpark(drm->channel->pushbuf_thread);
-	list_for_each_entry(cli, &drm->clients, head) {
-		mutex_lock(&cli->mutex);
-		if (cli->abi16) {
-			struct nouveau_abi16 *abi16 = cli->abi16;
-			struct nouveau_abi16_chan *chan;
-
-			list_for_each_entry(chan, &abi16->channels, head)
-				kthread_unpark(chan->chan->pushbuf_thread);
-		}
-		mutex_unlock(&cli->mutex);
-	}
-
 	if (dev->mode_config.num_crtc) {
 		NV_INFO(drm, "resuming display...\n");
 		nouveau_display_resume(dev, runtime);
@@ -692,25 +704,6 @@ nouveau_do_resume(struct drm_device *dev, bool runtime)
 		nvif_client_resume(&cli->base);
 	}
 
-	NV_INFO(drm, "resuming kernel channel pushbuffer kthread...\n");
-	if (drm->cechan)
-		kthread_unpark(drm->cechan->pushbuf_thread);
-	if (drm->channel)
-		kthread_unpark(drm->channel->pushbuf_thread);
-
-	NV_INFO(drm, "resuming client channel pushbuffer kthread...\n");
-	list_for_each_entry(cli, &drm->clients, head) {
-		mutex_lock(&cli->mutex);
-		if (cli->abi16) {
-			struct nouveau_abi16 *abi16 = cli->abi16;
-			struct nouveau_abi16_chan *chan;
-
-			list_for_each_entry(chan, &abi16->channels, head)
-				kthread_unpark(chan->chan->pushbuf_thread);
-		}
-		mutex_unlock(&cli->mutex);
-	}
-
 	if (dev->pdev)
 		nouveau_run_vbios_init(dev);
 
@@ -721,6 +714,7 @@ nouveau_do_resume(struct drm_device *dev, bool runtime)
 		nouveau_fbcon_set_suspend(dev, 0);
 	}
 
+	NV_INFO(drm, "nouveau resumed\n");
 	return 0;
 }
 
@@ -888,6 +882,7 @@ nouveau_drm_open(struct drm_device *dev, struct drm_file *fpriv)
 {
 	struct nouveau_drm *drm = nouveau_drm(dev);
 	struct nouveau_cli *cli;
+	struct nouveau_abi16 *abi16;
 	char name[32], tmpname[TASK_COMM_LEN];
 	int ret;
 
@@ -922,6 +917,27 @@ nouveau_drm_open(struct drm_device *dev, struct drm_file *fpriv)
 
 	mutex_lock(&drm->client.mutex);
 	list_add(&cli->head, &drm->clients);
+	abi16 = kzalloc(sizeof(*abi16), GFP_KERNEL);
+	if (abi16) {
+		struct nv_device_v0 args = {
+			.device = ~0ULL,
+		};
+
+		INIT_LIST_HEAD(&abi16->channels);
+
+		/* allocate device object targeting client's default
+		 * device (ie. the one that belongs to the fd it
+		 * opened)
+		 */
+		if (WARN_ON(nvif_device_init(&cli->base.base, NULL,
+				     NOUVEAU_ABI16_DEVICE, NV_DEVICE,
+				     &args, sizeof(args),
+				     &abi16->device))) {
+			kfree(abi16);
+		} else {
+			cli->abi16 = abi16;
+		}
+	}
 	mutex_unlock(&drm->client.mutex);
 
 out_suspend:
@@ -978,6 +994,8 @@ nouveau_ioctls[] = {
 	DRM_IOCTL_DEF_DRV(NOUVEAU_GEM_AS_ALLOC, nouveau_gem_ioctl_as_alloc, DRM_UNLOCKED|DRM_AUTH|DRM_RENDER_ALLOW),
 	DRM_IOCTL_DEF_DRV(NOUVEAU_GEM_AS_FREE, nouveau_gem_ioctl_as_free, DRM_UNLOCKED|DRM_AUTH|DRM_RENDER_ALLOW),
 	DRM_IOCTL_DEF_DRV(NOUVEAU_GEM_SET_ERROR_NOTIFIER, nouveau_gem_ioctl_set_error_notifier, DRM_UNLOCKED|DRM_AUTH|DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(NOUVEAU_GEM_MAP, nouveau_gem_ioctl_map, DRM_UNLOCKED|DRM_AUTH|DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(NOUVEAU_GEM_UNMAP, nouveau_gem_ioctl_unmap, DRM_UNLOCKED|DRM_AUTH|DRM_RENDER_ALLOW),
 };
 
 long

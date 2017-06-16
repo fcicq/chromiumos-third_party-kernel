@@ -51,6 +51,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "pvr_debug.h"
 #include "pvrsrv_error.h"
 #include "rgx_memallocflags.h"
+#include "rgx_heaps.h"
 #include "pdump_km.h"
 
 
@@ -180,34 +181,6 @@ static MMU_DEVICEATTRIBS sRGXMMUDeviceAttributes;
 
 PVRSRV_ERROR RGXMMUInit_Register(PVRSRV_DEVICE_NODE *psDeviceNode)
 {
-	/*
-	 * Setup sRGXMMUDeviceAttributes
-	 */
-	sRGXMMUDeviceAttributes.eMMUType = PDUMP_MMU_TYPE_VARPAGE_40BIT;
-	sRGXMMUDeviceAttributes.eTopLevel = MMU_LEVEL_3;
-	sRGXMMUDeviceAttributes.ui32BaseAlign = RGX_MMUCTRL_PC_DATA_PD_BASE_ALIGNSHIFT;
-	sRGXMMUDeviceAttributes.psBaseConfig = &sRGXMMUPCEConfig;
-	sRGXMMUDeviceAttributes.psTopLevelDevVAddrConfig = &sRGXMMUTopLevelDevVAddrConfig;
-
-	/* Functions for deriving page table/dir/cat protection bits */
-	sRGXMMUDeviceAttributes.pfnDerivePCEProt8 = RGXDerivePCEProt8;
-	sRGXMMUDeviceAttributes.pfnDerivePCEProt4 = RGXDerivePCEProt4;
-	sRGXMMUDeviceAttributes.pfnDerivePDEProt8 = RGXDerivePDEProt8;
-	sRGXMMUDeviceAttributes.pfnDerivePDEProt4 = RGXDerivePDEProt4;
-	sRGXMMUDeviceAttributes.pfnDerivePTEProt8 = RGXDerivePTEProt8;
-	sRGXMMUDeviceAttributes.pfnDerivePTEProt4 = RGXDerivePTEProt4;
-
-	/* Functions for establishing configurations for PDE/PTE/DEVVADDR
-	   on per-heap basis */
-	sRGXMMUDeviceAttributes.pfnGetPageSizeConfiguration = RGXGetPageSizeConfigCB;
-	sRGXMMUDeviceAttributes.pfnPutPageSizeConfiguration = RGXPutPageSizeConfigCB;
-
-	sRGXMMUDeviceAttributes.pfnGetPageSizeFromPDE4 = RGXGetPageSizeFromPDE4;
-	sRGXMMUDeviceAttributes.pfnGetPageSizeFromPDE8 = RGXGetPageSizeFromPDE8;
-
-	
-	
-	
 	/* Setup of Px Entries:
 	 * 
 	 * 
@@ -249,6 +222,9 @@ PVRSRV_ERROR RGXMMUInit_Register(PVRSRV_DEVICE_NODE *psDeviceNode)
      */
     
 	
+	sRGXMMUDeviceAttributes.pszMMUPxPDumpMemSpaceName =
+		PhysHeapPDumpMemspaceName(psDeviceNode->apsPhysHeap[PVRSRV_DEVICE_PHYS_HEAP_GPU_LOCAL]);
+
 	/*
 	 * Setup sRGXMMUPCEConfig
 	 */
@@ -705,6 +681,7 @@ PVRSRV_ERROR RGXMMUInit_Register(PVRSRV_DEVICE_NODE *psDeviceNode)
 	/*
 	 * Setup sRGXMMUDeviceAttributes
 	 */
+	sRGXMMUDeviceAttributes.eMMUType = PDUMP_MMU_TYPE_VARPAGE_40BIT;
 	sRGXMMUDeviceAttributes.eTopLevel = MMU_LEVEL_3;
 	sRGXMMUDeviceAttributes.ui32BaseAlign = RGX_MMUCTRL_PC_DATA_PD_BASE_ALIGNSHIFT;
 	sRGXMMUDeviceAttributes.psBaseConfig = &sRGXMMUPCEConfig;
@@ -722,6 +699,9 @@ PVRSRV_ERROR RGXMMUInit_Register(PVRSRV_DEVICE_NODE *psDeviceNode)
 	   on per-heap basis */
 	sRGXMMUDeviceAttributes.pfnGetPageSizeConfiguration = RGXGetPageSizeConfigCB;
 	sRGXMMUDeviceAttributes.pfnPutPageSizeConfiguration = RGXPutPageSizeConfigCB;
+
+	sRGXMMUDeviceAttributes.pfnGetPageSizeFromPDE4 = RGXGetPageSizeFromPDE4;
+	sRGXMMUDeviceAttributes.pfnGetPageSizeFromPDE8 = RGXGetPageSizeFromPDE8;
 
 	psDeviceNode->psMMUDevAttrs = &sRGXMMUDeviceAttributes;
 
@@ -838,22 +818,22 @@ static IMG_UINT64 RGXDerivePDEProt8(IMG_UINT32 uiProtFlags, IMG_UINT32 uiLog2Dat
 	{
 		switch (uiLog2DataPageSize)
 		{
-			case 12:
+			case RGX_HEAP_4KB_PAGE_SHIFT:
 				ret_value = RGX_MMUCTRL_PD_DATA_VALID_EN | RGX_MMUCTRL_PD_DATA_PAGE_SIZE_4KB;
 				break;
-			case 14:
+			case RGX_HEAP_16KB_PAGE_SHIFT:
 				ret_value = RGX_MMUCTRL_PD_DATA_VALID_EN | RGX_MMUCTRL_PD_DATA_PAGE_SIZE_16KB;
 				break;
-			case 16:
+			case RGX_HEAP_64KB_PAGE_SHIFT:
 				ret_value = RGX_MMUCTRL_PD_DATA_VALID_EN | RGX_MMUCTRL_PD_DATA_PAGE_SIZE_64KB;
 				break;
-			case 18:
+			case RGX_HEAP_256KB_PAGE_SHIFT:
 				ret_value = RGX_MMUCTRL_PD_DATA_VALID_EN | RGX_MMUCTRL_PD_DATA_PAGE_SIZE_256KB;
 				break;
-			case 20:
+			case RGX_HEAP_1MB_PAGE_SHIFT:
 				ret_value = RGX_MMUCTRL_PD_DATA_VALID_EN | RGX_MMUCTRL_PD_DATA_PAGE_SIZE_1MB;
 				break;
-			case 21:
+			case RGX_HEAP_2MB_PAGE_SHIFT:
 				ret_value = RGX_MMUCTRL_PD_DATA_VALID_EN | RGX_MMUCTRL_PD_DATA_PAGE_SIZE_2MB;
 				break;
 			default:
@@ -952,22 +932,22 @@ static PVRSRV_ERROR RGXGetPageSizeConfigCB(IMG_UINT32 uiLog2DataPageSize,
 
     switch (uiLog2DataPageSize)
     {
-    case 12:
+    case RGX_HEAP_4KB_PAGE_SHIFT:
         psPageSizeConfig = &gsPageSizeConfig4KB;
         break;
-    case 14:
+    case RGX_HEAP_16KB_PAGE_SHIFT:
         psPageSizeConfig = &gsPageSizeConfig16KB;
         break;
-    case 16:
+    case RGX_HEAP_64KB_PAGE_SHIFT:
         psPageSizeConfig = &gsPageSizeConfig64KB;
         break;
-    case 18:
+    case RGX_HEAP_256KB_PAGE_SHIFT:
         psPageSizeConfig = &gsPageSizeConfig256KB;
         break;
-    case 20:
+    case RGX_HEAP_1MB_PAGE_SHIFT:
         psPageSizeConfig = &gsPageSizeConfig1MB;
         break;
-    case 21:
+    case RGX_HEAP_2MB_PAGE_SHIFT:
         psPageSizeConfig = &gsPageSizeConfig2MB;
         break;
     default:
@@ -1017,22 +997,22 @@ static PVRSRV_ERROR RGXPutPageSizeConfigCB(IMG_HANDLE hPriv)
 
     switch (uiLog2DataPageSize)
     {
-    case 12:
+    case RGX_HEAP_4KB_PAGE_SHIFT:
         psPageSizeConfig = &gsPageSizeConfig4KB;
         break;
-    case 14:
+    case RGX_HEAP_16KB_PAGE_SHIFT:
         psPageSizeConfig = &gsPageSizeConfig16KB;
         break;
-    case 16:
+    case RGX_HEAP_64KB_PAGE_SHIFT:
         psPageSizeConfig = &gsPageSizeConfig64KB;
         break;
-    case 18:
+    case RGX_HEAP_256KB_PAGE_SHIFT:
         psPageSizeConfig = &gsPageSizeConfig256KB;
         break;
-    case 20:
+    case RGX_HEAP_1MB_PAGE_SHIFT:
         psPageSizeConfig = &gsPageSizeConfig1MB;
         break;
-    case 21:
+    case RGX_HEAP_2MB_PAGE_SHIFT:
         psPageSizeConfig = &gsPageSizeConfig2MB;
         break;
     default:
@@ -1064,26 +1044,25 @@ static PVRSRV_ERROR RGXGetPageSizeFromPDE8(IMG_UINT64 ui64PDE, IMG_UINT32 *pui32
 	switch (ui64PDE & (~RGX_MMUCTRL_PD_DATA_PAGE_SIZE_CLRMSK))
 	{
 		case RGX_MMUCTRL_PD_DATA_PAGE_SIZE_4KB:
-			*pui32Log2PageSize = 12;
+			*pui32Log2PageSize = RGX_HEAP_4KB_PAGE_SHIFT;
 			break;
 		case RGX_MMUCTRL_PD_DATA_PAGE_SIZE_16KB:
-			*pui32Log2PageSize = 14;
+			*pui32Log2PageSize = RGX_HEAP_16KB_PAGE_SHIFT;
 			break;
 		case RGX_MMUCTRL_PD_DATA_PAGE_SIZE_64KB:
-			*pui32Log2PageSize = 16;
+			*pui32Log2PageSize = RGX_HEAP_64KB_PAGE_SHIFT;
 			break;
 		case RGX_MMUCTRL_PD_DATA_PAGE_SIZE_256KB:
-			*pui32Log2PageSize = 18;
+			*pui32Log2PageSize = RGX_HEAP_256KB_PAGE_SHIFT;
 			break;
 		case RGX_MMUCTRL_PD_DATA_PAGE_SIZE_1MB:
-			*pui32Log2PageSize = 20;
+			*pui32Log2PageSize = RGX_HEAP_1MB_PAGE_SHIFT;
 			break;
 		case RGX_MMUCTRL_PD_DATA_PAGE_SIZE_2MB:
-			*pui32Log2PageSize = 21;
+			*pui32Log2PageSize = RGX_HEAP_2MB_PAGE_SHIFT;
 			break;
 		default:
 			return PVRSRV_ERROR_MMU_INVALID_PAGE_SIZE_FOR_DEVICE;
-			break;
 	}
 	return PVRSRV_OK;
 }

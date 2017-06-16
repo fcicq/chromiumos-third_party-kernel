@@ -76,17 +76,26 @@
  * it will use i915_hotplug_work_func where this logic is handled.
  */
 
-enum port intel_hpd_pin_to_port(enum hpd_pin pin)
+bool intel_hpd_pin_to_port(enum hpd_pin pin, enum port *port)
 {
 	switch (pin) {
+	case HPD_PORT_A:
+		*port = PORT_A;
+		return true;
 	case HPD_PORT_B:
-		return PORT_B;
+		*port = PORT_B;
+		return true;
 	case HPD_PORT_C:
-		return PORT_C;
+		*port = PORT_C;
+		return true;
 	case HPD_PORT_D:
-		return PORT_D;
+		*port = PORT_D;
+		return true;
+	case HPD_PORT_E:
+		*port = PORT_E;
+		return true;
 	default:
-		return PORT_A; /* no hpd */
+		return false;	/* no hpd */
 	}
 }
 
@@ -369,8 +378,8 @@ void intel_hpd_irq_handler(struct drm_device *dev,
 		if (!(BIT(i) & pin_mask))
 			continue;
 
-		port = intel_hpd_pin_to_port(i);
-		is_dig_port = port && dev_priv->hotplug.irq_port[port];
+		is_dig_port = intel_hpd_pin_to_port(i, &port) &&
+			      dev_priv->hotplug.irq_port[port];
 
 		if (is_dig_port) {
 			bool long_hpd = long_mask & BIT(i);
@@ -459,9 +468,14 @@ void intel_hpd_init(struct drm_i915_private *dev_priv)
 	list_for_each_entry(connector, &mode_config->connector_list, head) {
 		struct intel_connector *intel_connector = to_intel_connector(connector);
 		connector->polled = intel_connector->polled;
-		if (connector->encoder && !connector->polled && I915_HAS_HOTPLUG(dev) && intel_connector->encoder->hpd_pin > HPD_NONE)
-			connector->polled = DRM_CONNECTOR_POLL_HPD;
+
+		/* MST has a dynamic intel_connector->encoder and it's reprobing
+		 * is all handled by the MST helpers. */
 		if (intel_connector->mst_port)
+			continue;
+
+		if (!connector->polled && I915_HAS_HOTPLUG(dev) &&
+		    intel_connector->encoder->hpd_pin > HPD_NONE)
 			connector->polled = DRM_CONNECTOR_POLL_HPD;
 	}
 

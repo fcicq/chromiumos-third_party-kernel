@@ -200,6 +200,15 @@ static const struct vm_operations_struct ext4_file_vm_ops = {
 
 static int ext4_file_mmap(struct file *file, struct vm_area_struct *vma)
 {
+	struct inode *inode = file->f_mapping->host;
+
+	if (ext4_encrypted_inode(inode)) {
+		int err = ext4_get_encryption_info(inode);
+		if (err)
+			return 0;
+		if (ext4_encryption_info(inode) == NULL)
+			return -ENOKEY;
+	}
 	file_accessed(file);
 	vma->vm_ops = &ext4_file_vm_ops;
 	return 0;
@@ -210,8 +219,10 @@ static int ext4_file_open(struct inode * inode, struct file * filp)
 	struct super_block *sb = inode->i_sb;
 	struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
 	struct vfsmount *mnt = filp->f_path.mnt;
+	struct dentry *dir;
 	struct path path;
 	char buf[64], *cp;
+	int ret;
 
 	if (unlikely(!(sbi->s_mount_flags & EXT4_MF_MNTDIR_SAMPLED) &&
 		     !(sb->s_flags & MS_RDONLY))) {
@@ -245,12 +256,31 @@ static int ext4_file_open(struct inode * inode, struct file * filp)
 			ext4_journal_stop(handle);
 		}
 	}
+	if (ext4_encrypted_inode(inode)) {
+		ret = ext4_get_encryption_info(inode);
+		if (ret)
+			return -EACCES;
+		if (ext4_encryption_info(inode) == NULL)
+			return -ENOKEY;
+	}
+
+	dir = dget_parent(filp->f_path.dentry);
+	if (ext4_encrypted_inode(d_inode(dir)) &&
+	    !ext4_is_child_context_consistent_with_parent(d_inode(dir), inode)) {
+		ext4_warning(inode->i_sb,
+			     "Inconsistent encryption contexts: %lu/%lu\n",
+			     (unsigned long) d_inode(dir)->i_ino,
+			     (unsigned long) inode->i_ino);
+		dput(dir);
+		return -EPERM;
+	}
+	dput(dir);
 	/*
 	 * Set up the jbd2_inode if we are opening the inode for
 	 * writing and the journal is present
 	 */
 	if (filp->f_mode & FMODE_WRITE) {
-		int ret = ext4_inode_attach_jinode(inode);
+		ret = ext4_inode_attach_jinode(inode);
 		if (ret < 0)
 			return ret;
 	}

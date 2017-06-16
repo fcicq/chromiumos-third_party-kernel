@@ -16,6 +16,8 @@
 
 #define NR_syscalls (__NR_syscalls)
 
+typedef void (*sys_call_ptr_t)(void);
+
 extern const unsigned long sys_call_table[];
 
 static inline int syscall_get_nr(struct task_struct *task,

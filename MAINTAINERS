@@ -1276,10 +1276,14 @@ S:	Maintained
 
 ARM/QUALCOMM SUPPORT
 M:	Kumar Gala <galak@codeaurora.org>
+M:	Andy Gross <agross@codeaurora.org>
 M:	David Brown <davidb@codeaurora.org>
 L:	linux-arm-msm@vger.kernel.org
+L:	linux-soc@vger.kernel.org
 S:	Maintained
 F:	arch/arm/mach-qcom/
+F:	drivers/soc/qcom/
+F:	drivers/firmware/qcom_scm.c
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/galak/linux-qcom.git
 
 ARM/RADISYS ENP2611 MACHINE SUPPORT
@@ -4998,6 +5002,14 @@ F:	include/uapi/linux/mei.h
 F:	drivers/misc/mei/*
 F:	Documentation/misc-devices/mei/*
 
+INTEL PMC CORE DRIVER
+M:	Rajneesh Bhardwaj <rajneesh.bhardwaj@intel.com>
+M:	Vishwanath Somayaji <vishwanath.somayaji@intel.com>
+L:	platform-driver-x86@vger.kernel.org
+S:	Maintained
+F:	arch/x86/include/asm/pmc_core.h
+F:	drivers/platform/x86/intel_pmc_core*
+
 IOC3 ETHERNET DRIVER
 M:	Ralf Baechle <ralf@linux-mips.org>
 L:	linux-mips@linux-mips.org
@@ -5276,6 +5288,20 @@ L:	lm-sensors@lm-sensors.org
 S:	Maintained
 F:	Documentation/hwmon/k8temp
 F:	drivers/hwmon/k8temp.c
+
+KASAN
+M:	Andrey Ryabinin <aryabinin@virtuozzo.com>
+R:	Alexander Potapenko <glider@google.com>
+R:	Dmitry Vyukov <dvyukov@google.com>
+L:	kasan-dev@googlegroups.com
+S:	Maintained
+F:	arch/*/include/asm/kasan.h
+F:	arch/*/mm/kasan_init*
+F:	Documentation/kasan.txt
+F:	include/linux/kasan*.h
+F:	lib/test_kasan.c
+F:	mm/kasan/
+F:	scripts/Makefile.kasan
 
 KCONFIG
 M:	"Yann E. MORIN" <yann.morin.1998@free.fr>
@@ -6424,6 +6450,7 @@ F:	include/linux/netdevice.h
 F:	include/uapi/linux/in.h
 F:	include/uapi/linux/net.h
 F:	include/uapi/linux/netdevice.h
+F:	include/uapi/linux/net_namespace.h
 F:	tools/net/
 F:	tools/testing/selftests/net/
 F:	lib/random32.c
@@ -10504,6 +10531,7 @@ L:	linux-mm@kvack.org
 S:	Maintained
 F:	mm/zsmalloc.c
 F:	include/linux/zsmalloc.h
+F:	Documentation/vm/zsmalloc.txt
 
 ZSWAP COMPRESSED SWAP CACHING
 M:	Seth Jennings <sjennings@variantweb.net>

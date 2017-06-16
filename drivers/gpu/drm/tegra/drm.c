@@ -399,10 +399,6 @@ host1x_bo_lookup(struct drm_device *drm, struct drm_file *file, u32 handle)
 	if (!gem)
 		return NULL;
 
-	mutex_lock(&drm->struct_mutex);
-	drm_gem_object_unreference(gem);
-	mutex_unlock(&drm->struct_mutex);
-
 	bo = to_tegra_bo(gem);
 	return &bo->base;
 }
@@ -562,6 +558,7 @@ int tegra_drm_submit(struct tegra_drm_context *context,
 fail_submit:
 	host1x_job_unpin(job);
 fail:
+	host1x_job_bo_put(job);
 	host1x_job_put(job);
 	return err;
 }
@@ -1177,7 +1174,7 @@ static int tegra_debugfs_framebuffers(struct seq_file *s, void *data)
 		seq_printf(s, "%3d: user size: %d x %d, depth %d, %d bpp, refcount %d\n",
 			   fb->base.id, fb->width, fb->height, fb->depth,
 			   fb->bits_per_pixel,
-			   atomic_read(&fb->refcount.refcount));
+			   drm_framebuffer_read_refcount(fb));
 	}
 
 	mutex_unlock(&drm->mode_config.fb_lock);
@@ -1383,6 +1380,8 @@ static const struct of_device_id host1x_drm_subdevs[] = {
 	{ .compatible = "nvidia,tegra210-nvdec", },
 	{ .compatible = "nvidia,tegra210-isp", },
 	{ .compatible = "nvidia,tegra210-vi", },
+	{ .compatible = "nvidia,tegra210-sor", },
+	{ .compatible = "nvidia,tegra210-sor1", },
 	{ /* sentinel */ }
 };
 

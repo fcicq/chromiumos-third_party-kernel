@@ -124,6 +124,7 @@ static int panel_simple_disable(struct drm_panel *panel)
 
 	if (p->backlight) {
 		p->backlight->props.power = FB_BLANK_POWERDOWN;
+		p->backlight->props.state |= BL_CORE_FBBLANK;
 		backlight_update_status(p->backlight);
 	}
 
@@ -191,6 +192,7 @@ static int panel_simple_enable(struct drm_panel *panel)
 		msleep(p->desc->delay.enable);
 
 	if (p->backlight) {
+		p->backlight->props.state &= ~BL_CORE_FBBLANK;
 		p->backlight->props.power = FB_BLANK_UNBLANK;
 		backlight_update_status(p->backlight);
 	}
@@ -589,6 +591,29 @@ static const struct panel_desc innolux_n156bge_l21 = {
 	},
 };
 
+static const struct drm_display_mode lg_lp120up1_mode = {
+	.clock = 162300,
+	.hdisplay = 1920,
+	.hsync_start = 1920 + 40,
+	.hsync_end = 1920 + 40 + 40,
+	.htotal = 1920 + 40 + 40+ 80,
+	.vdisplay = 1280,
+	.vsync_start = 1280 + 4,
+	.vsync_end = 1280 + 4 + 4,
+	.vtotal = 1280 + 4 + 4 + 12,
+	.vrefresh = 60,
+};
+
+static const struct panel_desc lg_lp120up1 = {
+	.modes = &lg_lp120up1_mode,
+	.num_modes = 1,
+	.bpc = 8,
+	.size = {
+		.width = 267,
+		.height = 183,
+	},
+};
+
 static const struct drm_display_mode lg_lp129qe_mode = {
 	.clock = 285250,
 	.hdisplay = 2560,
@@ -672,6 +697,9 @@ static const struct of_device_id platform_of_match[] = {
 	}, {
 		.compatible = "innolux,n156bge-l21",
 		.data = &innolux_n156bge_l21,
+	}, {
+		.compatible = "lg,lp120up1",
+		.data = &lg_lp120up1,
 	}, {
 		.compatible = "lg,lp129qe",
 		.data = &lg_lp129qe,

@@ -25,6 +25,7 @@
 #include <linux/regulator/consumer.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
+#include <linux/dmi.h>
 
 /* Version */
 #define MXT_VER_20		20
@@ -319,7 +320,8 @@
 #define MXT_PIXELS_PER_MM	20
 
 /* Define for TOUCH_MOUTITOUCHSCREEN_T100 Touch Status */
-#define TOUCH_STATUS_DETECT			0x80
+#define TOUCH_STATUS_DETECT		0x80
+#define TOUCH_STATUS_EVENT_NO_EVENT	0x00
 #define TOUCH_STATUS_EVENT_MOVE		0x01
 #define TOUCH_STATUS_EVENT_UNSUP	0x02
 #define TOUCH_STATUS_EVENT_SUP		0x03
@@ -452,13 +454,6 @@ struct mxt_data {
 	/* T7 IDLEACQINT & ACTVACQINT setting when in suspend mode*/
 	u8 suspend_acq_interval;
 
-	/* Saved T9 Ctrl field */
-	u8 T9_ctrl;
-	bool T9_ctrl_valid;
-
-	u8 T100_ctrl;
-	bool T100_ctrl_valid;
-
 	u8 T101_ctrl;
 	bool T101_ctrl_valid;
 
@@ -470,6 +465,8 @@ struct mxt_data {
 	/* Saved T19 GPIO config */
 	u8 T19_ctrl;
 	bool T19_ctrl_valid;
+
+	u8 T19_status;
 
 	/* Protect access to the object register buffer */
 	struct mutex object_str_mutex;
@@ -506,9 +503,30 @@ static struct dentry *mxt_debugfs_root;
 static int mxt_calc_resolution_T9(struct mxt_data *data);
 static int mxt_calc_resolution_T100(struct mxt_data *data);
 static void mxt_free_object_table(struct mxt_data *data);
+static void mxt_save_power_config(struct mxt_data *data);
+static void mxt_save_aux_regs(struct mxt_data *data);
+static void mxt_start(struct mxt_data *data);
+static void mxt_stop(struct mxt_data *data);
 static int mxt_initialize(struct mxt_data *data);
 static int mxt_input_dev_create(struct mxt_data *data);
 static int get_touch_major_pixels(struct mxt_data *data, int touch_channels);
+
+static const char *mxt_event_to_string(int event)
+{
+	static const char *const str[] = {
+		"NO_EVENT",
+		"MOVE    ",
+		"UNSUP   ",
+		"SUP     ",
+		"DOWN    ",
+		"UP      ",
+		"UNSUPSUP",
+		"UNSUPUP ",
+		"DOWNSUP ",
+		"DOWNUP  ",
+	};
+	return event < ARRAY_SIZE(str) ? str[event] : "UNKNOWN ";
+}
 
 static inline bool is_mxt_33x_t(struct mxt_data *data)
 {
@@ -1035,9 +1053,42 @@ static int mxt_write_obj_instance(struct mxt_data *data, u8 type, u8 instance,
 	return mxt_write_reg(data->client, reg, val);
 }
 
+static int mxt_ensure_obj_instance(struct mxt_data *data, u8 type, u8 instance,
+		u8 offset, u8 val)
+{
+	struct mxt_object *object;
+	u16 reg;
+	u8 current_val;
+	int ret;
+
+	object = mxt_get_object(data, type);
+	if (!object || offset >= mxt_obj_size(object) ||
+	    instance >= mxt_obj_instances(object))
+		return -EINVAL;
+
+	reg = object->start_address + instance * mxt_obj_size(object) + offset;
+
+	ret = __mxt_read_reg(data->client, reg, 1, &current_val);
+	if (ret)
+		return -EINVAL;
+
+	if (val != current_val) {
+		ret = __mxt_write_reg(data->client, reg, 1, &val);
+		if (ret)
+			return -EINVAL;
+	}
+
+	return 0;
+}
+
 static int mxt_write_object(struct mxt_data *data, u8 type, u8 offset, u8 val)
 {
 	return mxt_write_obj_instance(data, type, 0, offset, val);
+}
+
+static int mxt_ensure_object(struct mxt_data *data, u8 type, u8 offset, u8 val)
+{
+	return mxt_ensure_obj_instance(data, type, 0, offset, val);
 }
 
 static int mxt_recalibrate(struct mxt_data *data)
@@ -1270,29 +1321,20 @@ static void mxt_input_touchevent_T100(struct mxt_data *data, u8 *message)
 	}
 
 	dev_dbg(dev,
-		"[%u] T%d%c%c%c%c%c%c%c%c%c%c x: %5u y: %5u a: %5u p: %5u m: %d v: [%d,%d]\n",
+		"[%u] T%d%c %s x: %5u y: %5u a: %5u p: %5u m: %d v: [%d,%d]\n",
 		id,
 		touch_type,
-		(status & TOUCH_STATUS_DETECT) ? 'D' : '.',
-		(status & TOUCH_STATUS_EVENT_MOVE) ? 'M' : '.',
-		(status & TOUCH_STATUS_EVENT_UNSUP) ? 'U' : '.',
-		(status & TOUCH_STATUS_EVENT_SUP) ? 'S' : '.',
-		(status & TOUCH_STATUS_EVENT_DOWN) ? 'D' : '.',
-		(status & TOUCH_STATUS_EVENT_UP) ? 'U' : '.',
-		(status & TOUCH_STATUS_EVENT_UNSUPSUP) ? 'U' : '.',
-		(status & TOUCH_STATUS_EVENT_UNSUPUP) ? 'U' : '.',
-		(status & TOUCH_STATUS_EVENT_DOWNSUP) ? 'D' : '.',
-		(status & TOUCH_STATUS_EVENT_DOWNUP) ? 'D' : '.',
+		(status & TOUCH_STATUS_DETECT) ? 'D' : ' ',
+		mxt_event_to_string(event),
 		x, y, area, pressure, touch_major, vector1, vector2);
-
 
 	data->current_id[id] = status & TOUCH_STATUS_DETECT;
 	if (touch_type != TOUCH_STATUS_TYPE_STYLUS) {
 		if (status & TOUCH_STATUS_DETECT) {
-			if (event & TOUCH_STATUS_EVENT_MOVE ||
-					event & TOUCH_STATUS_EVENT_DOWN ||
-					event & TOUCH_STATUS_EVENT_UNSUP ||
-					event == 0x00) {
+			if (event == TOUCH_STATUS_EVENT_MOVE ||
+					event == TOUCH_STATUS_EVENT_DOWN ||
+					event == TOUCH_STATUS_EVENT_UNSUP ||
+					event == TOUCH_STATUS_EVENT_NO_EVENT) {
 				input_mt_slot(input_dev, id);
 				input_mt_report_slot_state(
 					input_dev, MT_TOOL_FINGER, true);
@@ -1309,9 +1351,27 @@ static void mxt_input_touchevent_T100(struct mxt_data *data, u8 *message)
 						 touch_major);
 			}
 		} else {
-			if (event & TOUCH_STATUS_EVENT_UP ||
-					event & TOUCH_STATUS_EVENT_SUP) {
+			if (event == TOUCH_STATUS_EVENT_UP) {
 				input_mt_slot(input_dev, id);
+				input_mt_report_slot_state(input_dev,
+							   MT_TOOL_FINGER,
+							   false);
+			} else if (event == TOUCH_STATUS_EVENT_SUP) {
+				/*
+				 * Suppressed touches will be reported as
+				 * touches with maximum ABS_MT_TOUCH_MAJOR.
+				 * The controller no longer reports suppressed
+				 * touches, so we have to release the touch
+				 * afterwards.
+				 */
+				int max = input_abs_get_max(input_dev,
+							    ABS_MT_TOUCH_MAJOR);
+				input_mt_slot(input_dev, id);
+				input_report_abs(input_dev,
+						 ABS_MT_TOUCH_MAJOR,
+						 max);
+				input_sync(input_dev);
+
 				input_mt_report_slot_state(input_dev,
 							   MT_TOOL_FINGER,
 							   false);
@@ -1386,6 +1446,7 @@ static int mxt_proc_messages(struct mxt_data *data, u8 count, bool report)
 		} else if (reportid == data->T19_reportid) {
 			mxt_input_button(data, msg);
 			update_input = true;
+			data->T19_status = msg[1];
 		} else if (mxt_is_T100_message(data, reportid)) {
 			/* check SCRSTATUS */
 			if (reportid == data->T100_reportid_min) {
@@ -1799,11 +1860,11 @@ static int mxt_get_object_table(struct mxt_data *data)
 			max_id = 0;
 		}
 
-		dev_info(&data->client->dev,
-			 "Type %2d Start %3d Size %3zu Instances %2zu ReportIDs %3u : %3u\n",
-			 object->type, object->start_address,
-			 mxt_obj_size(object), mxt_obj_instances(object),
-			 min_id, max_id);
+		dev_dbg(&data->client->dev,
+			"Type %2d Start %3d Size %3zu Instances %2zu ReportIDs %3u : %3u\n",
+			object->type, object->start_address,
+			mxt_obj_size(object), mxt_obj_instances(object),
+			min_id, max_id);
 
 		switch (object->type) {
 		case MXT_GEN_MESSAGE_T5:
@@ -1881,6 +1942,10 @@ static int mxt_initialize(struct mxt_data *data)
 			"Matrix X Size: %u Matrix Y Size: %u Object Num: %u\n",
 			info->matrix_xsize, info->matrix_ysize,
 			info->object_num);
+
+	mxt_save_power_config(data);
+	mxt_save_aux_regs(data);
+	mxt_stop(data);
 
 	return 0;
 }
@@ -2333,6 +2398,10 @@ static int mxt_load_config(struct mxt_data *data, const struct firmware *fw)
 		goto register_input_dev;
 	}
 	msleep(MXT_RESET_TIME);
+
+	mxt_save_power_config(data);
+	mxt_save_aux_regs(data);
+	mxt_stop(data);
 
 register_input_dev:
 	ret2 = mxt_input_dev_create(data);
@@ -2828,6 +2897,32 @@ static ssize_t mxt_suspend_acq_interval_ms_store(struct device *dev,
 	return count;
 }
 
+static ssize_t mxt_force_T19_report(struct device *dev,
+				    struct device_attribute *attr,
+				    const char *buf, size_t count)
+{
+	struct mxt_data *data = dev_get_drvdata(dev);
+	struct i2c_client *client = data->client;
+	int ret;
+	u8 T19_ctrl = 0;
+
+	ret = __mxt_read_reg(client, MXT_SPT_GPIOPWM_T19, 1, &T19_ctrl);
+	if (ret)
+		return ret;
+	/* Force T19 to report status */
+	T19_ctrl = T19_ctrl | 0x04;
+	ret = mxt_write_object(data, MXT_SPT_GPIOPWM_T19, 0, T19_ctrl);
+	return ret ?: count;
+}
+
+static ssize_t mxt_T19_status_show(struct device *dev,
+				   struct device_attribute *attr, char *buf)
+{
+	struct mxt_data *data = dev_get_drvdata(dev);
+
+	return scnprintf(buf, PAGE_SIZE, "%02x\n", data->T19_status);
+}
+
 static DEVICE_ATTR(backupnv, S_IWUSR, NULL, mxt_backupnv_store);
 static DEVICE_ATTR(calibrate, S_IWUSR, NULL, mxt_calibrate_store);
 static DEVICE_ATTR(config_csum, S_IRUGO, mxt_config_csum_show, NULL);
@@ -2845,6 +2940,8 @@ static DEVICE_ATTR(update_fw, S_IWUSR, NULL, mxt_update_fw_store);
 static DEVICE_ATTR(suspend_acq_interval_ms, S_IRUGO | S_IWUSR,
 		   mxt_suspend_acq_interval_ms_show,
 		   mxt_suspend_acq_interval_ms_store);
+static DEVICE_ATTR(T19_status, S_IRUGO | S_IWUSR, mxt_T19_status_show,
+		   mxt_force_T19_report);
 
 static struct attribute *mxt_attrs[] = {
 	&dev_attr_backupnv.attr,
@@ -2859,6 +2956,7 @@ static struct attribute *mxt_attrs[] = {
 	&dev_attr_object.attr,
 	&dev_attr_update_config.attr,
 	&dev_attr_update_fw.attr,
+	&dev_attr_T19_status.attr,
 	NULL
 };
 
@@ -3247,42 +3345,50 @@ static int mxt_set_regs(struct mxt_data *data, u8 type, u8 instance,
 	return 0;
 }
 
-static void mxt_save_all_regs(struct mxt_data *data)
+static void mxt_save_power_config(struct mxt_data *data)
 {
 	struct device *dev = &data->client->dev;
 	int ret;
-	u8 current_T9_ctrl = 0;
-	u8 current_T100_ctrl = 0;
 
 	/* Save 3 bytes T7 Power config */
 	ret = mxt_save_regs(data, MXT_GEN_POWER_T7, 0, 0,
-			    data->T7_config, 3);
+			    data->T7_config, sizeof(data->T7_config));
 	if (ret)
 		dev_err(dev, "Save T7 Power config failed, %d\n", ret);
-	data->T7_config_valid = (ret == 0);
 
-	if (data->has_T9) {
-		/* Save 1 byte T9 Ctrl config */
-		ret = mxt_save_regs(data, MXT_TOUCH_MULTI_T9, 0, 0,
-				    &current_T9_ctrl, 1);
+	data->T7_config_valid = (ret == 0);
+}
+
+static void mxt_restore_power_config(struct mxt_data *data)
+{
+	struct device *dev = &data->client->dev;
+	int ret;
+
+	if (data->T7_config_valid) {
+		ret = mxt_set_regs(data, MXT_GEN_POWER_T7, 0, 0,
+				   data->T7_config, sizeof(data->T7_config));
 		if (ret)
-			dev_err(dev, "Save T9 ctrl config failed, %d\n", ret);
-		if (!data->T9_ctrl_valid && !ret) {
-			data->T9_ctrl_valid = true;
-			data->T9_ctrl = current_T9_ctrl;
-		}
-	}
-	if (data->has_T100) {
-		/* Save 1 byte T100 Ctrl config */
-		ret = mxt_save_regs(data, MXT_TOUCH_MULTITOUCHSCREEN_T100, 0, 0,
-				    &current_T100_ctrl, 1);
+			dev_err(dev, "Set T7 power config failed, %d\n", ret);
+	} else {
+		static const u8 fallback_T7_config[] = {
+			FALLBACK_MXT_POWER_IDLEACQINT,
+			FALLBACK_MXT_POWER_ACTVACQINT,
+			FALLBACK_MXT_POWER_ACTV2IDLETO
+		};
+
+		dev_err(dev, "No T7 values found, setting to fallback value\n");
+		ret = mxt_set_regs(data, MXT_GEN_POWER_T7, 0, 0,
+				   fallback_T7_config,
+				   sizeof(fallback_T7_config));
 		if (ret)
-			dev_err(dev, "Save T100 ctrl config failed, %d\n", ret);
-		if (!data->T100_ctrl_valid && !ret) {
-			data->T100_ctrl_valid = true;
-			data->T100_ctrl = current_T100_ctrl;
-		}
+			dev_err(dev, "Set T7 to fallbacks failed, %d\n", ret);
 	}
+}
+
+static void mxt_save_aux_regs(struct mxt_data *data)
+{
+	struct device *dev = &data->client->dev;
+	int ret;
 
 	if (is_hovering_supported(data)) {
 		/* Save 1 byte T101 Ctrl config */
@@ -3306,44 +3412,10 @@ static void mxt_save_all_regs(struct mxt_data *data)
 	data->T19_ctrl_valid = (ret == 0);
 }
 
-static void mxt_restore_all_regs(struct mxt_data *data)
+static void mxt_restore_aux_regs(struct mxt_data *data)
 {
 	struct device *dev = &data->client->dev;
 	int ret;
-
-	/* Restore the T9 Ctrl config to before-suspend value */
-	if (data->has_T9 && data->T9_ctrl_valid) {
-		ret = mxt_set_regs(data, MXT_TOUCH_MULTI_T9, 0, 0,
-				   &data->T9_ctrl, 1);
-		if (ret)
-			dev_err(dev, "Set T9 ctrl config failed, %d\n", ret);
-	}
-	data->T9_ctrl_valid = false;
-
-	if (data->has_T100 && data->T100_ctrl_valid) {
-		ret = mxt_set_regs(data, MXT_TOUCH_MULTITOUCHSCREEN_T100, 0, 0,
-				   &data->T100_ctrl, 1);
-		if (ret)
-			dev_err(dev, "Set T100 ctrl config failed, %d\n", ret);
-	}
-	data->T100_ctrl_valid = false;
-
-	/* Restore the T7 Power config to before-suspend value */
-	if (data->T7_config_valid) {
-		ret = mxt_set_regs(data, MXT_GEN_POWER_T7, 0, 0,
-				   data->T7_config, 3);
-		if (ret)
-			dev_err(dev, "Set T7 power config failed, %d\n", ret);
-	} else {
-		u8 fallback_T7_config[3] = {FALLBACK_MXT_POWER_IDLEACQINT,
-					    FALLBACK_MXT_POWER_ACTVACQINT,
-					    FALLBACK_MXT_POWER_ACTV2IDLETO};
-		dev_err(dev, "No T7 values found, setting to fallback value\n");
-		ret = mxt_set_regs(data, MXT_GEN_POWER_T7, 0, 0,
-				   fallback_T7_config, 3);
-		if (ret)
-			dev_err(dev, "Set T7 to fallbacks failed, %d\n", ret);
-	}
 
 	/* Restore the T42 ctrl to before-suspend value */
 	if (data->T42_ctrl_valid) {
@@ -3369,33 +3441,52 @@ static void mxt_restore_all_regs(struct mxt_data *data)
 	}
 }
 
+static void mxt_deep_sleep(struct mxt_data *data)
+{
+	static const u8 T7_config_deepsleep[3] = { 0x00, 0x00, 0x00 };
+	int error;
+
+	error = mxt_set_regs(data, MXT_GEN_POWER_T7, 0, 0,
+			     T7_config_deepsleep, sizeof(T7_config_deepsleep));
+	if (error)
+		dev_err(&data->client->dev,
+			"Set T7 Power config (deep sleep) failed: %d\n",
+			error);
+}
+
 static void mxt_start(struct mxt_data *data)
 {
+	if (data->has_T100)
+		mxt_ensure_object(data, MXT_TOUCH_MULTITOUCHSCREEN_T100,
+				  MXT_T100_CTRL, MXT_TOUCH_CTRL_OPERATIONAL);
+
+	mxt_restore_power_config(data);
+
 	/* Enable touch reporting */
 	if (data->has_T9)
 		mxt_write_object(data, MXT_TOUCH_MULTI_T9, MXT_TOUCH_CTRL,
 				 MXT_TOUCH_CTRL_OPERATIONAL);
-	else
-		mxt_write_object(data, MXT_TOUCH_MULTITOUCHSCREEN_T100,
-				 MXT_T100_CTRL, MXT_TOUCH_CTRL_OPERATIONAL);
 }
 
 static void mxt_stop(struct mxt_data *data)
 {
+	mxt_deep_sleep(data);
+
 	/* Disable touch reporting */
 	if (data->has_T9)
 		mxt_write_object(data, MXT_TOUCH_MULTI_T9, MXT_TOUCH_CTRL,
 				 MXT_TOUCH_CTRL_OFF);
-	else
-		mxt_write_object(data, MXT_TOUCH_MULTITOUCHSCREEN_T100,
-				 MXT_T100_CTRL, MXT_TOUCH_CTRL_OFF);
 }
 
 static int mxt_input_open(struct input_dev *dev)
 {
 	struct mxt_data *data = input_get_drvdata(dev);
 
-	mxt_start(data);
+	if (!dev->inhibited) {
+		disable_irq(data->client->irq);
+		mxt_start(data);
+		enable_irq(data->client->irq);
+	}
 
 	return 0;
 }
@@ -3404,28 +3495,44 @@ static void mxt_input_close(struct input_dev *dev)
 {
 	struct mxt_data *data = input_get_drvdata(dev);
 
-	mxt_stop(data);
+	if (!dev->inhibited) {
+		disable_irq(data->client->irq);
+		mxt_stop(data);
+		enable_irq(data->client->irq);
+	}
+}
+
+static void mxt_shutdown(struct i2c_client *client)
+{
+	static const struct dmi_system_id dmi_need_deep_sleep[] = {
+		{
+			.ident = "ChromeOS Celes",
+			.matches = {
+				DMI_MATCH(DMI_SYS_VENDOR, "GOOGLE"),
+				DMI_MATCH(DMI_PRODUCT_NAME, "Celes"),
+			},
+		},
+		{ }
+	};
+	struct mxt_data *data = i2c_get_clientdata(client);
+
+	if (dmi_check_system(dmi_need_deep_sleep))
+		mxt_deep_sleep(data);
 }
 
 static int mxt_input_inhibit(struct input_dev *input)
 {
-	static const u8 T7_config_deepsleep[3] = { 0x00, 0x00, 0x00 };
 	struct mxt_data *data = input_get_drvdata(input);
 	struct device *dev = &data->client->dev;
-	int ret;
 
 	dev_dbg(dev, "inhibit\n");
 
-	disable_irq(data->client->irq);
-
-	mxt_save_all_regs(data);
-
-	ret = mxt_set_regs(data, MXT_GEN_POWER_T7, 0, 0,
-			   T7_config_deepsleep, 3);
-	if (ret)
-		dev_err(dev, "Set T7 Power config failed, %d\n", ret);
-
-	mxt_stop(data);
+	if (input->users) {
+		disable_irq(data->client->irq);
+		mxt_save_aux_regs(data);
+		mxt_stop(data);
+		enable_irq(data->client->irq);
+	}
 
 	return 0;
 }
@@ -3438,6 +3545,11 @@ static int mxt_input_uninhibit(struct input_dev *input)
 
 	dev_dbg(dev, "uninhibit\n");
 
+	if (!input->users)
+		return 0;
+
+	disable_irq(data->client->irq);
+
 	/* Read all pending messages so that CHG line can be de-asserted */
 	error = mxt_handle_messages(data, false);
 	if (error)
@@ -3447,9 +3559,7 @@ static int mxt_input_uninhibit(struct input_dev *input)
 
 	mxt_release_all_fingers(data);
 
-	data->T9_ctrl_valid = false;
-	mxt_restore_all_regs(data);
-
+	mxt_restore_aux_regs(data);
 	mxt_start(data);
 
 	/*
@@ -3636,8 +3746,15 @@ static void mxt_power_off(void *_data)
 {
 	struct mxt_data *data = _data;
 
-	regulator_disable(data->avdd);
-	regulator_disable(data->vdd);
+	if (!IS_ERR_OR_NULL(data->reset_gpio)) {
+		/*
+		 * Activate reset gpio to prevent leakage through the
+		 * pin once we shut off power to the controller.
+		 */
+		gpiod_set_value_cansleep(data->reset_gpio, 1);
+		regulator_disable(data->avdd);
+		regulator_disable(data->vdd);
+	}
 }
 
 static int mxt_check_device_present(struct mxt_data *data, bool probe_alternate)
@@ -3754,6 +3871,20 @@ static int mxt_probe(struct i2c_client *client,
 	data->reset_gpio = devm_gpiod_get(&client->dev, "atmel,reset");
 	if (IS_ERR(data->reset_gpio)) {
 		error = PTR_ERR(data->reset_gpio);
+
+		/*
+		 * On Chromebooks vendors like to source touch panels from
+		 * different vendors, but they are connected to the same
+		 * regulators/GPIO pin. The drivers also use asynchronous
+		 * probing, which means that more than one driver will
+		 * attempt to claim the reset line. If we find it busy,
+		 * let's try again later.
+		 */
+		if (error == -EBUSY) {
+			dev_info(&client->dev,
+				 "reset gpio is busy, deferring probe\n");
+			return -EPROBE_DEFER;
+		}
 
 		if (error == -EPROBE_DEFER)
 			return error;
@@ -3874,46 +4005,60 @@ static int mxt_probe(struct i2c_client *client,
 	return 0;
 }
 
-static void __maybe_unused mxt_suspend_enable_T9(struct mxt_data *data,
-						 u8 current_T9_ctrl)
+static void __maybe_unused mxt_suspend_enable_T9(struct mxt_data *data)
 {
 	struct device *dev = &data->client->dev;
-	u8 T9_ctrl = MXT_TOUCH_CTRL_ENABLE | MXT_TOUCH_CTRL_RPTEN;
-	int ret;
-	unsigned long timeout = msecs_to_jiffies(350);
-	bool need_enable = false;
-	bool need_report = false;
+	u8 T9_ctrl;
+	int error;
+	bool will_recalibrate;
 
-	dev_dbg(dev, "Current T9_Ctrl is %x\n", current_T9_ctrl);
-
-	need_enable = !(current_T9_ctrl & MXT_TOUCH_CTRL_ENABLE);
-	need_report = !(current_T9_ctrl & MXT_TOUCH_CTRL_RPTEN);
-
-	/* If already enabled and reporting, do nothing */
-	if (!need_enable && !need_report)
+	error = mxt_save_regs(data, MXT_TOUCH_MULTI_T9, 0, 0,
+			      &T9_ctrl, 1);
+	if (error) {
+		dev_err(dev, "Get T9 ctrl config failed, %d\n", error);
 		return;
+	}
 
-	/* If the ENABLE bit is toggled, there will be auto-calibration msg.
+	dev_dbg(dev, "Current T9_Ctrl is %x\n", T9_ctrl);
+
+	/*
+	 * If the ENABLE bit is toggled, there will be auto-calibration msg.
 	 * We will have to clear this msg before going into suspend otherwise
 	 * it will wake up the device immediately
 	 */
-	if (need_enable)
+	will_recalibrate = !(T9_ctrl & MXT_TOUCH_CTRL_ENABLE);
+	if (will_recalibrate)
 		init_completion(&data->auto_cal_completion);
 
 	/* Enable T9 object (ENABLE and REPORT) */
-	ret = mxt_set_regs(data, MXT_TOUCH_MULTI_T9, 0, 0,
-			   &T9_ctrl, 1);
-	if (ret) {
-		dev_err(dev, "Set T9 ctrl config failed, %d\n", ret);
+	T9_ctrl = MXT_TOUCH_CTRL_ENABLE | MXT_TOUCH_CTRL_RPTEN;
+	error = mxt_set_regs(data, MXT_TOUCH_MULTI_T9, 0, 0,
+			     &T9_ctrl, 1);
+	if (error) {
+		dev_err(dev, "Set T9 ctrl config failed, %d\n", error);
 		return;
 	}
 
-	if (need_enable) {
-		ret = wait_for_completion_interruptible_timeout(
-			&data->auto_cal_completion, timeout);
-		if (ret <= 0)
+	if (will_recalibrate) {
+		error = wait_for_completion_timeout(&data->auto_cal_completion,
+						    msecs_to_jiffies(350));
+		if (error <= 0)
 			dev_err(dev, "Wait for auto cal completion failed.\n");
 	}
+}
+
+static void __maybe_unused mxt_idle_sleep(struct mxt_data *data)
+{
+	u8 T7_config_idle[] = {
+		data->suspend_acq_interval, data->suspend_acq_interval, 0x00
+	};
+	int error;
+
+	error = mxt_set_regs(data, MXT_GEN_POWER_T7, 0, 0,
+			     T7_config_idle, sizeof(T7_config_idle));
+	if (error)
+		dev_err(&data->client->dev,
+			"Set T7 Power config (idle) failed: %d\n", error);
 }
 
 static int __maybe_unused mxt_suspend(struct device *dev)
@@ -3921,12 +4066,6 @@ static int __maybe_unused mxt_suspend(struct device *dev)
 	struct i2c_client *client = to_i2c_client(dev);
 	struct mxt_data *data = i2c_get_clientdata(client);
 	struct input_dev *input_dev;
-	const u8 T7_config_idle[3] = {
-			data->suspend_acq_interval,
-			data->suspend_acq_interval,
-			0x00 };
-	static const u8 T7_config_deepsleep[3] = { 0x00, 0x00, 0x00 };
-	const u8 *power_config;
 	int ret;
 
 	/*
@@ -3962,24 +4101,13 @@ static int __maybe_unused mxt_suspend(struct device *dev)
 	 */
 	mutex_lock(&input_dev->mutex);
 
+	disable_irq(data->irq);
+
 	if (input_dev->inhibited)
 		goto out_unlock_input;
 
-	disable_irq(data->irq);
+	mxt_save_aux_regs(data);
 
-	mxt_save_all_regs(data);
-
-	/*
-	 * Set T7 to idle mode if we allow wakeup from touch, otherwise
-	 * put it into deepsleep mode.
-	 */
-	power_config = device_may_wakeup(dev) ? T7_config_idle
-					      : T7_config_deepsleep;
-
-	ret = mxt_set_regs(data, MXT_GEN_POWER_T7, 0, 0,
-			   power_config, 3);
-	if (ret)
-		dev_err(dev, "Set T7 Power config failed, %d\n", ret);
 	/*
 	 *  For tpads, save T42 and T19 ctrl registers if may wakeup,
 	 *  enable large object suppression, and disable button wake.
@@ -4028,14 +4156,14 @@ static int __maybe_unused mxt_suspend(struct device *dev)
 	}
 
 	if (device_may_wakeup(dev)) {
+		mxt_idle_sleep(data);
+
 		/*
 		 * If we allow wakeup from touch, we have to enable T9 so
-		 * that IRQ can be generated from touch
+		 * that IRQ will be generated.
 		 */
-
-		/* Set proper T9 ENABLE & REPTN bits */
-		if (data->has_T9 && data->T9_ctrl_valid)
-			mxt_suspend_enable_T9(data, data->T9_ctrl);
+		if (data->has_T9)
+			mxt_suspend_enable_T9(data);
 
 		/* Enable wake from IRQ */
 		data->irq_wake = (enable_irq_wake(data->irq) == 0);
@@ -4047,6 +4175,16 @@ out_unlock_input:
 	mutex_unlock(&input_dev->mutex);
 out:
 	mutex_unlock(&data->fw_mutex);
+	/*
+	 * Shut off the controller unless it is supposed to be
+	 * a wakeup source. Note that we do not use data->irq_wake
+	 * as a condition here because enable_irq_wake() does fail
+	 * on some ACPI systems which still get woken up properly
+	 * because of platform magic.
+	 */
+	if (!device_may_wakeup(dev))
+		mxt_power_off(data);
+
 	return 0;
 }
 
@@ -4056,6 +4194,22 @@ static int __maybe_unused mxt_resume(struct device *dev)
 	struct mxt_data *data = i2c_get_clientdata(client);
 	struct input_dev *input_dev = data->input_dev;
 	int ret = 0;
+
+	if (data->irq_wake) {
+		disable_irq_wake(data->irq);
+		data->irq_wake = false;
+	}
+
+	if (!device_may_wakeup(dev)) {
+		/*
+		 * If the controller was not a wake up source
+		 * it was powered off and we need to power it on
+		 * again.
+		 */
+		ret = mxt_power_on(data);
+		if (ret)
+			return ret;
+	}
 
 	ret = mutex_lock_interruptible(&data->fw_mutex);
 	if (ret)
@@ -4070,30 +4224,33 @@ static int __maybe_unused mxt_resume(struct device *dev)
 
 	mutex_lock(&input_dev->mutex);
 
-	if (input_dev->inhibited)
-		goto out_unlock_input;
-
-	/* Process any pending message so that CHG line can be de-asserted */
+	/*
+	 * Process any pending message so that CHG line can be
+	 * de-asserted
+	 */
 	ret = mxt_handle_messages(data, false);
 	if (ret)
 		dev_err(dev, "Handling message fails upon resume, %d\n", ret);
 
-	mxt_release_all_fingers(data);
+	if (input_dev->inhibited || !input_dev->users) {
+		/*
+		 * If device was indeed powered off in suspend then after
+		 * powering it on it is normal operating mode and we need
+		 * to put it to sleep.
+		 */
+		mxt_stop(data);
+	} else {
+		mxt_release_all_fingers(data);
+		mxt_restore_aux_regs(data);
+		mxt_start(data);
 
-	mxt_restore_all_regs(data);
-
-	/* Recalibration in case of environment change */
-	if (!device_may_wakeup(dev) || is_mxt_33x_t(data))
-		mxt_recalibrate(data);
+		/* Recalibration in case of environment change */
+		if (!device_may_wakeup(dev) || is_mxt_33x_t(data))
+			mxt_recalibrate(data);
+	}
 
 	enable_irq(data->irq);
 
-	if (data->irq_wake) {
-		disable_irq_wake(data->irq);
-		data->irq_wake = false;
-	}
-
-out_unlock_input:
 	mutex_unlock(&input_dev->mutex);
 out:
 	mutex_unlock(&data->fw_mutex);
@@ -4129,6 +4286,7 @@ static struct i2c_driver mxt_driver = {
 		.async_probe = true,
 	},
 	.probe		= mxt_probe,
+	.shutdown	= mxt_shutdown,
 	.id_table	= mxt_id,
 };
 

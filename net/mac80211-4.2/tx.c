@@ -35,6 +35,10 @@
 #include "wme.h"
 #include "rate.h"
 
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+#include "wifi_diag.h"
+#endif
+
 /* misc utils */
 
 static inline void ieee80211_tx_stats(struct net_device *dev, u32 len)
@@ -590,6 +594,9 @@ ieee80211_tx_h_select_key(struct ieee80211_tx_data *tx)
 	else if (tx->sta &&
 		 (key = rcu_dereference(tx->sta->ptk[tx->sta->ptk_idx])))
 		tx->key = key;
+	else if (ieee80211_is_group_privacy_action(tx->skb) &&
+		(key = rcu_dereference(tx->sdata->default_multicast_key)))
+		tx->key = key;
 	else if (ieee80211_is_mgmt(hdr->frame_control) &&
 		 is_multicast_ether_addr(hdr->addr1) &&
 		 ieee80211_is_robust_mgmt_frame(tx->skb) &&
@@ -623,7 +630,8 @@ ieee80211_tx_h_select_key(struct ieee80211_tx_data *tx)
 		case WLAN_CIPHER_SUITE_GCMP_256:
 			if (!ieee80211_is_data_present(hdr->frame_control) &&
 			    !ieee80211_use_mfp(hdr->frame_control, tx->sta,
-					       tx->skb))
+					       tx->skb) &&
+			    !ieee80211_is_group_privacy_action(tx->skb))
 				tx->key = NULL;
 			else
 				skip_hw = (tx->key->conf.flags &
@@ -1237,8 +1245,14 @@ static void ieee80211_drv_tx(struct ieee80211_local *local,
 	struct ieee80211_tx_control control = {
 		.sta = pubsta,
 	};
+	struct sta_info *sta = container_of(pubsta, struct sta_info, sta);
 	struct ieee80211_txq *txq = NULL;
 	struct txq_info *txqi;
+	int pending;
+	int q_max;
+	int q;
+	int sq;
+	int nq;
 	u8 ac;
 
 	if (info->control.flags & IEEE80211_TX_CTRL_PS_RESPONSE)
@@ -1260,11 +1274,38 @@ static void ieee80211_drv_tx(struct ieee80211_local *local,
 
 	ac = txq->ac;
 	txqi = to_txq_info(txq);
-	atomic_inc(&sdata->txqs_len[ac]);
-	if (atomic_read(&sdata->txqs_len[ac]) >= local->hw.txq_ac_max_pending)
-		netif_stop_subqueue(sdata->dev, ac);
 
-	skb_queue_tail(&txqi->queue, skb);
+	spin_lock_bh(&txqi->queue.lock);
+	txqi->byte_cnt += skb->len;
+
+	if (pubsta)
+		pending = atomic_add_return(1, &sta->txqs_len[ac]);
+	else
+		pending = atomic_add_return(1, &sdata->txqs_len[ac]);
+
+	if (pending >= local->hw.txq_ac_max_pending) {
+		if (pubsta) {
+			sq = ac + sta->sta_id_off;
+			nq = sq + IEEE80211_NUM_ACS;
+
+			set_bit(sq, sdata->ndev_sta_q_stopped);
+			if (!test_and_set_bit(ac, sta->txqs_stopped))
+				atomic_inc(&sdata->ndev_sta_q_refs[sq]);
+			netif_stop_subqueue(sdata->dev, nq);
+		} else {
+			q_max = (1 + IEEE80211_NUM_NDEV_STA) *
+				IEEE80211_NUM_ACS;
+
+			for (q = ac; q < q_max; q += IEEE80211_NUM_ACS)
+				netif_stop_subqueue(sdata->dev, q);
+		}
+	}
+
+	__skb_queue_tail(&txqi->queue, skb);
+	spin_unlock_bh(&txqi->queue.lock);
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+	info->tx_start_time =  ieee80211_txdelay_get_time();
+#endif
 	drv_wake_tx_queue(local, txqi);
 
 	return;
@@ -1279,9 +1320,14 @@ struct sk_buff *ieee80211_tx_dequeue(struct ieee80211_hw *hw,
 	struct ieee80211_local *local = hw_to_local(hw);
 	struct ieee80211_sub_if_data *sdata = vif_to_sdata(txq->vif);
 	struct txq_info *txqi = container_of(txq, struct txq_info, txq);
+	struct sta_info *sta;
 	struct ieee80211_hdr *hdr;
 	struct sk_buff *skb = NULL;
 	u8 ac = txq->ac;
+	int q = sdata->vif.hw_queue[ac];
+	int pending;
+	int nq;
+	int sq;
 
 	spin_lock_bh(&txqi->queue.lock);
 
@@ -1292,14 +1338,28 @@ struct sk_buff *ieee80211_tx_dequeue(struct ieee80211_hw *hw,
 	if (!skb)
 		goto out;
 
-	atomic_dec(&sdata->txqs_len[ac]);
-	if (__netif_subqueue_stopped(sdata->dev, ac))
-		ieee80211_propagate_queue_wake(local, sdata->vif.hw_queue[ac]);
+	txqi->byte_cnt -= skb->len;
+
+	if (txq->sta) {
+		sta = container_of(txq->sta, struct sta_info, sta);
+		pending = atomic_sub_return(1, &sta->txqs_len[ac]);
+		sq = ac + sta->sta_id_off;
+		nq = sq + IEEE80211_NUM_ACS;
+
+		if (pending < local->hw.txq_ac_max_pending &&
+		    test_and_clear_bit(ac, sta->txqs_stopped) &&
+		    atomic_dec_return(&sdata->ndev_sta_q_refs[sq]) == 0)
+			clear_bit(sq, sdata->ndev_sta_q_stopped);
+	} else {
+		pending = atomic_sub_return(1, &sdata->txqs_len[ac]);
+		nq = ac;
+	}
+
+	if (__netif_subqueue_stopped(sdata->dev, nq))
+		ieee80211_propagate_queue_wake(local, q);
 
 	hdr = (struct ieee80211_hdr *)skb->data;
 	if (txq->sta && ieee80211_is_data_qos(hdr->frame_control)) {
-		struct sta_info *sta = container_of(txq->sta, struct sta_info,
-						    sta);
 		struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
 
 		hdr->seq_ctrl = ieee80211_tx_next_seq(sta, txq->tid);
@@ -1462,13 +1522,26 @@ static int invoke_tx_handlers(struct ieee80211_tx_data *tx)
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(tx->skb);
 	ieee80211_tx_result res = TX_DROP;
 
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+	struct ieee80211_sub_if_data *sdata = tx->sdata;
+	struct sk_buff *skb = tx->skb;
+
+#define CALL_TXH(txh) \
+	do {				\
+		res = txh(tx);		\
+		if (res != TX_CONTINUE) \
+			WIFI_DIAG_TX_SDATA_DBG(sdata, skb, res, "%s", #txh); \
+		if (res != TX_CONTINUE)	\
+			goto txh_done;	\
+	} while (0)
+#else
 #define CALL_TXH(txh) \
 	do {				\
 		res = txh(tx);		\
 		if (res != TX_CONTINUE)	\
 			goto txh_done;	\
 	} while (0)
-
+#endif
 	CALL_TXH(ieee80211_tx_h_dynamic_ps);
 	CALL_TXH(ieee80211_tx_h_check_assoc);
 	CALL_TXH(ieee80211_tx_h_ps_buf);
@@ -1517,8 +1590,15 @@ bool ieee80211_tx_prepare_skb(struct ieee80211_hw *hw,
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
 	struct ieee80211_tx_data tx;
 	struct sk_buff *skb2;
+	ieee80211_tx_result r;
 
-	if (ieee80211_tx_prepare(sdata, &tx, NULL, skb) == TX_DROP)
+	r = ieee80211_tx_prepare(sdata, &tx, NULL, skb);
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+	if (r != TX_CONTINUE)
+		WIFI_DIAG_TX_SDATA_DBG(sdata, skb, r,
+				       "ieee80211_tx_prepare_skb");
+#endif
+	if (r == TX_DROP)
 		return false;
 
 	info->band = band;
@@ -1660,6 +1740,9 @@ void ieee80211_xmit(struct ieee80211_sub_if_data *sdata,
 	}
 
 	ieee80211_set_qos_hdr(sdata, skb);
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+	WIFI_DIAG_SET_TX_INFO(local, sta, skb);
+#endif
 	ieee80211_tx(sdata, sta, skb, false);
 }
 
@@ -2097,10 +2180,14 @@ static struct sk_buff *ieee80211_build_hdr(struct ieee80211_sub_if_data *sdata,
 					mpp_lookup = true;
 			}
 
-			if (mpp_lookup)
+			if (mpp_lookup) {
 				mppath = mpp_path_lookup(sdata, skb->data);
+				if (mppath)
+					mppath->exp_time = jiffies;
+			}
 
-			if (mppath && mpath)
+			if (mppath && mpath &&
+			    !ether_addr_equal(mppath->mpp, mpath->dst))
 				mesh_path_del(mpath->sdata, mpath->dst);
 		}
 
@@ -2132,6 +2219,35 @@ static struct sk_buff *ieee80211_build_hdr(struct ieee80211_sub_if_data *sdata,
 
 			hdrlen = ieee80211_fill_mesh_addresses(&hdr, &fc,
 					mesh_da, sdata->vif.addr);
+
+#ifdef MESH_BYPASS_ROUTING_FOR_TEST_FRAMES
+			if (is_multicast_ether_addr(mesh_da)) {
+				/* DA TA mSA AE:SA */
+				meshhdrlen = ieee80211_new_mesh_header(
+						sdata, &mesh_hdr,
+						skb->data + ETH_ALEN, NULL);
+			} else {
+				if (!mppath && !mpath && is_zero_ether_addr(mesh_da)) {
+					/*
+					 * Special Test frame. DA is 0, SA is the address of the
+					 * peer. Force 4 address frame format. Call to
+					 * iee80211_fill_mesh_addresses function above would have
+					 * set addr1 and addr3 to DA which is 0 where as addr2 and
+					 * addr 4 are set to the interface address which is
+					 * sdata->vif.addr. Now set the addr1(RA) to the peer
+					 * address(SA from ether header) and later during path
+					 * lookup addr3 will also be set the SA.
+					 */
+					memcpy(hdr.addr1, skb->data + ETH_ALEN, ETH_ALEN);
+					meshhdrlen = ieee80211_new_mesh_header(sdata, &mesh_hdr,
+							NULL, NULL);
+				} else {
+					/* RA TA mDA mSA AE:DA SA */
+					meshhdrlen = ieee80211_new_mesh_header(sdata, &mesh_hdr,
+							skb->data, skb->data + ETH_ALEN);
+				}
+			}
+#else
 			if (is_multicast_ether_addr(mesh_da))
 				/* DA TA mSA AE:SA */
 				meshhdrlen = ieee80211_new_mesh_header(
@@ -2142,6 +2258,7 @@ static struct sk_buff *ieee80211_build_hdr(struct ieee80211_sub_if_data *sdata,
 				meshhdrlen = ieee80211_new_mesh_header(
 						sdata, &mesh_hdr, skb->data,
 						skb->data + ETH_ALEN);
+#endif
 
 		}
 		chanctx_conf = rcu_dereference(sdata->vif.chanctx_conf);
@@ -2774,6 +2891,10 @@ static bool ieee80211_xmit_fast(struct ieee80211_sub_if_data *sdata,
 		sdata->sequence_number += 0x10;
 	}
 
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+	WIFI_DIAG_SET_TX_INFO(local, sta, skb);
+#endif
+
 	sta->tx_msdu[tid]++;
 
 	info->hw_queue = sdata->vif.hw_queue[skb_get_queue_mapping(skb)];
@@ -2792,9 +2913,12 @@ static bool ieee80211_xmit_fast(struct ieee80211_sub_if_data *sdata,
 	if (!ieee80211_hw_check(&local->hw, HAS_RATE_CONTROL)) {
 		tx.skb = skb;
 		r = ieee80211_tx_h_rate_ctrl(&tx);
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+		if (r != TX_CONTINUE)
+			WIFI_DIAG_TX_DBG(&tx, r, "ieee80211_xmit_fast");
+#endif
 		skb = tx.skb;
 		tx.skb = NULL;
-
 		if (r != TX_CONTINUE) {
 			if (r != TX_QUEUED)
 				kfree_skb(skb);
@@ -2927,7 +3051,21 @@ void __ieee80211_subif_start_xmit(struct sk_buff *skb,
 netdev_tx_t ieee80211_subif_start_xmit(struct sk_buff *skb,
 				       struct net_device *dev)
 {
+	struct ieee80211_sub_if_data *sdata = IEEE80211_DEV_TO_SUB_IF(dev);
+	struct ieee80211_local *local = sdata->local;
+	u16 ac;
+
+	if (local->ops->wake_tx_queue) {
+		/* ndo_select_queue() can alter the queue mapping for per-station
+		 * stop/wake queue control purposes. Undo it to prevent confusing
+		 * underlying mac80211 drivers.
+		 */
+		ac = skb_get_queue_mapping(skb) % IEEE80211_NUM_ACS;
+		skb_set_queue_mapping(skb, ac);
+	}
+
 	__ieee80211_subif_start_xmit(skb, dev, 0);
+
 	return NETDEV_TX_OK;
 }
 

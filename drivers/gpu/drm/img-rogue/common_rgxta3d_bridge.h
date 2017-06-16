@@ -2,8 +2,8 @@
 @File
 @Title          Common bridge header for rgxta3d
 @Copyright      Copyright (c) Imagination Technologies Ltd. All Rights Reserved
-@Description    Declares common defines and structures that are used by both
-                the client and sever side of the bridge for rgxta3d
+@Description    Declares common defines and structures used by both the client
+                and server side of the bridge for rgxta3d
 @License        Dual MIT/GPLv2
 
 The contents of this file are subject to the MIT license as set out below.
@@ -45,11 +45,13 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #ifndef COMMON_RGXTA3D_BRIDGE_H
 #define COMMON_RGXTA3D_BRIDGE_H
 
+#include <powervr/mem_types.h>
+
 #include "img_types.h"
 #include "pvrsrv_error.h"
 
 #include "rgx_bridge.h"
-#include "sync_external.h"
+#include <powervr/sync_external.h>
 #include "rgx_fwif_shared.h"
 
 
@@ -253,6 +255,7 @@ typedef struct PVRSRV_BRIDGE_IN_RGXCREATEFREELIST_TAG
 	IMG_UINT32 ui32ui32MaxFLPages;
 	IMG_UINT32 ui32ui32InitFLPages;
 	IMG_UINT32 ui32ui32GrowFLPages;
+	IMG_HANDLE hsGlobalFreeList;
 	IMG_BOOL bbFreeListCheck;
 	IMG_DEV_VIRTADDR spsFreeListDevVAddr;
 	IMG_HANDLE hsFreeListPMR;
@@ -367,6 +370,7 @@ typedef struct PVRSRV_BRIDGE_OUT_RGXDESTROYRENDERCONTEXT_TAG
 typedef struct PVRSRV_BRIDGE_IN_RGXKICKTA3D_TAG
 {
 	IMG_HANDLE hRenderContext;
+	IMG_UINT32 ui32ClientCacheOpSeqNum;
 	IMG_UINT32 ui32ClientTAFenceCount;
 	IMG_HANDLE * phClientTAFenceSyncPrimBlock;
 	IMG_UINT32 * pui32ClientTAFenceSyncOffset;
@@ -402,13 +406,12 @@ typedef struct PVRSRV_BRIDGE_IN_RGXKICKTA3D_TAG
 	IMG_UINT32 ui323DCmdSize;
 	IMG_BYTE * ps3DCmd;
 	IMG_UINT32 ui32ExtJobRef;
-	IMG_UINT32 ui32IntJobRef;
 	IMG_BOOL bbLastTAInScene;
 	IMG_BOOL bbKickTA;
 	IMG_BOOL bbKickPR;
 	IMG_BOOL bbKick3D;
 	IMG_BOOL bbAbort;
-	IMG_BOOL bbPDumpContinuous;
+	IMG_UINT32 ui32PDumpFlags;
 	IMG_HANDLE hRTDataCleanup;
 	IMG_HANDLE hZBuffer;
 	IMG_HANDLE hSBuffer;
@@ -417,6 +420,11 @@ typedef struct PVRSRV_BRIDGE_IN_RGXKICKTA3D_TAG
 	IMG_UINT32 ui32SyncPMRCount;
 	IMG_UINT32 * pui32SyncPMRFlags;
 	IMG_HANDLE * phSyncPMRs;
+	IMG_UINT32 ui32RenderTargetSize;
+	IMG_UINT32 ui32NumberOfDrawCalls;
+	IMG_UINT32 ui32NumberOfIndices;
+	IMG_UINT32 ui32NumberOfMRTs;
+	IMG_UINT64 ui64Deadline;
 } __attribute__((packed)) PVRSRV_BRIDGE_IN_RGXKICKTA3D;
 
 /* Bridge out structure for RGXKickTA3D */

@@ -239,6 +239,29 @@ drm_gem_object_handle_unreference_unlocked(struct drm_gem_object *obj)
 	drm_gem_object_unreference_unlocked(obj);
 }
 
+/*
+ * Called at device or object close to release the file's
+ * handle references on objects.
+ */
+static int
+drm_gem_object_release_handle(int id, void *ptr, void *data)
+{
+	struct drm_file *file_priv = data;
+	struct drm_gem_object *obj = ptr;
+	struct drm_device *dev = obj->dev;
+
+	if (drm_core_check_feature(dev, DRIVER_PRIME))
+		drm_gem_remove_prime_handles(obj, file_priv);
+	drm_vma_node_revoke(&obj->vma_node, file_priv->filp);
+
+	if (dev->driver->gem_close_object)
+		dev->driver->gem_close_object(obj, file_priv);
+
+	drm_gem_object_handle_unreference_unlocked(obj);
+
+	return 0;
+}
+
 /**
  * drm_gem_handle_delete - deletes the given file-private handle
  * @filp: drm file-private structure to use for the handle look up
@@ -250,7 +273,6 @@ drm_gem_object_handle_unreference_unlocked(struct drm_gem_object *obj)
 int
 drm_gem_handle_delete(struct drm_file *filp, u32 handle)
 {
-	struct drm_device *dev;
 	struct drm_gem_object *obj;
 
 	/* This is gross. The idr system doesn't let us try a delete and
@@ -265,24 +287,19 @@ drm_gem_handle_delete(struct drm_file *filp, u32 handle)
 	spin_lock(&filp->table_lock);
 
 	/* Check if we currently have a reference on the object */
-	obj = idr_find(&filp->object_idr, handle);
-	if (obj == NULL) {
-		spin_unlock(&filp->table_lock);
+	obj = idr_replace(&filp->object_idr, NULL, handle);
+	spin_unlock(&filp->table_lock);
+	if (IS_ERR_OR_NULL(obj))
 		return -EINVAL;
-	}
-	dev = obj->dev;
 
-	/* Release reference and decrement refcount. */
+	/* Release driver's reference and decrement refcount. */
+	drm_gem_object_release_handle(handle, obj, filp);
+
+	/* And finally make the handle available for future allocations. */
+	spin_lock(&filp->table_lock);
 	idr_remove(&filp->object_idr, handle);
 	spin_unlock(&filp->table_lock);
 
-	if (drm_core_check_feature(dev, DRIVER_PRIME))
-		drm_gem_remove_prime_handles(obj, filp);
-	drm_vma_node_revoke(&obj->vma_node, filp->filp);
-
-	if (dev->driver->gem_close_object)
-		dev->driver->gem_close_object(obj, filp);
-	drm_gem_object_handle_unreference_unlocked(obj);
 
 	return 0;
 }
@@ -700,29 +717,6 @@ drm_gem_open(struct drm_device *dev, struct drm_file *file_private)
 }
 
 /*
- * Called at device close to release the file's
- * handle references on objects.
- */
-static int
-drm_gem_object_release_handle(int id, void *ptr, void *data)
-{
-	struct drm_file *file_priv = data;
-	struct drm_gem_object *obj = ptr;
-	struct drm_device *dev = obj->dev;
-
-	if (drm_core_check_feature(dev, DRIVER_PRIME))
-		drm_gem_remove_prime_handles(obj, file_priv);
-	drm_vma_node_revoke(&obj->vma_node, file_priv->filp);
-
-	if (dev->driver->gem_close_object)
-		dev->driver->gem_close_object(obj, file_priv);
-
-	drm_gem_object_handle_unreference_unlocked(obj);
-
-	return 0;
-}
-
-/**
  * drm_gem_release - release file-private GEM resources
  * @dev: drm_device which is being closed by userspace
  * @file_private: drm file-private structure to clean up
@@ -873,9 +867,6 @@ int drm_gem_mmap(struct file *filp, struct vm_area_struct *vma)
 	struct drm_gem_object *obj;
 	struct drm_vma_offset_node *node;
 	int ret;
-
-	if (drm_device_is_unplugged(dev))
-		return -ENODEV;
 
 	mutex_lock(&dev->struct_mutex);
 

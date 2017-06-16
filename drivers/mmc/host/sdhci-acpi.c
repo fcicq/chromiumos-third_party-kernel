@@ -230,7 +230,8 @@ static const struct sdhci_acpi_slot sdhci_acpi_slot_int_sd = {
 	.quirks2 = SDHCI_QUIRK2_CARD_ON_NEEDS_BUS_ON |
 		   SDHCI_QUIRK2_STOP_WITH_TC |
 		   SDHCI_QUIRK2_BAYTRAIL_EMMC,
-	.caps    = MMC_CAP_BUS_WIDTH_TEST | MMC_CAP_WAIT_WHILE_BUSY,
+	.caps    = MMC_CAP_BUS_WIDTH_TEST | MMC_CAP_WAIT_WHILE_BUSY |
+		   MMC_CAP_AGGRESSIVE_PM,
 	.probe_slot	= sdhci_acpi_sd_probe_slot,
 };
 
@@ -388,6 +389,8 @@ static int sdhci_acpi_probe(struct platform_device *pdev)
 		pm_runtime_use_autosuspend(dev);
 		pm_runtime_enable(dev);
 	}
+
+	device_enable_async_suspend(dev);
 
 	return 0;
 

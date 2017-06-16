@@ -217,6 +217,36 @@ void drm_err(const char *func, const char *format, ...);
 			drm_ut_debug_printk(__func__, fmt, ##args);	\
 	} while (0)
 
+#define _DRM_DEFINE_DEBUG_RATELIMITED(level, fmt, args...)		\
+	do {								\
+		if (unlikely(drm_debug & DRM_UT_ ## level)) {		\
+			static DEFINE_RATELIMIT_STATE(			\
+				_rs,					\
+				DEFAULT_RATELIMIT_INTERVAL,		\
+				DEFAULT_RATELIMIT_BURST);		\
+									\
+			if (__ratelimit(&_rs)) {			\
+				drm_ut_debug_printk(__func__, fmt,	\
+						    ##args);		\
+			}						\
+		}							\
+	} while (0)
+
+/**
+ * Rate limited debug output. Like DRM_DEBUG() but won't flood the log.
+ *
+ * \param fmt printf() like format string.
+ * \param arg arguments
+ */
+#define DRM_DEBUG_RATELIMITED(fmt, args...)				\
+	_DRM_DEFINE_DEBUG_RATELIMITED(CORE, fmt, ##args)
+#define DRM_DEBUG_DRIVER_RATELIMITED(fmt, args...)			\
+	_DRM_DEFINE_DEBUG_RATELIMITED(DRIVER, fmt, ##args)
+#define DRM_DEBUG_KMS_RATELIMITED(fmt, args...)				\
+	_DRM_DEFINE_DEBUG_RATELIMITED(KMS, fmt, ##args)
+#define DRM_DEBUG_PRIME_RATELIMITED(fmt, args...)			\
+	_DRM_DEFINE_DEBUG_RATELIMITED(PRIME, fmt, ##args)
+
 /*@}*/
 
 /***********************************************************************/
@@ -854,19 +884,6 @@ static __inline__ int drm_core_check_feature(struct drm_device *dev,
 	return ((dev->driver->driver_features & feature) ? 1 : 0);
 }
 
-static inline void drm_device_set_unplugged(struct drm_device *dev)
-{
-	smp_wmb();
-	atomic_set(&dev->unplugged, 1);
-}
-
-static inline int drm_device_is_unplugged(struct drm_device *dev)
-{
-	int ret = atomic_read(&dev->unplugged);
-	smp_rmb();
-	return ret;
-}
-
 static inline bool drm_is_render_client(const struct drm_file *file_priv)
 {
 	return file_priv->minor->type == DRM_MINOR_RENDER;
@@ -978,7 +995,7 @@ extern void drm_put_dev(struct drm_device *dev);
 extern void drm_unplug_dev(struct drm_device *dev);
 extern unsigned int drm_debug;
 extern bool drm_atomic;
-extern u32 drm_master_relax;
+extern bool drm_master_relax;
 
 				/* Debugfs support */
 #if defined(CONFIG_DEBUG_FS)
@@ -1094,5 +1111,8 @@ static __inline__ bool drm_can_sleep(void)
 		return false;
 	return true;
 }
+
+/* helper for handling conditionals in various for_each macros */
+#define for_each_if(condition) if (!(condition)) {} else
 
 #endif

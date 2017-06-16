@@ -1,31 +1,35 @@
-pvrsrvkm-y += \
+pvrsrvkm_1_8-y += \
  server_breakpoint_bridge.o \
- server_cachegeneric_bridge.o \
+ client_cache_direct_bridge.o \
+ server_cache_bridge.o \
  server_cmm_bridge.o \
  server_debugmisc_bridge.o \
- client_htbuffer_bridge.o \
  server_dmabuf_bridge.o \
- client_mm_bridge.o \
- client_pvrtl_bridge.o \
- client_sync_bridge.o \
+ client_htbuffer_direct_bridge.o \
  server_htbuffer_bridge.o \
+ client_mm_direct_bridge.o \
  server_mm_bridge.o \
+ client_pvrtl_direct_bridge.o \
  server_pvrtl_bridge.o \
  server_regconfig_bridge.o \
  server_rgxcmp_bridge.o \
  server_rgxhwperf_bridge.o \
- server_rgxinit_bridge.o \
+ client_rgxinit_direct_bridge.o \
  server_rgxkicksync_bridge.o \
+ server_rgxray_bridge.o \
+ server_rgxsignals_bridge.o \
  server_rgxta3d_bridge.o \
+ server_rgxtq2_bridge.o \
  server_rgxtq_bridge.o \
- server_smm_bridge.o \
  server_srvcore_bridge.o \
+ client_sync_direct_bridge.o \
  server_sync_bridge.o \
- server_syncsexport_bridge.o \
  server_timerquery_bridge.o \
  pvr_buffer_sync.o \
+ pvr_drm.o \
  pvr_fence.o \
- cache_generic.o \
+ pvr_platform_drv.o \
+ cache_km.o \
  connection_server.o \
  devicemem_heapcfg.o \
  devicemem_server.o \
@@ -40,8 +44,10 @@ pvrsrvkm-y += \
  pmr.o \
  power.o \
  process_stats.o \
+ pvr_notifier.o \
  pvrsrv.o \
  srvcore.o \
+ sync_checkpoint.o \
  sync_server.o \
  tlintern.o \
  tlserver.o \
@@ -57,25 +63,27 @@ pvrsrvkm-y += \
  rgxkicksync.o \
  rgxlayer_km_impl.o \
  rgxmem.o \
+ rgxmipsmmuinit.o \
  rgxmmuinit.o \
  rgxpower.o \
+ rgxray.o \
  rgxregconfig.o \
+ rgxsignals.o \
  rgxstartstop.o \
- rgxsync.o \
  rgxta3d.o \
+ rgxtdmtransfer.o \
  rgxtimecorr.o \
  rgxtimerquery.o \
  rgxtransfer.o \
  rgxutils.o \
  allocmem.o \
- devicemem_mmap_stub.o \
  event.o \
  handle_idr.o \
- mm.o \
+ km_apphint.o \
  module_common.o \
  osconnection_server.o \
  osfunc.o \
- ossecure_export.o \
+ osmmap_stub.o \
  pdump.o \
  physmem_dmabuf.o \
  physmem_osmem_linux.o \
@@ -83,10 +91,8 @@ pvrsrvkm-y += \
  pvr_bridge_k.o \
  pvr_debug.o \
  pvr_debugfs.o \
- pvr_drm.o \
  pvr_dvfs_device.o \
  pvr_gputrace.o \
- pvr_hwperf.o \
  devicemem.o \
  devicemem_utils.o \
  hash.o \
@@ -96,38 +102,45 @@ pvrsrvkm-y += \
  sync.o \
  tlclient.o \
  uniq_key_splay_tree.o \
- rgx_compat_bvnc.o
-pvrsrvkm-$(CONFIG_DRM_POWERVR_ROGUE_DEBUG) += \
- client_devicememhistory_bridge.o \
- server_devicememhistory_bridge.o \
- client_ri_bridge.o \
- server_ri_bridge.o \
- devicemem_history_server.o \
- ri_server.o
-pvrsrvkm-$(CONFIG_DRM_POWERVR_ROGUE_KERNEL_SRVINIT) += \
- client_rgxinit_bridge.o \
+ rgx_compat_bvnc.o \
  rgx_hwperf_table.o \
- htbinit.o \
  srvinit_pdump.o \
  rgxfwload.o \
  rgxfwimageutils.o \
  rgxlayer_impl.o \
  rgxsrvinit.o \
- rgxsrvinit_script.o \
- os_srvinit_param.o \
- srvinit_km.o
-pvrsrvkm-$(CONFIG_DRM_POWERVR_ROGUE_PDUMP) += \
- client_pdumpmm_bridge.o \
+ rgxsrvinit_script.o
+pvrsrvkm_1_8-$(CONFIG_DRM_POWERVR_ROGUE_DEBUG) += \
+ client_devicememhistory_direct_bridge.o \
+ server_devicememhistory_bridge.o \
+ client_ri_direct_bridge.o \
+ server_ri_bridge.o \
+ client_synctracking_direct_bridge.o \
+ server_synctracking_bridge.o \
+ devicemem_history_server.o \
+ ri_server.o
+pvrsrvkm_1_8-$(CONFIG_DRM_POWERVR_ROGUE_PDUMP) += \
+ client_pdump_direct_bridge.o \
  server_pdump_bridge.o \
+ client_pdumpctrl_direct_bridge.o \
  server_pdumpctrl_bridge.o \
+ client_pdumpmm_direct_bridge.o \
  server_pdumpmm_bridge.o \
+ client_rgxpdump_direct_bridge.o \
  server_rgxpdump_bridge.o \
  pdump_common.o \
  pdump_mmu.o \
  pdump_physmem.o \
  rgxpdump.o \
  devicemem_pdump.o \
- devicememx_pdump.o
-pvrsrvkm-$(CONFIG_X86) += osfunc_x86.o
-pvrsrvkm-$(CONFIG_ARM64) += osfunc_arm64.o
-pvrsrvkm-$(CONFIG_EVENT_TRACING) += trace_events.o
+ devicememx_pdump.o \
+ dbgdriv.o \
+ dbgdriv_handle.o \
+ ioctl.o \
+ hostfunc.o \
+ main.o
+pvrsrvkm_1_8-$(CONFIG_ARM)   += osfunc_arm.o
+pvrsrvkm_1_8-$(CONFIG_ARM64) += osfunc_arm64.o
+pvrsrvkm_1_8-$(CONFIG_EVENT_TRACING) += trace_events.o
+pvrsrvkm_1_8-$(CONFIG_MIPS)  += osfunc_mips.o
+pvrsrvkm_1_8-$(CONFIG_X86)   += osfunc_x86.o

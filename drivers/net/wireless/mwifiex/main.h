@@ -37,6 +37,18 @@
 #include <linux/wireless.h>
 #include <net/iw_handler.h>
 #include <linux/inetdevice.h>
+#include <linux/devcoredump.h>
+#include <linux/err.h>
+#include <linux/gpio.h>
+#include <linux/gfp.h>
+#include <linux/interrupt.h>
+#include <linux/io.h>
+#include <linux/of_gpio.h>
+#include <linux/of_platform.h>
+#include <linux/platform_device.h>
+#include <linux/pm_runtime.h>
+#include <linux/slab.h>
+#include <linux/of_irq.h>
 
 #include "decl.h"
 #include "ioctl.h"
@@ -47,6 +59,9 @@
 extern const char driver_version[];
 extern bool mfg_mode;
 extern char mfg_firmware[32];
+
+struct mwifiex_adapter;
+struct mwifiex_private;
 
 enum {
 	MWIFIEX_ASYNC_CMD,
@@ -92,8 +107,8 @@ enum {
 #define SCAN_BEACON_ENTRY_PAD			6
 
 #define MWIFIEX_PASSIVE_SCAN_CHAN_TIME	110
-#define MWIFIEX_ACTIVE_SCAN_CHAN_TIME	30
-#define MWIFIEX_SPECIFIC_SCAN_CHAN_TIME	30
+#define MWIFIEX_ACTIVE_SCAN_CHAN_TIME	40
+#define MWIFIEX_SPECIFIC_SCAN_CHAN_TIME	40
 #define MWIFIEX_DEF_SCAN_CHAN_GAP_TIME  50
 
 #define SCAN_RSSI(RSSI)					(0x100 - ((u8)(RSSI)))
@@ -178,12 +193,11 @@ enum MWIFIEX_DEBUG_LEVEL {
 					MWIFIEX_DBG_FATAL | \
 					MWIFIEX_DBG_ERROR)
 
-#define mwifiex_dbg(adapter, dbg_mask, fmt, args...)		\
-do {								\
-	if ((adapter)->debug_mask & MWIFIEX_DBG_##dbg_mask)	\
-		if ((adapter)->dev)				\
-			dev_info((adapter)->dev, fmt, ## args);	\
-} while (0)
+__printf(3, 4)
+void _mwifiex_dbg(const struct mwifiex_adapter *adapter, int mask,
+		  const char *fmt, ...);
+#define mwifiex_dbg(adapter, mask, fmt, ...)				\
+	_mwifiex_dbg(adapter, MWIFIEX_DBG_##mask, fmt, ##__VA_ARGS__)
 
 /** Min BGSCAN interval 15 second */
 #define MWIFIEX_BGSCAN_INTERVAL 15000
@@ -285,6 +299,7 @@ struct mwifiex_tid_tbl {
 #define WMM_HIGHEST_PRIORITY		7
 #define HIGH_PRIO_TID				7
 #define LOW_PRIO_TID				0
+#define NO_PKT_PRIO_TID				-1
 
 struct mwifiex_wmm_desc {
 	struct mwifiex_tid_tbl tid_tbl_ptr[MAX_NUM_TID];
@@ -499,9 +514,6 @@ enum mwifiex_iface_work_flags {
 	MWIFIEX_IFACE_WORK_READ_REGS,
 };
 
-struct mwifiex_adapter;
-struct mwifiex_private;
-
 struct mwifiex_private {
 	struct mwifiex_adapter *adapter;
 	u8 bss_type;
@@ -639,6 +651,7 @@ struct mwifiex_private {
 	struct station_parameters *sta_params;
 	struct sk_buff_head tdls_txq;
 	struct mwifiex_ds_mem_rw mem_rw;
+	struct mwifiex_user_scan_chan hidden_chan[MWIFIEX_USER_SCAN_CHAN_MAX];
 };
 
 
@@ -802,6 +815,8 @@ struct mwifiex_adapter {
 	u8 more_task_flag;
 	u16 tx_buf_size;
 	u16 curr_tx_buf_size;
+	/* sdio single port rx aggregation capability */
+	bool host_disable_sdio_rx_aggr;
 	bool sdio_rx_aggr_enable;
 	u16 sdio_rx_block_size;
 	u32 ioport;
@@ -920,6 +935,7 @@ struct mwifiex_adapter {
 	struct sk_buff_head rx_data_q;
 	bool mfg_mode;
 	struct cfg80211_wowlan_nd_info *nd_info;
+	u8 active_scan_triggered;
 };
 
 int mwifiex_init_lock_list(struct mwifiex_adapter *adapter);
@@ -968,9 +984,9 @@ int mwifiex_alloc_cmd_buffer(struct mwifiex_adapter *adapter);
 int mwifiex_free_cmd_buffer(struct mwifiex_adapter *adapter);
 void mwifiex_cancel_all_pending_cmd(struct mwifiex_adapter *adapter);
 void mwifiex_cancel_pending_ioctl(struct mwifiex_adapter *adapter);
+void mwifiex_cancel_pending_scan_cmd(struct mwifiex_adapter *adapter);
+void mwifiex_cancel_scan(struct mwifiex_adapter *adapter);
 
-void mwifiex_insert_cmd_to_free_q(struct mwifiex_adapter *adapter,
-				  struct cmd_ctrl_node *cmd_node);
 void mwifiex_recycle_cmd_node(struct mwifiex_adapter *adapter,
 			      struct cmd_ctrl_node *cmd_node);
 
@@ -1042,7 +1058,8 @@ int mwifiex_cmd_802_11_associate(struct mwifiex_private *priv,
 				 struct mwifiex_bssdescriptor *bss_desc);
 int mwifiex_ret_802_11_associate(struct mwifiex_private *priv,
 				 struct host_cmd_ds_command *resp);
-void mwifiex_reset_connect_state(struct mwifiex_private *priv, u16 reason);
+void mwifiex_reset_connect_state(struct mwifiex_private *priv, u16 reason,
+				bool from_ap);
 u8 mwifiex_band_to_radio_type(u8 band);
 int mwifiex_deauthenticate(struct mwifiex_private *priv, u8 *mac);
 void mwifiex_deauthenticate_all(struct mwifiex_adapter *adapter);

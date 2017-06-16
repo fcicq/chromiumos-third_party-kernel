@@ -85,21 +85,20 @@ intel_connector_atomic_get_property(struct drm_connector *connector,
 struct drm_crtc_state *
 intel_crtc_duplicate_state(struct drm_crtc *crtc)
 {
-	struct intel_crtc *intel_crtc = to_intel_crtc(crtc);
 	struct intel_crtc_state *crtc_state;
 
-	if (WARN_ON(!intel_crtc->config))
-		crtc_state = kzalloc(sizeof(*crtc_state), GFP_KERNEL);
-	else
-		crtc_state = kmemdup(intel_crtc->config,
-				     sizeof(*intel_crtc->config), GFP_KERNEL);
-
+	crtc_state = kmemdup(crtc->state, sizeof(*crtc_state), GFP_KERNEL);
 	if (!crtc_state)
 		return NULL;
 
 	__drm_atomic_helper_crtc_duplicate_state(crtc, &crtc_state->base);
 
-	crtc_state->base.crtc = crtc;
+	crtc_state->update_pipe = false;
+	crtc_state->disable_lp_wm = false;
+	crtc_state->disable_cxsr = false;
+	crtc_state->update_wm_pre = false;
+	crtc_state->update_wm_post = false;
+	crtc_state->wm.need_postvbl_update = false;
 
 	return &crtc_state->base;
 }
@@ -214,8 +213,6 @@ int intel_atomic_setup_scalers(struct drm_device *dev,
 				 * but since this plane is unchanged just do the
 				 * minimum required validation.
 				 */
-				if (plane->type == DRM_PLANE_TYPE_PRIMARY)
-					intel_crtc->atomic.wait_for_flips = true;
 				crtc_state->base.planes_changed = true;
 			}
 
@@ -316,5 +313,5 @@ void intel_atomic_state_clear(struct drm_atomic_state *s)
 {
 	struct intel_atomic_state *state = to_intel_atomic_state(s);
 	drm_atomic_state_default_clear(&state->base);
-	state->dpll_set = false;
+	state->dpll_set = state->modeset = false;
 }

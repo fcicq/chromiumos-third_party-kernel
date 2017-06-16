@@ -2469,7 +2469,7 @@ gm20b_boot_fecs(struct nvkm_pmu *pmu)
 	}
 
 	wait_for_completion_timeout(&priv->lspmu_completion,
-							  usecs_to_jiffies(50));
+							  msecs_to_jiffies(100));
 
 	if (priv->recovery_in_progress) {
 		nv_error(pmu, "recovery not completed, timeout\n");
@@ -2566,6 +2566,7 @@ gm20b_pmu_ctor(struct nvkm_object *parent, struct nvkm_object *engine,
 	init_completion(&priv->elpg_off_completion);
 	init_completion(&priv->elpg_on_completion);
 	init_completion(&ppmu->gr_init);
+	init_completion(&priv->zbc_save_done);
 
 	ret = gm20b_prepare_ucode_blob(ppmu);
 	if (ret)
@@ -2594,6 +2595,9 @@ gm20b_pmu_fini(struct nvkm_object *object, bool suspend)
 		gk20a_pmu_enable(priv, pmc, false);
 		priv->isr_enabled = false;
 		mutex_unlock(&priv->isr_mutex);
+		mutex_lock(&priv->elpg_mutex);
+		priv->elpg_disable_depth = 0;
+		mutex_unlock(&priv->elpg_mutex);
 		priv->pmu_state = PMU_STATE_OFF;
 		mutex_lock(&priv->clk_gating_mutex);
 		priv->clk_gating_disable_depth = 0;
@@ -2656,6 +2660,7 @@ gm20b_pmu_init(struct nvkm_object *object) {
 	mutex_init(&priv->pmu_seq_lock);
 	mutex_init(&priv->elpg_mutex);
 	mutex_init(&priv->clk_gating_mutex);
+	reinit_completion(&priv->zbc_save_done);
 	ppmu->secure_bootstrap = gm20b_boot_secure;
 	ppmu->boot_fecs = gm20b_boot_fecs;
 	ppmu->enable_elpg = gk20a_pmu_enable_elpg;
@@ -2672,11 +2677,7 @@ gm20b_pmu_init(struct nvkm_object *object) {
 	priv->pmu_setup_elpg = gm20b_pmu_setup_elpg;
 
 	mutex_lock(&priv->elpg_mutex);
-	/*
-	 * ELPG will be enabled when PMU finishes booting, so setting the
-	 * counter to 1 initialy.
-	 */
-	priv->elpg_disable_depth = 1;
+	priv->elpg_disable_depth = 0;
 	mutex_unlock(&priv->elpg_mutex);
 
 	mutex_lock(&priv->clk_gating_mutex);
@@ -2702,4 +2703,5 @@ gm20b_pmu_oclass = &(struct nvkm_pmu_impl) {
 	.base.handle = NV_SUBDEV(PMU, 0x12b),
 	.acquire_mutex = gk20a_pmu_mutex_acquire,
 	.release_mutex = gk20a_pmu_mutex_release,
+	.save_zbc = gk20a_pmu_save_zbc,
 } .base;

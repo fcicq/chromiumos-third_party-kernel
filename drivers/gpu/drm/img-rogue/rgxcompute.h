@@ -49,6 +49,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "rgxfwutils.h"
 #include "rgx_fwif_resetframework.h"
 #include "rgxdebug.h"
+#include "pvr_notifier.h"
 
 #include "sync_server.h"
 #include "sync_internal.h"
@@ -62,12 +63,12 @@ typedef struct _RGX_SERVER_COMPUTE_CONTEXT_ RGX_SERVER_COMPUTE_CONTEXT;
  @Function	PVRSRVRGXCreateComputeContextKM
 
  @Description
-	
 
- @Input pvDeviceNode 
- @Input psCmpCCBMemDesc - 
- @Input psCmpCCBCtlMemDesc - 
- @Output ppsFWComputeContextMemDesc - 
+
+ @Input pvDeviceNode
+ @Input psCmpCCBMemDesc -
+ @Input psCmpCCBCtlMemDesc -
+ @Output ppsFWComputeContextMemDesc -
 
  @Return   PVRSRV_ERROR
 ******************************************************************************/
@@ -79,16 +80,17 @@ PVRSRV_ERROR PVRSRVRGXCreateComputeContextKM(CONNECTION_DATA			*psConnection,
 											 IMG_UINT32					ui32FrameworkRegisterSize,
 											 IMG_PBYTE					pbyFrameworkRegisters,
 											 IMG_HANDLE					hMemCtxPrivData,
+											 IMG_DEV_VIRTADDR			sServicesSignalAddr,
 											 RGX_SERVER_COMPUTE_CONTEXT	**ppsComputeContext);
 
-/*! 
+/*!
 *******************************************************************************
  @Function	PVRSRVRGXDestroyComputeContextKM
 
  @Description
 	Server-side implementation of RGXDestroyComputeContext
 
- @Input psCleanupData - 
+ @Input psCleanupData -
 
  @Return   PVRSRV_ERROR
 ******************************************************************************/
@@ -111,6 +113,7 @@ PVRSRV_ERROR PVRSRVRGXDestroyComputeContextKM(RGX_SERVER_COMPUTE_CONTEXT *psComp
 ******************************************************************************/
 IMG_EXPORT
 PVRSRV_ERROR PVRSRVRGXKickCDMKM(RGX_SERVER_COMPUTE_CONTEXT	*psComputeContext,
+								IMG_UINT32					ui32ClientCacheOpSeqNum,
 								IMG_UINT32					ui32ClientFenceCount,
 								SYNC_PRIMITIVE_BLOCK			**pauiClientFenceUFOSyncPrimBlock,
 								IMG_UINT32					*paui32ClientFenceSyncOffset,
@@ -121,12 +124,15 @@ PVRSRV_ERROR PVRSRVRGXKickCDMKM(RGX_SERVER_COMPUTE_CONTEXT	*psComputeContext,
 								IMG_UINT32					*paui32ClientUpdateValue,
 								IMG_UINT32					ui32ServerSyncPrims,
 								IMG_UINT32					*paui32ServerSyncFlags,
-								SERVER_SYNC_PRIMITIVE 		**pasServerSyncs,
+								SERVER_SYNC_PRIMITIVE		**pasServerSyncs,
+								IMG_INT32					i32CheckFenceFd,
+								IMG_INT32					i32UpdateTimelineFd,
+								IMG_INT32					*pi32UpdateFenceFd,
+								IMG_CHAR					pcszUpdateFenceName[32],
 								IMG_UINT32					ui32CmdSize,
 								IMG_PBYTE					pui8DMCmd,
-								IMG_BOOL					bPDumpContinuous,
-								IMG_UINT32					ui32ExtJobRef,
-								IMG_UINT32					ui32IntJobRef);
+								IMG_UINT32					ui32PDumpFlags,
+								IMG_UINT32					ui32ExtJobRef);
 
 /*!
 *******************************************************************************
@@ -142,8 +148,23 @@ PVRSRV_ERROR PVRSRVRGXKickCDMKM(RGX_SERVER_COMPUTE_CONTEXT	*psComputeContext,
 IMG_EXPORT
 PVRSRV_ERROR PVRSRVRGXFlushComputeDataKM(RGX_SERVER_COMPUTE_CONTEXT *psComputeContext);
 
+/*!
+*******************************************************************************
+
+ @Function	    PVRSRVRGXNotifyComputeWriteOffsetUpdateKM
+ @Description   Server-side implementation of RGXNotifyComputeWriteOffsetUpdate
+
+ @Input         psDeviceNode - RGX Device node
+ @Input         psComputeContext - Compute context to flush
+
+ @Return   PVRSRV_ERROR
+
+******************************************************************************/
+IMG_EXPORT
+PVRSRV_ERROR PVRSRVRGXNotifyComputeWriteOffsetUpdateKM(RGX_SERVER_COMPUTE_CONTEXT *psComputeContext);
+
 PVRSRV_ERROR PVRSRVRGXSetComputeContextPriorityKM(CONNECTION_DATA *psConnection,
-                                                  PVRSRV_DEVICE_NODE * psDeviceNode,
+												  PVRSRV_DEVICE_NODE *psDeviceNode,
 												  RGX_SERVER_COMPUTE_CONTEXT *psComputeContext,
 												  IMG_UINT32 ui32Priority);
 
@@ -153,9 +174,10 @@ PVRSRV_ERROR PVRSRVRGXGetLastComputeContextResetReasonKM(RGX_SERVER_COMPUTE_CONT
 
 /* Debug - check if compute context is waiting on a fence */
 void CheckForStalledComputeCtxt(PVRSRV_RGXDEV_INFO *psDevInfo,
-								DUMPDEBUG_PRINTF_FUNC *pfnDumpDebugPrintf);
+					DUMPDEBUG_PRINTF_FUNC *pfnDumpDebugPrintf,
+					void *pvDumpDebugFile);
 
 /* Debug/Watchdog - check if client compute contexts are stalled */
-IMG_BOOL CheckForStalledClientComputeCtxt(PVRSRV_RGXDEV_INFO *psDevInfo);
+IMG_UINT32 CheckForStalledClientComputeCtxt(PVRSRV_RGXDEV_INFO *psDevInfo);
 
 #endif /* __RGXCOMPUTE_H__ */

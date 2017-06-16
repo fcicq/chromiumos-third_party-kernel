@@ -1609,6 +1609,16 @@ static int __hw_ppgtt_init(struct drm_device *dev, struct i915_hw_ppgtt *ppgtt)
 		return gen8_ppgtt_init(ppgtt);
 }
 
+static void i915_address_space_init(struct i915_address_space *vm,
+				    struct drm_i915_private *dev_priv)
+{
+	drm_mm_init(&vm->mm, vm->start, vm->total);
+	vm->dev = dev_priv->dev;
+	INIT_LIST_HEAD(&vm->active_list);
+	INIT_LIST_HEAD(&vm->inactive_list);
+	list_add_tail(&vm->global_link, &dev_priv->vm_list);
+}
+
 int i915_ppgtt_init(struct drm_device *dev, struct i915_hw_ppgtt *ppgtt)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
@@ -1617,9 +1627,7 @@ int i915_ppgtt_init(struct drm_device *dev, struct i915_hw_ppgtt *ppgtt)
 	ret = __hw_ppgtt_init(dev, ppgtt);
 	if (ret == 0) {
 		kref_init(&ppgtt->ref);
-		drm_mm_init(&ppgtt->base.mm, ppgtt->base.start,
-			    ppgtt->base.total);
-		i915_init_vm(dev_priv, &ppgtt->base);
+		i915_address_space_init(&ppgtt->base, dev_priv);
 	}
 
 	return ret;
@@ -2003,6 +2011,16 @@ static int ggtt_bind_vma(struct i915_vma *vma,
 		vma->vm->insert_entries(vma->vm, pages,
 					vma->node.start,
 					cache_level, pte_flags);
+
+		/* Note the inconsistency here is due to absence of the
+		 * aliasing ppgtt on gen4 and earlier. Though we always
+		 * request PIN_USER for execbuffer (translated to LOCAL_BIND),
+		 * without the appgtt, we cannot honour that request and so
+		 * must substitute it with a global binding. Since we do this
+		 * behind the upper layers back, we need to explicitly set
+		 * the bound flag ourselves.
+		 */
+		vma->bound |= GLOBAL_BIND;
 	}
 
 	if (dev_priv->mm.aliasing_ppgtt && flags & LOCAL_BIND) {
@@ -2095,11 +2113,13 @@ static int i915_gem_setup_global_gtt(struct drm_device *dev,
 
 	BUG_ON(mappable_end > end);
 
-	/* Subtract the guard page ... */
-	drm_mm_init(&ggtt_vm->mm, start, end - start - PAGE_SIZE);
+	ggtt_vm->start = start;
 
-	dev_priv->gtt.base.start = start;
-	dev_priv->gtt.base.total = end - start;
+	/* Subtract the guard page before address space initialization to
+	 * shrink the range used by drm_mm */
+	ggtt_vm->total = end - start - PAGE_SIZE;
+	i915_address_space_init(ggtt_vm, dev_priv);
+	ggtt_vm->total += PAGE_SIZE;
 
 	if (intel_vgpu_active(dev)) {
 		ret = intel_vgt_balloon(dev);
@@ -2108,7 +2128,7 @@ static int i915_gem_setup_global_gtt(struct drm_device *dev,
 	}
 
 	if (!HAS_LLC(dev))
-		dev_priv->gtt.base.mm.color_adjust = i915_gtt_color_adjust;
+		ggtt_vm->mm.color_adjust = i915_gtt_color_adjust;
 
 	/* Mark any preallocated objects as occupied */
 	list_for_each_entry(obj, &dev_priv->mm.bound_list, global_list) {
@@ -2124,6 +2144,7 @@ static int i915_gem_setup_global_gtt(struct drm_device *dev,
 			return ret;
 		}
 		vma->bound |= GLOBAL_BIND;
+		list_add_tail(&vma->mm_list, &ggtt_vm->inactive_list);
 	}
 
 	/* Clear any non-preallocated blocks */
@@ -2192,6 +2213,8 @@ void i915_global_gtt_cleanup(struct drm_device *dev)
 
 		ppgtt->base.cleanup(&ppgtt->base);
 	}
+
+	i915_gem_cleanup_stolen(dev);
 
 	if (drm_mm_initialized(&vm->mm)) {
 		if (intel_vgpu_active(dev))
@@ -2562,6 +2585,14 @@ int i915_gem_gtt_init(struct drm_device *dev)
 	if (ret)
 		return ret;
 
+	/*
+	 * Initialise stolen early so that we may reserve preallocated
+	 * objects for the BIOS to KMS transition.
+	 */
+	ret = i915_gem_init_stolen(dev);
+	if (ret)
+		goto out_gtt_cleanup;
+
 	/* GMADR is the PCI mmio aperture into the global GTT. */
 	DRM_INFO("Memory usable by graphics device = %lluM\n",
 		 gtt->base.total >> 20);
@@ -2581,6 +2612,11 @@ int i915_gem_gtt_init(struct drm_device *dev)
 	DRM_DEBUG_DRIVER("ppgtt mode: %i\n", i915.enable_ppgtt);
 
 	return 0;
+
+out_gtt_cleanup:
+	gtt->base.cleanup(&dev_priv->gtt.base);
+
+	return ret;
 }
 
 void i915_gem_restore_gtt_mappings(struct drm_device *dev)

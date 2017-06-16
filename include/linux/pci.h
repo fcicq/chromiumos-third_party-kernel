@@ -406,6 +406,7 @@ struct pci_host_bridge {
 	struct list_head windows;	/* pci_host_bridge_windows */
 	void (*release_fn)(struct pci_host_bridge *);
 	void *release_data;
+	unsigned int ignore_reset_delay:1;	/* for entire hierarchy */
 };
 
 #define	to_pci_host_bridge(n) container_of(n, struct pci_host_bridge, dev)
@@ -1141,6 +1142,17 @@ void pci_unregister_driver(struct pci_driver *dev);
 #define module_pci_driver(__pci_driver) \
 	module_driver(__pci_driver, pci_register_driver, \
 		       pci_unregister_driver)
+
+/**
+ * builtin_pci_driver() - Helper macro for registering a PCI driver
+ * @__pci_driver: pci_driver struct
+ *
+ * Helper macro for PCI drivers which do not do anything special in their
+ * init code. This eliminates a lot of boilerplate. Each driver may only
+ * use this macro once, and calling it replaces device_initcall(...)
+ */
+#define builtin_pci_driver(__pci_driver) \
+	builtin_driver(__pci_driver, pci_register_driver)
 
 struct pci_driver *pci_dev_driver(const struct pci_dev *dev);
 int pci_add_dynid(struct pci_driver *drv,

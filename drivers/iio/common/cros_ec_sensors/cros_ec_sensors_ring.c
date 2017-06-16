@@ -36,14 +36,15 @@
 
 #include "cros_ec_sensors_core.h"
 
+#define DRV_NAME "cros-ec-ring"
+
 /* The ring is a FIFO that return sensor information from
  * the single EC FIFO.
  * There are always 5 channels returned:
-* | ID | FLAG | X | Y | Z | Timestamp |
+ * | ID | FLAG | X | Y | Z | Timestamp |
  * ID is the EC sensor id
- * FLAG is for meta data, only flush bit is defined.
+ * FLAG are extra information provided by the EC.
  */
-#define CROS_EC_FLUSH_BIT 1
 
 enum {
 	CHANNEL_SENSOR_ID,
@@ -104,6 +105,22 @@ static s64 cros_ec_get_time_ns(void)
 	return timespec_to_ns(&ts);
 }
 
+static int cros_ec_ring_trigger_set_state(struct iio_trigger *trig,
+					  bool trig_state)
+{
+	struct iio_dev *indio_dev = iio_trigger_get_drvdata(trig);
+	struct cros_ec_sensors_ring_state *state = iio_priv(indio_dev);
+
+	state->core.param.cmd = MOTIONSENSE_CMD_FIFO_INT_ENABLE;
+	state->core.param.fifo_int_enable.enable = trig_state;
+	return cros_ec_motion_send_host_cmd(&state->core, 0);
+}
+
+static const struct iio_trigger_ops cros_ec_ring_trigger_ops = {
+	.owner = THIS_MODULE,
+	.set_trigger_state = &cros_ec_ring_trigger_set_state,
+};
+
 /*
  * cros_ec_ring_process_event: process one EC FIFO event
  *
@@ -141,7 +158,11 @@ bool cros_ec_ring_process_event(const struct cros_ec_fifo_info *fifo_info,
 	if (in->flags & MOTIONSENSE_SENSOR_FLAG_FLUSH) {
 		out->sensor_id = in->sensor_num;
 		out->timestamp = *current_timestamp;
-		out->flag = CROS_EC_FLUSH_BIT;
+		out->flag = in->flags;
+		/*
+		 * No other payload information provided with
+		 * flush ack.
+		 */
 		return true;
 	}
 	if (in->flags & MOTIONSENSE_SENSOR_FLAG_TIMESTAMP)
@@ -151,11 +172,12 @@ bool cros_ec_ring_process_event(const struct cros_ec_fifo_info *fifo_info,
 	/* Regular sample */
 	out->sensor_id = in->sensor_num;
 	out->timestamp = *current_timestamp;
-	out->flag = 0;
+	out->flag = in->flags;
 	for (axis = X; axis < MAX_AXIS; axis++)
 		out->vector[axis] = in->data[axis];
 	return true;
 }
+
 /*
  * cros_ec_ring_handler - the trigger handler function
  *
@@ -315,7 +337,8 @@ static irqreturn_t cros_ec_ring_handler(int irq, void *p)
 			 * spread the unprocessed samples */
 			if (next_out < last_out)
 				count++;
-			time_period = (timestamp - older_timestamp) / count;
+			time_period = div_s64(timestamp - older_timestamp,
+					      count);
 
 			for (; older_unprocess_out <= out;
 					older_unprocess_out++) {
@@ -376,6 +399,33 @@ static int cros_ec_ring_event(struct notifier_block *nb,
 	return NOTIFY_OK;
 }
 
+/*
+ * When the EC is suspending, we must stop sending interrupt,
+ * we may use the same interrupt line for waking up the device.
+ * Tell the EC to stop sending non-interrupt event on the iio ring.
+ */
+static int __maybe_unused cros_ec_ring_prepare(struct device *dev)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct iio_dev *indio_dev = platform_get_drvdata(pdev);
+	struct cros_ec_sensors_ring_state *state = iio_priv(indio_dev);
+
+	state->core.param.cmd = MOTIONSENSE_CMD_FIFO_INT_ENABLE;
+	state->core.param.fifo_int_enable.enable = 0;
+	return cros_ec_motion_send_host_cmd(&state->core, 0);
+}
+
+static void __maybe_unused cros_ec_ring_complete(struct device *dev)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct iio_dev *indio_dev = platform_get_drvdata(pdev);
+	struct cros_ec_sensors_ring_state *state = iio_priv(indio_dev);
+
+	state->core.param.cmd = MOTIONSENSE_CMD_FIFO_INT_ENABLE;
+	state->core.param.fifo_int_enable.enable = 1;
+	cros_ec_motion_send_host_cmd(&state->core, 0);
+}
+
 #define CROS_EC_RING_ID(_id, _name)		\
 {						\
 	.type = IIO_ACCEL,			\
@@ -420,7 +470,7 @@ static int cros_ec_ring_probe(struct platform_device *pdev)
 	struct cros_ec_device *ec_device;
 	struct iio_dev *indio_dev;
 	struct cros_ec_sensors_ring_state *state;
-	int i, ret;
+	int ret;
 
 	if (!ec_dev || !ec_dev->ec_dev) {
 		dev_warn(&pdev->dev, "No CROS EC device found.\n");
@@ -469,6 +519,7 @@ static int cros_ec_ring_probe(struct platform_device *pdev)
 	if (!state->trig)
 		return -ENOMEM;
 	state->trig->dev.parent = &pdev->dev;
+	state->trig->ops = &cros_ec_ring_trigger_ops;
 	iio_trigger_set_drvdata(state->trig, indio_dev);
 
 	ret = iio_trigger_register(state->trig);
@@ -479,10 +530,6 @@ static int cros_ec_ring_probe(struct platform_device *pdev)
 					 cros_ec_ring_handler, NULL);
 	if (ret < 0)
 		goto err_trigger_unregister;
-
-	/* Enable all channels by default */
-	for (i = 0; i < MAX_CHANNEL; i++)
-		iio_scan_mask_set(indio_dev, indio_dev->buffer, i);
 
 	ret = iio_device_register(indio_dev);
 	if (ret < 0)
@@ -521,24 +568,25 @@ static int cros_ec_ring_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static const struct platform_device_id cros_ec_ring_ids[] = {
-	{
-		.name = "cros-ec-ring",
-	},
-	{ /* sentinel */ }
+#ifdef CONFIG_PM_SLEEP
+const struct dev_pm_ops cros_ec_ring_pm_ops = {
+	.prepare = cros_ec_ring_prepare,
+	.complete = cros_ec_ring_complete
 };
-MODULE_DEVICE_TABLE(platform, cros_ec_ring_ids);
+#else
+const struct dev_pm_ops cros_ec_ring_pm_ops = { };
+#endif
 
 static struct platform_driver cros_ec_ring_platform_driver = {
 	.driver = {
-		.name	= "cros-ec-ring",
-		.owner	= THIS_MODULE,
+		.name	= DRV_NAME,
+		.pm	= &cros_ec_ring_pm_ops,
 	},
 	.probe		= cros_ec_ring_probe,
 	.remove		= cros_ec_ring_remove,
-	.id_table	= cros_ec_ring_ids,
 };
 module_platform_driver(cros_ec_ring_platform_driver);
 
 MODULE_DESCRIPTION("ChromeOS EC sensor hub ring driver");
+MODULE_ALIAS("platform:" DRV_NAME);
 MODULE_LICENSE("GPL v2");

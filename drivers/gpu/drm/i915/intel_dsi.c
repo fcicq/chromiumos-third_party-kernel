@@ -582,12 +582,15 @@ static bool intel_dsi_get_hw_state(struct intel_encoder *encoder,
 	enum intel_display_power_domain power_domain;
 	u32 dpi_enabled, func;
 	enum port port;
+	bool ret;
 
 	DRM_DEBUG_KMS("\n");
 
 	power_domain = intel_display_port_power_domain(encoder);
-	if (!intel_display_power_is_enabled(dev_priv, power_domain))
+	if (!intel_display_power_get_if_enabled(dev_priv, power_domain))
 		return false;
+
+	ret = false;
 
 	/* XXX: this only works for one DSI output */
 	for_each_dsi_port(port, intel_dsi->ports) {
@@ -607,12 +610,16 @@ static bool intel_dsi_get_hw_state(struct intel_encoder *encoder,
 		if (dpi_enabled || (func & CMD_MODE_DATA_WIDTH_MASK)) {
 			if (I915_READ(MIPI_DEVICE_READY(port)) & DEVICE_READY) {
 				*pipe = port == PORT_A ? PIPE_A : PIPE_B;
-				return true;
+				ret = true;
+
+				goto out;
 			}
 		}
 	}
+out:
+	intel_display_power_put(dev_priv, power_domain);
 
-	return false;
+	return ret;
 }
 
 static void intel_dsi_get_config(struct intel_encoder *encoder,
@@ -641,6 +648,7 @@ intel_dsi_mode_valid(struct drm_connector *connector,
 {
 	struct intel_connector *intel_connector = to_intel_connector(connector);
 	struct drm_display_mode *fixed_mode = intel_connector->panel.fixed_mode;
+	int max_dotclk = to_i915(connector->dev)->max_dotclk_freq;
 
 	DRM_DEBUG_KMS("\n");
 
@@ -654,6 +662,8 @@ intel_dsi_mode_valid(struct drm_connector *connector,
 			return MODE_PANEL;
 		if (mode->vdisplay > fixed_mode->vdisplay)
 			return MODE_PANEL;
+		if (fixed_mode->clock > max_dotclk)
+			return MODE_CLOCK_HIGH;
 	}
 
 	return MODE_OK;
@@ -682,7 +692,7 @@ static u16 txbyteclkhs(u16 pixels, int bpp, int lane_count,
 }
 
 static void set_dsi_timings(struct drm_encoder *encoder,
-			    const struct drm_display_mode *mode)
+			    const struct drm_display_mode *adjusted_mode)
 {
 	struct drm_device *dev = encoder->dev;
 	struct drm_i915_private *dev_priv = dev->dev_private;
@@ -694,10 +704,10 @@ static void set_dsi_timings(struct drm_encoder *encoder,
 
 	u16 hactive, hfp, hsync, hbp, vfp, vsync, vbp;
 
-	hactive = mode->hdisplay;
-	hfp = mode->hsync_start - mode->hdisplay;
-	hsync = mode->hsync_end - mode->hsync_start;
-	hbp = mode->htotal - mode->hsync_end;
+	hactive = adjusted_mode->crtc_hdisplay;
+	hfp = adjusted_mode->crtc_hsync_start - adjusted_mode->crtc_hdisplay;
+	hsync = adjusted_mode->crtc_hsync_end - adjusted_mode->crtc_hsync_start;
+	hbp = adjusted_mode->crtc_htotal - adjusted_mode->crtc_hsync_end;
 
 	if (intel_dsi->dual_link) {
 		hactive /= 2;
@@ -708,9 +718,9 @@ static void set_dsi_timings(struct drm_encoder *encoder,
 		hbp /= 2;
 	}
 
-	vfp = mode->vsync_start - mode->vdisplay;
-	vsync = mode->vsync_end - mode->vsync_start;
-	vbp = mode->vtotal - mode->vsync_end;
+	vfp = adjusted_mode->crtc_vsync_start - adjusted_mode->crtc_vdisplay;
+	vsync = adjusted_mode->crtc_vsync_end - adjusted_mode->crtc_vsync_start;
+	vbp = adjusted_mode->crtc_vtotal - adjusted_mode->crtc_vsync_end;
 
 	/* horizontal values are in terms of high speed byte clock */
 	hactive = txbyteclkhs(hactive, bpp, lane_count,
@@ -743,8 +753,7 @@ static void intel_dsi_prepare(struct intel_encoder *intel_encoder)
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	struct intel_crtc *intel_crtc = to_intel_crtc(encoder->crtc);
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(encoder);
-	struct drm_display_mode *adjusted_mode =
-		&intel_crtc->config->base.adjusted_mode;
+	const struct drm_display_mode *adjusted_mode = &intel_crtc->config->base.adjusted_mode;
 	enum port port;
 	unsigned int bpp = intel_crtc->config->pipe_bpp;
 	u32 val, tmp;
@@ -752,7 +761,7 @@ static void intel_dsi_prepare(struct intel_encoder *intel_encoder)
 
 	DRM_DEBUG_KMS("pipe %c\n", pipe_name(intel_crtc->pipe));
 
-	mode_hdisplay = adjusted_mode->hdisplay;
+	mode_hdisplay = adjusted_mode->crtc_hdisplay;
 
 	if (intel_dsi->dual_link) {
 		mode_hdisplay /= 2;
@@ -779,7 +788,7 @@ static void intel_dsi_prepare(struct intel_encoder *intel_encoder)
 		I915_WRITE(MIPI_DPHY_PARAM(port), intel_dsi->dphy_reg);
 
 		I915_WRITE(MIPI_DPI_RESOLUTION(port),
-			adjusted_mode->vdisplay << VERTICAL_ADDRESS_SHIFT |
+			adjusted_mode->crtc_vdisplay << VERTICAL_ADDRESS_SHIFT |
 			mode_hdisplay << HORIZONTAL_ADDRESS_SHIFT);
 	}
 
@@ -825,15 +834,15 @@ static void intel_dsi_prepare(struct intel_encoder *intel_encoder)
 		if (is_vid_mode(intel_dsi) &&
 			intel_dsi->video_mode_format == VIDEO_MODE_BURST) {
 			I915_WRITE(MIPI_HS_TX_TIMEOUT(port),
-				txbyteclkhs(adjusted_mode->htotal, bpp,
-					intel_dsi->lane_count,
-					intel_dsi->burst_mode_ratio) + 1);
+				txbyteclkhs(adjusted_mode->crtc_htotal, bpp,
+					    intel_dsi->lane_count,
+					    intel_dsi->burst_mode_ratio) + 1);
 		} else {
 			I915_WRITE(MIPI_HS_TX_TIMEOUT(port),
-				txbyteclkhs(adjusted_mode->vtotal *
-					adjusted_mode->htotal,
-					bpp, intel_dsi->lane_count,
-					intel_dsi->burst_mode_ratio) + 1);
+				txbyteclkhs(adjusted_mode->crtc_vtotal *
+					    adjusted_mode->crtc_htotal,
+					    bpp, intel_dsi->lane_count,
+					    intel_dsi->burst_mode_ratio) + 1);
 		}
 		I915_WRITE(MIPI_LP_RX_TIMEOUT(port), intel_dsi->lp_rx_timeout);
 		I915_WRITE(MIPI_TURN_AROUND_TIMEOUT(port),
@@ -960,12 +969,13 @@ static const struct drm_encoder_funcs intel_dsi_funcs = {
 static const struct drm_connector_helper_funcs intel_dsi_connector_helper_funcs = {
 	.get_modes = intel_dsi_get_modes,
 	.mode_valid = intel_dsi_mode_valid,
-	.best_encoder = intel_best_encoder,
 };
 
 static const struct drm_connector_funcs intel_dsi_connector_funcs = {
-	.dpms = intel_connector_dpms,
+	.dpms = drm_atomic_helper_connector_dpms,
 	.detect = intel_dsi_detect,
+	.late_register = intel_connector_register,
+	.early_unregister = intel_connector_unregister,
 	.destroy = intel_dsi_connector_destroy,
 	.fill_modes = drm_helper_probe_single_connector_modes,
 	.atomic_get_property = intel_connector_atomic_get_property,
@@ -1028,7 +1038,6 @@ void intel_dsi_init(struct drm_device *dev)
 	intel_encoder->get_config = intel_dsi_get_config;
 
 	intel_connector->get_hw_state = intel_connector_get_hw_state;
-	intel_connector->unregister = intel_connector_unregister;
 
 	/* Pipe A maps to MIPI DSI port A, pipe B maps to MIPI DSI port C */
 	if (dev_priv->vbt.dsi.config->dual_link) {
@@ -1099,6 +1108,7 @@ void intel_dsi_init(struct drm_device *dev)
 	}
 
 	intel_panel_init(&intel_connector->panel, fixed_mode, NULL);
+	intel_panel_setup_backlight(connector, INVALID_PIPE);
 
 	return;
 

@@ -46,11 +46,14 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #define _SYNC_INTERNAL_
 
 #include "img_types.h"
-#include "sync_external.h"
+#include <powervr/sync_external.h>
 #include "ra.h"
 #include "dllist.h"
 #include "lock.h"
 #include "devicemem.h"
+
+
+#define LOCAL_SYNC_PRIM_RESET_VALUE 0
 
 /*
 	Private structure's
@@ -105,15 +108,17 @@ typedef struct _SYNC_PRIM_SERVER_
 typedef struct _SYNC_PRIM_
 {
 	PVRSRV_CLIENT_SYNC_PRIM	sCommon;		/*!< Client visible part of the sync prim */
-	SYNC_PRIM_TYPE			eType;			/*!< Sync primative type */
+	SYNC_PRIM_TYPE			eType;			/*!< Sync primitive type */
 	union {
-		SYNC_PRIM_LOCAL		sLocal;			/*!< Local sync primative data */
-		SYNC_PRIM_SERVER	sServer;		/*!< Server sync primative data */
+		SYNC_PRIM_LOCAL		sLocal;			/*!< Local sync primitive data */
+		SYNC_PRIM_SERVER	sServer;		/*!< Server sync primitive data */
 	} u;
 } SYNC_PRIM;
 
 
-IMG_INTERNAL IMG_UINT32 SyncPrimGetFirmwareAddr(PVRSRV_CLIENT_SYNC_PRIM *psSync);
+/* FIXME this must return a correctly typed pointer */
+IMG_INTERNAL PVRSRV_ERROR
+SyncPrimGetFirmwareAddr(PVRSRV_CLIENT_SYNC_PRIM *psSync, IMG_UINT32 *pui32FwAddr);
 
 IMG_INTERNAL PVRSRV_ERROR SyncPrimLocalGetHandleAndOffset(PVRSRV_CLIENT_SYNC_PRIM *psSync,
 							IMG_HANDLE *phBlock,

@@ -88,9 +88,12 @@ static inline int range_is_allowed(unsigned long pfn, unsigned long size)
 #endif
 
 #ifdef CONFIG_DEVMEM
-void __weak unxlate_dev_mem_ptr(unsigned long phys, void *addr)
+#ifndef unxlate_dev_mem_ptr
+#define unxlate_dev_mem_ptr unxlate_dev_mem_ptr
+void __weak unxlate_dev_mem_ptr(phys_addr_t phys, void *addr)
 {
 }
+#endif
 
 /*
  * This funcion reads the *physical* memory. The f_pos points directly to the
@@ -101,7 +104,7 @@ static ssize_t read_mem(struct file *file, char __user *buf,
 {
 	phys_addr_t p = *ppos;
 	ssize_t read, sz;
-	char *ptr;
+	void *ptr;
 
 	if (p != *ppos)
 		return 0;
@@ -314,6 +317,11 @@ static const struct vm_operations_struct mmap_mem_ops = {
 static int mmap_mem(struct file *file, struct vm_area_struct *vma)
 {
 	size_t size = vma->vm_end - vma->vm_start;
+	phys_addr_t offset = (phys_addr_t)vma->vm_pgoff << PAGE_SHIFT;
+
+	/* It's illegal to wrap around the end of the physical address space. */
+	if (offset + (phys_addr_t)size < offset)
+		return -EINVAL;
 
 	if (!valid_mmap_phys_addr_range(vma->vm_pgoff, size))
 		return -EINVAL;
@@ -408,7 +416,7 @@ static ssize_t read_kmem(struct file *file, char __user *buf,
 			 * uncached, then it must also be accessed uncached
 			 * by the kernel or data corruption may occur
 			 */
-			kbuf = xlate_dev_kmem_ptr((char *)p);
+			kbuf = xlate_dev_kmem_ptr((void *)p);
 
 			if (copy_to_user(buf, kbuf, sz))
 				return -EFAULT;
@@ -469,7 +477,7 @@ static ssize_t do_write_kmem(unsigned long p, const char __user *buf,
 #endif
 
 	while (count > 0) {
-		char *ptr;
+		void *ptr;
 
 		sz = size_inside_page(p, count);
 
@@ -478,7 +486,7 @@ static ssize_t do_write_kmem(unsigned long p, const char __user *buf,
 		 * it must also be accessed uncached by the kernel or data
 		 * corruption may occur.
 		 */
-		ptr = xlate_dev_kmem_ptr((char *)p);
+		ptr = xlate_dev_kmem_ptr((void *)p);
 
 		copied = copy_from_user(ptr, buf, sz);
 		if (copied) {

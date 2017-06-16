@@ -19,7 +19,6 @@
 
 #include <linux/compat.h>
 #include <linux/delay.h>
-#include <linux/device.h>
 #include <linux/fs.h>
 #include <linux/mfd/core.h>
 #include <linux/mfd/cros_ec.h>
@@ -34,7 +33,10 @@
 #include <linux/types.h>
 #include <linux/uaccess.h>
 
+#include "cros_ec_debugfs.h"
 #include "cros_ec_dev.h"
+
+#define DRV_NAME "cros-ec-dev"
 
 /* Device variables */
 #define CROS_MAX_DEV 128
@@ -43,10 +45,10 @@ static int ec_major;
 static const struct attribute_group *cros_ec_groups[] = {
 	&cros_ec_attr_group,
 	&cros_ec_lightbar_attr_group,
-#ifdef CONFIG_MFD_CROS_EC_PD_UPDATE
+#if IS_ENABLED(CONFIG_MFD_CROS_EC_PD_UPDATE)
 	&cros_ec_pd_attr_group,
 #endif
-#ifdef CONFIG_CHARGER_CROS_USB_PD
+#if IS_ENABLED(CONFIG_CHARGER_CROS_USB_PD)
 	&cros_usb_pd_charger_attr_group,
 #endif
 	NULL,
@@ -439,8 +441,8 @@ static void cros_ec_sensors_register(struct cros_ec_dev *ec)
 	}
 
 	sensor_num = resp.dump.sensor_count;
-	/* Allocate 2 extra sensors in case lid angle or FIFO are needed */
-	sensor_cells = kzalloc(sizeof(struct mfd_cell) * (sensor_num + 2),
+	/* Allocate one extra sensor in case FIFO are needed */
+	sensor_cells = kzalloc(sizeof(struct mfd_cell) * (sensor_num + 1),
 			       GFP_KERNEL);
 	if (sensor_cells == NULL) {
 		dev_err(ec->dev, "failed to allocate mfd cells for sensors\n");
@@ -498,16 +500,8 @@ static void cros_ec_sensors_register(struct cros_ec_dev *ec)
 		sensor_type[resp.info.type]++;
 		id++;
 	}
-	if (sensor_type[MOTIONSENSE_TYPE_ACCEL] >= 2) {
-		sensor_platforms[id].sensor_num = sensor_num;
-
-		sensor_cells[id].name = "cros-ec-angle";
-		sensor_cells[id].id = 0;
-		sensor_cells[id].platform_data = &sensor_platforms[id];
-		sensor_cells[id].pdata_size =
-			sizeof(struct cros_ec_sensor_platform);
-		id++;
-	}
+	if (sensor_type[MOTIONSENSE_TYPE_ACCEL] >= 2)
+		ec->has_kb_wake_angle = true;
 	if (cros_ec_check_features(ec, EC_FEATURE_MOTION_SENSE_FIFO)) {
 		sensor_cells[id].name = "cros-ec-ring";
 		id++;
@@ -571,11 +565,6 @@ static int ec_device_probe(struct platform_device *pdev)
 		dev_err(dev, "dev_set_name failed => %d\n", retval);
 		goto set_named_failed;
 	}
-	retval = device_add(&ec->class_dev);
-	if (retval) {
-		dev_err(dev, "device_register failed => %d\n", retval);
-		goto dev_reg_failed;
-	}
 
 	/* check whether this EC instance has the PD charge manager */
 	if (cros_ec_check_features(ec, EC_FEATURE_USB_PD))
@@ -585,13 +574,20 @@ static int ec_device_probe(struct platform_device *pdev)
 	if (cros_ec_check_features(ec, EC_FEATURE_MOTION_SENSE))
 		cros_ec_sensors_register(ec);
 
+	/* We can now add the sysfs class, we know which parameter to show */
+	retval = device_add(&ec->class_dev);
+	if (retval)
+		dev_err(dev, "device_register failed => %d\n", retval);
+
 	/* Take control of the lightbar from the EC. */
 	lb_manual_suspend_ctrl(ec, 1);
+
+	if (cros_ec_debugfs_init(ec))
+		dev_warn(dev, "failed to create debugfs directory\n");
 
 	dev_dark_resume_add_consumer(dev);
 
 	return 0;
-dev_reg_failed:
 set_named_failed:
 	dev_set_drvdata(dev, NULL);
 	cdev_del(&ec->cdev);
@@ -610,14 +606,27 @@ static int ec_device_remove(struct platform_device *pdev)
 	lb_manual_suspend_ctrl(ec, 0);
 
 	mfd_remove_devices(ec->dev);
+	cros_ec_debugfs_remove(ec);
+
 	cdev_del(&ec->cdev);
 	device_unregister(&ec->class_dev);
 	return 0;
 }
 
+static void ec_device_shutdown(struct platform_device *pdev)
+{
+	struct cros_ec_dev *ec = dev_get_drvdata(&pdev->dev);
+
+	/* Be sure to clear up debugfs delayed works */
+	cros_ec_debugfs_remove(ec);
+}
+
 static int ec_device_suspend(struct device *dev)
 {
 	struct cros_ec_dev *ec = dev_get_drvdata(dev);
+
+	cros_ec_debugfs_suspend(ec);
+
 	if (!dev_dark_resume_active(dev))
 		lb_suspend(ec);
 
@@ -640,6 +649,8 @@ static int ec_device_resume(struct device *dev)
 	if (!dev_dark_resume_active(dev))
 		lb_resume(ec);
 
+	cros_ec_debugfs_resume(ec);
+
 	return 0;
 }
 
@@ -652,12 +663,13 @@ static const struct dev_pm_ops cros_ec_dev_pm_ops = {
 
 static struct platform_driver cros_ec_dev_driver = {
 	.driver = {
-		.name = "cros-ec-dev",
+		.name = DRV_NAME,
 		.owner = THIS_MODULE,
 		.pm = &cros_ec_dev_pm_ops,
 	},
 	.probe = ec_device_probe,
 	.remove = ec_device_remove,
+	.shutdown = ec_device_shutdown,
 };
 
 static int __init cros_ec_dev_init(void)
@@ -705,6 +717,7 @@ static void __exit cros_ec_dev_exit(void)
 module_init(cros_ec_dev_init);
 module_exit(cros_ec_dev_exit);
 
+MODULE_ALIAS("platform:" DRV_NAME);
 MODULE_AUTHOR("Bill Richardson <wfrichar@chromium.org>");
 MODULE_DESCRIPTION("Userspace interface to the Chrome OS Embedded Controller");
 MODULE_VERSION("1.0");

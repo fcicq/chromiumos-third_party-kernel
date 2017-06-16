@@ -787,8 +787,14 @@ sg_common_write(Sg_fd * sfp, Sg_request * srp,
 		return k;	/* probably out of space --> ENOMEM */
 	}
 	if (atomic_read(&sdp->detaching)) {
-		if (srp->bio)
+		if (srp->bio) {
+			if (srp->rq->cmd != srp->rq->__cmd)
+				kfree(srp->rq->cmd);
+
 			blk_end_request_all(srp->rq, -EIO);
+			srp->rq = NULL;
+		}
+
 		sg_finish_rem_req(srp);
 		return -ENODEV;
 	}
@@ -1758,6 +1764,9 @@ sg_start_req(Sg_request *srp, unsigned char *cmd)
 		else
 			md->from_user = 0;
 	}
+
+	if (unlikely(iov_count > UIO_MAXIOV))
+		return -EINVAL;
 
 	if (iov_count) {
 		int len, size = sizeof(struct sg_iovec) * iov_count;

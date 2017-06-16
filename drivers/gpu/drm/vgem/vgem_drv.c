@@ -45,16 +45,7 @@
 
 void vgem_gem_put_pages(struct drm_vgem_gem_object *obj)
 {
-	int num_pages = obj->base.size / PAGE_SIZE;
-	int i;
-
-	for (i = 0; i < num_pages; i++) {
-		if (obj->pages[i] == NULL)
-			break;
-		page_cache_release(obj->pages[i]);
-	}
-
-	drm_free_large(obj->pages);
+	drm_gem_put_pages(&obj->base, obj->pages, true, true);
 	obj->pages = NULL;
 }
 
@@ -64,8 +55,8 @@ static void vgem_gem_free_object(struct drm_gem_object *obj)
 
 	drm_gem_free_mmap_offset(obj);
 
-	if (vgem_obj->use_dma_buf && obj->dma_buf) {
-		dma_buf_put(obj->dma_buf);
+	if (obj->import_attach) {
+		dma_buf_put(obj->import_attach->dmabuf);
 		obj->dma_buf = NULL;
 	}
 
@@ -81,43 +72,25 @@ static void vgem_gem_free_object(struct drm_gem_object *obj)
 
 int vgem_gem_get_pages(struct drm_vgem_gem_object *obj)
 {
-	struct address_space *mapping;
-	gfp_t gfpmask = GFP_KERNEL;
-	int num_pages, i, ret = 0;
+	int ret = 0;
 
-	if (obj->pages || obj->use_dma_buf)
+	if (obj->pages || obj->base.import_attach)
 		return 0;
 
-	num_pages = obj->base.size / PAGE_SIZE;
-	obj->pages = drm_malloc_ab(num_pages, sizeof(struct page *));
-	if (obj->pages == NULL)
-		return -ENOMEM;
-
-	mapping = obj->base.filp->f_path.dentry->d_inode->i_mapping;
-	gfpmask |= mapping_gfp_mask(mapping);
-
-	for (i = 0; i < num_pages; i++) {
-		struct page *page;
-		obj->pages[i] = NULL;
-		page = shmem_read_mapping_page_gfp(mapping, i, gfpmask);
-		if (IS_ERR(page)) {
-			ret = PTR_ERR(page);
-			goto err_out;
-		}
-		obj->pages[i] = page;
+	obj->pages = drm_gem_get_pages(&obj->base);
+	if (IS_ERR(obj->pages)) {
+		ret = PTR_ERR(obj->pages);
+		obj->pages = NULL;
+		return ret;
 	}
 
-	return ret;
-
-err_out:
-	vgem_gem_put_pages(obj);
-	return ret;
+	return 0;
 }
 
 static int vgem_gem_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
-	struct drm_vgem_gem_object *obj = vma->vm_private_data;
-	struct drm_device *dev = obj->base.dev;
+	struct drm_gem_object *gobj = vma->vm_private_data;
+	struct drm_vgem_gem_object *obj = to_vgem_bo(gobj);
 	loff_t num_pages;
 	pgoff_t page_offset;
 	int ret;
@@ -131,24 +104,22 @@ static int vgem_gem_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 	if (page_offset > num_pages)
 		return VM_FAULT_SIGBUS;
 
-	mutex_lock(&dev->struct_mutex);
-
 	ret = vm_insert_page(vma, (unsigned long)vmf->virtual_address,
 			     obj->pages[page_offset]);
-
-	mutex_unlock(&dev->struct_mutex);
 	switch (ret) {
+	case -EAGAIN:
 	case 0:
+	case -ERESTARTSYS:
+	case -EINTR:
+	case -EBUSY:
+		/*
+		 * EBUSY is ok: this just means that another thread
+		 * already did the job.
+		 */
 		return VM_FAULT_NOPAGE;
 	case -ENOMEM:
 		return VM_FAULT_OOM;
-	case -EBUSY:
-		return VM_FAULT_RETRY;
-	case -EFAULT:
-	case -EINVAL:
-		return VM_FAULT_SIGBUS;
 	default:
-		WARN_ON(1);
 		return VM_FAULT_SIGBUS;
 	}
 }
@@ -179,6 +150,10 @@ static struct drm_gem_object *vgem_gem_create(struct drm_device *dev,
 	gem_object = &obj->base;
 
 	err = drm_gem_object_init(dev, gem_object, size);
+	if (err)
+		goto out;
+
+	err = vgem_gem_get_pages(obj);
 	if (err)
 		goto out;
 
@@ -229,37 +204,23 @@ int vgem_gem_dumb_map(struct drm_file *file, struct drm_device *dev,
 	int ret = 0;
 	struct drm_gem_object *obj;
 
-	mutex_lock(&dev->struct_mutex);
 	obj = drm_gem_object_lookup(dev, file, handle);
-	if (!obj) {
-		ret = -ENOENT;
-		goto unlock;
-	}
+	if (!obj)
+		return -ENOENT;
 
-	if (!drm_vma_node_has_offset(&obj->vma_node)) {
-		ret = drm_gem_create_mmap_offset(obj);
-		if (ret)
-			goto unref;
-	}
+	ret = drm_gem_create_mmap_offset(obj);
+	if (ret)
+		goto unref;
 
 	BUG_ON(!obj->filp);
 
 	obj->filp->private_data = obj;
 
-	ret = vgem_gem_get_pages(to_vgem_bo(obj));
-	if (ret)
-		goto fail_get_pages;
-
 	*offset = drm_vma_node_offset_addr(&obj->vma_node);
 
-	goto unref;
-
-fail_get_pages:
-	drm_gem_free_mmap_offset(obj);
 unref:
-	drm_gem_object_unreference(obj);
-unlock:
-	mutex_unlock(&dev->struct_mutex);
+	drm_gem_object_unreference_unlocked(obj);
+
 	return ret;
 }
 
@@ -289,24 +250,19 @@ int vgem_drm_gem_mmap(struct file *filp, struct vm_area_struct *vma)
 
 	vgem_obj = to_vgem_bo(obj);
 
-	if (obj->dma_buf && vgem_obj->use_dma_buf) {
-		ret = dma_buf_mmap(obj->dma_buf, vma, 0);
+	if (obj->import_attach) {
+		ret = dma_buf_mmap(obj->import_attach->dmabuf, vma, 0);
 		goto out_unlock;
 	}
 
-	if (!obj->dev->driver->gem_vm_ops) {
-		ret = -EINVAL;
+	ret = drm_gem_mmap_obj(obj, obj->size, vma);
+	if (ret < 0)
 		goto out_unlock;
-	}
 
-	vma->vm_flags |= VM_IO | VM_MIXEDMAP | VM_DONTEXPAND | VM_DONTDUMP;
-	vma->vm_ops = obj->dev->driver->gem_vm_ops;
-	vma->vm_private_data = vgem_obj;
-	vma->vm_page_prot =
-		pgprot_writecombine(vm_get_page_prot(vma->vm_flags));
+	vma->vm_flags |= VM_MIXEDMAP;
+	vma->vm_flags &= ~VM_PFNMAP;
 
 	mutex_unlock(&dev->struct_mutex);
-	drm_gem_vm_open(vma);
 	return ret;
 
 out_unlock:
@@ -346,12 +302,13 @@ static struct drm_driver vgem_driver = {
 	.prime_handle_to_fd		= drm_gem_prime_handle_to_fd,
 	.prime_fd_to_handle		= drm_gem_prime_fd_to_handle,
 	.gem_prime_export		= drm_gem_prime_export,
-	.gem_prime_import		= vgem_gem_prime_import,
+	.gem_prime_import		= drm_gem_prime_import,
 	.gem_prime_pin			= vgem_gem_prime_pin,
-	.gem_prime_unpin		= vgem_gem_prime_unpin,
 	.gem_prime_get_sg_table		= vgem_gem_prime_get_sg_table,
+	.gem_prime_import_sg_table	= vgem_gem_prime_import_sg_table,
 	.gem_prime_vmap			= vgem_gem_prime_vmap,
 	.gem_prime_vunmap		= vgem_gem_prime_vunmap,
+	.gem_prime_mmap			= vgem_gem_prime_mmap,
 	.name	= DRIVER_NAME,
 	.desc	= DRIVER_DESC,
 	.date	= DRIVER_DATE,

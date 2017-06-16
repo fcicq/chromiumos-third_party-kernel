@@ -357,7 +357,7 @@ int intel_opregion_notify_encoder(struct intel_encoder *intel_encoder,
 		type = DISPLAY_TYPE_CRT;
 		break;
 	case INTEL_OUTPUT_UNKNOWN:
-	case INTEL_OUTPUT_DISPLAYPORT:
+	case INTEL_OUTPUT_DP:
 	case INTEL_OUTPUT_HDMI:
 	case INTEL_OUTPUT_DP_MST:
 		type = DISPLAY_TYPE_EXTERNAL_FLAT_PANEL;
@@ -416,7 +416,7 @@ static bool should_ignore_backlight_request(void)
 static u32 asle_set_backlight(struct drm_device *dev, u32 bclp)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
-	struct intel_connector *intel_connector;
+	struct intel_connector *connector;
 	struct opregion_asle __iomem *asle = dev_priv->opregion.asle;
 
 	DRM_DEBUG_DRIVER("bclp = 0x%08x\n", bclp);
@@ -440,8 +440,8 @@ static u32 asle_set_backlight(struct drm_device *dev, u32 bclp)
 	 * only one).
 	 */
 	DRM_DEBUG_KMS("updating opregion backlight %d/255\n", bclp);
-	list_for_each_entry(intel_connector, &dev->mode_config.connector_list, base.head)
-		intel_panel_set_backlight_acpi(intel_connector, bclp, 255);
+	for_each_intel_connector(dev, connector)
+		intel_panel_set_backlight_acpi(connector, bclp, 255);
 	iowrite32(DIV_ROUND_UP(bclp * 100, 255) | ASLE_CBLV_VALID, &asle->cblv);
 
 	drm_modeset_unlock(&dev->mode_config.connection_mutex);

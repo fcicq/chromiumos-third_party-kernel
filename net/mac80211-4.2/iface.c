@@ -974,7 +974,11 @@ static void ieee80211_do_stop(struct ieee80211_sub_if_data *sdata,
 	if (sdata->vif.txq) {
 		struct txq_info *txqi = to_txq_info(sdata->vif.txq);
 
+		spin_lock_bh(&txqi->queue.lock);
 		ieee80211_purge_tx_queue(&local->hw, &txqi->queue);
+		txqi->byte_cnt = 0;
+		spin_unlock_bh(&txqi->queue.lock);
+
 		atomic_set(&sdata->txqs_len[txqi->txq.ac], 0);
 	}
 
@@ -1085,8 +1089,14 @@ static void ieee80211_teardown_sdata(struct ieee80211_sub_if_data *sdata)
 		__skb_queue_purge(&sdata->fragments[i].skb_list);
 	sdata->fragment_next = 0;
 
-	if (ieee80211_vif_is_mesh(&sdata->vif))
+	if (ieee80211_vif_is_mesh(&sdata->vif)) {
 		mesh_rmc_free(sdata);
+#if CONFIG_MAC80211_DEBUGFS
+		path_debugfs_free(sdata);
+#endif
+	}
+
+	idr_destroy(&sdata->ndev_sta_idr);
 }
 
 static void ieee80211_uninit(struct net_device *dev)
@@ -1358,6 +1368,7 @@ static void ieee80211_setup_sdata(struct ieee80211_sub_if_data *sdata,
 {
 	static const u8 bssid_wildcard[ETH_ALEN] = {0xff, 0xff, 0xff,
 						    0xff, 0xff, 0xff};
+	int i;
 
 	/* clear type-dependent union */
 	memset(&sdata->u, 0, sizeof(sdata->u));
@@ -1386,6 +1397,15 @@ static void ieee80211_setup_sdata(struct ieee80211_sub_if_data *sdata,
 	INIT_WORK(&sdata->csa_finalize_work, ieee80211_csa_finalize_work);
 	INIT_LIST_HEAD(&sdata->assigned_chanctx_list);
 	INIT_LIST_HEAD(&sdata->reserved_chanctx_list);
+	idr_init(&sdata->ndev_sta_idr);
+	memset(sdata->ndev_sta_q_stopped, 0,
+	       sizeof(sdata->ndev_sta_q_stopped));
+
+	for (i = 0; i < IEEE80211_NUM_NDEV_STA_Q; i++)
+		atomic_set(&sdata->ndev_sta_q_refs[i], 0);
+
+	for (i = 0; i < IEEE80211_NUM_ACS; i++)
+		atomic_set(&sdata->txqs_len[i], 0);
 
 	switch (type) {
 	case NL80211_IFTYPE_P2P_GO:
@@ -1719,8 +1739,13 @@ int ieee80211_if_add(struct ieee80211_local *local, const char *name,
 			txq_size += sizeof(struct txq_info) +
 				    local->hw.txq_data_size;
 
-		if (local->hw.queues >= IEEE80211_NUM_ACS)
+		if (local->hw.queues >= IEEE80211_NUM_ACS) {
 			txqs = IEEE80211_NUM_ACS;
+
+			if (local->ops->wake_tx_queue)
+				txqs += IEEE80211_NUM_NDEV_STA *
+					IEEE80211_NUM_ACS;
+		}
 
 		ndev = alloc_netdev_mqs(size + txq_size,
 					name, name_assign_type,
@@ -1805,6 +1830,8 @@ int ieee80211_if_add(struct ieee80211_local *local, const char *name,
 	sdata->user_power_level = local->user_power_level;
 
 	sdata->encrypt_headroom = IEEE80211_ENCRYPT_HEADROOM;
+
+	spin_lock_init(&sdata->ndev_lock);
 
 	/* setup type-dependent data */
 	ieee80211_setup_sdata(sdata, type);

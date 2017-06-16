@@ -1740,6 +1740,34 @@ void bio_check_pages_dirty(struct bio *bio)
 	}
 }
 
+void generic_start_io_acct(int rw, unsigned long sectors,
+			   struct hd_struct *part)
+{
+	int cpu = part_stat_lock();
+
+	part_round_stats(cpu, part);
+	part_stat_inc(cpu, part, ios[rw]);
+	part_stat_add(cpu, part, sectors[rw], sectors);
+	part_inc_in_flight(part, rw);
+
+	part_stat_unlock();
+}
+EXPORT_SYMBOL(generic_start_io_acct);
+
+void generic_end_io_acct(int rw, struct hd_struct *part,
+			 unsigned long start_time)
+{
+	unsigned long duration = jiffies - start_time;
+	int cpu = part_stat_lock();
+
+	part_stat_add(cpu, part, ticks[rw], duration);
+	part_round_stats(cpu, part);
+	part_dec_in_flight(part, rw);
+
+	part_stat_unlock();
+}
+EXPORT_SYMBOL(generic_end_io_acct);
+
 #if ARCH_IMPLEMENTS_FLUSH_DCACHE_PAGE
 void bio_flush_dcache_pages(struct bio *bi)
 {
@@ -1998,7 +2026,6 @@ EXPORT_SYMBOL(bioset_create_nobvec);
 int bio_associate_current(struct bio *bio)
 {
 	struct io_context *ioc;
-	struct cgroup_subsys_state *css;
 
 	if (bio->bi_ioc)
 		return -EBUSY;
@@ -2007,17 +2034,9 @@ int bio_associate_current(struct bio *bio)
 	if (!ioc)
 		return -ENOENT;
 
-	/* acquire active ref on @ioc and associate */
 	get_io_context_active(ioc);
 	bio->bi_ioc = ioc;
-
-	/* associate blkcg if exists */
-	rcu_read_lock();
-	css = task_css(current, blkio_cgrp_id);
-	if (css && css_tryget_online(css))
-		bio->bi_css = css;
-	rcu_read_unlock();
-
+	bio->bi_css = task_get_css(current, blkio_cgrp_id);
 	return 0;
 }
 

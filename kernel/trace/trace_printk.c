@@ -291,6 +291,9 @@ static int t_show(struct seq_file *m, void *v)
 	const char *str = *fmt;
 	int i;
 
+	if (!*fmt)
+		return 0;
+
 	seq_printf(m, "0x%lx : \"", *(unsigned long *)fmt);
 
 	/*
@@ -305,7 +308,7 @@ static int t_show(struct seq_file *m, void *v)
 			seq_puts(m, "\\t");
 			break;
 		case '\\':
-			seq_puts(m, "\\");
+			seq_putc(m, '\\');
 			break;
 		case '"':
 			seq_puts(m, "\\\"");

@@ -1293,8 +1293,10 @@ static int ieee80211_del_station(struct wiphy *wiphy, struct net_device *dev,
 
 	sdata = IEEE80211_DEV_TO_SUB_IF(dev);
 
-	if (params->mac)
+	if (params->mac) {
+		sdata_info(sdata, "Deleting sta: %pM\n", params->mac);
 		return sta_info_destroy_addr_bss(sdata, params->mac);
+	}
 
 	sta_info_flush(sdata);
 	return 0;
@@ -1372,6 +1374,11 @@ static int ieee80211_change_station(struct wiphy *wiphy,
 		    sta->sdata->u.vlan.sta) {
 			RCU_INIT_POINTER(sta->sdata->u.vlan.sta, NULL);
 			prev_4addr = true;
+		}
+
+		if (local->ops->wake_tx_queue) {
+			sta_info_ndev_free(sta->sdata, sta);
+			sta_info_ndev_init(vlansdata, sta);
 		}
 
 		sta->sdata = vlansdata;
@@ -1795,6 +1802,8 @@ static int ieee80211_update_mesh_config(struct wiphy *wiphy,
 			nconf->dot11MeshAwakeWindowDuration;
 	if (_chg_mesh_attr(NL80211_MESHCONF_PLINK_TIMEOUT, mask))
 		conf->plink_timeout = nconf->plink_timeout;
+	conf->vht_capa = nconf->vht_capa;
+	conf->vht_capa_mask = nconf->vht_capa_mask;
 	ieee80211_mbss_info_change_notify(sdata, BSS_CHANGED_BEACON);
 	return 0;
 }

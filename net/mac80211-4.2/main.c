@@ -35,6 +35,10 @@
 #include "cfg.h"
 #include "debugfs.h"
 
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+#include "wifi_diag.h"
+#endif
+
 void ieee80211_configure_filter(struct ieee80211_local *local)
 {
 	u64 mc;
@@ -250,6 +254,7 @@ static void ieee80211_restart_work(struct work_struct *work)
 
 	/* wait for scan work complete */
 	flush_workqueue(local->workqueue);
+	flush_work(&local->sched_scan_stopped_work);
 
 	WARN(test_bit(SCAN_HW_SCANNING, &local->scanning),
 	     "%s called with hardware scan in progress\n", __func__);
@@ -1100,6 +1105,10 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 		goto fail_ifa6;
 #endif
 
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+	wifi_diag_init(local);
+#endif
+
 	return 0;
 
 #if IS_ENABLED(CONFIG_IPV6)
@@ -1150,6 +1159,10 @@ void ieee80211_unregister_hw(struct ieee80211_hw *hw)
 
 	tasklet_kill(&local->tx_pending_tasklet);
 	tasklet_kill(&local->tasklet);
+
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+	wifi_diag_deinit(local);
+#endif
 
 	pm_qos_remove_notifier(PM_QOS_NETWORK_LATENCY,
 			       &local->network_latency_notifier);

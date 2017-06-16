@@ -89,6 +89,7 @@
 #include <linux/netfilter_ipv4.h>
 #include <linux/random.h>
 #include <linux/slab.h>
+#include <linux/android_aid.h>
 
 #include <asm/uaccess.h>
 
@@ -117,20 +118,6 @@
 #include <net/secure_seq.h>
 #ifdef CONFIG_IP_MROUTE
 #include <linux/mroute.h>
-#endif
-
-#ifdef CONFIG_ANDROID_PARANOID_NETWORK
-#include <linux/android_aid.h>
-
-static inline int current_has_network(struct net *net)
-{
-	return in_egroup_p(AID_INET) || ns_capable(net->user_ns, CAP_NET_RAW);
-}
-#else
-static inline int current_has_network(struct net *net)
-{
-	return 1;
-}
 #endif
 
 /* The inetsw table contains everything that inet_create needs to
@@ -270,8 +257,11 @@ static int inet_create(struct net *net, struct socket *sock, int protocol,
 	int try_loading_module = 0;
 	int err;
 
-	if (!current_has_network(net))
+	if (!inet_sk_allowed(net, AID_INET))
 		return -EACCES;
+
+	if (protocol < 0 || protocol >= IPPROTO_MAX)
+		return -EINVAL;
 
 	sock->state = SS_UNCONNECTED;
 
@@ -1128,7 +1118,7 @@ static int inet_sk_reselect_saddr(struct sock *sk)
 	struct ip_options_rcu *inet_opt;
 
 	inet_opt = rcu_dereference_protected(inet->inet_opt,
-					     sock_owned_by_user(sk));
+					     lockdep_sock_is_held(sk));
 	if (inet_opt && inet_opt->opt.srr)
 		daddr = inet_opt->opt.faddr;
 
@@ -1392,7 +1382,7 @@ static struct sk_buff **inet_gro_receive(struct sk_buff **head,
 	skb_gro_pull(skb, sizeof(*iph));
 	skb_set_transport_header(skb, skb_gro_offset(skb));
 
-	pp = ops->callbacks.gro_receive(head, skb);
+	pp = call_gro_receive(ops->callbacks.gro_receive, head, skb);
 
 out_unlock:
 	rcu_read_unlock();
@@ -1401,6 +1391,19 @@ out:
 	NAPI_GRO_CB(skb)->flush |= flush;
 
 	return pp;
+}
+
+static struct sk_buff **ipip_gro_receive(struct sk_buff **head,
+					 struct sk_buff *skb)
+{
+	if (NAPI_GRO_CB(skb)->encap_mark) {
+		NAPI_GRO_CB(skb)->flush = 1;
+		return NULL;
+	}
+
+	NAPI_GRO_CB(skb)->encap_mark = 1;
+
+	return inet_gro_receive(head, skb);
 }
 
 int inet_recv_error(struct sock *sk, struct msghdr *msg, int len, int *addr_len)
@@ -1443,6 +1446,13 @@ out_unlock:
 	rcu_read_unlock();
 
 	return err;
+}
+
+static int ipip_gro_complete(struct sk_buff *skb, int nhoff)
+{
+	skb->encapsulation = 1;
+	skb_shinfo(skb)->gso_type |= SKB_GSO_IPIP;
+	return inet_gro_complete(skb, nhoff);
 }
 
 int inet_ctl_sock_create(struct sock **sk, unsigned short family,
@@ -1661,8 +1671,8 @@ static struct packet_offload ip_packet_offload __read_mostly = {
 static const struct net_offload ipip_offload = {
 	.callbacks = {
 		.gso_segment	= inet_gso_segment,
-		.gro_receive	= inet_gro_receive,
-		.gro_complete	= inet_gro_complete,
+		.gro_receive	= ipip_gro_receive,
+		.gro_complete	= ipip_gro_complete,
 	},
 };
 

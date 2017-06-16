@@ -40,12 +40,8 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */ /**************************************************************************/
 
-#include <linux/version.h>
 #include <asm/io.h>
 #include <asm/page.h>
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22) && (LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0)) )
-#include <asm/system.h>
-#endif
 #include <linux/mm.h>
 #include <linux/slab.h>
 #include <linux/delay.h>
@@ -62,9 +58,6 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "img_types.h"
 #include "pvrsrv_error.h"
 #include "allocmem.h"
-#include "mm.h"
-#include "env_data.h"
-#include "driverlock.h"
 #include "event.h"
 #include "pvr_debug.h"
 #include "pvrsrv.h"
@@ -73,7 +66,9 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 /* Returns pointer to task_struct that belongs to thread which acquired
  * bridge lock. */
-extern struct task_struct *OSGetBridgeLockOwner(void);
+extern struct task_struct *BridgeLockGetOwner(void);
+extern IMG_BOOL BridgeLockIsLocked(void);
+
 
 typedef struct PVRSRV_LINUX_EVENT_OBJECT_LIST_TAG
 {
@@ -113,7 +108,7 @@ PVRSRV_ERROR LinuxEventObjectListCreate(IMG_HANDLE *phEventObjectList)
 {
 	PVRSRV_LINUX_EVENT_OBJECT_LIST *psEvenObjectList;
 
-	psEvenObjectList = OSAllocMem(sizeof(PVRSRV_LINUX_EVENT_OBJECT_LIST));
+	psEvenObjectList = OSAllocMem(sizeof(*psEvenObjectList));
 	if (psEvenObjectList == NULL)
 	{
 		PVR_DPF((PVR_DBG_ERROR, "LinuxEventObjectCreate: failed to allocate memory for event list"));
@@ -220,7 +215,7 @@ PVRSRV_ERROR LinuxEventObjectAdd(IMG_HANDLE hOSEventObjectList, IMG_HANDLE *phOS
 	PVRSRV_LINUX_EVENT_OBJECT_LIST *psLinuxEventObjectList = (PVRSRV_LINUX_EVENT_OBJECT_LIST*)hOSEventObjectList;
 
 	/* allocate completion variable */
-	psLinuxEventObject = OSAllocMem(sizeof(PVRSRV_LINUX_EVENT_OBJECT));
+	psLinuxEventObject = OSAllocMem(sizeof(*psLinuxEventObject));
 	if (psLinuxEventObject == NULL)
 	{
 		PVR_DPF((PVR_DBG_ERROR, "LinuxEventObjectAdd: failed to allocate memory "));
@@ -295,27 +290,35 @@ PVRSRV_ERROR LinuxEventObjectSignal(IMG_HANDLE hOSEventObjectList)
 
  @Input    hOSEventObject : Event object handle
 
- @Input   ui32MSTimeout : Time out value in msec
+ @Input   ui64Timeoutus : Time out value in usec
 
  @Return   PVRSRV_ERROR  :  Error code
 
 ******************************************************************************/
-PVRSRV_ERROR LinuxEventObjectWait(IMG_HANDLE hOSEventObject, IMG_UINT32 ui32MSTimeout, IMG_BOOL bHoldBridgeLock)
+PVRSRV_ERROR LinuxEventObjectWait(IMG_HANDLE hOSEventObject, IMG_UINT64 ui64Timeoutus, IMG_BOOL bHoldBridgeLock)
 {
 	IMG_UINT32 ui32TimeStamp;
 	IMG_BOOL bReleasePVRLock;
 	PVRSRV_DATA *psPVRSRVData = PVRSRVGetPVRSRVData();
+	IMG_UINT32 ui32Remainder;
+	long timeOutJiffies;
 	DEFINE_WAIT(sWait);
 
 	PVRSRV_LINUX_EVENT_OBJECT *psLinuxEventObject = (PVRSRV_LINUX_EVENT_OBJECT *) hOSEventObject;
-
-	IMG_UINT32 ui32TimeOutJiffies = msecs_to_jiffies(ui32MSTimeout);
 
 	/* Check if the driver is good shape */
 	if (psPVRSRVData->eServicesState != PVRSRV_SERVICES_STATE_OK)
 	{
 		return PVRSRV_ERROR_TIMEOUT;
 	}
+
+	/* usecs_to_jiffies only takes an uint. So if our timeout is bigger than an
+	 * uint use the msec version. With such a long timeout we really don't need
+	 * the high resolution of usecs. */
+	if (ui64Timeoutus > 0xffffffffULL)
+		timeOutJiffies = msecs_to_jiffies(OSDivide64(ui64Timeoutus, 1000, &ui32Remainder));
+	else
+		timeOutJiffies = usecs_to_jiffies(ui64Timeoutus);
 
 	do
 	{
@@ -331,13 +334,13 @@ PVRSRV_ERROR LinuxEventObjectWait(IMG_HANDLE hOSEventObject, IMG_UINT32 ui32MSTi
 		 * 'release before deschedule' behaviour. Some threads choose not to
 		 * hold the bridge lock in their implementation.
 		 */
-		bReleasePVRLock = (!bHoldBridgeLock && mutex_is_locked(&gPVRSRVLock) && current == OSGetBridgeLockOwner());
+		bReleasePVRLock = (!bHoldBridgeLock && BridgeLockIsLocked() && current == BridgeLockGetOwner());
 		if (bReleasePVRLock == IMG_TRUE)
 		{
 			OSReleaseBridgeLock();
 		}
 
-		ui32TimeOutJiffies = (IMG_UINT32)schedule_timeout((IMG_INT32)ui32TimeOutJiffies);
+		timeOutJiffies = schedule_timeout(timeOutJiffies);
 
 		if (bReleasePVRLock == IMG_TRUE)
 		{
@@ -349,12 +352,12 @@ PVRSRV_ERROR LinuxEventObjectWait(IMG_HANDLE hOSEventObject, IMG_UINT32 ui32MSTi
 #endif
 
 
-	} while (ui32TimeOutJiffies);
+	} while (timeOutJiffies);
 
 	finish_wait(&psLinuxEventObject->sWait, &sWait);
 
 	psLinuxEventObject->ui32TimeStampPrevious = ui32TimeStamp;
 
-	return ui32TimeOutJiffies ? PVRSRV_OK : PVRSRV_ERROR_TIMEOUT;
+	return timeOutJiffies ? PVRSRV_OK : PVRSRV_ERROR_TIMEOUT;
 
 }

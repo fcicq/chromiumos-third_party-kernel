@@ -749,11 +749,20 @@ enum mac80211_rate_control_flags {
 };
 
 
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+#define IEEE80211_TX_INFO_STATUS_DRIVER_DATA_SIZE	8
+#define IEEE80211_TX_INFO_DRIVER_DATA_SIZE		32
+#define IEEE80211_TX_INFO_RATE_DRIVER_DATA_SIZE		16
+#else
+/* status_driver_data */
+#define IEEE80211_TX_INFO_STATUS_DRIVER_DATA_SIZE	16
+
 /* there are 40 bytes if you don't need the rateset to be kept */
 #define IEEE80211_TX_INFO_DRIVER_DATA_SIZE 40
 
 /* if you do need the rateset, then you have less space */
 #define IEEE80211_TX_INFO_RATE_DRIVER_DATA_SIZE 24
+#endif
 
 /* maximum number of rate stages */
 #define IEEE80211_TX_MAX_RATES	4
@@ -880,7 +889,9 @@ struct ieee80211_tx_info {
 			u8 ampdu_len;
 			u8 antenna;
 			u16 tx_time;
-			void *status_driver_data[19 / sizeof(void *)];
+			void *status_driver_data[
+				IEEE80211_TX_INFO_STATUS_DRIVER_DATA_SIZE /
+				sizeof(void *)];
 		} status;
 		struct {
 			struct ieee80211_tx_rate driver_rates[
@@ -893,7 +904,19 @@ struct ieee80211_tx_info {
 		void *driver_data[
 			IEEE80211_TX_INFO_DRIVER_DATA_SIZE / sizeof(void *)];
 	};
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+	u32 wifi_diag_cookie;
+	u32 tx_start_time;
+#endif
 };
+
+#define IEEE80211_TX_DELAY_SHIFT	10
+static inline u32 ieee80211_txdelay_get_time(void)
+{
+	u64 ns = ktime_get_ns();
+
+	return ns >> IEEE80211_TX_DELAY_SHIFT;
+}
 
 /**
  * struct ieee80211_scan_ies - descriptors for different blocks of IEs
@@ -973,6 +996,10 @@ ieee80211_tx_info_clear_status(struct ieee80211_tx_info *info)
  * @RX_FLAG_IV_STRIPPED: The IV/ICV are stripped from this frame.
  *	If this flag is set, the stack cannot do any replay detection
  *	hence the driver or hardware will have to do that.
+ * @RX_FLAG_PN_VALIDATED: Currently only valid for CCMP/GCMP frames, this
+ *	flag indicates that the PN was verified for replay protection.
+ *	Note that this flag is also currently only supported when a frame
+ *	is also decrypted (ie. @RX_FLAG_DECRYPTED must be set)
  * @RX_FLAG_FAILED_FCS_CRC: Set this flag if the FCS check failed on
  *	the frame.
  * @RX_FLAG_FAILED_PLCP_CRC: Set this flag if the PCLP check failed on
@@ -997,9 +1024,6 @@ ieee80211_tx_info_clear_status(struct ieee80211_tx_info *info)
  * @RX_FLAG_AMPDU_DETAILS: A-MPDU details are known, in particular the reference
  *	number (@ampdu_reference) must be populated and be a distinct number for
  *	each A-MPDU
- * @RX_FLAG_AMPDU_REPORT_ZEROLEN: driver reports 0-length subframes
- * @RX_FLAG_AMPDU_IS_ZEROLEN: This is a zero-length subframe, for
- *	monitoring purposes only
  * @RX_FLAG_AMPDU_LAST_KNOWN: last subframe is known, should be set on all
  *	subframes of a single A-MPDU
  * @RX_FLAG_AMPDU_IS_LAST: this subframe is the last subframe of the A-MPDU
@@ -1039,8 +1063,8 @@ enum mac80211_rx_flags {
 	RX_FLAG_NO_SIGNAL_VAL		= BIT(12),
 	RX_FLAG_HT_GF			= BIT(13),
 	RX_FLAG_AMPDU_DETAILS		= BIT(14),
-	RX_FLAG_AMPDU_REPORT_ZEROLEN	= BIT(15),
-	RX_FLAG_AMPDU_IS_ZEROLEN	= BIT(16),
+	RX_FLAG_PN_VALIDATED		= BIT(15),
+	/* bit 16 free */
 	RX_FLAG_AMPDU_LAST_KNOWN	= BIT(17),
 	RX_FLAG_AMPDU_IS_LAST		= BIT(18),
 	RX_FLAG_AMPDU_DELIM_CRC_ERROR	= BIT(19),
@@ -1119,6 +1143,9 @@ struct ieee80211_rx_status {
 	u8 chains;
 	s8 chain_signal[IEEE80211_MAX_CHAINS];
 	u8 ampdu_delimiter_crc;
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+	u32 wifi_diag_cookie;
+#endif
 };
 
 /**
@@ -1889,6 +1916,12 @@ struct ieee80211_txq {
  *	in one command, mac80211 doesn't have to run separate scans per band.
  *
  * @NUM_IEEE80211_HW_FLAGS: number of hardware flags, used for sizing arrays
+ *
+ * @IEEE80211_HW_REPORTS_LOW_ACK: The driver (or firmware) reports low ack event
+ *     based on its own algorithm. For such devices, mac80211 does not report
+ *     low ack event based on lost packets.
+ *
+ * @NUM_IEEE80211_HW_FLAGS: number of hardware flags, used for sizing arrays
  */
 enum ieee80211_hw_flags {
 	IEEE80211_HW_HAS_RATE_CONTROL,
@@ -1920,6 +1953,7 @@ enum ieee80211_hw_flags {
 	IEEE80211_HW_CHANCTX_STA_CSA,
 	IEEE80211_HW_SUPPORTS_CLONED_SKBS,
 	IEEE80211_HW_SINGLE_SCAN_ON_ALL_BANDS,
+	IEEE80211_HW_REPORTS_LOW_ACK,
 
 	/* keep last, obviously */
 	NUM_IEEE80211_HW_FLAGS
@@ -5434,4 +5468,23 @@ void ieee80211_unreserve_tid(struct ieee80211_sta *sta, u8 tid);
  */
 struct sk_buff *ieee80211_tx_dequeue(struct ieee80211_hw *hw,
 				     struct ieee80211_txq *txq);
+
+/**
+ * ieee80211_txq_get_depth - get pending frame/byte count of given txq
+ *
+ * The values are not guaranteed to be coherent with regard to each other, i.e.
+ * txq state can change half-way of this function and the caller may end up
+ * with "new" frame_cnt and "old" byte_cnt or vice-versa.
+ *
+ * @txq: pointer obtained from station or virtual interface
+ * @frame_cnt: pointer to store frame count
+ * @byte_cnt: pointer to store byte count
+ */
+void ieee80211_txq_get_depth(struct ieee80211_txq *txq,
+			     unsigned long *frame_cnt,
+			     unsigned long *byte_cnt);
+void ieee80211_txq_get_q(struct ieee80211_txq *txq, u8 *q);
+
+void ieee80211_sta_get_txq_state(struct ieee80211_sta *sta,
+				 u8 *state);
 #endif /* MAC80211_H */

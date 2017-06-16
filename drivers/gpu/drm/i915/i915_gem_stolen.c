@@ -320,7 +320,8 @@ int i915_gem_init_stolen(struct drm_device *dev)
 					 &reserved_size);
 		break;
 	default:
-		if (IS_BROADWELL(dev_priv) || IS_SKYLAKE(dev_priv))
+		if (IS_BROADWELL(dev_priv) ||
+		    IS_SKYLAKE(dev_priv) || IS_KABYLAKE(dev))
 			bdw_get_stolen_reserved(dev_priv, &reserved_base,
 						&reserved_size);
 		else
@@ -544,7 +545,7 @@ i915_gem_object_create_stolen_for_preallocated(struct drm_device *dev,
 	vma = i915_gem_obj_lookup_or_create_vma(obj, ggtt);
 	if (IS_ERR(vma)) {
 		ret = PTR_ERR(vma);
-		goto err_out;
+		goto err;
 	}
 
 	/* To simplify the initialisation sequence between KMS and GTT,
@@ -558,23 +559,19 @@ i915_gem_object_create_stolen_for_preallocated(struct drm_device *dev,
 		ret = drm_mm_reserve_node(&ggtt->mm, &vma->node);
 		if (ret) {
 			DRM_DEBUG_KMS("failed to allocate stolen GTT space\n");
-			goto err_vma;
+			goto err;
 		}
+
+		vma->bound |= GLOBAL_BIND;
+		list_add_tail(&vma->mm_list, &ggtt->inactive_list);
 	}
 
-	vma->bound |= GLOBAL_BIND;
-
 	list_add_tail(&obj->global_list, &dev_priv->mm.bound_list);
-	list_add_tail(&vma->mm_list, &ggtt->inactive_list);
 	i915_gem_object_pin_pages(obj);
 
 	return obj;
 
-err_vma:
-	i915_gem_vma_destroy(vma);
-err_out:
-	i915_gem_stolen_remove_node(dev_priv, stolen);
-	kfree(stolen);
+err:
 	drm_gem_object_unreference(&obj->base);
 	return NULL;
 }

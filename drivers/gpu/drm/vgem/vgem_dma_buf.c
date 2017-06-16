@@ -43,12 +43,6 @@ int vgem_gem_prime_pin(struct drm_gem_object *gobj)
 	return vgem_gem_get_pages(obj);
 }
 
-void vgem_gem_prime_unpin(struct drm_gem_object *gobj)
-{
-	struct drm_vgem_gem_object *obj = to_vgem_bo(gobj);
-	vgem_gem_put_pages(obj);
-}
-
 void *vgem_gem_prime_vmap(struct drm_gem_object *gobj)
 {
 	struct drm_vgem_gem_object *obj = to_vgem_bo(gobj);
@@ -62,8 +56,38 @@ void vgem_gem_prime_vunmap(struct drm_gem_object *obj, void *vaddr)
 	vunmap(vaddr);
 }
 
-struct drm_gem_object *vgem_gem_prime_import(struct drm_device *dev,
-					     struct dma_buf *dma_buf)
+int vgem_gem_prime_mmap(struct drm_gem_object *gobj,
+			struct vm_area_struct *vma)
+{
+	struct drm_device *dev = gobj->dev;
+	struct drm_vgem_gem_object *obj = to_vgem_bo(gobj);
+	int ret;
+
+	mutex_lock(&dev->struct_mutex);
+
+	ret = vgem_gem_get_pages(obj);
+	if (ret)
+		goto out_unlock;
+
+	ret = drm_gem_mmap_obj(gobj, gobj->size, vma);
+	if (ret < 0)
+		goto out_unlock;
+
+	vma->vm_flags |= VM_MIXEDMAP;
+	vma->vm_flags &= ~VM_PFNMAP;
+
+	mutex_unlock(&dev->struct_mutex);
+	return 0;
+
+out_unlock:
+	mutex_unlock(&dev->struct_mutex);
+	return ret;
+}
+
+struct drm_gem_object *
+vgem_gem_prime_import_sg_table(struct drm_device *dev,
+			       struct dma_buf_attachment *attach,
+			       struct sg_table *sg)
 {
 	struct drm_vgem_gem_object *obj = NULL;
 	int ret;
@@ -74,16 +98,11 @@ struct drm_gem_object *vgem_gem_prime_import(struct drm_device *dev,
 		goto fail;
 	}
 
-	ret = drm_gem_object_init(dev, &obj->base, dma_buf->size);
+	ret = drm_gem_object_init(dev, &obj->base, attach->dmabuf->size);
 	if (ret) {
 		ret = -ENOMEM;
 		goto fail_free;
 	}
-
-	get_dma_buf(dma_buf);
-
-	obj->base.dma_buf = dma_buf;
-	obj->use_dma_buf = true;
 
 	return &obj->base;
 

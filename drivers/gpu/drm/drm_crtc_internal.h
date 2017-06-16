@@ -33,8 +33,8 @@
 
 int drm_mode_object_get(struct drm_device *dev,
 			struct drm_mode_object *obj, uint32_t obj_type);
-void drm_mode_object_put(struct drm_device *dev,
-			 struct drm_mode_object *object);
+void drm_mode_object_unregister(struct drm_device *dev,
+				struct drm_mode_object *object);
 
 /* drm_atomic.c */
 int drm_atomic_get_property(struct drm_mode_object *obj,
@@ -42,3 +42,5 @@ int drm_atomic_get_property(struct drm_mode_object *obj,
 int drm_mode_atomic_ioctl(struct drm_device *dev,
 			  void *data, struct drm_file *file_priv);
 
+int drm_modeset_register_all(struct drm_device *dev);
+void drm_modeset_unregister_all(struct drm_device *dev);

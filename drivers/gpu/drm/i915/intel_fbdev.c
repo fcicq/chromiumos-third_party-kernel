@@ -176,7 +176,7 @@ static int intelfb_alloc(struct drm_fb_helper *helper,
 	}
 
 	/* Flush everything out, we'll be doing GTT only from now on */
-	ret = intel_pin_and_fence_fb_obj(NULL, fb, NULL, NULL, NULL);
+	ret = intel_pin_and_fence_fb_obj(NULL, fb, NULL);
 	if (ret) {
 		DRM_ERROR("failed to pin obj: %d\n", ret);
 		goto out_fb;
@@ -374,6 +374,7 @@ intel_fb_helper_crtc(struct drm_fb_helper *fb_helper, struct drm_crtc *crtc)
 static bool intel_fb_initial_config(struct drm_fb_helper *fb_helper,
 				    struct drm_fb_helper_crtc **crtcs,
 				    struct drm_display_mode **modes,
+				    struct drm_fb_offset *offsets,
 				    bool *enabled, int width, int height)
 {
 	struct drm_device *dev = fb_helper->dev;
@@ -382,22 +383,32 @@ static bool intel_fb_initial_config(struct drm_fb_helper *fb_helper,
 	bool fallback = true;
 	int num_connectors_enabled = 0;
 	int num_connectors_detected = 0;
+	uint64_t conn_configured = 0, mask;
+	int pass = 0;
 
-	save_enabled = kcalloc(dev->mode_config.num_connector, sizeof(bool),
+	save_enabled = kcalloc(fb_helper->connector_count, sizeof(bool),
 			       GFP_KERNEL);
 	if (!save_enabled)
 		return false;
 
-	memcpy(save_enabled, enabled, dev->mode_config.num_connector);
-
+	memcpy(save_enabled, enabled, fb_helper->connector_count);
+	mask = (1 << fb_helper->connector_count) - 1;
+retry:
 	for (i = 0; i < fb_helper->connector_count; i++) {
 		struct drm_fb_helper_connector *fb_conn;
 		struct drm_connector *connector;
 		struct drm_encoder *encoder;
 		struct drm_fb_helper_crtc *new_crtc;
+		struct intel_crtc *intel_crtc;
 
 		fb_conn = fb_helper->connector_info[i];
 		connector = fb_conn->connector;
+
+		if (conn_configured & (1 << i))
+			continue;
+
+		if (pass == 0 && !connector->has_tile)
+			continue;
 
 		if (connector->status == connector_status_connected)
 			num_connectors_detected++;
@@ -405,6 +416,7 @@ static bool intel_fb_initial_config(struct drm_fb_helper *fb_helper,
 		if (!enabled[i]) {
 			DRM_DEBUG_KMS("connector %s not enabled, skipping\n",
 				      connector->name);
+			conn_configured |= (1 << i);
 			continue;
 		}
 
@@ -423,11 +435,18 @@ static bool intel_fb_initial_config(struct drm_fb_helper *fb_helper,
 			DRM_DEBUG_KMS("connector %s has no encoder or crtc, skipping\n",
 				      connector->name);
 			enabled[i] = false;
+			conn_configured |= (1 << i);
 			continue;
 		}
 
 		num_connectors_enabled++;
 
+		intel_crtc = to_intel_crtc(encoder->crtc);
+		for (j = 0; j < 256; j++) {
+			intel_crtc->lut_r[j] = j;
+			intel_crtc->lut_g[j] = j;
+			intel_crtc->lut_b[j] = j;
+		}
 		new_crtc = intel_fb_helper_crtc(fb_helper, encoder->crtc);
 
 		/*
@@ -450,8 +469,8 @@ static bool intel_fb_initial_config(struct drm_fb_helper *fb_helper,
 
 		/* try for preferred next */
 		if (!modes[i]) {
-			DRM_DEBUG_KMS("looking for preferred mode on connector %s\n",
-				      connector->name);
+			DRM_DEBUG_KMS("looking for preferred mode on connector %s %d\n",
+				      connector->name, connector->has_tile);
 			modes[i] = drm_has_preferred_mode(fb_conn, width,
 							  height);
 		}
@@ -489,6 +508,12 @@ static bool intel_fb_initial_config(struct drm_fb_helper *fb_helper,
 			      modes[i]->flags & DRM_MODE_FLAG_INTERLACE ? "i" :"");
 
 		fallback = false;
+		conn_configured |= (1 << i);
+	}
+
+	if ((conn_configured & mask) != mask) {
+		pass++;
+		goto retry;
 	}
 
 	/*
@@ -507,7 +532,7 @@ static bool intel_fb_initial_config(struct drm_fb_helper *fb_helper,
 	if (fallback) {
 bail:
 		DRM_DEBUG_KMS("Not using firmware configuration\n");
-		memcpy(enabled, save_enabled, dev->mode_config.num_connector);
+		memcpy(enabled, save_enabled, fb_helper->connector_count);
 		kfree(save_enabled);
 		return false;
 	}
@@ -539,8 +564,10 @@ static void intel_fbdev_destroy(struct drm_device *dev,
 
 	drm_fb_helper_fini(&ifbdev->helper);
 
-	drm_framebuffer_unregister_private(&ifbdev->fb->base);
-	drm_framebuffer_remove(&ifbdev->fb->base);
+	if (ifbdev->fb) {
+		drm_framebuffer_unregister_private(&ifbdev->fb->base);
+		drm_framebuffer_remove(&ifbdev->fb->base);
+	}
 }
 
 /*

@@ -82,8 +82,10 @@ gf100_gr_zbc_color_get(struct gf100_gr_priv *priv, int format,
 		}
 	}
 
-	if (zbc < 0)
+	if (zbc < 0) {
+		nv_error(priv, "no space for zbc color\n");
 		return zbc;
+	}
 
 	memcpy(priv->zbc_color[zbc].ds, ds, sizeof(priv->zbc_color[zbc].ds));
 	memcpy(priv->zbc_color[zbc].l2, l2, sizeof(priv->zbc_color[zbc].l2));
@@ -126,8 +128,10 @@ gf100_gr_zbc_depth_get(struct gf100_gr_priv *priv, int format,
 		}
 	}
 
-	if (zbc < 0)
+	if (zbc < 0) {
+		nv_error(priv, "no space for zbc depth\n");
 		return zbc;
+	}
 
 	priv->zbc_depth[zbc].format = format;
 	priv->zbc_depth[zbc].ds = ds;
@@ -145,10 +149,15 @@ static int
 gf100_fermi_mthd_zbc_color(struct nvkm_object *object, void *data, u32 size)
 {
 	struct gf100_gr_priv *priv = (void *)object->engine;
+	struct nvkm_pmu *pmu = nvkm_pmu(priv);
+	struct nvkm_ltc *ltc = nvkm_ltc(priv);
 	union {
 		struct fermi_a_zbc_color_v0 v0;
 	} *args = data;
-	int ret;
+	int ret = -EINVAL;
+
+	if (pmu->disable_elpg)
+		pmu->disable_elpg(pmu);
 
 	if (nvif_unpack(args->v0, 0, 0, false)) {
 		switch (args->v0.format) {
@@ -176,9 +185,169 @@ gf100_fermi_mthd_zbc_color(struct nvkm_object *object, void *data, u32 size)
 							   args->v0.l2);
 			if (ret >= 0) {
 				args->v0.index = ret;
-				return 0;
+				ret = 0;
 			}
 			break;
+		default:
+			nv_error(priv, "invalid zbc color %d\n", args->v0.format);
+			ret = -EINVAL;
+			break;
+		}
+	}
+
+	if (!ret)
+		pmu->save_zbc(pmu, ltc->zbc_max);
+
+	if (pmu->enable_elpg)
+		pmu->enable_elpg(pmu);
+	return ret;
+}
+
+static int
+gf100_fermi_mthd_zbc_depth(struct nvkm_object *object, void *data, u32 size)
+{
+	struct gf100_gr_priv *priv = (void *)object->engine;
+	struct nvkm_pmu *pmu = nvkm_pmu(priv);
+	struct nvkm_ltc *ltc = nvkm_ltc(priv);
+	union {
+		struct fermi_a_zbc_depth_v0 v0;
+	} *args = data;
+	int ret = -EINVAL;
+
+	if (pmu->disable_elpg)
+		pmu->disable_elpg(pmu);
+
+	if (nvif_unpack(args->v0, 0, 0, false)) {
+		switch (args->v0.format) {
+		case FERMI_A_ZBC_DEPTH_V0_FMT_FP32:
+			ret = gf100_gr_zbc_depth_get(priv, args->v0.format,
+							   args->v0.ds,
+							   args->v0.l2);
+			ret = (ret >= 0) ? 0 : -ENOSPC;
+			break;
+		default:
+			nv_error(priv, "invalid zbc depth %d\n", args->v0.format);
+			ret = -EINVAL;
+			break;
+		}
+	}
+
+	if (!ret)
+		pmu->save_zbc(pmu, ltc->zbc_max);
+
+	if (pmu->enable_elpg)
+		pmu->enable_elpg(pmu);
+	return ret;
+}
+
+static int
+gf100_fermi_mthd_zbc_query_color(struct nvkm_object *object, void *data,
+		u32 size)
+{
+	struct gf100_gr_priv *priv = (void *)object->engine;
+	union {
+		struct fermi_a_zbc_query_v0 v0;
+	} *args = data;
+	struct nvkm_ltc *ltc = nvkm_ltc(priv);
+	int ret = -EINVAL;
+
+	if (nvif_unpack(args->v0, 0, 0, false)) {
+		int i = args->v0.index;
+
+		if (i < ltc->zbc_min || i > ltc->zbc_max)
+			return -EINVAL;
+
+		args->v0.format = priv->zbc_color[i].format;
+		memcpy(args->v0.ds, priv->zbc_color[i].ds, sizeof(args->v0.ds));
+		memcpy(args->v0.l2, priv->zbc_color[i].l2, sizeof(args->v0.l2));
+		ret = 0;
+	}
+
+	return ret;
+}
+
+static int
+gf100_fermi_mthd_zbc_query_depth(struct nvkm_object *object, void *data,
+		u32 size)
+{
+	struct gf100_gr_priv *priv = (void *)object->engine;
+	union {
+		struct fermi_a_zbc_query_v0 v0;
+	} *args = data;
+	struct nvkm_ltc *ltc = nvkm_ltc(priv);
+	int ret = -EINVAL;
+
+	if (nvif_unpack(args->v0, 0, 0, false)) {
+		int i = args->v0.index;
+
+		if (i < ltc->zbc_min || i > ltc->zbc_max)
+			return -EINVAL;
+
+		args->v0.format = priv->zbc_depth[i].format;
+		args->v0.ds[0] = priv->zbc_depth[i].ds;
+		ret = 0;
+	}
+
+	return ret;
+}
+
+static int
+gf100_fermi_mthd_zbc_query_table_size(struct nvkm_object *object, void *data,
+		u32 size)
+{
+	struct gf100_gr_priv *priv = (void *)object->engine;
+	union {
+		struct fermi_a_zbc_query_v0 v0;
+	} *args = data;
+	struct nvkm_ltc *ltc = nvkm_ltc(priv);
+	int ret = -EINVAL;
+
+	if (nvif_unpack(args->v0, 0, 0, false)) {
+		args->v0.table_size = ltc->zbc_max;
+		ret = 0;
+	}
+
+	return ret;
+}
+
+static int
+gf100_gr_zcull_setup(struct gf100_gr_priv *priv,
+		struct gf100_gr_chan *chan, u32 mode, u64 gpu_va)
+{
+	struct nvkm_fifo_chan *fifo_chan;
+	struct nvkm_fifo *fifo;
+
+	fifo_chan = (void*)nv_pclass(nv_object(chan), NV_PARENT_CLASS);
+	fifo = (void*)nv_object(fifo_chan)->engine;
+
+	nvkm_fifo_chan_disable(fifo, fifo_chan);
+	WARN_ON(gf100_fifo_chan_kick(fifo_chan));
+
+	WARN_ON(mode == FERMI_A_ZCULL_BIND_MODE_SEPARATE_BUFFER && !gpu_va);
+	nv_wo32(chan, 0x1c, mode);
+	nv_wo32(chan, 0x20, gpu_va >> 8);
+
+	nvkm_fifo_chan_enable(fifo, fifo_chan);
+	return 0;
+}
+
+static int
+gf100_fermi_mthd_zcull_bind(struct nvkm_object *object, void *data, u32 size)
+{
+	struct gf100_gr_priv *priv = (void *)object->engine;
+	struct gf100_gr_chan *chan = (void *)object->parent;
+	union {
+		struct fermi_a_zcull_bind_v0 v0;
+	} *args = data;
+	int ret;
+
+	if (nvif_unpack(args->v0, 0, 0, false)) {
+		switch (args->v0.mode) {
+		case FERMI_A_ZCULL_BIND_MODE_GLOBAL:
+		case FERMI_A_ZCULL_BIND_MODE_NO_CTXSW:
+		case FERMI_A_ZCULL_BIND_MODE_SEPARATE_BUFFER:
+			return gf100_gr_zcull_setup(priv, chan,
+					args->v0.mode, args->v0.gpu_va);
 		default:
 			return -EINVAL;
 		}
@@ -187,28 +356,29 @@ gf100_fermi_mthd_zbc_color(struct nvkm_object *object, void *data, u32 size)
 	return ret;
 }
 
-static int
-gf100_fermi_mthd_zbc_depth(struct nvkm_object *object, void *data, u32 size)
+void
+gf100_gr_zcull_info(struct nvkm_gr *gr, void *data)
 {
-	struct gf100_gr_priv *priv = (void *)object->engine;
+	struct gf100_gr_priv *priv = (void *)gr;
 	union {
-		struct fermi_a_zbc_depth_v0 v0;
+		struct nv_device_zcull_info_v0 v0;
 	} *args = data;
-	int ret;
 
-	if (nvif_unpack(args->v0, 0, 0, false)) {
-		switch (args->v0.format) {
-		case FERMI_A_ZBC_DEPTH_V0_FMT_FP32:
-			ret = gf100_gr_zbc_depth_get(priv, args->v0.format,
-							   args->v0.ds,
-							   args->v0.l2);
-			return (ret >= 0) ? 0 : -ENOSPC;
-		default:
-			return -EINVAL;
-		}
-	}
+	args->v0.image_size = priv->zcull_info.image_size;
 
-	return ret;
+	args->v0.width_align_pixels = priv->zcull_info.width_align_pixels;
+	args->v0.height_align_pixels = priv->zcull_info.height_align_pixels;
+	args->v0.pixel_squares_by_aliquots = priv->zcull_info.pixel_squares_by_aliquots;
+	args->v0.aliquot_total = priv->zcull_info.aliquot_total;
+
+	args->v0.region_byte_multiplier = priv->gpc_nr * 0x20;
+	args->v0.region_header_size = 1 * 0x20;
+
+	/* gf110 (aka gf100b) and later support subregions */
+	args->v0.subregion_header_size = 0;
+	args->v0.subregion_width_align_pixels = 0;
+	args->v0.subregion_height_align_pixels = 0;
+	args->v0.subregion_count = 0;
 }
 
 static int
@@ -219,6 +389,14 @@ gf100_fermi_mthd(struct nvkm_object *object, u32 mthd, void *data, u32 size)
 		return gf100_fermi_mthd_zbc_color(object, data, size);
 	case FERMI_A_ZBC_DEPTH:
 		return gf100_fermi_mthd_zbc_depth(object, data, size);
+	case FERMI_A_ZBC_QUERY_COLOR:
+		return gf100_fermi_mthd_zbc_query_color(object, data, size);
+	case FERMI_A_ZBC_QUERY_DEPTH:
+		return gf100_fermi_mthd_zbc_query_depth(object, data, size);
+	case FERMI_A_ZBC_QUERY_TABLE_SIZE:
+		return gf100_fermi_mthd_zbc_query_table_size(object, data, size);
+	case FERMI_A_ZCULL_BIND:
+		return gf100_fermi_mthd_zcull_bind(object, data, size);
 	default:
 		break;
 	}
@@ -288,7 +466,7 @@ gf100_gr_context_ctor(struct nvkm_object *parent, struct nvkm_object *engine,
 	/* allocate memory for context, and fill with default values */
 	ret = nvkm_gr_context_create(parent, engine, oclass, NULL,
 				     priv->size, 0x100,
-				     NVOBJ_FLAG_ZERO_ALLOC, &chan);
+				     0x0, &chan);
 	*pobject = nv_object(chan);
 	if (ret)
 		return ret;
@@ -650,7 +828,8 @@ gf100_gr_zbc_init(struct gf100_gr_priv *priv)
 	struct nvkm_ltc *ltc = nvkm_ltc(priv);
 	int index;
 
-	if (!priv->zbc_color[0].format) {
+	/* index 0 is reserverd, see ltc/base.c */
+	if (!priv->zbc_color[1].format) {
 		gf100_gr_zbc_color_get(priv, 1,  & zero[0],   &zero[4]);
 		gf100_gr_zbc_color_get(priv, 2,  &  one[0],    &one[4]);
 		gf100_gr_zbc_color_get(priv, 4,  &f32_0[0],  &f32_0[4]);
@@ -663,6 +842,17 @@ gf100_gr_zbc_init(struct gf100_gr_priv *priv)
 		gf100_gr_zbc_clear_color(priv, index);
 	for (index = ltc->zbc_min; index <= ltc->zbc_max; index++)
 		gf100_gr_zbc_clear_depth(priv, index);
+}
+
+void
+gf100_gr_zcull_info_init(struct gf100_gr_priv *priv)
+{
+	priv->zcull_info.width_align_pixels = priv->tpc_total * 16;
+	priv->zcull_info.height_align_pixels = 32;
+	priv->zcull_info.pixel_squares_by_aliquots =
+		(priv->zcull_total * 16 * 16 * priv->tpc_total) /
+		(priv->gpc_nr * priv->tpc_nr[0]);
+	priv->zcull_info.aliquot_total = nv_rd32(priv, 0x500920) & 0xffff;
 }
 
 /**
@@ -1361,6 +1551,7 @@ gf100_gr_init_ctxctl(struct gf100_gr_priv *priv)
 			return -EBUSY;
 		}
 		nv_debug(priv, "FECS reply 0x16\n");
+		priv->zcull_info.image_size = nv_rd32(priv, 0x409800);
 
 		nv_wr32(priv, 0x409840, 0xffffffff);
 		nv_wr32(priv, 0x409500, 0x00000000);
@@ -1403,7 +1594,7 @@ gf100_gr_init_ctxctl(struct gf100_gr_priv *priv)
 			nv_wr32(priv, 0x40802c, 0x00000001);
 		}
 
-		if (priv->data == NULL) {
+		if (priv->data == NULL || priv->gr_recovery_in_progress) {
 			int ret = gf100_grctx_generate(priv);
 			if (ret) {
 				nv_error(priv, "failed to construct context\n");
@@ -1577,6 +1768,7 @@ gf100_gr_init(struct nvkm_object *object)
 	nv_wr32(priv, 0x400054, 0x34ce3464);
 
 	gf100_gr_zbc_init(priv);
+	gf100_gr_zcull_info_init(priv);
 
 	return gf100_gr_init_ctxctl(priv);
 }
@@ -1667,6 +1859,7 @@ gf100_gr_ctor(struct nvkm_object *parent, struct nvkm_object *engine,
 	pmu = nvkm_pmu(priv);
 
 	priv->base.units = gf100_gr_units;
+	priv->base.zcull_info = gf100_gr_zcull_info;
 
 	if (use_ext_fw) {
 		nv_info(priv, "using external firmware\n");
@@ -1707,8 +1900,11 @@ gf100_gr_ctor(struct nvkm_object *parent, struct nvkm_object *engine,
 	priv->rop_nr = (nv_rd32(priv, 0x409604) & 0x001f0000) >> 16;
 	priv->gpc_nr =  nv_rd32(priv, 0x409604) & 0x0000001f;
 	for (i = 0; i < priv->gpc_nr; i++) {
-		priv->tpc_nr[i]  = nv_rd32(priv, GPC_UNIT(i, 0x2608));
+		u32 gpc_info = nv_rd32(priv, GPC_UNIT(i, 0x2608));
+		priv->tpc_nr[i]  = gpc_info & 0x1f;
 		priv->tpc_total += priv->tpc_nr[i];
+		priv->zcull_nr[i]  = (gpc_info >> 16) & 0x1f;
+		priv->zcull_total += priv->zcull_nr[i];
 		priv->ppc_nr[i]  = oclass->ppc_nr;
 		for (j = 0; j < priv->ppc_nr[i]; j++) {
 			u8 mask = nv_rd32(priv, GPC_UNIT(i, 0x0c30 + (j * 4)));

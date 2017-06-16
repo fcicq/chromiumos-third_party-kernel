@@ -47,6 +47,16 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "pvrsrv_device_types.h"
 
 
+/* FIXME
+ * Some OSes (WinXP,CE) allocate the string on the stack, but some
+ * (Linux) use a global variable/lock instead.
+ * Would be good to use the same across all OSes.
+ *
+ * A handle is returned which represents IMG_CHAR* type on all OSes.
+ *
+ * The allocated buffer length is also returned on OSes where it's
+ * supported (e.g. Linux).
+ */
 #define MAX_PDUMP_STRING_LENGTH (256)
 #if defined(WIN32)
 #define PDUMP_GET_SCRIPT_STRING()	\
@@ -115,31 +125,34 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 	eErrorPDump = PDumpOSGetFilenameString(&pszFileName, &ui32MaxLenFileName);\
 	PVR_LOGR_IF_ERROR(eErrorPDump, "PDumpOSGetFilenameString");
 
-	/*!
-	 * @name	PDumpOSGetScriptString
-	 * @brief	Get the "script" buffer
-	 * @param	phScript - buffer handle for pdump script
-	 * @param	pui32MaxLen - max length of the script buffer
-	 * @return	error (always PVRSRV_OK on some OSes)
-	 */
+	/**************************************************************************/ /*!
+	@Function       PDumpOSGetScriptString
+	@Description    Get the handle of the PDump "script" buffer.
+	                This function is only called if PDUMP is defined.
+	@Output         phScript           Handle of the PDump script buffer
+	@Output         pui32MaxLen        max length the script buffer can be
+	@Return         PVRSRV_OK on success, a failure code otherwise.
+	*/ /**************************************************************************/
 	PVRSRV_ERROR PDumpOSGetScriptString(IMG_HANDLE *phScript, IMG_UINT32 *pui32MaxLen);
 
-	/*!
-	 * @name	PDumpOSGetMessageString
-	 * @brief	Get the "message" buffer
-	 * @param	pszMsg - buffer pointer for pdump messages
-	 * @param	pui32MaxLen - max length of the message buffer
-	 * @return	error (always PVRSRV_OK on some OSes)
-	 */
+	/**************************************************************************/ /*!
+	@Function       PDumpOSGetMessageString
+	@Description    Get the PDump "message" buffer.
+	                This function is only called if PDUMP is defined.
+	@Output         ppszMsg            Pointer to the PDump message buffer
+	@Output         pui32MaxLen        max length the message buffer can be
+	@Return         PVRSRV_OK on success, a failure code otherwise.
+	*/ /**************************************************************************/
 	PVRSRV_ERROR PDumpOSGetMessageString(IMG_CHAR **ppszMsg, IMG_UINT32 *pui32MaxLen);
 
-	/*!
-	 * @name	PDumpOSGetFilenameString
-	 * @brief	Get the "filename" buffer
-	 * @param	ppszFile - buffer pointer for filename
-	 * @param	pui32MaxLen - max length of the filename buffer
-	 * @return	error (always PVRSRV_OK on some OSes)
-	 */
+	/**************************************************************************/ /*!
+	@Function       PDumpOSGetFilenameString
+	@Description    Get the PDump "filename" buffer.
+	                This function is only called if PDUMP is defined.
+	@Output         ppszFile           Pointer to the PDump filename buffer
+	@Output         pui32MaxLen        max length the filename buffer can be
+	@Return         PVRSRV_OK on success, a failure code otherwise.
+	*/ /**************************************************************************/
 	PVRSRV_ERROR PDumpOSGetFilenameString(IMG_CHAR **ppszFile, IMG_UINT32 *pui32MaxLen);
 
 #endif /* __QNXNTO__ */
@@ -157,23 +170,56 @@ typedef struct
 	IMG_HANDLE hDeinit;      /*!< Driver/HW de-initialisation PDump stream */
 } PDUMP_CHANNEL;
 
+/**************************************************************************/ /*!
+@Function       PDumpOSInit
+@Description    Reset the connection to vldbgdrv, then try to connect to
+                PDump streams. This function is only called if PDUMP is
+                defined.
+@Input          psParam            PDump channel to be used for logging
+                                   parameters
+@Input          psScript           PDump channel to be used for logging
+                                   commands / events
+@Output         pui32InitCapMode   The initial PDump capture mode.
+@Output         ppszEnvComment     Environment-specific comment that is
+                                   output when writing to the PDump
+                                   stream (this may be NULL).
+@Return         PVRSRV_OK on success, a failure code otherwise.
+*/ /**************************************************************************/
 PVRSRV_ERROR PDumpOSInit(PDUMP_CHANNEL* psParam, PDUMP_CHANNEL* psScript,
 		IMG_UINT32* pui32InitCapMode, IMG_CHAR** ppszEnvComment);
 
+/**************************************************************************/ /*!
+@Function       PDumpOSDeInit
+@Description    Disconnect the PDump streams and close the connection to
+                vldbgdrv. This function is only called if PDUMP is defined.
+@Input          psParam            PDump parameter channel to be closed
+@Input          psScript           PDump command channel to be closed
+@Return         None
+*/ /**************************************************************************/
 void PDumpOSDeInit(PDUMP_CHANNEL* psParam, PDUMP_CHANNEL* psScript);
 
-/*!
- * @name	PDumpOSSetSplitMarker
- * @brief	Inform the PDump client to start a new file at the given marker.
- * @param	hStream - stream
- * @param   ui32Marker - byte file position
- */
+/**************************************************************************/ /*!
+@Function       PDumpOSSetSplitMarker
+@Description    Inform the PDump client to start a new file at the given
+                marker. This function is only called if PDUMP is defined.
+@Input          hStream            handle of PDump stream
+@Input          ui32Marker         byte file position
+@Return         IMG_TRUE
+*/ /**************************************************************************/
 IMG_BOOL PDumpOSSetSplitMarker(IMG_HANDLE hStream, IMG_UINT32 ui32Marker);
 
-/*
-	PDumpOSDebugDriverWrite - ENV layer write entry point from COMMON layer
-	                          A call back down the PDump software layer
- */
+/**************************************************************************/ /*!
+@Function       PDumpOSDebugDriverWrite
+@Description    Writes a given number of bytes from the specified buffer
+                to a PDump stream. This function is only called if PDUMP
+                is defined.
+@Input          psStream           handle of PDump stream to write into
+@Input          pui8Data           buffer to write data from
+@Input          ui32BCount         number of bytes to write
+@Return         The number of bytes actually written (may be less than
+                ui32BCount if there is insufficient space in the target
+                PDump stream buffer)
+*/ /**************************************************************************/
 IMG_UINT32 PDumpOSDebugDriverWrite(IMG_HANDLE psStream,
                                    IMG_UINT8 *pui8Data,
                                    IMG_UINT32 ui32BCount);
@@ -187,119 +233,114 @@ IMG_UINT32 PDumpOSDebugDriverWrite(IMG_HANDLE psStream,
 #define PDUMP_va_end	va_end
 
 
-/*!
- * @name	PDumpOSBufprintf
- * @brief	Printf to OS-specific pdump state buffer
- * @param	hBuf - buffer handle to write into
- * @param	ui32ScriptSizeMax - maximum size of data to write (not supported on all OSes)
- * @param	pszFormat - format string
- */
-PVRSRV_ERROR PDumpOSBufprintf(IMG_HANDLE hBuf, IMG_UINT32 ui32ScriptSizeMax, IMG_CHAR* pszFormat, ...) IMG_FORMAT_PRINTF(3, 4);
+/**************************************************************************/ /*!
+@Function       PDumpOSBufprintf
+@Description    Printf to OS-specific PDump state buffer. This function is
+                only called if PDUMP is defined.
+@Input          hBuf               handle of buffer to write into
+@Input          ui32ScriptSizeMax  maximum size of data to write (chars)
+@Input          pszFormat          format string
+@Return         None
+*/ /**************************************************************************/
+PVRSRV_ERROR PDumpOSBufprintf(IMG_HANDLE hBuf, IMG_UINT32 ui32ScriptSizeMax, IMG_CHAR* pszFormat, ...) __printf(3, 4);
 
-/*!
- * @name	PDumpOSDebugPrintf
- * @brief	Debug message during pdumping
- * @param	pszFormat - format string
- */
-void PDumpOSDebugPrintf(IMG_CHAR* pszFormat, ...) IMG_FORMAT_PRINTF(1, 2);
+/**************************************************************************/ /*!
+@Function       PDumpOSDebugPrintf
+@Description    Debug message during PDumping. This function is only called
+                if PDUMP is defined.
+@Input          pszFormat            format string
+@Return         None
+*/ /**************************************************************************/
+void PDumpOSDebugPrintf(IMG_CHAR* pszFormat, ...) __printf(1, 2);
 
 /*
  * Write into a IMG_CHAR* on all OSes. Can be allocated on the stack or heap.
  */
-/*!
- * @name	PDumpOSSprintf
- * @brief	Printf to IMG char array
- * @param	pszComment - char array to print into
- * @param	pszFormat - format string
- */
-PVRSRV_ERROR PDumpOSSprintf(IMG_CHAR *pszComment, IMG_UINT32 ui32ScriptSizeMax, IMG_CHAR *pszFormat, ...) IMG_FORMAT_PRINTF(3, 4);
+/**************************************************************************/ /*!
+@Function       PDumpOSSprintf
+@Description    Printf to IMG char array. This function is only called if
+                PDUMP is defined.
+@Input          ui32ScriptSizeMax    maximum size of data to write (chars)
+@Input          pszFormat            format string
+@Output         pszComment           char array to print into
+@Return         PVRSRV_OK on success, a failure code otherwise.
+*/ /**************************************************************************/
+PVRSRV_ERROR PDumpOSSprintf(IMG_CHAR *pszComment, IMG_UINT32 ui32ScriptSizeMax, IMG_CHAR *pszFormat, ...) __printf(3, 4);
 
-/*!
- * @name	PDumpOSVSprintf
- * @brief	Printf to IMG string using variable args (see stdarg.h). This is necessary
- * 			because the ... notation does not support nested function calls.
- * @param	pszMsg - char array to print into
- * @param	ui32ScriptSizeMax - maximum size of data to write (not supported on all OSes)
- * @param	pszFormat - format string
- * @param	vaArgs - variable args structure (from stdarg.h)
- */
-PVRSRV_ERROR PDumpOSVSprintf(IMG_CHAR *pszMsg, IMG_UINT32 ui32ScriptSizeMax, IMG_CHAR* pszFormat, PDUMP_va_list vaArgs) IMG_FORMAT_PRINTF(3, 0);
+/**************************************************************************/ /*!
+@Function       PDumpOSVSprintf
+@Description    Printf to IMG string using variable args (see stdarg.h).
+                This is necessary because the '...' notation does not
+                support nested function calls.
+                This function is only called if PDUMP is defined.
+@Input          ui32ScriptSizeMax    maximum size of data to write (chars)
+@Input          pszFormat            format string
+@Input          vaArgs               variable args structure (from stdarg.h)
+@Output         pszMsg               char array to print into
+@Return         PVRSRV_OK on success, a failure code otherwise.
+*/ /**************************************************************************/
+PVRSRV_ERROR PDumpOSVSprintf(IMG_CHAR *pszMsg, IMG_UINT32 ui32ScriptSizeMax, const IMG_CHAR* pszFormat, PDUMP_va_list vaArgs) __printf(3, 0);
 
-/*!
- * @name	PDumpOSBuflen
- * @param	hBuffer - handle to buffer
- * @param	ui32BuffeRSizeMax - max size of buffer (chars)
- * @return	length of buffer, will always be <= ui32BufferSizeMax
- */
+/**************************************************************************/ /*!
+@Function       PDumpOSBuflen
+@Description    Returns the length of the specified buffer (in chars).
+                This function is only called if PDUMP is defined.
+@Input          hBuffer              handle to buffer
+@Input          ui32BufferSizeMax    max size of buffer (chars)
+@Return         The length of the buffer, will always be <= ui32BufferSizeMax
+*/ /**************************************************************************/
 IMG_UINT32 PDumpOSBuflen(IMG_HANDLE hBuffer, IMG_UINT32 ui32BufferSizeMax);
 
-/*!
- * @name	PDumpOSVerifyLineEnding
- * @brief	Put line ending sequence at the end if it isn't already there
- * @param	hBuffer - handle to buffer
- * @param	ui32BufferSizeMax - max size of buffer (chars)
- */
+/**************************************************************************/ /*!
+@Function       PDumpOSVerifyLineEnding
+@Description    Put line ending sequence at the end if it isn't already
+                there. This function is only called if PDUMP is defined.
+@Input          hBuffer              handle to buffer
+@Input          ui32BufferSizeMax    max size of buffer (chars)
+@Return         None
+*/ /**************************************************************************/
 void PDumpOSVerifyLineEnding(IMG_HANDLE hBuffer, IMG_UINT32 ui32BufferSizeMax);
 
-/*!
- * @name	PDumpOSCPUVAddrToDevPAddr
- * @brief	OS function to convert CPU virtual to device physical for dumping pages
- * @param	hOSMemHandle	mem allocation handle (used if kernel virtual mem space is limited, e.g. linux)
- * @param	ui32Offset		dword offset into allocation (for use with mem handle, e.g. linux)
- * @param	pui8LinAddr		CPU linear addr (usually a kernel virtual address)
- * @param	ui32PageSize	page size, used for assertion check
- * @return	psDevPAddr		device physical addr
- */
-void PDumpOSCPUVAddrToDevPAddr(PVRSRV_DEVICE_TYPE eDeviceType,
-        IMG_HANDLE hOSMemHandle,
-		IMG_UINT32 ui32Offset,
-		IMG_UINT8 *pui8LinAddr,
-		IMG_UINT32 ui32PageSize,
-		IMG_DEV_PHYADDR *psDevPAddr);
-
-/*!
- * @name	PDumpOSCPUVAddrToPhysPages
- * @brief	OS function to convert CPU virtual to backing physical pages
- * @param	hOSMemHandle	mem allocation handle (used if kernel virtual mem space is limited, e.g. linux)
- * @param	ui32Offset		offset within mem allocation block
- * @param	pui8LinAddr		CPU linear addr
- * @param	ui32DataPageMask	mask for data page (= data page size -1)
- * @return	pui32PageOffset	CPU page offset (same as device page offset if page sizes equal)
- */
-void PDumpOSCPUVAddrToPhysPages(IMG_HANDLE hOSMemHandle,
-		IMG_UINT32 ui32Offset,
-		IMG_PUINT8 pui8LinAddr,
-		IMG_UINT32 ui32DataPageMask,
-		IMG_UINT32 *pui32PageOffset);
-
-/*!
- * @name	PDumpOSReleaseExecution
- * @brief	OS function to switch to another process, to clear pdump buffers
- */
+/**************************************************************************/ /*!
+@Function       PDumpOSReleaseExecution
+@Description    OS function to switch to another process, to clear PDump
+                buffers.
+                This function can simply wrap OSReleaseThreadQuanta.
+                This function is only called if PDUMP is defined.
+@Return         None
+*/ /**************************************************************************/
 void PDumpOSReleaseExecution(void);
 
-/*!
- * @name	PDumpOSCreateLock
- * @brief	Create the global pdump lock
- */
+/**************************************************************************/ /*!
+@Function       PDumpOSCreateLock
+@Description    Create the global pdump lock. This function is only called
+                if PDUMP is defined.
+@Return         None
+*/ /**************************************************************************/
 PVRSRV_ERROR PDumpOSCreateLock(void);
 
-/*!
- * @name	PDumpOSDestroyLock
- * @brief	Destroy the global pdump lock
- */
+/**************************************************************************/ /*!
+@Function       PDumpOSDestroyLock
+@Description    Destroy the global pdump lock This function is only called
+                if PDUMP is defined.
+@Return         None
+*/ /**************************************************************************/
 void PDumpOSDestroyLock(void);
 
-/*!
- * @name	PDumpOSLock
- * @brief	Acquire the global pdump lock
- */
+/**************************************************************************/ /*!
+@Function       PDumpOSLock
+@Description    Acquire the global pdump lock. This function is only called
+                if PDUMP is defined.
+@Return         None
+*/ /**************************************************************************/
 void PDumpOSLock(void);
 
-/*!
- * @name	PDumpOSUnlock
- * @brief	Release the global pdump lock
- */
+/**************************************************************************/ /*!
+@Function       PDumpOSUnlock
+@Description    Release the global pdump lock. This function is only called
+                if PDUMP is defined.
+@Return         None
+*/ /**************************************************************************/
 void PDumpOSUnlock(void);
 
 /*!

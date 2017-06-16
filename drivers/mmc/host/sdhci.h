@@ -401,6 +401,8 @@ struct sdhci_host {
 #define SDHCI_QUIRK2_BROKEN_64_BIT_DMA			(1<<9)
 /* Capability register bit-63 indicates HS400 support */
 #define SDHCI_QUIRK2_CAPS_BIT63_FOR_HS400		(1<<11)
+/* For frequency derived from non-ddr plls, disable ddr pll */
+#define SDHCI_QUIRK2_MMC_DISABLE_DDR_PLL_CLK_SRC	(1<<12)
 
 /* CHROMIUM */
 /* Baytrail eMMC slot needs to restrict Cx states during DMA transfer */
@@ -409,6 +411,7 @@ struct sdhci_host {
 #define SDHCI_QUIRK2_TUNING_CLOCK_OFF                  (1<<30)
 /* Reset on retune to avoid inhibit bits not released on Tegra  */
 #define SDHCI_QUIRK2_RESET_ON_TUNE_TIMEOUT		(1<<29)
+#define SDHCI_QUIRK2_RTPM_NO_RETUNE			(1<<28)
 
 	int irq;		/* Device IRQ */
 	void __iomem *ioaddr;	/* Mapped address */
@@ -517,6 +520,8 @@ struct sdhci_ops {
 #endif
 
 	void	(*set_clock)(struct sdhci_host *host, unsigned int clock);
+	void    (*set_power)(struct sdhci_host *host, unsigned char mode,
+			     unsigned short vdd);
 
 	int		(*enable_dma)(struct sdhci_host *host);
 	unsigned int	(*get_max_clock)(struct sdhci_host *host);
@@ -542,6 +547,7 @@ struct sdhci_ops {
 					 int card_drv, int *drv_type);
 	void	(*init_card)(struct sdhci_host *host, struct mmc_card *card);
 	int	(*get_max_tuning_iterations)(struct sdhci_host *sdhci);
+	void	(*platform_set_cdr)(struct sdhci_host *host, bool);
 };
 
 #ifdef CONFIG_MMC_SDHCI_IO_ACCESSORS
@@ -649,6 +655,8 @@ static inline bool sdhci_sdio_irq_enabled(struct sdhci_host *host)
 }
 
 void sdhci_set_clock(struct sdhci_host *host, unsigned int clock);
+void sdhci_set_power(struct sdhci_host *host, unsigned char mode,
+		     unsigned short vdd);
 void sdhci_set_bus_width(struct sdhci_host *host, int width);
 void sdhci_reset(struct sdhci_host *host, u8 mask);
 void sdhci_set_uhs_signaling(struct sdhci_host *host, unsigned timing);
