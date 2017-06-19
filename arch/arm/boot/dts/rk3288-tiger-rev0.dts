@@ -24,11 +24,15 @@
 		     "google,veyron-tiger-rev0", "google,veyron-tiger",
 		     "google,veyron", "rockchip,rk3288";
 
-	vccsys: vccsys {
+	backlight_regulator: backlight-regulator {
 		compatible = "regulator-fixed";
-		regulator-name = "vccsys";
-		regulator-boot-on;
-		regulator-always-on;
+		enable-active-high;
+		gpio = <&gpio2 12 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&bl_pwr_en>;
+		regulator-name = "backlight_regulator";
+		vin-supply = <&vccsys>;
+		startup-delay-us = <15000>;
 	};
 
 	panel_regulator: panel-regulator {
@@ -39,17 +43,6 @@
 		pinctrl-0 = <&lcd_enable_h>;
 		regulator-name = "panel_regulator";
 		vin-supply = <&vcc33_sys>;
-	};
-
-	backlight_regulator: backlight-regulator {
-		compatible = "regulator-fixed";
-		enable-active-high;
-		gpio = <&gpio2 12 GPIO_ACTIVE_HIGH>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&bl_pwr_en>;
-		regulator-name = "backlight_regulator";
-		vin-supply = <&vccsys>;
-		startup-delay-us = <15000>;
 	};
 
 	/* vcc33_pmuio and vcc33_io is sourced directly from vcc33_sys,
@@ -93,33 +86,12 @@
 		regulator-always-on;
 		regulator-boot-on;
 	};
-};
 
-&gpio_keys {
-	pinctrl-0 = <&pwr_key_l>;
-
-	/* let btmrvl handle bt wake */
-	/delete-node/ bt-wake;
-};
-
-&i2c3 {
-	status = "okay";
-
-	clock-frequency = <400000>;
-	i2c-scl-falling-time-ns = <50>;
-	i2c-scl-rising-time-ns = <300>;
-
-	touchscreen@10 {
-		compatible = "elan,ekth3912", "elan,ekth3500";
-		reg = <0x10>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&touch_int &touch_rst>;
-		interrupt-parent = <&gpio2>;
-		interrupts = <14 IRQ_TYPE_EDGE_FALLING>;
-		reset-gpios = <&gpio2 15 GPIO_ACTIVE_LOW>;
-		vcc33-supply = <&vcc33_io>;
-		vccio-supply = <&vcc33_io>;
-		wakeup-source;
+	vccsys: vccsys {
+		compatible = "regulator-fixed";
+		regulator-name = "vccsys";
+		regulator-boot-on;
+		regulator-always-on;
 	};
 };
 
@@ -159,6 +131,57 @@
 			240 241 242 243 244 245 246 247
 			248 249 250 251 252 253 254 255>;
 	power-supply = <&backlight_regulator>;
+};
+
+&dmc {
+	status = "disabled";
+};
+
+&edp {
+	pinctrl-names = "default";
+	pinctrl-0 = <&edp_hpd>;
+};
+
+&gmac {
+	phy-supply = <&vcc33_lan>;
+	wakeup-source;
+	mdio0 {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		compatible = "snps,dwmac-mdio";
+		phy1: ethernet-phy@1 {
+			reg = <1>;
+			enable-phy-ssc;
+		};
+	};
+};
+
+&gpio_keys {
+	pinctrl-0 = <&pwr_key_l>;
+
+	/* let btmrvl handle bt wake */
+	/delete-node/ bt-wake;
+};
+
+&i2c3 {
+	status = "okay";
+
+	clock-frequency = <400000>;
+	i2c-scl-falling-time-ns = <50>;
+	i2c-scl-rising-time-ns = <300>;
+
+	touchscreen@10 {
+		compatible = "elan,ekth3912", "elan,ekth3500";
+		reg = <0x10>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&touch_int &touch_rst>;
+		interrupt-parent = <&gpio2>;
+		interrupts = <14 IRQ_TYPE_EDGE_FALLING>;
+		reset-gpios = <&gpio2 15 GPIO_ACTIVE_LOW>;
+		vcc33-supply = <&vcc33_io>;
+		vccio-supply = <&vcc33_io>;
+		wakeup-source;
+	};
 };
 
 &panel {
@@ -230,13 +253,6 @@
 	};
 };
 
-&vcc_5v {
-	enable-active-high;
-	gpio = <&gpio7 21 GPIO_ACTIVE_HIGH>;
-	pinctrl-names = "default";
-	pinctrl-0 = <&drv_5v>;
-};
-
 &vcc50_hdmi {
 	enable-active-high;
 	gpio = <&gpio5 19 GPIO_ACTIVE_HIGH>;
@@ -244,27 +260,11 @@
 	pinctrl-0 = <&vcc50_hdmi_en>;
 };
 
-&edp {
+&vcc_5v {
+	enable-active-high;
+	gpio = <&gpio7 21 GPIO_ACTIVE_HIGH>;
 	pinctrl-names = "default";
-	pinctrl-0 = <&edp_hpd>;
-};
-
-&gmac {
-	phy-supply = <&vcc33_lan>;
-	wakeup-source;
-	mdio0 {
-		#address-cells = <1>;
-		#size-cells = <0>;
-		compatible = "snps,dwmac-mdio";
-		phy1: ethernet-phy@1 {
-			reg = <1>;
-			enable-phy-ssc;
-		};
-	};
-};
-
-&dmc {
-	status = "disabled";
+	pinctrl-0 = <&drv_5v>;
 };
 
 &pinctrl {
@@ -354,6 +354,16 @@
 		};
 	};
 
+	usb-bc12 {
+		usb_otg_ilim_sel: usb-otg-ilim-sel {
+			rockchip,pins = <6 17 RK_FUNC_GPIO &pcfg_output_low>;
+		};
+
+		usb_usb_ilim_sel: usb-usb-ilim-sel {
+			rockchip,pins = <5 15 RK_FUNC_GPIO &pcfg_output_low>;
+		};
+	};
+
 	usb-host {
 		hub_usb1_pwr_en: hub_usb1_pwr_en {
 			rockchip,pins = <5 18 RK_FUNC_GPIO &pcfg_pull_none>;
@@ -365,16 +375,6 @@
 
 		usb_otg_pwr_en: usb_otg_pwr_en {
 			rockchip,pins = <0 12 RK_FUNC_GPIO &pcfg_pull_none>;
-		};
-	};
-
-	usb-bc12 {
-		usb_otg_ilim_sel: usb-otg-ilim-sel {
-			rockchip,pins = <6 17 RK_FUNC_GPIO &pcfg_output_low>;
-		};
-
-		usb_usb_ilim_sel: usb-usb-ilim-sel {
-			rockchip,pins = <5 15 RK_FUNC_GPIO &pcfg_output_low>;
 		};
 	};
 };

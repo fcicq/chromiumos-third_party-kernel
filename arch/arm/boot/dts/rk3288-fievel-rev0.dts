@@ -23,13 +23,6 @@
 		     "google,veyron-fievel-rev0", "google,veyron-fievel",
 		     "google,veyron", "rockchip,rk3288";
 
-	vccsys: vccsys {
-		compatible = "regulator-fixed";
-		regulator-name = "vccsys";
-		regulator-boot-on;
-		regulator-always-on;
-	};
-
 	/* vcc33_pmuio and vcc33_io is sourced directly from vcc33_sys,
 	 * enabled by vcc_18 */
 	vcc33_io: vcc33-io {
@@ -70,6 +63,31 @@
 		regulator-name = "vcc5_otg";
 		regulator-always-on;
 		regulator-boot-on;
+	};
+
+	vccsys: vccsys {
+		compatible = "regulator-fixed";
+		regulator-name = "vccsys";
+		regulator-boot-on;
+		regulator-always-on;
+	};
+};
+
+&dmc {
+	status = "disabled";
+};
+
+&gmac {
+	phy-supply = <&vcc33_lan>;
+	wakeup-source;
+	mdio0 {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		compatible = "snps,dwmac-mdio";
+		phy1: ethernet-phy@1 {
+			reg = <1>;
+			enable-phy-ssc;
+		};
 	};
 };
 
@@ -149,13 +167,6 @@
 	};
 };
 
-&vcc_5v {
-	enable-active-high;
-	gpio = <&gpio7 21 GPIO_ACTIVE_HIGH>;
-	pinctrl-names = "default";
-	pinctrl-0 = <&drv_5v>;
-};
-
 &vcc50_hdmi {
 	enable-active-high;
 	gpio = <&gpio5 19 GPIO_ACTIVE_HIGH>;
@@ -163,22 +174,11 @@
 	pinctrl-0 = <&vcc50_hdmi_en>;
 };
 
-&gmac {
-	phy-supply = <&vcc33_lan>;
-	wakeup-source;
-	mdio0 {
-		#address-cells = <1>;
-		#size-cells = <0>;
-		compatible = "snps,dwmac-mdio";
-		phy1: ethernet-phy@1 {
-			reg = <1>;
-			enable-phy-ssc;
-		};
-	};
-};
-
-&dmc {
-	status = "disabled";
+&vcc_5v {
+	enable-active-high;
+	gpio = <&gpio7 21 GPIO_ACTIVE_HIGH>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&drv_5v>;
 };
 
 &pinctrl {
@@ -240,6 +240,16 @@
 		};
 	};
 
+	usb-bc12 {
+		usb_otg_ilim_sel: usb-otg-ilim-sel {
+			rockchip,pins = <6 17 RK_FUNC_GPIO &pcfg_output_low>;
+		};
+
+		usb_usb_ilim_sel: usb-usb-ilim-sel {
+			rockchip,pins = <5 15 RK_FUNC_GPIO &pcfg_output_low>;
+		};
+	};
+
 	usb-host {
 		hub_usb1_pwr_en: hub_usb1_pwr_en {
 			rockchip,pins = <5 18 RK_FUNC_GPIO &pcfg_pull_none>;
@@ -251,16 +261,6 @@
 
 		usb_otg_pwr_en: usb_otg_pwr_en {
 			rockchip,pins = <0 12 RK_FUNC_GPIO &pcfg_pull_none>;
-		};
-	};
-
-	usb-bc12 {
-		usb_otg_ilim_sel: usb-otg-ilim-sel {
-			rockchip,pins = <6 17 RK_FUNC_GPIO &pcfg_output_low>;
-		};
-
-		usb_usb_ilim_sel: usb-usb-ilim-sel {
-			rockchip,pins = <5 15 RK_FUNC_GPIO &pcfg_output_low>;
 		};
 	};
 };
