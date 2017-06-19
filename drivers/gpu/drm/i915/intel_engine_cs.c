@@ -694,8 +694,9 @@ static int gen9_init_workarounds(struct intel_engine_cs *engine)
 		   GEN9_LBS_SLA_RETRY_TIMER_DECREMENT_ENABLE);
 
 	/* WaDisableKillLogic:bxt,skl,kbl */
-	I915_WRITE(GAM_ECOCHK, I915_READ(GAM_ECOCHK) |
-		   ECOCHK_DIS_TLB);
+	if (!IS_COFFEELAKE(dev_priv))
+		I915_WRITE(GAM_ECOCHK, I915_READ(GAM_ECOCHK) |
+			   ECOCHK_DIS_TLB);
 
 	/* WaClearFlowControlGpgpuContextSave:skl,bxt,kbl,glk */
 	/* WaDisablePartialInstShootdown:skl,bxt,kbl,glk */
@@ -763,7 +764,7 @@ static int gen9_init_workarounds(struct intel_engine_cs *engine)
 	WA_SET_BIT_MASKED(HDC_CHICKEN0,
 			  HDC_FORCE_NON_COHERENT);
 
-	/* WaDisableHDCInvalidation:skl,bxt,kbl */
+	/* WaDisableHDCInvalidation:skl,bxt,kbl,cfl */
 	I915_WRITE(GAM_ECOCHK, I915_READ(GAM_ECOCHK) |
 		   BDW_DISABLE_HDC_INVALIDATION);
 
