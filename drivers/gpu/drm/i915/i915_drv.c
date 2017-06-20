@@ -1952,7 +1952,10 @@ int i915_reset_engine(struct intel_engine_cs *engine)
 	 * process to program RING_MODE, HWSP and re-enable submission.
 	 */
 	ret = engine->init_hw(engine);
+	if (ret)
+		goto out;
 
+	error->reset_engine_count[engine->id]++;
 out:
 	i915_gem_reset_finish_engine(engine);
 	return ret;
