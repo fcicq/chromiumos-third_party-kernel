@@ -38,7 +38,7 @@
 #define LPC_CNTRL_REG_OFFSET            0x84
 #define LPC_CLKRUN_EN                   (1 << 2)
 
-void __iomem *ilb_base_addr;
+static void __iomem *ilb_base_addr;
 
 static inline bool is_bsw(void)
 {
