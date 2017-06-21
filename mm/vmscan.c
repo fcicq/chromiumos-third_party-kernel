@@ -199,14 +199,13 @@ static bool sane_reclaim(struct scan_control *sc)
 
 static unsigned long zone_reclaimable_pages(struct zone *zone)
 {
-	u64 pages_min = min_filelist_kbytes >> (PAGE_SHIFT - 10);
+	unsigned long pages_min;
 	unsigned long nr;
 
 	nr = zone_page_state(zone, NR_ACTIVE_FILE) +
 	     zone_page_state(zone, NR_INACTIVE_FILE);
 
-	pages_min *= zone->managed_pages;
-	do_div(pages_min, totalram_pages);
+	pages_min = min_filelist_kbytes >> (PAGE_SHIFT - 10);
 	if (nr < pages_min)
 		nr = 0;
 
@@ -1954,16 +1953,13 @@ static bool inactive_list_is_low(struct lruvec *lruvec, enum lru_list lru)
  */
 static int file_is_low(struct lruvec *lruvec)
 {
-	unsigned long active, inactive;
+	unsigned long pages_min, active, inactive;
 	struct zone *zone = lruvec_zone(lruvec);
-	u64 pages_min = min_filelist_kbytes >> (PAGE_SHIFT - 10);
 
 	if (!mem_cgroup_disabled())
 		return false;
 
-	pages_min *= zone->managed_pages;
-	do_div(pages_min, totalram_pages);
-
+	pages_min = min_filelist_kbytes >> (PAGE_SHIFT - 10);
 	active = zone_page_state(zone, NR_ACTIVE_FILE);
 	inactive = zone_page_state(zone, NR_INACTIVE_FILE);
 
