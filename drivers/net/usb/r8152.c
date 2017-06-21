@@ -563,7 +563,6 @@ enum rtl_register_content {
 #define RTL8152_MAX_TX		4
 #define RTL8152_MAX_RX		10
 #define INTBUFSIZE		2
-#define CRC_SIZE		4
 #define TX_ALIGN		4
 #define RX_ALIGN		8
 
@@ -582,12 +581,13 @@ enum rtl_register_content {
 #define BYTE_EN_END_MASK	0xf0
 
 #define RTL8153_MAX_PACKET	9216 /* 9K */
-#define RTL8153_MAX_MTU		(RTL8153_MAX_PACKET - VLAN_ETH_HLEN - VLAN_HLEN)
-#define RTL8152_RMS		(VLAN_ETH_FRAME_LEN + VLAN_HLEN)
+#define RTL8153_MAX_MTU		(RTL8153_MAX_PACKET - VLAN_ETH_HLEN - \
+				 ETH_FCS_LEN)
+#define RTL8152_RMS		(VLAN_ETH_FRAME_LEN + ETH_FCS_LEN)
 #define RTL8153_RMS		RTL8153_MAX_PACKET
 #define RTL8152_TX_TIMEOUT	(5 * HZ)
 #define RTL8152_NAPI_WEIGHT	64
-#define rx_reserved_size(x)	((x) + VLAN_ETH_HLEN + CRC_SIZE + \
+#define rx_reserved_size(x)	((x) + VLAN_ETH_HLEN + ETH_FCS_LEN + \
 				 sizeof(struct rx_desc) + RX_ALIGN)
 
 /* rtl8152 flags */
@@ -764,7 +764,7 @@ static const int multicast_filter_limit = 32;
 static unsigned int agg_buf_sz = 16384;
 
 #define RTL_LIMITED_TSO_SIZE	(agg_buf_sz - sizeof(struct tx_desc) - \
-				 VLAN_ETH_HLEN - VLAN_HLEN)
+				 VLAN_ETH_HLEN - ETH_FCS_LEN)
 
 static
 int get_registers(struct r8152 *tp, u16 value, u16 index, u16 size, void *data)
@@ -1857,7 +1857,7 @@ static int rx_bottom(struct r8152 *tp, int budget)
 			if (urb->actual_length < len_used)
 				break;
 
-			pkt_len -= CRC_SIZE;
+			pkt_len -= ETH_FCS_LEN;
 			rx_data += sizeof(struct rx_desc);
 
 			skb = netdev_alloc_skb_ip_align(netdev, pkt_len);
@@ -1881,7 +1881,7 @@ static int rx_bottom(struct r8152 *tp, int budget)
 			}
 
 find_next_rx:
-			rx_data = rx_agg_align(rx_data + pkt_len + CRC_SIZE);
+			rx_data = rx_agg_align(rx_data + pkt_len + ETH_FCS_LEN);
 			rx_desc = (struct rx_desc *)rx_data;
 			len_used = (int)(rx_data - (u8 *)agg->head);
 			len_used += sizeof(struct rx_desc);
@@ -2153,7 +2153,7 @@ static void set_tx_qlen(struct r8152 *tp)
 {
 	struct net_device *netdev = tp->netdev;
 
-	tp->tx_qlen = agg_buf_sz / (netdev->mtu + VLAN_ETH_HLEN + VLAN_HLEN +
+	tp->tx_qlen = agg_buf_sz / (netdev->mtu + VLAN_ETH_HLEN + ETH_FCS_LEN +
 				    sizeof(struct tx_desc));
 }
 
@@ -3356,7 +3356,7 @@ static void r8153_first_init(struct r8152 *tp)
 
 	rtl_rx_vlan_en(tp, tp->netdev->features & NETIF_F_HW_VLAN_CTAG_RX);
 
-	ocp_data = tp->netdev->mtu + VLAN_ETH_HLEN + CRC_SIZE;
+	ocp_data = tp->netdev->mtu + VLAN_ETH_HLEN + ETH_FCS_LEN;
 	ocp_write_word(tp, MCU_TYPE_PLA, PLA_RMS, ocp_data);
 	ocp_write_byte(tp, MCU_TYPE_PLA, PLA_MTPS, MTPS_JUMBO);
 
@@ -3406,7 +3406,7 @@ static void r8153_enter_oob(struct r8152 *tp)
 		usleep_range(1000, 2000);
 	}
 
-	ocp_data = tp->netdev->mtu + VLAN_ETH_HLEN + CRC_SIZE;
+	ocp_data = tp->netdev->mtu + VLAN_ETH_HLEN + ETH_FCS_LEN;
 	ocp_write_word(tp, MCU_TYPE_PLA, PLA_RMS, ocp_data);
 
 	switch (tp->version) {
@@ -4874,7 +4874,7 @@ static int rtl8152_change_mtu(struct net_device *dev, int new_mtu)
 	dev->mtu = new_mtu;
 
 	if (netif_running(dev)) {
-		u32 rms = new_mtu + VLAN_ETH_HLEN + CRC_SIZE;
+		u32 rms = new_mtu + VLAN_ETH_HLEN + ETH_FCS_LEN;
 
 		ocp_write_word(tp, MCU_TYPE_PLA, PLA_RMS, rms);
 
