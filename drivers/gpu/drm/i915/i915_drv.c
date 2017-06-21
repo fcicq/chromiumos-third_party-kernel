@@ -172,8 +172,8 @@ static void intel_detect_pch(struct drm_i915_private *dev_priv)
 	while ((pch = pci_get_class(PCI_CLASS_BRIDGE_ISA << 8, pch))) {
 		if (pch->vendor == PCI_VENDOR_ID_INTEL) {
 			unsigned short id = pch->device & INTEL_PCH_DEVICE_ID_MASK;
-			unsigned short id_ext = pch->device &
-				INTEL_PCH_DEVICE_ID_MASK_EXT;
+
+			dev_priv->pch_id = id;
 
 			dev_priv->pch_id = id;
 
@@ -206,12 +206,28 @@ static void intel_detect_pch(struct drm_i915_private *dev_priv)
 					!IS_BROADWELL(dev_priv));
 				WARN_ON(!IS_HSW_ULT(dev_priv) &&
 					!IS_BDW_ULT(dev_priv));
+			} else if (id == INTEL_PCH_WPT_DEVICE_ID_TYPE) {
+				/* WildcatPoint is LPT compatible */
+				dev_priv->pch_type = PCH_LPT;
+				DRM_DEBUG_KMS("Found WildcatPoint PCH\n");
+				WARN_ON(!IS_HASWELL(dev_priv) &&
+					!IS_BROADWELL(dev_priv));
+				WARN_ON(IS_HSW_ULT(dev_priv) ||
+					IS_BDW_ULT(dev_priv));
+			} else if (id == INTEL_PCH_WPT_LP_DEVICE_ID_TYPE) {
+				/* WildcatPoint is LPT compatible */
+				dev_priv->pch_type = PCH_LPT;
+				DRM_DEBUG_KMS("Found WildcatPoint LP PCH\n");
+				WARN_ON(!IS_HASWELL(dev_priv) &&
+					!IS_BROADWELL(dev_priv));
+				WARN_ON(!IS_HSW_ULT(dev_priv) &&
+					!IS_BDW_ULT(dev_priv));
 			} else if (id == INTEL_PCH_SPT_DEVICE_ID_TYPE) {
 				dev_priv->pch_type = PCH_SPT;
 				DRM_DEBUG_KMS("Found SunrisePoint PCH\n");
 				WARN_ON(!IS_SKYLAKE(dev_priv) &&
 					!IS_KABYLAKE(dev_priv));
-			} else if (id_ext == INTEL_PCH_SPT_LP_DEVICE_ID_TYPE) {
+			} else if (id == INTEL_PCH_SPT_LP_DEVICE_ID_TYPE) {
 				dev_priv->pch_type = PCH_SPT;
 				DRM_DEBUG_KMS("Found SunrisePoint LP PCH\n");
 				WARN_ON(!IS_SKYLAKE(dev_priv) &&
