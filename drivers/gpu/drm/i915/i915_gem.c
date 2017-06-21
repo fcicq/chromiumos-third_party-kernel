@@ -3060,6 +3060,13 @@ static void engine_set_wedged(struct intel_engine_cs *engine)
 		engine->execlist_first = NULL;
 
 		spin_unlock_irqrestore(&engine->timeline->lock, flags);
+
+		/* The port is checked prior to scheduling a tasklet, but
+		 * just in case we have suspended the tasklet to do the
+		 * wedging make sure that when it wakes, it decides there
+		 * is no work to do by clearing the irq_posted bit.
+		 */
+		clear_bit(ENGINE_IRQ_EXECLIST, &engine->irq_posted);
 	}
 
 	/* Mark all pending requests as complete so that any concurrent
