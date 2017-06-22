@@ -1904,6 +1904,7 @@ wakeup:
 
 error:
 	i915_gem_set_wedged(dev_priv);
+	i915_gem_retire_requests(dev_priv);
 	goto finish;
 }
 
