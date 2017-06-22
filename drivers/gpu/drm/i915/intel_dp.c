@@ -1411,8 +1411,10 @@ static bool intel_dp_read_desc(struct intel_dp *intel_dp)
 	if (!__intel_dp_read_desc(intel_dp, desc))
 		return false;
 
-	intel_dp->is_ps8617 = drm_dp_branch_is_ps8617(desc->oui);
-	intel_dp->is_dellda200 = drm_dp_branch_is_dellda200(desc->oui);
+	if (drm_dp_is_branch(intel_dp->dpcd)) {
+		intel_dp->is_ps8617 = drm_dp_branch_is_ps8617(desc->oui);
+		intel_dp->is_dellda200 = drm_dp_branch_is_dellda200(desc->oui);
+	}
 
 	dev_id_len = strnlen(desc->device_id, sizeof(desc->device_id));
 	DRM_DEBUG_KMS("DP %s: OUI %*phD%s dev-ID %*pE HW-rev %d.%d SW-rev %d.%d\n",
