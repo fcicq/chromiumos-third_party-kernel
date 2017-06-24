@@ -741,6 +741,7 @@ struct iommu_group *generic_device_group(struct device *dev)
 
 	return group;
 }
+EXPORT_SYMBOL_GPL(generic_device_group);
 
 /*
  * Use standard PCI bus topology, isolation features, and DMA alias quirks
@@ -812,6 +813,7 @@ struct iommu_group *pci_device_group(struct device *dev)
 
 	return group;
 }
+EXPORT_SYMBOL_GPL(pci_device_group);
 
 /**
  * iommu_group_get_for_dev - Find or create the IOMMU group for a device
@@ -860,11 +862,13 @@ struct iommu_group *iommu_group_get_for_dev(struct device *dev)
 
 	return group;
 }
+EXPORT_SYMBOL_GPL(iommu_group_get_for_dev);
 
 struct iommu_domain *iommu_group_default_domain(struct iommu_group *group)
 {
 	return group->default_domain;
 }
+EXPORT_SYMBOL_GPL(iommu_group_default_domain);
 
 static int add_iommu_group(struct device *dev, void *data)
 {
@@ -1567,6 +1571,7 @@ void iommu_get_dm_regions(struct device *dev, struct list_head *list)
 	if (ops && ops->get_dm_regions)
 		ops->get_dm_regions(dev, list);
 }
+EXPORT_SYMBOL_GPL(iommu_get_dm_regions);
 
 void iommu_put_dm_regions(struct device *dev, struct list_head *list)
 {
@@ -1575,6 +1580,7 @@ void iommu_put_dm_regions(struct device *dev, struct list_head *list)
 	if (ops && ops->put_dm_regions)
 		ops->put_dm_regions(dev, list);
 }
+EXPORT_SYMBOL_GPL(iommu_put_dm_regions);
 
 /* Request that a device is direct mapped by the IOMMU */
 int iommu_request_dm_for_dev(struct device *dev)
@@ -1628,3 +1634,4 @@ out:
 
 	return ret;
 }
+EXPORT_SYMBOL_GPL(iommu_request_dm_for_dev);
