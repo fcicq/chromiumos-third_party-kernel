@@ -686,11 +686,8 @@ int tpm_tis_init_generic(struct device *dev, struct tpm_chip *chip, unsigned int
 			goto out_err;
 		}
 
-		if (tpm_do_selftest(chip)) {
-			dev_err(dev, "TPM self test failed\n");
-			rc = -ENODEV;
-			goto out_err;
-		}
+		if (tpm_do_selftest(chip))
+			dev_err(dev, "TPM self test failed - ignoring\n");
 	}
 
 	return tpm_chip_register(chip);
