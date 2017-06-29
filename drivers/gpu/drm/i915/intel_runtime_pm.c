@@ -2639,6 +2639,8 @@ static void skl_display_core_uninit(struct drm_i915_private *dev_priv)
 	intel_power_well_disable(dev_priv, well);
 
 	mutex_unlock(&power_domains->lock);
+
+	usleep_range(10, 30);		/* 10 us delay per Bspec */
 }
 
 void bxt_display_core_init(struct drm_i915_private *dev_priv,
@@ -2696,6 +2698,8 @@ void bxt_display_core_uninit(struct drm_i915_private *dev_priv)
 	intel_power_well_disable(dev_priv, well);
 
 	mutex_unlock(&power_domains->lock);
+
+	usleep_range(10, 30);		/* 10 us delay per Bspec */
 }
 
 #define CNL_PROCMON_IDX(val) \
@@ -2796,6 +2800,8 @@ static void cnl_display_core_uninit(struct drm_i915_private *dev_priv)
 	well = lookup_power_well(dev_priv, SKL_DISP_PW_1);
 	intel_power_well_disable(dev_priv, well);
 	mutex_unlock(&power_domains->lock);
+
+	usleep_range(10, 30);		/* 10 us delay per Bspec */
 
 	/* 5. Disable Comp */
 	val = I915_READ(CHICKEN_MISC_2);
