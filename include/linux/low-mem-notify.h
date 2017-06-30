@@ -14,6 +14,8 @@ extern unsigned long low_mem_lowest_seen_anon_mem;
 extern const unsigned long low_mem_anon_mem_delta;
 extern unsigned int low_mem_ram_vs_swap_weight;
 
+extern int min_free_kbytes;
+
 /*
  * Compute available memory used by files that can be reclaimed quickly.
  */
