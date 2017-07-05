@@ -1489,7 +1489,7 @@ struct sk_buff *ieee80211_tx_dequeue(struct ieee80211_hw *hw,
 	if (test_bit(IEEE80211_TXQ_STOP, &txqi->flags))
 		goto out;
 
-	skb = fq_tin_dequeue(fq, tin, fq_tin_dequeue_func);
+	skb = fq_tin_dequeue_frame(fq, tin, fq_tin_dequeue_func);
 	if (!skb)
 		goto out;
 

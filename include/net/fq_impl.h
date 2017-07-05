@@ -46,9 +46,12 @@ static struct sk_buff *fq_flow_dequeue(struct fq *fq,
 	return skb;
 }
 
-static struct sk_buff *fq_tin_dequeue(struct fq *fq,
-				      struct fq_tin *tin,
-				      fq_tin_dequeue_t dequeue_func)
+#define FQ_DEFICIT_TYPE_BYTE	0
+#define FQ_DEFICIT_TYPE_FRAME	1
+static struct sk_buff *_fq_tin_dequeue(struct fq *fq,
+				       struct fq_tin *tin,
+				       fq_tin_dequeue_t dequeue_func,
+				       int deficit_type)
 {
 	struct fq_flow *flow;
 	struct list_head *head;
@@ -86,11 +89,29 @@ begin:
 		goto begin;
 	}
 
-	flow->deficit -= skb->len;
+	if (deficit_type == FQ_DEFICIT_TYPE_BYTE)
+		flow->deficit -= skb->len;
+	else
+		flow->deficit -= 1;
+
 	tin->tx_bytes += skb->len;
 	tin->tx_packets++;
 
 	return skb;
+}
+
+inline struct sk_buff *fq_tin_dequeue(struct fq *fq,
+				      struct fq_tin *tin,
+				      fq_tin_dequeue_t dequeue_func)
+{
+	return _fq_tin_dequeue(fq, tin, dequeue_func, FQ_DEFICIT_TYPE_BYTE);
+}
+
+inline struct sk_buff *fq_tin_dequeue_frame(struct fq *fq,
+				      struct fq_tin *tin,
+				      fq_tin_dequeue_t dequeue_func)
+{
+	return _fq_tin_dequeue(fq, tin, dequeue_func, FQ_DEFICIT_TYPE_FRAME);
 }
 
 static struct fq_flow *fq_flow_classify(struct fq *fq,
