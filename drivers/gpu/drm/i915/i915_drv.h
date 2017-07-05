@@ -135,7 +135,7 @@ static inline bool is_fixed16_zero(uint_fixed_16_16_t val)
 	return false;
 }
 
-static inline uint_fixed_16_16_t u32_to_fixed_16_16(uint32_t val)
+static inline uint_fixed_16_16_t u32_to_fixed16(uint32_t val)
 {
 	uint_fixed_16_16_t fp;
 
@@ -145,17 +145,17 @@ static inline uint_fixed_16_16_t u32_to_fixed_16_16(uint32_t val)
 	return fp;
 }
 
-static inline uint32_t fixed_16_16_to_u32_round_up(uint_fixed_16_16_t fp)
+static inline uint32_t fixed16_to_u32_round_up(uint_fixed_16_16_t fp)
 {
 	return DIV_ROUND_UP(fp.val, 1 << 16);
 }
 
-static inline uint32_t fixed_16_16_to_u32(uint_fixed_16_16_t fp)
+static inline uint32_t fixed16_to_u32(uint_fixed_16_16_t fp)
 {
 	return fp.val >> 16;
 }
 
-static inline uint_fixed_16_16_t min_fixed_16_16(uint_fixed_16_16_t min1,
+static inline uint_fixed_16_16_t min_fixed16(uint_fixed_16_16_t min1,
 						 uint_fixed_16_16_t min2)
 {
 	uint_fixed_16_16_t min;
@@ -164,7 +164,7 @@ static inline uint_fixed_16_16_t min_fixed_16_16(uint_fixed_16_16_t min1,
 	return min;
 }
 
-static inline uint_fixed_16_16_t max_fixed_16_16(uint_fixed_16_16_t max1,
+static inline uint_fixed_16_16_t max_fixed16(uint_fixed_16_16_t max1,
 						 uint_fixed_16_16_t max2)
 {
 	uint_fixed_16_16_t max;
@@ -205,7 +205,7 @@ static inline uint_fixed_16_16_t mul_fixed16(uint_fixed_16_16_t val,
 	return fp;
 }
 
-static inline uint_fixed_16_16_t fixed_16_16_div(uint32_t val, uint32_t d)
+static inline uint_fixed_16_16_t div_fixed16(uint32_t val, uint32_t d)
 {
 	uint_fixed_16_16_t res;
 	uint64_t interm_val;
@@ -229,7 +229,7 @@ static inline uint32_t div_round_up_u32_fixed16(uint32_t val,
 	return clamp_t(uint32_t, interm_val, 0, ~0);
 }
 
-static inline uint_fixed_16_16_t mul_u32_fixed_16_16(uint32_t val,
+static inline uint_fixed_16_16_t mul_u32_fixed16(uint32_t val,
 						     uint_fixed_16_16_t mul)
 {
 	uint64_t intermediate_val;
