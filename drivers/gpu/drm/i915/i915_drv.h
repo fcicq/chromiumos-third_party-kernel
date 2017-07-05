@@ -207,15 +207,6 @@ static inline uint_fixed_16_16_t mul_fixed16(uint_fixed_16_16_t val,
 
 static inline uint_fixed_16_16_t fixed_16_16_div(uint32_t val, uint32_t d)
 {
-	uint_fixed_16_16_t fp, res;
-
-	fp = u32_to_fixed_16_16(val);
-	res.val = DIV_ROUND_UP(fp.val, d);
-	return res;
-}
-
-static inline uint_fixed_16_16_t fixed_16_16_div_u64(uint32_t val, uint32_t d)
-{
 	uint_fixed_16_16_t res;
 	uint64_t interm_val;
 
