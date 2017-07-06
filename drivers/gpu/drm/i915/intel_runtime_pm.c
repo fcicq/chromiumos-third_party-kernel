@@ -2006,6 +2006,7 @@ static struct i915_power_well i9xx_always_on_power_well[] = {
 		.always_on = 1,
 		.domains = POWER_DOMAIN_MASK,
 		.ops = &i9xx_always_on_power_well_ops,
+		.id = I915_DISP_PW_ALWAYS_ON,
 	},
 };
 
@@ -2022,6 +2023,7 @@ static struct i915_power_well i830_power_wells[] = {
 		.always_on = 1,
 		.domains = POWER_DOMAIN_MASK,
 		.ops = &i9xx_always_on_power_well_ops,
+		.id = I915_DISP_PW_ALWAYS_ON,
 	},
 	{
 		.name = "pipes",
@@ -2064,6 +2066,7 @@ static struct i915_power_well hsw_power_wells[] = {
 		.always_on = 1,
 		.domains = POWER_DOMAIN_MASK,
 		.ops = &i9xx_always_on_power_well_ops,
+		.id = I915_DISP_PW_ALWAYS_ON,
 	},
 	{
 		.name = "display",
@@ -2078,6 +2081,7 @@ static struct i915_power_well bdw_power_wells[] = {
 		.always_on = 1,
 		.domains = POWER_DOMAIN_MASK,
 		.ops = &i9xx_always_on_power_well_ops,
+		.id = I915_DISP_PW_ALWAYS_ON,
 	},
 	{
 		.name = "display",
@@ -2171,6 +2175,7 @@ static struct i915_power_well chv_power_wells[] = {
 		.always_on = 1,
 		.domains = POWER_DOMAIN_MASK,
 		.ops = &i9xx_always_on_power_well_ops,
+		.id = I915_DISP_PW_ALWAYS_ON,
 	},
 	{
 		.name = "display",
@@ -2275,6 +2280,7 @@ static struct i915_power_well bxt_power_wells[] = {
 		.always_on = 1,
 		.domains = POWER_DOMAIN_MASK,
 		.ops = &i9xx_always_on_power_well_ops,
+		.id = I915_DISP_PW_ALWAYS_ON,
 	},
 	{
 		.name = "power well 1",
@@ -2316,6 +2322,7 @@ static struct i915_power_well glk_power_wells[] = {
 		.always_on = 1,
 		.domains = POWER_DOMAIN_MASK,
 		.ops = &i9xx_always_on_power_well_ops,
+		.id = I915_DISP_PW_ALWAYS_ON,
 	},
 	{
 		.name = "power well 1",
@@ -2401,6 +2408,7 @@ static struct i915_power_well cnl_power_wells[] = {
 		.always_on = 1,
 		.domains = POWER_DOMAIN_MASK,
 		.ops = &i9xx_always_on_power_well_ops,
+		.id = I915_DISP_PW_ALWAYS_ON,
 	},
 	{
 		.name = "power well 1",
