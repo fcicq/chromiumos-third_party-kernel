@@ -50,10 +50,11 @@
  */
 
 bool intel_display_power_well_is_enabled(struct drm_i915_private *dev_priv,
-				    int power_well_id);
+					 enum i915_power_well_id power_well_id);
 
 static struct i915_power_well *
-lookup_power_well(struct drm_i915_private *dev_priv, int power_well_id);
+lookup_power_well(struct drm_i915_private *dev_priv,
+		  enum i915_power_well_id power_well_id);
 
 const char *
 intel_display_power_domain_str(enum intel_display_power_domain domain)
@@ -344,7 +345,7 @@ static void skl_power_well_pre_disable(struct drm_i915_private *dev_priv,
 static void gen9_wait_for_power_well_enable(struct drm_i915_private *dev_priv,
 					    struct i915_power_well *power_well)
 {
-	int id = power_well->id;
+	enum i915_power_well_id id = power_well->id;
 
 	/* Timeout for PW1:10 us, AUX:not specified, other PWs:20 us. */
 	WARN_ON(intel_wait_for_register(dev_priv,
@@ -354,7 +355,8 @@ static void gen9_wait_for_power_well_enable(struct drm_i915_private *dev_priv,
 					1));
 }
 
-static u32 gen9_power_well_requesters(struct drm_i915_private *dev_priv, int id)
+static u32 gen9_power_well_requesters(struct drm_i915_private *dev_priv,
+				      enum i915_power_well_id id)
 {
 	u32 req_mask = SKL_POWER_WELL_REQ(id);
 	u32 ret;
@@ -370,7 +372,7 @@ static u32 gen9_power_well_requesters(struct drm_i915_private *dev_priv, int id)
 static void gen9_wait_for_power_well_disable(struct drm_i915_private *dev_priv,
 					     struct i915_power_well *power_well)
 {
-	int id = power_well->id;
+	enum i915_power_well_id id = power_well->id;
 	bool disabled;
 	u32 reqs;
 
@@ -671,7 +673,7 @@ static void skl_set_power_well(struct drm_i915_private *dev_priv,
 	case CNL_DISP_PW_AUX_D:
 		break;
 	default:
-		WARN(1, "Unknown power well %lu\n", power_well->id);
+		WARN(1, "Unknown power well %u\n", power_well->id);
 		return;
 	}
 
@@ -886,7 +888,7 @@ static bool i9xx_always_on_power_well_enabled(struct drm_i915_private *dev_priv,
 static void vlv_set_power_well(struct drm_i915_private *dev_priv,
 			       struct i915_power_well *power_well, bool enable)
 {
-	enum punit_power_well power_well_id = power_well->id;
+	enum i915_power_well_id power_well_id = power_well->id;
 	u32 mask;
 	u32 state;
 	u32 ctrl;
@@ -934,7 +936,7 @@ static void vlv_power_well_disable(struct drm_i915_private *dev_priv,
 static bool vlv_power_well_enabled(struct drm_i915_private *dev_priv,
 				   struct i915_power_well *power_well)
 {
-	int power_well_id = power_well->id;
+	enum i915_power_well_id power_well_id = power_well->id;
 	bool enabled = false;
 	u32 mask;
 	u32 state;
@@ -1121,8 +1123,9 @@ static void vlv_dpio_cmn_power_well_disable(struct drm_i915_private *dev_priv,
 
 #define POWER_DOMAIN_MASK (GENMASK_ULL(POWER_DOMAIN_NUM - 1, 0))
 
-static struct i915_power_well *lookup_power_well(struct drm_i915_private *dev_priv,
-						 int power_well_id)
+static struct i915_power_well *
+lookup_power_well(struct drm_i915_private *dev_priv,
+		  enum i915_power_well_id power_well_id)
 {
 	struct i915_power_domains *power_domains = &dev_priv->power_domains;
 	int i;
@@ -2057,7 +2060,7 @@ static struct i915_power_well vlv_power_wells[] = {
 		.always_on = 1,
 		.domains = POWER_DOMAIN_MASK,
 		.ops = &i9xx_always_on_power_well_ops,
-		.id = PUNIT_POWER_WELL_ALWAYS_ON,
+		.id = I915_DISP_PW_ALWAYS_ON,
 	},
 	{
 		.name = "display",
@@ -2142,7 +2145,7 @@ static struct i915_power_well chv_power_wells[] = {
 };
 
 bool intel_display_power_well_is_enabled(struct drm_i915_private *dev_priv,
-				    int power_well_id)
+					 enum i915_power_well_id power_well_id)
 {
 	struct i915_power_well *power_well;
 	bool ret;
@@ -2159,7 +2162,7 @@ static struct i915_power_well skl_power_wells[] = {
 		.always_on = 1,
 		.domains = POWER_DOMAIN_MASK,
 		.ops = &i9xx_always_on_power_well_ops,
-		.id = SKL_DISP_PW_ALWAYS_ON,
+		.id = I915_DISP_PW_ALWAYS_ON,
 	},
 	{
 		.name = "power well 1",
