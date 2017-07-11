@@ -2404,6 +2404,8 @@ static void nau8825_print_device_properties(struct nau8825 *nau8825)
 			nau8825->jack_insert_debounce);
 	dev_dbg(dev, "jack-eject-debounce:  %d\n",
 			nau8825->jack_eject_debounce);
+	dev_dbg(dev, "crosstalk-bypass:     %d\n",
+			nau8825->xtalk_bypass);
 }
 
 static int nau8825_read_device_properties(struct device *dev,
@@ -2468,10 +2470,8 @@ static int nau8825_read_device_properties(struct device *dev,
 		&nau8825->jack_eject_debounce);
 	if (ret)
 		nau8825->jack_eject_debounce = 0;
-	ret = device_property_read_u32(dev, "nuvoton,crosstalk-bypass",
-		&nau8825->xtalk_bypass);
-	if (ret)
-		nau8825->xtalk_bypass = 1;
+	nau8825->xtalk_bypass = device_property_read_bool(dev,
+		"nuvoton,crosstalk-bypass");
 
 	nau8825->mclk = devm_clk_get(dev, "mclk");
 	if (PTR_ERR(nau8825->mclk) == -EPROBE_DEFER) {
