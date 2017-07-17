@@ -1698,18 +1698,20 @@
 		#size-cells = <0>;
 		status = "disabled";
 
-		mipi_in: port {
-			#address-cells = <1>;
-			#size-cells = <0>;
+		ports {
+			mipi_in: port {
+				#address-cells = <1>;
+				#size-cells = <0>;
 
-			mipi_in_vopb: endpoint@0 {
-				reg = <0>;
-				remote-endpoint = <&vopb_out_mipi>;
-			};
+				mipi_in_vopb: endpoint@0 {
+					reg = <0>;
+					remote-endpoint = <&vopb_out_mipi>;
+				};
 
-			mipi_in_vopl: endpoint@1 {
-				reg = <1>;
-				remote-endpoint = <&vopl_out_mipi>;
+				mipi_in_vopl: endpoint@1 {
+					reg = <1>;
+					remote-endpoint = <&vopl_out_mipi>;
+				};
 			};
 		};
 	};
