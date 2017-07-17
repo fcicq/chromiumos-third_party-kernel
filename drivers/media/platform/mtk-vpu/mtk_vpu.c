@@ -31,7 +31,7 @@
  * related to video codec, scaling and color format converting.
  * VPU interfaces with other blocks by share memory and interrupt.
  **/
-#define VPU_FW_VERSION		"1.0.4"
+#define VPU_FW_VERSION		"1.0.5"
 
 #define INIT_TIMEOUT_MS		2000U
 #define IPI_TIMEOUT_MS		2000U
