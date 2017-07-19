@@ -333,8 +333,10 @@
 				<0 0 0 4 &pcie0_intc 3>;
 		linux,pci-domain = <0>;
 		msi-map = <0x0 &its 0x0 0x1000>;
-		phys = <&pcie_phy>;
-		phy-names = "pcie-phy";
+		phys = <&pcie_phy 0>, <&pcie_phy 1>,
+		       <&pcie_phy 2>, <&pcie_phy 3>;
+		phy-names = "pcie-phy-0", "pcie-phy-1",
+			    "pcie-phy-2", "pcie-phy-3";
 
 		aspm-no-l0s;
 
@@ -1366,7 +1368,7 @@
 			clock-names = "refclk";
 			resets = <&cru SRST_PCIEPHY>;
 			reset-names = "phy";
-			#phy-cells = <0>;
+			#phy-cells = <1>;
 			status = "disabled";
 		};
 
