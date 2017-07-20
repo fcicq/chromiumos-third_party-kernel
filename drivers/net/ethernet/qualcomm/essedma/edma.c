@@ -191,12 +191,6 @@ static int edma_alloc_rx_buf(struct edma_common_info
 
 	i = erdr->sw_next_to_fill;
 
-	/* If memory is critically low, take a break. 2000 pages is slightly
-	 * larger than 2x the minmium free memory needed to prevent OOM panic.
-	 */
-	if (global_page_state(NR_FREE_PAGES) < 2000)
-		return cleaned_count;
-
 	while (cleaned_count) {
 		sw_desc = &erdr->sw_desc[i];
 		length = edma_cinfo->rx_head_buffer_len;
@@ -257,11 +251,6 @@ static int edma_alloc_rx_buf(struct edma_common_info
 		if (++i == erdr->count)
 			i = 0;
 		cleaned_count--;
-		/* System is low in memory, only refill one buffer and replenish
-		 * the rest of rx ring later when there is more memory.
-		 */
-		if (global_page_state(NR_FREE_PAGES) < 4000)
-			break;
 	}
 
 	erdr->sw_next_to_fill = i;
@@ -765,7 +754,7 @@ static u16 edma_rx_complete(struct edma_common_info *edma_cinfo,
 	erdr->sw_next_to_clean = sw_next_to_clean;
 
 	/* Refill here in case refill threshold wasn't reached */
-	if (unlikely(cleaned_count)) {
+	if (likely(cleaned_count)) {
 		ret_count = edma_alloc_rx_buf(edma_cinfo, erdr, cleaned_count, queue_id);
 		erdr->pending_fill = ret_count;
 		if (ret_count) {
