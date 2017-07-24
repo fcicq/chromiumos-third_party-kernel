@@ -388,6 +388,13 @@ static int drm_mode_create_standard_properties(struct drm_device *dev)
 		return -ENOMEM;
 	dev->mode_config.gamma_lut_size_property = prop;
 
+	prop = drm_property_create(dev,
+				   DRM_MODE_PROP_IMMUTABLE | DRM_MODE_PROP_BLOB,
+				   "IN_FORMATS", 0);
+	if (!prop)
+		return -ENOMEM;
+	dev->mode_config.modifiers_property = prop;
+
 	prop = drm_property_create_enum(dev, 0,
 	                                "Content Protection", drm_cp_enum_list,
 					ARRAY_SIZE(drm_cp_enum_list));
