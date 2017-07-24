@@ -96,6 +96,7 @@ struct rk_iommu {
 	struct clk **clocks;
 	int num_clocks;
 	int irq;
+	bool reset_disabled;
 	struct list_head node; /* entry in rk_iommu_domain.iommus */
 	struct iommu_domain *domain; /* domain to which iommu is attached */
 	struct notifier_block genpd_nb;
@@ -427,6 +428,9 @@ static int rk_iommu_force_reset(struct rk_iommu *iommu)
 	int ret, i;
 	u32 dte_addr;
 	bool val;
+
+	if (iommu->reset_disabled)
+		return 0;
 
 	/*
 	 * Check if register DTE_ADDR is working by writing DTE_ADDR_DUMMY
@@ -1389,6 +1393,8 @@ static int rk_iommu_probe(struct platform_device *pdev)
 
 	iommu->genpd_nb.notifier_call = rk_iommu_genpd_notify;
 	pm_genpd_register_notifier(dev, &iommu->genpd_nb);
+	iommu->reset_disabled = device_property_read_bool(dev,
+					"rockchip,disable-mmu-reset");
 
 	if (atomic_dec_and_test(&rk_iommu_probes_pending))
 		bus_set_iommu(&platform_bus_type, &rk_iommu_ops);
