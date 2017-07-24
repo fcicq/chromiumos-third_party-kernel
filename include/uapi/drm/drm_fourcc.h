@@ -168,6 +168,8 @@
 /* Vendor ID for downstream, interim ChromeOS specific modifiers. */
 #define DRM_FORMAT_MOD_VENDOR_CHROMEOS 0xf0
 
+#define DRM_FORMAT_RESERVED	      ((1ULL << 56) - 1)
+
 #define fourcc_mod_code(vendor, val) \
 	((((__u64)DRM_FORMAT_MOD_VENDOR_## vendor) << 56) | (val & 0x00ffffffffffffffULL))
 
@@ -178,6 +180,15 @@
  * similar to the fourcc codes above. drm_fourcc.h is considered the
  * authoritative source for all of these.
  */
+
+/*
+ * Invalid Modifier
+ *
+ * This modifier can be used as a sentinel to terminate the format modifiers
+ * list, or to initialize a variable with an invalid modifier. It might also be
+ * used to report an error back to userspace for certain APIs.
+ */
+#define DRM_FORMAT_MOD_INVALID	fourcc_mod_code(NONE, DRM_FORMAT_RESERVED)
 
 /*
  * Linear Layout

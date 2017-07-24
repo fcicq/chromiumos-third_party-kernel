@@ -268,7 +268,7 @@ static struct drm_plane *evdi_create_plane(
 				       &evdi_plane_funcs,
 				       formats,
 				       ARRAY_SIZE(formats),
-				       NULL, 0,
+				       NULL,
 				       type, NULL);
 	if (ret) {
 		EVDI_ERROR("Failed to initialize primary plane\n");
