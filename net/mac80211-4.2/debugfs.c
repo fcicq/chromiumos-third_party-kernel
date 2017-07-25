@@ -92,6 +92,7 @@ static int aqm_open(struct inode *inode, struct file *file)
 	struct aqm_info *info = NULL;
 	int len = 0;
 	int i;
+	struct codel_stats *cstats;
 
 	if (!local->ops->wake_tx_queue)
 		return -EOPNOTSUPP;
@@ -126,13 +127,24 @@ static int aqm_open(struct inode *inode, struct file *file)
 			 "R fq_overlimit %u\n"
 			 "R fq_collisions %u\n"
 			 "RW fq_limit %u\n"
-			 "RW fq_quantum %u\n",
+			 "RW fq_quantum %u\n"
+			 "RW fq_target %u\n"
+			 "RW fq_interval %u\n",
 			 fq->flows_cnt,
 			 fq->backlog,
 			 fq->overlimit,
 			 fq->collisions,
 			 fq->limit,
-			 fq->quantum);
+			 fq->quantum,
+			 local->cparams.target,
+			 local->cparams.interval);
+
+	cstats = &local->cstats;
+	len += scnprintf(info->buf + len,
+			 info->size - len,
+			 "* codel stats: maxpacket:%u, drop_count:%u, ecn_mark:%d, ce_mark:%u\n",
+			 cstats->maxpacket, cstats->drop_count,
+			 cstats->ecn_mark, cstats->ce_mark);
 
 	len += scnprintf(info->buf + len,
 			 info->size - len,
@@ -229,6 +241,10 @@ static ssize_t aqm_write(struct file *file,
 	if (sscanf(buf, "fq_limit %u", &local->fq.limit) == 1)
 		return count;
 	else if (sscanf(buf, "fq_quantum %u", &local->fq.quantum) == 1)
+		return count;
+	else if (sscanf(buf, "fq_interval %u", &local->cparams.interval) == 1)
+		return count;
+	else if (sscanf(buf, "fq_target %u", &local->cparams.target) == 1)
 		return count;
 
 	return -EINVAL;
