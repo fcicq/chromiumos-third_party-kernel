@@ -2762,7 +2762,7 @@ static void nvme_free_host_mem(struct nvme_dev *dev)
 static int nvme_alloc_host_mem(struct nvme_dev *dev, u64 min, u64 preferred)
 {
 	struct nvme_host_mem_buf_desc *descs;
-	u32 chunk_size, max_entries;
+	u32 chunk_size, max_entries, len;
 	int i = 0;
 	void **bufs;
 	u64 size = 0, tmp;
@@ -2784,10 +2784,10 @@ retry:
 	init_dma_attrs(&dev->host_mem_dma_attrs);
 	dma_set_attr(DMA_ATTR_NO_KERNEL_MAPPING, &dev->host_mem_dma_attrs);
 
-	for (size = 0; size < preferred; size += chunk_size) {
-		u32 len = min_t(u64, chunk_size, preferred - size);
+	for (size = 0; size < preferred; size += len) {
 		dma_addr_t dma_addr;
 
+		len = min_t(u64, chunk_size, preferred - size);
 		bufs[i] = dma_alloc_attrs(dev->dev, len, &dma_addr, GFP_KERNEL,
 				&dev->host_mem_dma_attrs);
 		if (!bufs[i])
