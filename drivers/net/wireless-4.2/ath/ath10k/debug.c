@@ -1968,6 +1968,197 @@ static const struct file_operations fops_tpc_stats = {
 	.llseek = default_llseek,
 };
 
+static ssize_t ath10k_write_atf_enable(struct file *file,
+				       const char __user *user_buf,
+				       size_t count, loff_t *ppos)
+{
+	struct ath10k *ar = file->private_data;
+	int ret;
+	u8 enable;
+
+	if (kstrtou8_from_user(user_buf, count, 0, &enable))
+		return -EINVAL;
+	mutex_lock(&ar->conf_mutex);
+	spin_lock_bh(&ar->txqs_lock);
+	if (ar->atf_enabled == enable) {
+		ret = count;
+		goto exit;
+	}
+
+	ar->atf_enabled = enable;
+	ret = count;
+exit:
+	spin_unlock_bh(&ar->txqs_lock);
+	mutex_unlock(&ar->conf_mutex);
+	return ret;
+}
+
+static ssize_t ath10k_read_atf_enable(struct file *file, char __user *user_buf,
+				      size_t count, loff_t *ppos)
+{
+	struct ath10k *ar = file->private_data;
+	int len = 0;
+	char buf[32];
+
+	len = scnprintf(buf, sizeof(buf) - len, "%d\n",
+			ar->atf_enabled);
+
+	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
+}
+
+static const struct file_operations fops_atf_enable = {
+	.read = ath10k_read_atf_enable,
+	.write = ath10k_write_atf_enable,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+	.llseek = default_llseek,
+};
+
+static ssize_t ath10k_write_atf_threshold(struct file *file,
+					  const char __user *user_buf,
+					  size_t count, loff_t *ppos)
+{
+	struct ath10k *ar = file->private_data;
+	int ret;
+	u32 threshold;
+
+	if (kstrtou32_from_user(user_buf, count, 0, &threshold))
+		return -EINVAL;
+	mutex_lock(&ar->conf_mutex);
+	spin_lock_bh(&ar->txqs_lock);
+	if (ar->airtime_inflight_max == threshold) {
+		ret = count;
+		goto exit;
+	}
+
+	ar->airtime_inflight_max = threshold;
+	ret = count;
+exit:
+	spin_unlock_bh(&ar->txqs_lock);
+	mutex_unlock(&ar->conf_mutex);
+	return ret;
+}
+
+static ssize_t ath10k_read_atf_threshold(struct file *file,
+					 char __user *user_buf,
+					 size_t count, loff_t *ppos)
+{
+	struct ath10k *ar = file->private_data;
+	int len = 0;
+	char buf[32];
+
+	len = scnprintf(buf, sizeof(buf) - len, "%d\n",
+			ar->airtime_inflight_max);
+
+	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
+}
+
+static const struct file_operations fops_atf_threshold = {
+	.read = ath10k_read_atf_threshold,
+	.write = ath10k_write_atf_threshold,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+	.llseek = default_llseek,
+};
+
+static ssize_t ath10k_write_atf_release_limit(struct file *file,
+					      const char __user *user_buf,
+					      size_t count, loff_t *ppos)
+{
+	struct ath10k *ar = file->private_data;
+	int ret;
+	u32 max;
+
+	if (kstrtou32_from_user(user_buf, count, 0, &max))
+		return -EINVAL;
+	mutex_lock(&ar->conf_mutex);
+	spin_lock_bh(&ar->txqs_lock);
+	if (ar->atf_release_limit == max) {
+		ret = count;
+		goto exit;
+	}
+
+	ar->atf_release_limit = max;
+	ret = count;
+exit:
+	spin_unlock_bh(&ar->txqs_lock);
+	mutex_unlock(&ar->conf_mutex);
+	return ret;
+}
+
+static ssize_t ath10k_read_atf_release_limit(struct file *file,
+					     char __user *user_buf,
+					     size_t count, loff_t *ppos)
+{
+	struct ath10k *ar = file->private_data;
+	int len = 0;
+	char buf[32];
+
+	len = scnprintf(buf, sizeof(buf) - len, "%d\n",
+			ar->atf_release_limit);
+
+	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
+}
+
+static const struct file_operations fops_atf_release_limit = {
+	.read = ath10k_read_atf_release_limit,
+	.write = ath10k_write_atf_release_limit,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+	.llseek = default_llseek,
+};
+
+static ssize_t ath10k_read_atf_stats(struct file *file,
+				     char __user *user_buf,
+				     size_t count, loff_t *ppos)
+{
+	struct ath10k *ar = file->private_data;
+	char *buf;
+	unsigned int len = 0, buf_len = 4096;
+	struct ieee80211_txq *txq;
+	struct ath10k_txq *artxq;
+	struct atf_scheduler *atf;
+	int retval;
+
+	buf = kzalloc(buf_len, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	len = scnprintf(buf, buf_len, "Atf_codel enable:%d\n"
+			"Total frames pending: %u, airtime: %u bytes_sent: %u\n",
+			ath10k_atf_scheduler_enabled(ar),
+			ar->htt.num_pending_tx, ar->airtime_inflight,
+			ar->atf_bytes_send_last_interval);
+	spin_lock_bh(&ar->txqs_lock);
+	rcu_read_lock();
+	list_for_each_entry(artxq, &ar->txqs, list) {
+		txq = container_of((void *)artxq, struct ieee80211_txq,
+				   drv_priv);
+		atf = &artxq->atf;
+		if (txq->sta)
+			len += scnprintf(buf + len, buf_len - len, "STA: %pM\n",
+					 txq->sta->addr);
+		len += scnprintf(buf + len, buf_len - len, "tid: %d deficit: %d"
+				 " frames: %u, airtime %d bytes_sent: %u\n",
+				 txq->tid, atf->deficit, atf->frames_inflight,
+				 atf->airtime_inflight,
+				 atf->bytes_send_last_interval);
+	}
+	rcu_read_unlock();
+	spin_unlock_bh(&ar->txqs_lock);
+
+	retval = simple_read_from_buffer(user_buf, count, ppos, buf, len);
+	kfree(buf);
+	return retval;
+}
+
+static const struct file_operations fops_atf_stats = {
+	.read = ath10k_read_atf_stats,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+	.llseek = default_llseek,
+};
+
 int ath10k_debug_start(struct ath10k *ar)
 {
 	int ret;
@@ -2988,6 +3179,18 @@ int ath10k_debug_register(struct ath10k *ar)
 
 	debugfs_create_file("ps_state_enable", S_IRUSR | S_IWUSR,
 			    ar->debug.debugfs_phy, ar, &fops_ps_state_enable);
+
+	debugfs_create_file("atf_enable", 0600,
+			    ar->debug.debugfs_phy, ar, &fops_atf_enable);
+
+	debugfs_create_file("atf_airtime_threshold", 0600,
+			    ar->debug.debugfs_phy, ar, &fops_atf_threshold);
+
+	debugfs_create_file("atf_release_limit", 0600,
+			    ar->debug.debugfs_phy, ar, &fops_atf_release_limit);
+
+	debugfs_create_file("atf_stats", 0600, ar->debug.debugfs_phy, ar,
+			    &fops_atf_stats);
 
 #ifdef CONFIG_ATH10K_SMART_ANTENNA
 	ath10k_smart_ant_debugfs_init(ar);
