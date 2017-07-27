@@ -3280,6 +3280,8 @@ intel_dp_detect(struct drm_connector *connector, bool force)
 		intel_dp_do_sink_dpms(intel_dp, connector->dpms);
 
 out:
+	intel_dp->has_hdmi_sink = false;
+	intel_dp->has_dvi_sink = false;
 	intel_runtime_pm_put(dev_priv);
 	return status;
 }
