@@ -1105,6 +1105,8 @@ static void vb2ops_vdec_buf_queue(struct vb2_buffer *vb)
 			ctx->state = MTK_STATE_HEADER;
 			mtk_v4l2_debug(1, "[%d] dpbsize=%d", ctx->id,
 					ctx->dpb_size);
+
+			mtk_vdec_queue_res_chg_event(ctx);
 		} else {
 			mtk_v4l2_debug(3, "[%d] already init driver %d",
 					ctx->id, ctx->state);
