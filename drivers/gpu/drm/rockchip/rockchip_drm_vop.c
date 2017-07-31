@@ -901,7 +901,7 @@ static void vop_plane_atomic_update(struct drm_plane *plane,
 	}
 
 	VOP_WIN_SET(vop, win, format, format);
-	VOP_WIN_SET(vop, win, yrgb_vir, fb->pitches[0] >> 2);
+	VOP_WIN_SET(vop, win, yrgb_vir, DIV_ROUND_UP(fb->pitches[0], 4));
 	VOP_WIN_SET(vop, win, yrgb_mst, dma_addr);
 	VOP_WIN_SET(vop, win, y_mir_en, state->rotation == DRM_REFLECT_Y);
 
@@ -923,7 +923,7 @@ static void vop_plane_atomic_update(struct drm_plane *plane,
 		offset += (src->y1 >> 16) * fb->pitches[1] / vsub;
 
 		dma_addr = rk_uv_obj->dma_addr + offset + fb->offsets[1];
-		VOP_WIN_SET(vop, win, uv_vir, fb->pitches[1] >> 2);
+		VOP_WIN_SET(vop, win, uv_vir, DIV_ROUND_UP(fb->pitches[1], 4));
 		VOP_WIN_SET(vop, win, uv_mst, dma_addr);
 
 		for (i = 0; i < 12; i++) {
