@@ -538,7 +538,7 @@ static void vop_line_flag_irq_put(struct vop *vop)
 static int vop_enable(struct drm_crtc *crtc)
 {
 	struct vop *vop = to_vop(crtc);
-	int ret;
+	int ret, i;
 
 	if (vop->is_enabled)
 		return 0;
@@ -574,6 +574,26 @@ static int vop_enable(struct drm_crtc *crtc)
 	}
 
 	memcpy(vop->regs, vop->regsbak, vop->len);
+	/*
+	 * We need to make sure that all windows are disabled before we
+	 * enable the crtc. Otherwise we might try to scan from a destroyed
+	 * buffer later.
+	 */
+	for (i = 0; i < vop->data->win_size; i++) {
+		struct vop_win *vop_win = &vop->win[i];
+		const struct vop_win_data *win = vop_win->data;
+
+		spin_lock(&vop->reg_lock);
+		VOP_WIN_SET(vop, win, enable, 0);
+		vop->win_enabled &= ~BIT(i);
+		spin_unlock(&vop->reg_lock);
+	}
+
+	if (vop->data->afbdc) {
+		VOP_AFBDC_SET(vop, enable, 0);
+		vop->afbdc_win = NULL;
+	}
+
 	vop_cfg_done(vop);
 
 	/*
@@ -631,33 +651,11 @@ static void vop_crtc_disable(struct drm_crtc *crtc)
 {
 	struct vop *vop = to_vop(crtc);
 	struct rockchip_drm_private *priv = crtc->dev->dev_private;
-	int i;
 
 	if (!vop->is_enabled)
 		return;
 
 	rockchip_dmcfreq_unregister_clk_sync_nb(priv->devfreq, &vop->dmc_nb);
-	/*
-	 * We need to make sure that all windows are disabled before we
-	 * disable that crtc. Otherwise we might try to scan from a destroyed
-	 * buffer later.
-	 */
-	for (i = 0; i < vop->data->win_size; i++) {
-		struct vop_win *vop_win = &vop->win[i];
-		const struct vop_win_data *win = vop_win->data;
-
-		spin_lock(&vop->reg_lock);
-		VOP_WIN_SET(vop, win, enable, 0);
-		vop->win_enabled &= ~BIT(i);
-		spin_unlock(&vop->reg_lock);
-	}
-
-	if (vop->data->afbdc) {
-		VOP_AFBDC_SET(vop, enable, 0);
-		vop->afbdc_win = NULL;
-	}
-
-	vop_cfg_done(vop);
 
 	drm_crtc_vblank_off(crtc);
 
