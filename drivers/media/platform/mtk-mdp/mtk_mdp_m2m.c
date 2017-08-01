@@ -272,8 +272,7 @@ static void mtk_mdp_check_crop_change(u32 new_w, u32 new_h, u32 *w, u32 *h)
 	}
 }
 
-static int mtk_mdp_try_crop(struct mtk_mdp_ctx *ctx, u32 type,
-			    struct v4l2_rect *r)
+static int mtk_mdp_try_crop(struct mtk_mdp_ctx *ctx, struct v4l2_crop *cr)
 {
 	struct mtk_mdp_frame *frame;
 	struct mtk_mdp_dev *mdp = ctx->mdp_dev;
@@ -281,22 +280,22 @@ static int mtk_mdp_try_crop(struct mtk_mdp_ctx *ctx, u32 type,
 	u32 align_w, align_h, new_w, new_h;
 	u32 min_w, min_h, max_w, max_h;
 
-	if (r->top < 0 || r->left < 0) {
+	if (cr->c.top < 0 || cr->c.left < 0) {
 		dev_err(&ctx->mdp_dev->pdev->dev,
 			"doesn't support negative values for top & left\n");
 		return -EINVAL;
 	}
 
-	mtk_mdp_dbg(2, "[%d] type:%d, set wxh:%dx%d", ctx->id, type,
-		    r->width, r->height);
+	mtk_mdp_dbg(2, "[%d] type:%d, set wxh:%dx%d", ctx->id, cr->type,
+		    cr->c.width, cr->c.height);
 
-	frame = mtk_mdp_ctx_get_frame(ctx, type);
+	frame = mtk_mdp_ctx_get_frame(ctx, cr->type);
 	max_w = frame->width;
 	max_h = frame->height;
-	new_w = r->width;
-	new_h = r->height;
+	new_w = cr->c.width;
+	new_h = cr->c.height;
 
-	if (V4L2_TYPE_IS_OUTPUT(type)) {
+	if (V4L2_TYPE_IS_OUTPUT(cr->type)) {
 		align_w = 1;
 		align_h = 1;
 		min_w = 64;
@@ -310,8 +309,8 @@ static int mtk_mdp_try_crop(struct mtk_mdp_ctx *ctx, u32 type,
 			max_h = frame->width;
 			min_w = variant->pix_min->target_rot_en_w;
 			min_h = variant->pix_min->target_rot_en_h;
-			new_w = r->height;
-			new_h = r->width;
+			new_w = cr->c.height;
+			new_h = cr->c.width;
 		} else {
 			min_w = variant->pix_min->target_rot_dis_w;
 			min_h = variant->pix_min->target_rot_dis_h;
@@ -324,28 +323,28 @@ static int mtk_mdp_try_crop(struct mtk_mdp_ctx *ctx, u32 type,
 	mtk_mdp_bound_align_image(&new_w, min_w, max_w, align_w,
 				  &new_h, min_h, max_h, align_h);
 
-	if (!V4L2_TYPE_IS_OUTPUT(type) &&
+	if (!V4L2_TYPE_IS_OUTPUT(cr->type) &&
 		(ctx->ctrls.rotate->val == 90 ||
 		ctx->ctrls.rotate->val == 270))
 		mtk_mdp_check_crop_change(new_h, new_w,
-					  &r->width, &r->height);
+					  &cr->c.width, &cr->c.height);
 	else
 		mtk_mdp_check_crop_change(new_w, new_h,
-					  &r->width, &r->height);
+					  &cr->c.width, &cr->c.height);
 
 	/* adjust left/top if cropping rectangle is out of bounds */
 	/* Need to add code to algin left value with 2's multiple */
-	if (r->left + new_w > max_w)
-		r->left = max_w - new_w;
-	if (r->top + new_h > max_h)
-		r->top = max_h - new_h;
+	if (cr->c.left + new_w > max_w)
+		cr->c.left = max_w - new_w;
+	if (cr->c.top + new_h > max_h)
+		cr->c.top = max_h - new_h;
 
-	if (r->left & 1)
-		r->left -= 1;
+	if (cr->c.left & 1)
+		cr->c.left -= 1;
 
 	mtk_mdp_dbg(2, "[%d] crop l,t,w,h:%d,%d,%d,%d, max:%dx%d", ctx->id,
-		    r->left, r->top, r->width,
-		    r->height, max_w, max_h);
+		    cr->c.left, cr->c.top, cr->c.width,
+		    cr->c.height, max_w, max_h);
 	return 0;
 }
 
@@ -833,13 +832,22 @@ static int mtk_mdp_m2m_streamoff(struct file *file, void *fh,
 	return v4l2_m2m_streamoff(file, ctx->m2m_ctx, type);
 }
 
-static inline bool mtk_mdp_is_target_crop(u32 target)
+/*
+ * Return true if rectangle a is enclosed in rectangle b, or false otherwise.
+ */
+static bool mtk_mdp_m2m_is_rectangle_enclosed(struct v4l2_rect *a,
+					     struct v4l2_rect *b)
 {
-	if (target == V4L2_SEL_TGT_CROP_DEFAULT
-	    || target == V4L2_SEL_TGT_CROP_BOUNDS
-	    || target == V4L2_SEL_TGT_CROP)
-		return true;
-	return false;
+	if (a->left < b->left || a->top < b->top)
+		return false;
+
+	if (a->left + a->width > b->left + b->width)
+		return false;
+
+	if (a->top + a->height > b->top + b->height)
+		return false;
+
+	return true;
 }
 
 static int mtk_mdp_m2m_g_selection(struct file *file, void *fh,
@@ -900,46 +908,56 @@ static int mtk_mdp_m2m_s_selection(struct file *file, void *fh,
 {
 	struct mtk_mdp_frame *frame;
 	struct mtk_mdp_ctx *ctx = fh_to_ctx(fh);
-	struct v4l2_rect new_r;
+	struct v4l2_crop cr;
 	struct mtk_mdp_variant *variant = ctx->mdp_dev->variant;
 	int ret;
-	bool valid = false;
 
-	if (s->type == V4L2_BUF_TYPE_VIDEO_CAPTURE) {
-		if (s->target == V4L2_SEL_TGT_COMPOSE)
-			valid = true;
-	} else if (s->type == V4L2_BUF_TYPE_VIDEO_OUTPUT) {
-		if (s->target == V4L2_SEL_TGT_CROP)
-			valid = true;
-	}
-	if (!valid) {
-		mtk_mdp_dbg(1, "[%d] invalid type:%d,%u", ctx->id, s->type,
-			    s->target);
-		return -EINVAL;
-	}
+	cr.type = s->type;
+	cr.c = s->r;
 
-	new_r = s->r;
-	ret = mtk_mdp_try_crop(ctx, s->type, &new_r);
+	ret = mtk_mdp_try_crop(ctx, &cr);
 	if (ret)
 		return ret;
 
-	if (mtk_mdp_is_target_crop(s->target))
+	if (s->flags & V4L2_SEL_FLAG_LE &&
+	    !mtk_mdp_m2m_is_rectangle_enclosed(&cr.c, &s->r))
+		return -ERANGE;
+
+	if (s->flags & V4L2_SEL_FLAG_GE &&
+	    !mtk_mdp_m2m_is_rectangle_enclosed(&s->r, &cr.c))
+		return -ERANGE;
+
+	s->r = cr.c;
+
+	switch (s->target) {
+	case V4L2_SEL_TGT_COMPOSE_BOUNDS:
+	case V4L2_SEL_TGT_COMPOSE_DEFAULT:
+	case V4L2_SEL_TGT_COMPOSE:
 		frame = &ctx->s_frame;
-	else
+		break;
+
+	case V4L2_SEL_TGT_CROP_BOUNDS:
+	case V4L2_SEL_TGT_CROP:
+	case V4L2_SEL_TGT_CROP_DEFAULT:
 		frame = &ctx->d_frame;
+		break;
+
+	default:
+		return -EINVAL;
+	}
 
 	/* Check to see if scaling ratio is within supported range */
 	if (mtk_mdp_ctx_state_is_set(ctx, MTK_MDP_DST_FMT | MTK_MDP_SRC_FMT)) {
 		if (V4L2_TYPE_IS_OUTPUT(s->type)) {
-			ret = mtk_mdp_check_scaler_ratio(variant, new_r.width,
-				new_r.height, ctx->d_frame.crop.width,
+			ret = mtk_mdp_check_scaler_ratio(variant, cr.c.width,
+				cr.c.height, ctx->d_frame.crop.width,
 				ctx->d_frame.crop.height,
 				ctx->ctrls.rotate->val);
 		} else {
 			ret = mtk_mdp_check_scaler_ratio(variant,
 				ctx->s_frame.crop.width,
-				ctx->s_frame.crop.height, new_r.width,
-				new_r.height, ctx->ctrls.rotate->val);
+				ctx->s_frame.crop.height, cr.c.width,
+				cr.c.height, ctx->ctrls.rotate->val);
 		}
 
 		if (ret) {
@@ -949,38 +967,10 @@ static int mtk_mdp_m2m_s_selection(struct file *file, void *fh,
 		}
 	}
 
-	s->r = new_r;
-	frame->crop = new_r;
+	frame->crop = cr.c;
 
 	return 0;
 }
-
-/*
- * Provide vidioc_s_crop for temp solution.
- * We want to make selection usage right. (Capture buffer with compose action,
- * Output buffer with crop action.)
- * The v4l_s_crop() in v4l2-ioctl.c is not suitable for mem2mem device.
- * Sine the application use s_crop ioctl now, we need to provide this API to
- * correct the usage for selection.
- *
- * This API will be removed after we use the selection API in the application.
- */
-static int mtk_mdp_m2m_s_crop(struct file *file, void *fh,
-			      const struct v4l2_crop *cr)
-{
-	struct v4l2_selection s = {
-		.type = cr->type,
-		.r = cr->c,
-	};
-
-	if (V4L2_TYPE_IS_OUTPUT(cr->type))
-		s.target = V4L2_SEL_TGT_CROP_ACTIVE;
-	else
-		s.target = V4L2_SEL_TGT_COMPOSE_ACTIVE;
-
-	return mtk_mdp_m2m_s_selection(file, fh, &s);
-}
-
 
 static const struct v4l2_ioctl_ops mtk_mdp_m2m_ioctl_ops = {
 	.vidioc_querycap		= mtk_mdp_m2m_querycap,
@@ -1000,8 +990,7 @@ static const struct v4l2_ioctl_ops mtk_mdp_m2m_ioctl_ops = {
 	.vidioc_streamon		= mtk_mdp_m2m_streamon,
 	.vidioc_streamoff		= mtk_mdp_m2m_streamoff,
 	.vidioc_g_selection		= mtk_mdp_m2m_g_selection,
-	.vidioc_s_selection		= mtk_mdp_m2m_s_selection,
-	.vidioc_s_crop			= mtk_mdp_m2m_s_crop
+	.vidioc_s_selection		= mtk_mdp_m2m_s_selection
 };
 
 static int mtk_mdp_m2m_queue_init(void *priv, struct vb2_queue *src_vq,
