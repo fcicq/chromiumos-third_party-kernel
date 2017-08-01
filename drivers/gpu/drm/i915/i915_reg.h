@@ -5852,6 +5852,10 @@ enum {
 #define _PLANE_KEYMSK_2_A			0x70298
 #define _PLANE_KEYMAX_1_A			0x701a0
 #define _PLANE_KEYMAX_2_A			0x702a0
+#define _PLANE_AUX_DIST_1_A			0x701c0
+#define _PLANE_AUX_DIST_2_A			0x702c0
+#define _PLANE_AUX_OFFSET_1_A			0x701c4
+#define _PLANE_AUX_OFFSET_2_A			0x702c4
 #define _PLANE_BUF_CFG_1_A			0x7027c
 #define _PLANE_BUF_CFG_2_A			0x7037c
 #define _PLANE_NV12_BUF_CFG_1_A		0x70278
@@ -5950,6 +5954,24 @@ enum {
 	_PIPE(pipe, _PLANE_NV12_BUF_CFG_2_A, _PLANE_NV12_BUF_CFG_2_B)
 #define PLANE_NV12_BUF_CFG(pipe, plane)	\
 	_MMIO_PLANE(plane, _PLANE_NV12_BUF_CFG_1(pipe), _PLANE_NV12_BUF_CFG_2(pipe))
+
+#define _PLANE_AUX_DIST_1_B		0x711c0
+#define _PLANE_AUX_DIST_2_B		0x712c0
+#define _PLANE_AUX_DIST_1(pipe) \
+			_PIPE(pipe, _PLANE_AUX_DIST_1_A, _PLANE_AUX_DIST_1_B)
+#define _PLANE_AUX_DIST_2(pipe) \
+			_PIPE(pipe, _PLANE_AUX_DIST_2_A, _PLANE_AUX_DIST_2_B)
+#define PLANE_AUX_DIST(pipe, plane)     \
+	_MMIO_PLANE(plane, _PLANE_AUX_DIST_1(pipe), _PLANE_AUX_DIST_2(pipe))
+
+#define _PLANE_AUX_OFFSET_1_B		0x711c4
+#define _PLANE_AUX_OFFSET_2_B		0x712c4
+#define _PLANE_AUX_OFFSET_1(pipe)       \
+		_PIPE(pipe, _PLANE_AUX_OFFSET_1_A, _PLANE_AUX_OFFSET_1_B)
+#define _PLANE_AUX_OFFSET_2(pipe)       \
+		_PIPE(pipe, _PLANE_AUX_OFFSET_2_A, _PLANE_AUX_OFFSET_2_B)
+#define PLANE_AUX_OFFSET(pipe, plane)   \
+	_MMIO_PLANE(plane, _PLANE_AUX_OFFSET_1(pipe), _PLANE_AUX_OFFSET_2(pipe))
 
 /* SKL new cursor registers */
 #define _CUR_BUF_CFG_A				0x7017c
@@ -6413,6 +6435,7 @@ enum {
 # define CHICKEN3_DGMG_DONE_FIX_DISABLE		(1 << 2)
 
 #define CHICKEN_PAR1_1		_MMIO(0x42080)
+#define  SKL_RC_HASH_OUTSIDE	(1 << 15)
 #define  DPA_MASK_VBLANK_SRD	(1 << 15)
 #define  FORCE_ARB_IDLE_PLANES	(1 << 14)
 #define  SKL_EDP_PSR_FIX_RDWRAP	(1 << 3)
