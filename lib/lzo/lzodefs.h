@@ -27,7 +27,7 @@
 
 #if defined(__BIG_ENDIAN) && defined(__LITTLE_ENDIAN)
 #error "conflicting endian definitions"
-#elif defined(__x86_64__)
+#elif defined(__x86_64__) || defined(__aarch64__)
 #define LZO_USE_CTZ64	1
 #define LZO_USE_CTZ32	1
 #elif defined(__i386__) || defined(__powerpc__)
