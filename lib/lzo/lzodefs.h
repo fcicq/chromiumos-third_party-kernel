@@ -32,8 +32,13 @@
 #define LZO_USE_CTZ32	1
 #elif defined(__i386__) || defined(__powerpc__)
 #define LZO_USE_CTZ32	1
-#elif defined(__arm__) && (__LINUX_ARM_ARCH__ >= 5)
+#elif defined(__arm__)
+#if (__LINUX_ARM_ARCH__ >= 5)
 #define LZO_USE_CTZ32	1
+#endif
+#if (__LINUX_ARM_ARCH__ >= 6) && (CONFIG_THUMB2_KERNEL)
+#define LZO_USE_CTZ64	1
+#endif
 #endif
 
 #define M1_MAX_OFFSET	0x0400
