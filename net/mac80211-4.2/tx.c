@@ -1268,7 +1268,12 @@ static struct txq_info *ieee80211_get_txq(struct ieee80211_local *local,
 
 static void ieee80211_set_skb_enqueue_time(struct sk_buff *skb)
 {
-	IEEE80211_SKB_CB(skb)->control.enqueue_time = codel_get_time();
+	codel_time_t now = codel_get_time();
+
+	IEEE80211_SKB_CB(skb)->control.enqueue_time = now;
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+	IEEE80211_SKB_CB(skb)->tx_start_time = now;
+#endif
 }
 
 static void ieee80211_set_skb_vif(struct sk_buff *skb, struct txq_info *txqi)
