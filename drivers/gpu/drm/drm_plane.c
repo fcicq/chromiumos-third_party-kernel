@@ -101,7 +101,7 @@ static int create_in_format_blob(struct drm_device *dev, struct drm_plane *plane
 							       plane->format_types[j],
 							       plane->modifiers[i])) {
 
-				mod->formats |= 1 << j;
+				mod->formats |= 1ULL << j;
 			}
 		}
 
