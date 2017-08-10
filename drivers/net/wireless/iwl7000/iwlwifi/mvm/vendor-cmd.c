@@ -756,6 +756,9 @@ static int iwl_mvm_vendor_set_dynamic_txp_profile(struct wiphy *wiphy,
 	    mvm->sar_chain_b_profile == chain_b)
 		return 0;
 
+	mvm->sar_chain_a_profile = chain_a;
+	mvm->sar_chain_b_profile = chain_b;
+
 	return iwl_mvm_sar_select_profile(mvm, chain_a, chain_b);
 }
 
@@ -809,6 +812,9 @@ static int iwl_mvm_vendor_get_geo_profile_info(struct wiphy *wiphy,
 		return tbl_idx;
 
 	skb = cfg80211_vendor_cmd_alloc_reply_skb(wiphy, 100);
+	if (!skb)
+		return -ENOMEM;
+
 	nl_profile = nla_nest_start(skb, IWL_MVM_VENDOR_ATTR_SAR_GEO_PROFILE);
 	if (!nl_profile) {
 		kfree_skb(skb);
@@ -970,8 +976,7 @@ static const struct wiphy_vendor_command iwl_mvm_vendor_commands[] = {
 			.vendor_id = INTEL_OUI,
 			.subcmd = IWL_MVM_VENDOR_CMD_SET_SAR_PROFILE,
 		},
-		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
-			 WIPHY_VENDOR_CMD_NEED_RUNNING,
+		.flags = WIPHY_VENDOR_CMD_NEED_WDEV,
 		.doit = iwl_mvm_vendor_set_dynamic_txp_profile,
 	},
 	{
