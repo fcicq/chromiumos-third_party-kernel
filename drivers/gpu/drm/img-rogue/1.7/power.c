@@ -574,6 +574,10 @@ PVRSRV_ERROR PVRSRVSetDeviceSystemPowerState(PVRSRV_DEVICE_NODE *psDeviceNode,
 	PVRSRV_DEV_POWER_STATE eNewDevicePowerState = 
 	  _IsSystemStatePowered(eNewSysPowerState)? PVRSRV_DEV_POWER_STATE_DEFAULT : PVRSRV_DEV_POWER_STATE_OFF;
 
+	/* If setting devices to default state, force idle all devices whose default state is off */
+	PFN_SYS_DEV_IS_DEFAULT_STATE_OFF pfnIsDefaultStateOff =
+	  (eNewDevicePowerState == PVRSRV_DEV_POWER_STATE_DEFAULT) ? PVRSRVDeviceIsDefaultStateOFF : NULL;
+
 	/* require a proper power state */
 	if (eNewSysPowerState == PVRSRV_SYS_POWER_STATE_Unspecified)
 	{
@@ -590,34 +594,33 @@ PVRSRV_ERROR PVRSRVSetDeviceSystemPowerState(PVRSRV_DEVICE_NODE *psDeviceNode,
 		return PVRSRV_OK;
 	}
 
-	if ((eNewDevicePowerState == PVRSRV_DEV_POWER_STATE_OFF) || 
-		(eNewDevicePowerState == PVRSRV_DEV_POWER_STATE_DEFAULT))
+	LOOP_UNTIL_TIMEOUT(MAX_HW_TIME_US)
 	{
-		/* If setting devices to default state, selectively force idle all devices whose default state is off */
-		 PFN_SYS_DEV_IS_DEFAULT_STATE_OFF pfnIsDefaultStateOff =
-			(eNewDevicePowerState == PVRSRV_DEV_POWER_STATE_DEFAULT) ? PVRSRVDeviceIsDefaultStateOFF : NULL;
+		eError = PVRSRVDeviceIdleRequestKM(psDeviceNode,
+										   pfnIsDefaultStateOff, IMG_TRUE);
 
-		LOOP_UNTIL_TIMEOUT(MAX_HW_TIME_US)
+		if (eError == PVRSRV_OK)
 		{
-			eError = PVRSRVDeviceIdleRequestKM(psDeviceNode,
-											   pfnIsDefaultStateOff, IMG_TRUE);
+			break;
+		}
+		else if (eError == PVRSRV_ERROR_DEVICE_IDLE_REQUEST_DENIED)
+		{
+			PVRSRVPowerUnlock(psDeviceNode);
+			OSWaitus(MAX_HW_TIME_US/WAIT_TRY_COUNT);
+			PVRSRVForcedPowerLock(psDeviceNode);
+		}
+		else
+		{
+			uiStage++;
+			goto ErrorExit;
+		}
+	} END_LOOP_UNTIL_TIMEOUT();
 
-			if (eError == PVRSRV_OK)
-			{
-				break;
-			}
-			else if (eError == PVRSRV_ERROR_DEVICE_IDLE_REQUEST_DENIED)
-			{
-				PVRSRVPowerUnlock(psDeviceNode);
-				OSWaitus(MAX_HW_TIME_US/WAIT_TRY_COUNT);
-				PVRSRVForcedPowerLock(psDeviceNode);
-			}
-			else
-			{
-				uiStage++;
-				goto ErrorExit;
-			}
-		} END_LOOP_UNTIL_TIMEOUT();
+	if (eError == PVRSRV_ERROR_DEVICE_IDLE_REQUEST_DENIED)
+	{
+		PVR_DPF((PVR_DBG_ERROR, "%s: Forced idle DENIED", __func__));
+		uiStage++;
+		goto ErrorExit;
 	}
 
 	eError = PVRSRVSetDevicePowerStateKM(psDeviceNode, eNewDevicePowerState,
@@ -638,7 +641,7 @@ ErrorExit:
 	PVRSRVPowerUnlock(psDeviceNode);
 
 	PVR_DPF((PVR_DBG_ERROR,
-			 "%s: Transition from %d to %d FAILED (%s) at stage %d. Dumping debug info.",
+			 "%s: Transition from %d to %d FAILED (%s) at stage %u. Dumping debug info.",
 			 __func__, psDeviceNode->eCurrentSysPowerState, eNewSysPowerState,
 			 PVRSRVGetErrorStringKM(eError), uiStage));
 
@@ -866,6 +869,7 @@ PVRSRV_ERROR PVRSRVDevicePreClockSpeedChange(PVRSRV_DEVICE_NODE *psDeviceNode,
 
 			if (eError == PVRSRV_ERROR_DEVICE_IDLE_REQUEST_DENIED)
 			{
+				PVR_DPF((PVR_DBG_ERROR, "%s: Forced idle DENIED", __func__));
 				PVRSRVPowerUnlock(psDeviceNode);
 				return eError;
 			}
@@ -1016,11 +1020,9 @@ PVRSRV_ERROR PVRSRVDeviceDustCountChange(PVRSRV_DEVICE_NODE *psDeviceNode,
 				}
 			} END_LOOP_UNTIL_TIMEOUT();
 
-			if (eError != PVRSRV_OK)
+			if (eError == PVRSRV_ERROR_DEVICE_IDLE_REQUEST_DENIED)
 			{
-				PVR_DPF((PVR_DBG_ERROR,
-						 "%s: timeout occurred attempting to force idle (%s)",
-						 __func__, PVRSRVGetErrorStringKM(eError)));
+				PVR_DPF((PVR_DBG_ERROR, "%s: Forced idle DENIED", __func__));
 				goto ErrorExit;
 			}
 		}

@@ -839,8 +839,6 @@ PVRSRV_ERROR RGXForcedIdleRequest(IMG_HANDLE hDevHandle, IMG_BOOL bDeviceOffPerm
 	/* Check the firmware state for idleness */
 	if (psFWTraceBuf->ePowState != RGXFWIF_POW_FORCED_IDLE)
 	{
-		PVR_DPF((PVR_DBG_ERROR,"RGXForcedIdleRequest: Failed to force IDLE"));
-
 		return PVRSRV_ERROR_DEVICE_IDLE_REQUEST_DENIED;
 	}
 #endif

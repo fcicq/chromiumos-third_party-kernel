@@ -1701,6 +1701,13 @@ PVRSRV_ERROR IMG_CALLCONV PVRSRVDeviceDestroy(PVRSRV_DEVICE_NODE *psDeviceNode)
 		}
 	} END_LOOP_UNTIL_TIMEOUT();
 
+	if (eError == PVRSRV_ERROR_DEVICE_IDLE_REQUEST_DENIED)
+	{
+		PVR_DPF((PVR_DBG_ERROR, "%s: Forced idle DENIED", __func__));
+		PVRSRVPowerUnlock(psDeviceNode);
+		return eError;
+	}
+
 	/* Power down the device if necessary */
 	eError = PVRSRVSetDevicePowerStateKM(psDeviceNode,
 										 PVRSRV_DEV_POWER_STATE_OFF,
@@ -2092,6 +2099,13 @@ PVRSRV_ERROR IMG_CALLCONV PVRSRVDeviceFinalise(PVRSRV_DEVICE_NODE *psDeviceNode,
 				goto ErrorExit;
 			}
 		} END_LOOP_UNTIL_TIMEOUT();
+
+		if (eError == PVRSRV_ERROR_DEVICE_IDLE_REQUEST_DENIED)
+		{
+			PVR_DPF((PVR_DBG_ERROR, "%s: Forced idle DENIED", __func__));
+			PVRSRVPowerUnlock(psDeviceNode);
+			goto ErrorExit;
+		}
 
 		/* Place device into its default power state. */
 		eError = PVRSRVSetDevicePowerStateKM(psDeviceNode,
