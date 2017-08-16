@@ -768,24 +768,6 @@ static void g4x_wait_for_vblank(struct drm_device *dev, int pipe)
 }
 
 /**
- * check_crtc_planes_active - checks is there any active planes available
- * for given crtc.
- */
-static bool check_crtc_planes_active(struct drm_crtc *crtc)
-{
-	struct drm_plane *plane;
-	struct intel_plane *intel_plane;
-
-	drm_for_each_legacy_plane(plane, &crtc->dev->mode_config.plane_list) {
-		intel_plane = to_intel_plane(plane);
-		if (intel_plane->base.crtc != NULL &&
-			intel_plane->base.fb != NULL)
-			return true;
-	}
-	return false;
-}
-
-/**
  * intel_wait_for_vblank - wait for vblank on a given pipe
  * @dev: drm device
  * @pipe: pipe to wait for
@@ -800,10 +782,6 @@ void intel_wait_for_vblank(struct drm_device *dev, int pipe)
 	struct drm_crtc *crtc = dev_priv->pipe_to_crtc_mapping[pipe];
 	int timeout = crtc->hwmode.vrefresh ?
 		DIV_ROUND_UP(1000, crtc->hwmode.vrefresh) : 50;
-
-	/* return if all crtc planes are inactive */
-	if (!check_crtc_planes_active(crtc))
-		return;
 
 	if (IS_G4X(dev) || INTEL_INFO(dev)->gen >= 5) {
 		g4x_wait_for_vblank(dev, pipe);
