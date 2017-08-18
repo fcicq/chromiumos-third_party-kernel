@@ -5253,7 +5253,7 @@ put_power:
 }
 
 /* check the VBT to see whether the eDP is on another port */
-bool intel_dp_is_edp(struct drm_i915_private *dev_priv, enum port port)
+bool intel_dp_is_port_edp(struct drm_i915_private *dev_priv, enum port port)
 {
 	/*
 	 * eDP not supported on g4x. so bail out early just
@@ -6040,7 +6040,7 @@ intel_dp_init_connector(struct intel_digital_port *intel_dig_port,
 	intel_dp->DP = I915_READ(intel_dp->output_reg);
 	intel_dp->attached_connector = intel_connector;
 
-	if (intel_dp_is_edp(dev_priv, port))
+	if (intel_dp_is_port_edp(dev_priv, port))
 		type = DRM_MODE_CONNECTOR_eDP;
 	else
 		type = DRM_MODE_CONNECTOR_DisplayPort;
@@ -6117,7 +6117,7 @@ intel_dp_init_connector(struct intel_digital_port *intel_dig_port,
 
 	intel_dp_add_properties(intel_dp, connector);
 
-	if (is_hdcp_supported(dev_priv, port) && !intel_dp_is_edp(dev_priv, port)) {
+	if (is_hdcp_supported(dev_priv, port) && !intel_dp_is_port_edp(dev_priv, port)) {
 		int ret = intel_hdcp_init(intel_connector, &intel_dp_hdcp_shim);
 		if (ret)
 			DRM_DEBUG_KMS("HDCP init failed, skipping.\n");
