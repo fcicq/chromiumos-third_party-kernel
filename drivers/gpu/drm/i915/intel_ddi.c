@@ -2168,7 +2168,7 @@ static void intel_ddi_pre_enable_dp(struct intel_encoder *encoder,
 }
 
 static void intel_ddi_pre_enable_hdmi(struct intel_encoder *encoder,
-				      bool has_hdmi_sink,
+				      bool has_infoframe,
 				      const struct intel_crtc_state *crtc_state,
 				      const struct drm_connector_state *conn_state,
 				      struct intel_shared_dpll *pll)
@@ -2197,7 +2197,7 @@ static void intel_ddi_pre_enable_hdmi(struct intel_encoder *encoder,
 		skl_ddi_set_iboost(encoder, level);
 
 	intel_hdmi->set_infoframes(drm_encoder,
-				   has_hdmi_sink,
+				   has_infoframe,
 				   crtc_state, conn_state);
 }
 
@@ -2217,7 +2217,7 @@ static void intel_ddi_pre_enable(struct intel_encoder *encoder,
 	}
 	if (type == INTEL_OUTPUT_HDMI) {
 		intel_ddi_pre_enable_hdmi(encoder,
-					  pipe_config->has_hdmi_sink,
+					  pipe_config->has_infoframe,
 					  pipe_config, conn_state,
 					  pipe_config->shared_dpll);
 	}
