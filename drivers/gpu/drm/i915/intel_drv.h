@@ -1702,8 +1702,10 @@ int intel_hdcp_check_link(struct intel_connector *connector);
 bool is_hdcp_supported(struct drm_i915_private *dev_priv, enum port port);
 
 /* intel_psr.c */
-void intel_psr_enable(struct intel_dp *intel_dp);
-void intel_psr_disable(struct intel_dp *intel_dp);
+void intel_psr_enable(struct intel_dp *intel_dp,
+		      const struct intel_crtc_state *crtc_state);
+void intel_psr_disable(struct intel_dp *intel_dp,
+		      const struct intel_crtc_state *old_crtc_state);
 void intel_psr_invalidate(struct drm_i915_private *dev_priv,
 			  unsigned frontbuffer_bits,
 			  enum fb_op_origin origin);
