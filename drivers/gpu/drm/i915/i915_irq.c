@@ -3761,7 +3761,7 @@ static void i915_irq_preinstall(struct drm_device * dev)
 
 	i9xx_pipestat_irq_reset(dev_priv);
 
-	I915_WRITE16(HWSTAM, 0xeffe);
+	I915_WRITE(HWSTAM, 0xffffeffe);
 
 	GEN3_IRQ_RESET();
 }
@@ -3868,7 +3868,7 @@ static void i915_irq_uninstall(struct drm_device * dev)
 
 	i9xx_pipestat_irq_reset(dev_priv);
 
-	I915_WRITE16(HWSTAM, 0xffff);
+	I915_WRITE(HWSTAM, 0xffffffff);
 
 	GEN3_IRQ_RESET();
 }
