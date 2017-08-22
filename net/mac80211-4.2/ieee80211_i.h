@@ -708,7 +708,6 @@ struct ieee80211_if_mesh {
 	/* offset from skb->data while building IE */
 	int meshconf_offset;
 
-	u8 bitrate_avg_weight;
 	u8 path_switch_threshold;
 
 #if CONFIG_MAC80211_DEBUGFS

@@ -439,6 +439,9 @@ struct sta_info {
 
 #ifdef CONFIG_MAC80211_MESH
 	struct mesh_sta *mesh;
+	unsigned long mesh_last_tx;
+	u32 mesh_tx_bitrate;
+	u16 mesh_sample_cnt;
 #endif
 
 	struct work_struct drv_deliver_wk;

@@ -231,9 +231,6 @@ struct path_debugfs_work {
 /* Number of frames buffered per destination for unresolved destinations */
 #define MESH_FRAME_QUEUE_LEN	10
 
-/* Moving average weight of mesh peer link bitrate (in percent) */
-#define MESH_BITRATE_AVG_WEIGHT 5
-
 /* Threshold of link metric difference (in percent) to switch path selection */
 #define MESH_PATH_SWITCH_TH		15
 
@@ -364,6 +361,7 @@ void mesh_path_flush_by_nexthop(struct sta_info *sta);
 void mesh_path_discard_frame(struct ieee80211_sub_if_data *sdata,
 			     struct sk_buff *skb);
 void mesh_path_tx_root_frame(struct ieee80211_sub_if_data *sdata);
+void mesh_hwmp_init(void);
 
 bool mesh_action_is_path_sel(struct ieee80211_mgmt *mgmt);
 extern int mesh_paths_generation;

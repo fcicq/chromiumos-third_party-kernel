@@ -9,6 +9,7 @@
 
 #include <linux/slab.h>
 #include <linux/etherdevice.h>
+#include <linux/log2.h>
 #include <asm/unaligned.h>
 #include "wme.h"
 #include "mesh.h"
@@ -99,6 +100,10 @@ enum mpath_frame_type {
 };
 
 static const u8 broadcast_addr[ETH_ALEN] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+
+/* time constant for mesh link metric averaging */
+static u32 time_const;
+static u32 time_const_shift;
 
 static int mesh_path_sel_frame_tx(enum mpath_frame_type action, u8 flags,
 				  const u8 *orig_addr, u32 orig_sn,
@@ -297,14 +302,22 @@ int mesh_path_error_tx(struct ieee80211_sub_if_data *sdata,
 	return 0;
 }
 
+/* Link metric averaging v2 gives an approximation of time based moving
+ * average. The moving average gives more weights to sparse samples and
+ * less weights to dense samples (in time). See go/js-mlm-v2.
+ */
+ /* mesh link metric averaging time constant, must be power of 2 */
+#define MESH_TIME_CONST msecs_to_jiffies(640)
+/* constant weight, approximation of 1-e^-1 (0.6322) */
+#define CONST_WEIGHT 3 / 5
 void ieee80211s_update_metric(struct ieee80211_local *local,
 		struct sta_info *sta, struct sk_buff *skb, int retry_count)
 {
 	struct ieee80211_tx_info *txinfo = IEEE80211_SKB_CB(skb);
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *) skb->data;
-	int failed, rate;
+	int failed;
 	struct rate_info rinfo;
-	u8 weight = sta->sdata->u.mesh.bitrate_avg_weight;
+	unsigned long delta;
 
 	if (!ieee80211_is_data(hdr->frame_control))
 		return;
@@ -318,11 +331,30 @@ void ieee80211s_update_metric(struct ieee80211_local *local,
 	if (sta->mesh->fail_avg > 95)
 		mesh_plink_broken(sta);
 
-	/* bitrate moving average, scaled to 100x, in units of 1Kbps */
+	/* bitrate, in units of 100 Kbps */
 	sta_set_rate_info_tx(sta, &sta->last_tx_rate, &rinfo);
-	rate = cfg80211_calculate_bitrate(&rinfo);
-	sta->mesh->bitrate_avg = (((100 - weight) * sta->mesh->bitrate_avg + 5)
-			/ 100 + weight * rate);
+	sta->mesh_tx_bitrate += cfg80211_calculate_bitrate(&rinfo);
+	sta->mesh_sample_cnt++;
+
+	/* return if jiffies hasn't moved */
+	if (jiffies - sta->mesh_last_tx == 0)
+		return;
+
+	/* calculate the time based weight component */
+	delta = jiffies - sta->mesh_last_tx;
+	if (delta > MESH_TIME_CONST)
+		delta = MESH_TIME_CONST;
+	delta = (delta << ARITH_SHIFT) * CONST_WEIGHT;
+
+	/* calculate the new bitrate_avg from a weighted average of latest
+	 * tx_bitrate and the old bitrate_avg
+	 */
+	sta->mesh->bitrate_avg = (sta->mesh_tx_bitrate / sta->mesh_sample_cnt
+				 * delta + sta->mesh->bitrate_avg
+				 * (time_const - delta)) >> time_const_shift;
+	sta->mesh_sample_cnt = 0;
+	sta->mesh_tx_bitrate = 0;
+	sta->mesh_last_tx = jiffies;
 }
 
 u32 airtime_link_metric_get(struct ieee80211_local *local,
@@ -354,7 +386,7 @@ u32 airtime_link_metric_get(struct ieee80211_local *local,
 #ifdef CONFIG_MAC80211_DEBUGFS
 /* signal strength in db below witch the rate remains at 6Mbps */
 #define MIN_SIGNAL_STRENGTH -99
-#define MIN_BIT_RATE  6000 /* Lowest rate in Kbps */
+#define MIN_BIT_RATE  60 /* Lowest rate in 100Kbps */
 /* signal strength below which rates start dropping exponentially */
 #define RATE_DROP_DB_THRESHOLD  -40
 /*
@@ -394,10 +426,10 @@ u32 airtime_link_metric_get(struct ieee80211_local *local,
 		}
 	}
 #endif
-	/* bitrate is in units of 1 Kbps, while we need rate in units of
+	/* bitrate is in units of 100 Kbps, while we need rate in units of
 	 * 1Mbps. This will be corrected on tx_time computation.
 	 */
-	tx_time = (device_constant + 1000 * test_frame_len / bitrate_avg);
+	tx_time = (device_constant + 10 * test_frame_len / bitrate_avg);
 	estimated_retx = ((1 << (2 * ARITH_SHIFT)) / (s_unit - err));
 	result = (tx_time * estimated_retx) >> (2 * ARITH_SHIFT) ;
 	return (u32)result;
@@ -1355,4 +1387,12 @@ void mesh_path_tx_root_frame(struct ieee80211_sub_if_data *sdata)
 		mhwmp_dbg(sdata, "Proactive mechanism not supported\n");
 		return;
 	}
+}
+
+void mesh_hwmp_init(void)
+{
+	WARN_ON(!is_power_of_2(MESH_TIME_CONST));
+
+	time_const = MESH_TIME_CONST << ARITH_SHIFT;
+	time_const_shift = ilog2(MESH_TIME_CONST) + ARITH_SHIFT;
 }
