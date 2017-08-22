@@ -4566,8 +4566,6 @@ intel_dp_detect(struct drm_connector *connector, bool force)
 	if (!intel_dp->detect_done)
 		status = intel_dp_long_pulse(intel_dp->attached_connector);
 
-	intel_dp->detect_done = false;
-
 	return status;
 }
 
