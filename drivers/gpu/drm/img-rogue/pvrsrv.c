@@ -325,7 +325,7 @@ static void CleanupThread(void *pvData)
 	/* While the driver is in a good state and is not being unloaded
 	 * try to free any deferred items when signalled
 	 */
-	while ((psPVRSRVData->eServicesState == PVRSRV_SERVICES_STATE_OK))
+	while (psPVRSRVData->eServicesState == PVRSRV_SERVICES_STATE_OK)
 	{
 		IMG_HANDLE hEvent;
 
