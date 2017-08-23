@@ -1563,7 +1563,7 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
 	err = of_pci_get_host_bridge_resources(dev->of_node, 0, 0xff,
 					       &res, &io_base);
 	if (err)
-		goto err_deinit_port;
+		goto err_remove_irq_domain;
 
 	err = devm_request_pci_bus_resources(dev, &res);
 	if (err)
@@ -1627,6 +1627,8 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
 
 err_free_res:
 	pci_free_resource_list(&res);
+err_remove_irq_domain:
+	irq_domain_remove(rockchip->irq_domain);
 err_deinit_port:
 	rockchip_pcie_deinit_phys(rockchip);
 err_vpcie:
