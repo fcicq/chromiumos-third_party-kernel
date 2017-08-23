@@ -104,6 +104,7 @@ static const u8 broadcast_addr[ETH_ALEN] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 /* time constant for mesh link metric averaging */
 static u32 time_const;
 static u32 time_const_shift;
+static u32 max_shifted_weight;
 
 static int mesh_path_sel_frame_tx(enum mpath_frame_type action, u8 flags,
 				  const u8 *orig_addr, u32 orig_sn,
@@ -310,6 +311,7 @@ int mesh_path_error_tx(struct ieee80211_sub_if_data *sdata,
 #define MESH_TIME_CONST msecs_to_jiffies(640)
 /* constant weight, approximation of 1-e^-1 (0.6322) */
 #define CONST_WEIGHT 3 / 5
+#define V1_WEIGHT 5 / 100
 void ieee80211s_update_metric(struct ieee80211_local *local,
 		struct sta_info *sta, struct sk_buff *skb, int retry_count)
 {
@@ -342,9 +344,9 @@ void ieee80211s_update_metric(struct ieee80211_local *local,
 
 	/* calculate the time based weight component */
 	delta = jiffies - sta->mesh_last_tx;
-	if (delta > MESH_TIME_CONST)
-		delta = MESH_TIME_CONST;
 	delta = (delta << ARITH_SHIFT) * CONST_WEIGHT;
+	if (delta > max_shifted_weight)
+		delta = max_shifted_weight;
 
 	/* calculate the new bitrate_avg from a weighted average of latest
 	 * tx_bitrate and the old bitrate_avg
@@ -1395,4 +1397,5 @@ void mesh_hwmp_init(void)
 
 	time_const = MESH_TIME_CONST << ARITH_SHIFT;
 	time_const_shift = ilog2(MESH_TIME_CONST) + ARITH_SHIFT;
+	max_shifted_weight = (MESH_TIME_CONST << ARITH_SHIFT) * V1_WEIGHT;
 }
