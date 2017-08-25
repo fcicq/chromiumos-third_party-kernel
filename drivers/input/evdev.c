@@ -58,6 +58,7 @@ struct evdev_client {
 	struct list_head node;
 	unsigned int clk_type;
 	bool revoked;
+	unsigned long num_packets;
 	unsigned long *evmasks[EV_CNT];
 	unsigned int bufsize;
 	struct input_event buffer[];
@@ -155,8 +156,12 @@ static void __evdev_flush_queue(struct evdev_client *client, unsigned int type)
 
 static void __evdev_queue_syn_dropped(struct evdev_client *client)
 {
+	struct evdev *evdev = client->evdev;
 	struct input_event ev;
 	ktime_t time;
+
+	dev_info(&evdev->dev,
+		 "XXX client %p queueing SYN_DROPPED\n", client);
 
 	time = client->clk_type == EV_CLK_REAL ?
 			ktime_get_real() :
@@ -235,6 +240,8 @@ static void __pass_event(struct evdev_client *client,
 	client->head &= client->bufsize - 1;
 
 	if (unlikely(client->head == client->tail)) {
+		dev_info(&client->evdev->dev,
+			 "XXX client %p buffer full, queueing SYN_DROPPED\n", client);
 		/*
 		 * This effectively "drops" all unconsumed events, leaving
 		 * EV_SYN/SYN_DROPPED plus the newest event in the queue.
@@ -612,6 +619,17 @@ static ssize_t evdev_read(struct file *file, char __user *buffer,
 
 		while (read + input_event_size() <= count &&
 		       evdev_fetch_next_event(client, &event)) {
+
+			if (unlikely(client->num_packets < 10)) {
+				dev_info(&evdev->dev,
+					 "XXX client %p consumed: type: %d, code: %d\n",
+					 client, event.type,
+					 event.type != EV_KEY ? event.code : -1);
+
+				if (event.type == EV_SYN &&
+				    event.code == SYN_REPORT)
+					client->num_packets++;
+			}
 
 			if (input_event_to_user(buffer + read, &event))
 				return -EFAULT;
