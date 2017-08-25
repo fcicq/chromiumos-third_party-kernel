@@ -196,8 +196,6 @@ struct input_dev {
 	int (*uninhibit)(struct input_dev *dev);
 
 	bool inhibited;
-
-	bool first_packet_done;
 };
 #define to_input_dev(d) container_of(d, struct input_dev, dev)
 
