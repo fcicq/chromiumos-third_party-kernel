@@ -58,6 +58,7 @@ struct evdev_client {
 	struct list_head node;
 	unsigned int clk_type;
 	bool revoked;
+	bool first_packet_done;
 	unsigned long *evmasks[EV_CNT];
 	unsigned int bufsize;
 	struct input_event buffer[];
@@ -612,6 +613,17 @@ static ssize_t evdev_read(struct file *file, char __user *buffer,
 
 		while (read + input_event_size() <= count &&
 		       evdev_fetch_next_event(client, &event)) {
+
+			if (unlikely(!client->first_packet_done)) {
+				dev_info(&evdev->dev,
+					 "XXX client %p consumed: type: %d, code: %d\n",
+					 client, event.type,
+					 event.type != EV_KEY ? event.code : -1);
+
+				if (event.type == EV_SYN &&
+				    event.code == SYN_REPORT)
+					client->first_packet_done = true;
+			}
 
 			if (input_event_to_user(buffer + read, &event))
 				return -EFAULT;
