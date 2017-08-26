@@ -2119,6 +2119,9 @@ static void ath10k_htt_rx_tx_fetch_ind(struct ath10k *ar, struct sk_buff *skb)
 				break;
 			}
 		}
+		trace_ath10k_htt_rx_tx_fetch_ind(ar, i, peer_id, max_num_msdus,
+						 max_num_bytes, num_msdus,
+						 num_bytes, txq);
 
 		record->num_msdus = cpu_to_le16(num_msdus);
 		record->num_bytes = cpu_to_le32(num_bytes);

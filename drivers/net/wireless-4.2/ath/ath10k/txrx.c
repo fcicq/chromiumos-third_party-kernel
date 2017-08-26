@@ -97,6 +97,7 @@ void ath10k_atf_tx_complete(struct ath10k *ar, struct sk_buff *skb)
 	atf->frames_inflight--;
 	atf->bytes_send += skb->len;
 	atf->airtime_inflight -= skb_cb->airtime_est;
+	trace_ath10k_atf_tx_complete(ar, skb, skb_cb->airtime_est, txq);
 }
 
 int ath10k_txrx_tx_unref(struct ath10k_htt *htt,

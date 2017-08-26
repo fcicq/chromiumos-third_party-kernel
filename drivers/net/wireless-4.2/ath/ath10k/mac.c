@@ -3790,6 +3790,7 @@ void ath10k_atf_refill_deficit(struct ath10k *ar)
 
 		if (atf->deficit > atf->deficit_max)
 			atf->deficit = atf->deficit_max;
+		trace_ath10k_atf_refill_deficit(ar, txq, reset_deficit);
 	}
 }
 
@@ -3868,6 +3869,7 @@ u32 ath10k_atf_update_airtime(struct ath10k *ar, struct ieee80211_txq *txq,
 	ar->airtime_inflight += airtime;
 	atf->frames_inflight++;
 	atf->airtime_inflight += airtime;
+	trace_ath10k_atf_upd(ar, airtime, skb, txq);
 
 	spin_unlock_bh(&ar->htt.tx_lock);
 	return airtime;
