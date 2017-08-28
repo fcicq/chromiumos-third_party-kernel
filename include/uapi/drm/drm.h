@@ -716,6 +716,12 @@ struct drm_syncobj_wait {
 	__u32 pad;
 };
 
+struct drm_syncobj_array {
+	__u64 handles;
+	__u32 count_handles;
+	__u32 pad;
+};
+
 #include <drm/drm_mode.h>
 
 #define DRM_IOCTL_BASE			'd'
@@ -831,6 +837,7 @@ struct drm_syncobj_wait {
 #define DRM_IOCTL_SYNCOBJ_HANDLE_TO_FD	DRM_IOWR(0xC1, struct drm_syncobj_handle)
 #define DRM_IOCTL_SYNCOBJ_FD_TO_HANDLE	DRM_IOWR(0xC2, struct drm_syncobj_handle)
 #define DRM_IOCTL_SYNCOBJ_WAIT		DRM_IOWR(0xC3, struct drm_syncobj_wait)
+#define DRM_IOCTL_SYNCOBJ_RESET		DRM_IOWR(0xC4, struct drm_syncobj_array)
 
 /**
  * Device specific ioctls should only be in their respective headers
