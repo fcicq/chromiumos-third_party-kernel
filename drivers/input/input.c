@@ -373,9 +373,6 @@ static void input_handle_event(struct input_dev *dev,
 {
 	int disposition;
 
-	dev_info(&dev->dev, "XXX hw_event: type: %d, code: %d, value: %d\n",
-		 type, type != EV_KEY ? code : -1, type != EV_MSC ? value : -1);
-
 	/*
 	 * When inhibited, skip all events. For devices that do not implement
 	 * inhibit() themselves.
@@ -411,12 +408,12 @@ static void input_handle_event(struct input_dev *dev,
 		if (dev->num_vals >= 2)
 			input_pass_values(dev, dev->vals, dev->num_vals);
 		dev->num_vals = 0;
-		dev->first_packet_done = true;
 	} else if (dev->num_vals >= dev->max_vals - 2) {
 		dev->vals[dev->num_vals++] = input_value_sync;
 		input_pass_values(dev, dev->vals, dev->num_vals);
 		dev->num_vals = 0;
 	}
+
 }
 
 /**
