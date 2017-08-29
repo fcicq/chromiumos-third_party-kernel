@@ -167,14 +167,10 @@ void rockchip_gem_free_object(struct drm_gem_object *obj)
 
 	drm_gem_free_mmap_offset(obj);
 
-
-	if (rk_obj->sg) {
-		dma_unmap_sg(drm->dev, rk_obj->sg->sgl, rk_obj->sg->nents,
-			     DMA_BIDIRECTIONAL);
+	if (rk_obj->sg)
 		drm_prime_gem_destroy(obj, rk_obj->sg);
-	} else {
+	else
 		rockchip_gem_free_buf(rk_obj);
-	}
 
 	kfree(rk_obj);
 }
@@ -360,9 +356,7 @@ rockchip_gem_prime_import_sg_table(struct drm_device *drm, size_t size,
 	if (IS_ERR(rk_obj))
 		return ERR_CAST(rk_obj);
 
-	count = dma_map_sg(drm->dev, sg->sgl, sg->nents,
-			   DMA_BIDIRECTIONAL);
-
+	count = sg->nents;
 	if (!count) {
 		ret = -EINVAL;
 		goto err_free_rk_obj;
@@ -370,8 +364,6 @@ rockchip_gem_prime_import_sg_table(struct drm_device *drm, size_t size,
 
 	if (rockchip_sg_get_contiguous_size(sg, count) < size) {
 		DRM_ERROR("failed to map sg_table to contiguous linear address.\n");
-		dma_unmap_sg(drm->dev, sg->sgl, sg->nents,
-			     DMA_BIDIRECTIONAL);
 		ret = -EINVAL;
 		goto err_free_rk_obj;
 	}
