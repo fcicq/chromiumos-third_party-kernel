@@ -1456,6 +1456,12 @@ static acpi_status cio2_notifier_acpi_walk(acpi_handle ahandle, u32 lvl,
 	return AE_OK;
 }
 
+static const struct v4l2_async_notifier_operations cio2_async_ops = {
+	.bound = cio2_notifier_bound,
+	.unbind = cio2_notifier_unbind,
+	.complete = cio2_notifier_complete,
+};
+
 /*
  * Go through all ACPI nodes and add connected MIPI devices to V4L2 notifier.
  */
@@ -1465,10 +1471,7 @@ static int cio2_notifier_init(struct cio2_device *cio2)
 
 	cio2->notifier.subdevs = cio2->async_subdevs;
 	cio2->notifier.num_subdevs = 0;
-	cio2->notifier.bound = cio2_notifier_bound;
-	cio2->notifier.unbind = cio2_notifier_unbind;
-	cio2->notifier.complete = cio2_notifier_complete;
-
+	cio2->notifier.ops = &cio2_async_ops;
 	acpi_walk_namespace(ACPI_TYPE_DEVICE, ACPI_ROOT_OBJECT,
 			    ACPI_UINT32_MAX,
 			    cio2_notifier_acpi_walk, NULL, cio2, NULL);
