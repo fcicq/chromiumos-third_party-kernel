@@ -42,7 +42,7 @@
 #ifdef CONFIG_KAISER
 #define _PAGE_GLOBAL	(_AT(pteval_t, 0))
 #else
-#define _PAGE_GLOBAL  (_AT(pteval_t, 1) << _PAGE_BIT_GLOBAL)
+#define _PAGE_GLOBAL	(_AT(pteval_t, 1) << _PAGE_BIT_GLOBAL)
 #endif
 #define _PAGE_UNUSED1	(_AT(pteval_t, 1) << _PAGE_BIT_UNUSED1)
 #define _PAGE_IOMAP	(_AT(pteval_t, 1) << _PAGE_BIT_IOMAP)
@@ -96,11 +96,7 @@
 #endif
 
 #define _PAGE_FILE	(_AT(pteval_t, 1) << _PAGE_BIT_FILE)
-#ifdef CONFIG_KAISER
-#define _PAGE_PROTNONE	(_AT(pteval_t, 0))
-#else
 #define _PAGE_PROTNONE  (_AT(pteval_t, 1) << _PAGE_BIT_PROTNONE)
-#endif
 
 /*
  * _PAGE_NUMA indicates that this page will trigger a numa hinting
