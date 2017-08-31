@@ -62,6 +62,7 @@
 #include <linux/dma-debug.h>
 #include <linux/debugfs.h>
 #include <linux/userfaultfd_k.h>
+#include <linux/oom.h>
 #include <linux/mm_metrics.h>
 
 #include <asm/io.h>
@@ -2707,6 +2708,7 @@ static int do_anonymous_page(struct mm_struct *mm, struct vm_area_struct *vma,
 	struct mem_cgroup *memcg;
 	struct page *page;
 	spinlock_t *ptl;
+	int ret = 0;
 	pte_t entry;
 
 	pte_unmap(page_table);
@@ -2721,6 +2723,9 @@ static int do_anonymous_page(struct mm_struct *mm, struct vm_area_struct *vma,
 						vma->vm_page_prot));
 		page_table = pte_offset_map_lock(mm, pmd, address, &ptl);
 		if (!pte_none(*page_table))
+			goto unlock;
+		ret = check_stable_address_space(mm);
+		if (ret)
 			goto unlock;
 		/* Deliver the page fault to userland, check inside PT lock */
 		if (userfaultfd_missing(vma)) {
@@ -2756,6 +2761,10 @@ static int do_anonymous_page(struct mm_struct *mm, struct vm_area_struct *vma,
 	if (!pte_none(*page_table))
 		goto release;
 
+	ret = check_stable_address_space(mm);
+	if (ret)
+		goto release;
+
 	/* Deliver the page fault to userland, check inside PT lock */
 	if (userfaultfd_missing(vma)) {
 		pte_unmap_unlock(page_table, ptl);
@@ -2776,7 +2785,7 @@ setpte:
 	update_mmu_cache(vma, address, page_table);
 unlock:
 	pte_unmap_unlock(page_table, ptl);
-	return 0;
+	return ret;
 release:
 	mem_cgroup_cancel_charge(page, memcg);
 	page_cache_release(page);
@@ -2982,6 +2991,7 @@ static int do_read_fault(struct mm_struct *mm, struct vm_area_struct *vma,
 	spinlock_t *ptl;
 	pte_t *pte;
 	int ret = 0;
+	int err;
 
 	/*
 	 * Let's call ->map_pages() first and use ->fault() as fallback
@@ -3002,6 +3012,14 @@ static int do_read_fault(struct mm_struct *mm, struct vm_area_struct *vma,
 
 	pte = pte_offset_map_lock(mm, pmd, address, &ptl);
 	if (unlikely(!pte_same(*pte, orig_pte))) {
+		err = 1;
+	} else if (!(vma->vm_flags & VM_SHARED)) {
+		err = check_stable_address_space(mm);
+		if (err)
+			ret = err;
+	} else
+		err = 0;
+	if (err) {
 		pte_unmap_unlock(pte, ptl);
 		unlock_page(fault_page);
 		page_cache_release(fault_page);
@@ -3023,6 +3041,7 @@ static int do_cow_fault(struct mm_struct *mm, struct vm_area_struct *vma,
 	spinlock_t *ptl;
 	pte_t *pte;
 	int ret;
+	int err;
 
 	if (unlikely(anon_vma_prepare(vma)))
 		return VM_FAULT_OOM;
@@ -3046,6 +3065,13 @@ static int do_cow_fault(struct mm_struct *mm, struct vm_area_struct *vma,
 
 	pte = pte_offset_map_lock(mm, pmd, address, &ptl);
 	if (unlikely(!pte_same(*pte, orig_pte))) {
+		err = 1;
+	} else {
+		err = check_stable_address_space(mm);
+		if (err)
+			ret = err;
+	}
+	if (err) {
 		pte_unmap_unlock(pte, ptl);
 		if (fault_page) {
 			unlock_page(fault_page);
@@ -3499,29 +3525,6 @@ int handle_mm_fault(struct mm_struct *mm, struct vm_area_struct *vma,
                  */
                 if (task_in_memcg_oom(current) && !(ret & VM_FAULT_OOM))
                         mem_cgroup_oom_synchronize(false);
-	}
-
-	/*
-	 * This mm has been already reaped by the oom reaper and so the
-	 * refault cannot be trusted in general. Anonymous refaults would
-	 * lose data and give a zero page instead e.g. This is especially
-	 * problem for use_mm() because regular tasks will just die and
-	 * the corrupted data will not be visible anywhere while kthread
-	 * will outlive the oom victim and potentially propagate the date
-	 * further.
-	 */
-	if (unlikely((current->flags & PF_KTHREAD) && !(ret & VM_FAULT_ERROR)
-				&& test_bit(MMF_UNSTABLE, &vma->vm_mm->flags))) {
-
-		/*
-		 * We are going to enforce SIGBUS but the PF path might have
-		 * dropped the mmap_sem already so take it again so that
-		 * we do not break expectations of all arch specific PF paths
-		 * and g-u-p
-		 */
-		if (ret & VM_FAULT_RETRY)
-			down_read(&vma->vm_mm->mmap_sem);
-		ret = VM_FAULT_SIGBUS;
 	}
 
 	return ret;

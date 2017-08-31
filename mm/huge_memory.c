@@ -26,6 +26,7 @@
 #include <linux/hashtable.h>
 #include <linux/userfaultfd_k.h>
 #include <linux/page_idle.h>
+#include <linux/oom.h>
 
 #include <asm/tlb.h>
 #include <asm/pgalloc.h>
@@ -721,6 +722,7 @@ static int __do_huge_pmd_anonymous_page(struct mm_struct *mm,
 	pgtable_t pgtable;
 	spinlock_t *ptl;
 	unsigned long haddr = address & HPAGE_PMD_MASK;
+	int ret = 0;
 
 	VM_BUG_ON_PAGE(!PageCompound(page), page);
 
@@ -732,9 +734,8 @@ static int __do_huge_pmd_anonymous_page(struct mm_struct *mm,
 
 	pgtable = pte_alloc_one(mm, haddr);
 	if (unlikely(!pgtable)) {
-		mem_cgroup_cancel_charge(page, memcg);
-		put_page(page);
-		return VM_FAULT_OOM;
+		ret = VM_FAULT_OOM;
+		goto release;
 	}
 
 	clear_huge_page(page, haddr, HPAGE_PMD_NR);
@@ -747,12 +748,13 @@ static int __do_huge_pmd_anonymous_page(struct mm_struct *mm,
 
 	ptl = pmd_lock(mm, pmd);
 	if (unlikely(!pmd_none(*pmd))) {
-		spin_unlock(ptl);
-		mem_cgroup_cancel_charge(page, memcg);
-		put_page(page);
-		pte_free(mm, pgtable);
+		goto unlock_release;
 	} else {
 		pmd_t entry;
+
+		ret = check_stable_address_space(mm);
+		if (ret)
+			goto unlock_release;
 
 		/* Deliver the page fault to userland */
 		if (userfaultfd_missing(vma)) {
@@ -782,6 +784,15 @@ static int __do_huge_pmd_anonymous_page(struct mm_struct *mm,
 	}
 
 	return 0;
+unlock_release:
+	spin_unlock(ptl);
+release:
+	if (pgtable)
+		pte_free(mm, pgtable);
+	mem_cgroup_cancel_charge(page, memcg);
+	put_page(page);
+	return ret;
+
 }
 
 static inline gfp_t alloc_hugepage_gfpmask(int defrag, gfp_t extra_gfp)
@@ -839,7 +850,10 @@ int do_huge_pmd_anonymous_page(struct mm_struct *mm, struct vm_area_struct *vma,
 		ret = 0;
 		set = false;
 		if (pmd_none(*pmd)) {
-			if (userfaultfd_missing(vma)) {
+			ret = check_stable_address_space(mm);
+			if (ret) {
+				spin_unlock(ptl);
+			} else if (userfaultfd_missing(vma)) {
 				spin_unlock(ptl);
 				ret = handle_userfault(vma, address, flags,
 						       VM_UFFD_MISSING);
