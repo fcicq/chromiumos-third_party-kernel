@@ -7601,9 +7601,19 @@ static void gen8_set_l3sqc_credits(struct drm_i915_private *dev_priv,
 	I915_WRITE(GEN7_MISCCPCTL, misccpctl);
 }
 
+static void cnp_init_clock_gating(struct drm_i915_private *dev_priv)
+{
+	if (!HAS_PCH_CNP(dev_priv))
+		return;
+
+	/* Wa #1181 */
+	I915_WRITE(SOUTH_DSPCLK_GATE_D, CNP_PWM_CGE_GATING_DISABLE);
+}
+
 static void cnl_init_clock_gating(struct drm_i915_private *dev_priv)
 {
 	u32 val;
+	cnp_init_clock_gating(dev_priv);
 
 	/* This is not an Wa. Enable for better image quality */
 	I915_WRITE(_3D_CHICKEN3,
@@ -7628,6 +7638,16 @@ static void cnl_init_clock_gating(struct drm_i915_private *dev_priv)
 	val &= ~GLK_SKIP_SEG_COUNT_MASK;
 	val |= GLK_SKIP_SEG_EN | GLK_SKIP_SEG_COUNT(1);
 	I915_WRITE(ILK_DPFC_CHICKEN, val);
+}
+
+static void cfl_init_clock_gating(struct drm_i915_private *dev_priv)
+{
+	cnp_init_clock_gating(dev_priv);
+	gen9_init_clock_gating(dev_priv);
+
+	/* WaFbcNukeOnHostModify:cfl */
+	I915_WRITE(ILK_DPFC_CHICKEN, I915_READ(ILK_DPFC_CHICKEN) |
+		   ILK_DPFC_NUKE_ON_ANY_MODIFICATION);
 }
 
 static void kbl_init_clock_gating(struct drm_i915_private *dev_priv)
@@ -8112,6 +8132,8 @@ void intel_init_clock_gating_hooks(struct drm_i915_private *dev_priv)
 {
 	if (IS_CANNONLAKE(dev_priv))
 		dev_priv->display.init_clock_gating = cnl_init_clock_gating;
+	else if (IS_COFFEELAKE(dev_priv))
+		dev_priv->display.init_clock_gating = cfl_init_clock_gating;
 	else if (IS_SKYLAKE(dev_priv))
 		dev_priv->display.init_clock_gating = skl_init_clock_gating;
 	else if (IS_KABYLAKE(dev_priv))
