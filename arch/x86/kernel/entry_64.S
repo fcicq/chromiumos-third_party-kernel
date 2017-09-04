@@ -1584,9 +1584,7 @@ ENTRY(nmi)
 	/* %rax is saved above, so OK to clobber here */
 	movq	%cr3, %rax
 	pushq	%rax
-#ifdef CONFIG_KAISER_REAL_SWITCH
 	andq	$(~KAISER_SHADOW_PGD_OFFSET), %rax
-#endif
 	movq	%rax, %cr3
 #endif
 	call	do_nmi
@@ -1832,9 +1830,7 @@ end_repeat_nmi:
 	/* %rax is saved above, so OK to clobber here */
 	movq	%cr3, %rax
 	pushq	%rax
-#ifdef CONFIG_KAISER_REAL_SWITCH
 	andq	$(~KAISER_SHADOW_PGD_OFFSET), %rax
-#endif
 	movq	%rax, %cr3
 #endif
 	DEFAULT_FRAME 0		/* ???? */
