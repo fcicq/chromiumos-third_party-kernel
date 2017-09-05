@@ -3959,7 +3959,7 @@ void ath10k_mac_tx_push_pending(struct ath10k *ar)
 	struct ath10k_txq *artxq;
 	struct ath10k_txq *last;
 	int ret;
-	int max, txq_max, retry = 3;
+	int max, retry = 3;
 	bool need_refill, has_deficit;
 	u32 airtime_inflight, airtime_limit;
 
@@ -3969,7 +3969,6 @@ void ath10k_mac_tx_push_pending(struct ath10k *ar)
 	spin_lock_bh(&ar->txqs_lock);
 	rcu_read_lock();
 
-	txq_max = (ath10k_atf_scheduler_enabled(ar)) ? 64 : 16;
 	airtime_inflight = ar->airtime_inflight;
 	airtime_limit = IEEE80211_ATF_TXQ_AIRTIME_MAX;
 again:
@@ -3982,7 +3981,7 @@ again:
 				   drv_priv);
 
 		/* Prevent aggressive sta/tid taking over tx queue */
-		max = txq_max;
+		max = 16;
 		ret = 0;
 		while (ath10k_mac_tx_can_push(hw, txq) && max--) {
 			ret = ath10k_mac_tx_push_txq(hw, txq);
