@@ -6914,6 +6914,11 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 		kvm_apic_accept_events(vcpu);
 		clear_bit(KVM_REQ_UNHALT, &vcpu->requests);
 		r = -EAGAIN;
+		if (signal_pending(current)) {
+			r = -EINTR;
+			vcpu->run->exit_reason = KVM_EXIT_INTR;
+			++vcpu->stat.signal_exits;
+		}
 		goto out;
 	}
 
