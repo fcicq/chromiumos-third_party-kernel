@@ -59,20 +59,19 @@ void tsc_verify_tsc_adjust(void)
 }
 
 #ifndef CONFIG_SMP
-bool __init tsc_store_and_check_tsc_adjust(void)
+void __init tsc_store_and_check_tsc_adjust(void)
 {
 	struct tsc_adjust *ref, *cur = this_cpu_ptr(&tsc_adjust);
 	s64 bootval;
 
 	if (!boot_cpu_has(X86_FEATURE_TSC_ADJUST))
-		return false;
+		return;
 
 	rdmsrl(MSR_IA32_TSC_ADJUST, bootval);
 	cur->bootval = bootval;
 	cur->adjusted = bootval;
 	cur->nextcheck = jiffies + HZ;
 	pr_info("TSC ADJUST: Boot CPU0: %lld\n", bootval);
-	return false;
 }
 
 #else /* !CONFIG_SMP */
@@ -80,14 +79,14 @@ bool __init tsc_store_and_check_tsc_adjust(void)
 /*
  * Store and check the TSC ADJUST MSR if available
  */
-bool tsc_store_and_check_tsc_adjust(void)
+void tsc_store_and_check_tsc_adjust(void)
 {
 	struct tsc_adjust *ref, *cur = this_cpu_ptr(&tsc_adjust);
 	unsigned int refcpu, cpu = smp_processor_id();
 	s64 bootval;
 
 	if (!boot_cpu_has(X86_FEATURE_TSC_ADJUST))
-		return false;
+		return;
 
 	rdmsrl(MSR_IA32_TSC_ADJUST, bootval);
 	cur->bootval = bootval;
@@ -111,7 +110,7 @@ bool tsc_store_and_check_tsc_adjust(void)
 		 */
 		cur->adjusted = bootval;
 		pr_info_once("TSC ADJUST: Boot CPU%u: %lld\n", cpu,  bootval);
-		return false;
+		return;
 	}
 
 	ref = per_cpu_ptr(&tsc_adjust, refcpu);
@@ -135,11 +134,6 @@ bool tsc_store_and_check_tsc_adjust(void)
 		cur->adjusted = ref->adjusted;
 		wrmsrl(MSR_IA32_TSC_ADJUST, ref->adjusted);
 	}
-	/*
-	 * We have the TSCs forced to be in sync on this package. Skip sync
-	 * test:
-	 */
-	return true;
 }
 
 /*
@@ -148,7 +142,6 @@ bool tsc_store_and_check_tsc_adjust(void)
  */
 static atomic_t start_count;
 static atomic_t stop_count;
-static atomic_t skip_test;
 
 /*
  * We use a raw spinlock in this exceptional case, because
@@ -275,16 +268,10 @@ void check_tsc_sync_source(int cpu)
 	atomic_set(&stop_count, 0);
 
 	/*
-	 * Wait for the target to start or to skip the test:
+	 * Wait for the target to arrive:
 	 */
-	while (atomic_read(&start_count) != cpus - 1) {
-		if (atomic_read(&skip_test) > 0) {
-			atomic_set(&skip_test, 0);
-			return;
-		}
+	while (atomic_read(&start_count) != cpus-1)
 		cpu_relax();
-	}
-
 	/*
 	 * Trigger the target to continue into the measurement too:
 	 */
@@ -333,14 +320,8 @@ void check_tsc_sync_target(void)
 	if (unsynchronized_tsc() || tsc_clocksource_reliable)
 		return;
 
-	/*
-	 * Store, verify and sanitize the TSC adjust register. If
-	 * successful skip the test.
-	 */
-	if (tsc_store_and_check_tsc_adjust()) {
-		atomic_inc(&skip_test);
-		return;
-	}
+	/* Store and check the TSC ADJUST MSR */
+	tsc_store_and_check_tsc_adjust();
 
 	/*
 	 * Register this CPU's participation and wait for the
