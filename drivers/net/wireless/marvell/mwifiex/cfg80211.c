@@ -2951,14 +2951,16 @@ struct wireless_dev *mwifiex_add_virtual_intf(struct wiphy *wiphy,
 	mwifiex_init_priv_params(priv, dev);
 	priv->netdev = dev;
 
-	ret = mwifiex_send_cmd(priv, HostCmd_CMD_SET_BSS_MODE,
-			       HostCmd_ACT_GEN_SET, 0, NULL, true);
-	if (ret)
-		goto err_set_bss_mode;
+	if (!adapter->mfg_mode) {
+		ret = mwifiex_send_cmd(priv, HostCmd_CMD_SET_BSS_MODE,
+				       HostCmd_ACT_GEN_SET, 0, NULL, true);
+		if (ret)
+			goto err_set_bss_mode;
 
-	ret = mwifiex_sta_init_cmd(priv, false, false);
-	if (ret)
-		goto err_sta_init;
+		ret = mwifiex_sta_init_cmd(priv, false, false);
+		if (ret)
+			goto err_sta_init;
+	}
 
 	mwifiex_setup_ht_caps(&wiphy->bands[IEEE80211_BAND_2GHZ]->ht_cap, priv);
 	if (adapter->is_hw_11ac_capable)
