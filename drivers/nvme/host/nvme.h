@@ -102,8 +102,11 @@ struct nvme_dev {
 	/* Power saving configuration */
 	u64 ps_max_latency_us;
 
+	/* PCIe only: */
 	u32 hmpre;
 	u32 hmmin;
+	u32 hmminds;
+	u16 hmmaxd;
 };
 
 /*
