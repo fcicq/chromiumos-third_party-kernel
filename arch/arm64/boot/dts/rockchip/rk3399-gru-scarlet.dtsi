@@ -101,6 +101,20 @@
 		vin-supply = <&pp1800>;
 	};
 
+	pp1250_s3: pp1250-s3 {
+		compatible = "regulator-fixed";
+		regulator-name = "pp1250_s3";
+
+		/* EC turns on w/ PP1250_S3_EN; TODO:always on for AP? */
+		regulator-always-on;
+		regulator-boot-on;
+
+		regulator-min-microvolt = <1250000>;
+		regulator-max-microvolt = <1250000>;
+
+		vin-supply = <&ppvar_sys>;
+	};
+
 	/* EC turns on pp1800_s3_en */
 	pp1800_s3: pp1800 {
 	};
@@ -133,6 +147,32 @@
 		gpio = <&gpio0 8 GPIO_ACTIVE_HIGH>;
 
 		vin-supply = <&pp3300_s3>;
+	};
+
+	pp1250_cam: pp1250-dvdd {
+		compatible = "regulator-fixed";
+		regulator-name = "pp1250_dvdd";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pp1250_cam_en>;
+
+		enable-active-high;
+		gpio = <&gpio2 4 GPIO_ACTIVE_HIGH>;
+
+		startup-delay-us = <200>; //TODO: check delay
+		vin-supply = <&pp1250_s3>;
+	};
+
+	pp2800_cam: pp2800-avdd {
+		compatible = "regulator-fixed";
+		regulator-name = "pp2800_avdd";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pp2800_cam_en>;
+
+		enable-active-high;
+		gpio = <&gpio2 24 GPIO_ACTIVE_HIGH>;
+
+		startup-delay-us = <200>; //TODO: check delay
+		vin-supply = <&pp3300>;
 	};
 
 	wlan_3v3: wlan-3v3 {
@@ -309,6 +349,60 @@ ap_i2c_dig: &i2c2 {
 	};
 };
 
+camera: &i2c7 {
+	status = "okay";
+
+	clock-frequency = <400000>;
+
+	/* These are relatively safe rise/fall times; TODO: measure */
+	i2c-scl-falling-time-ns = <50>;
+	i2c-scl-rising-time-ns = <300>;
+
+	wcam: ov5695@36 {
+		compatible = "ov5695";
+		reg = <0x36>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&clk_24m_cam &wcam_rst>;
+
+		clocks = <&cru SCLK_TESTCLKOUT1>;
+		clock-names = "mclk";
+
+		avdd-supply = <&pp1800>;
+		dvdd-supply = <&pp1250_cam>;
+		dovdd-supply = <&pp2800_cam>;
+
+		reset-gpios = <&gpio2 5 GPIO_ACTIVE_LOW>;
+
+		port {
+			wcam_out: endpoint {
+				remote-endpoint = <&mipi_in_wcam>;
+				data-lanes = <1 2>;
+			};
+		};
+	};
+
+	ucam: ov2680@3c {
+		compatible = "ovti,ov2685";
+		reg = <0x3c>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&clk_24m_cam &ucam_rst>;
+
+		clocks = <&cru SCLK_TESTCLKOUT1>;
+		clock-names = "xclk";
+
+		avdd-supply = <&pp1800>;
+		dovdd-supply = <&pp2800_cam>;
+		reset-gpios = <&gpio2 3 GPIO_ACTIVE_LOW>;
+
+		port {
+			ucam_out: endpoint {
+				remote-endpoint = <&mipi_in_ucam>;
+				data-lanes = <1>;
+			};
+		};
+	};
+};
+
 &cdn_dp {
 	extcon = <&usbc_extcon0>;
 	phys = <&tcphy0_dp>;
@@ -365,8 +459,63 @@ ap_i2c_dig: &i2c2 {
 	gpio1830-supply = <&pp1800_s0>;		/* APIO4_VDD;  4c 4d */
 };
 
+&isp0 {
+	status = "okay";
+
+	port {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		isp0_mipi_in: endpoint@0 {
+			reg = <0>;
+			remote-endpoint = <&dphy_rx0_out>;
+		};
+	};
+};
+
+&isp0_mmu {
+	status = "okay";
+};
+
 &max98357a {
 	sdmode-gpios = <&gpio0 2 GPIO_ACTIVE_HIGH>;
+};
+
+&mipi_dphy_rx0 {
+	status = "okay";
+
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@0 {
+			reg = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			mipi_in_wcam: endpoint@0 {
+				reg = <0>;
+				remote-endpoint = <&wcam_out>;
+				data-lanes = <1 2>;
+			};
+			mipi_in_ucam: endpoint@1 {
+				reg = <1>;
+				remote-endpoint = <&ucam_out>;
+				data-lanes = <1>;
+			};
+		};
+
+		port@1 {
+			reg = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			dphy_rx0_out: endpoint@0 {
+				reg = <0>;
+				remote-endpoint = <&isp0_mipi_in>;
+			};
+		};
+	};
 };
 
 &mipi_dsi {
@@ -527,6 +676,28 @@ ap_i2c_dig: &i2c2 {
 		&wlan_pd_1v8_l	/* Drive this low ASAP */
 		&wlan_rf_kill_1v8_l
 	>;
+
+	camera {
+		clk_24m_cam: clk-24m-cam {
+			rockchip,pins = <RK_GPIO2 25 RK_FUNC_2 &pcfg_pull_none>;
+		};
+		pp1250_cam_en: pp1250-dvdd {
+			rockchip,pins = <RK_GPIO2 4 RK_FUNC_GPIO
+					 &pcfg_pull_down>;
+		};
+		pp2800_cam_en: pp2800-avdd {
+			rockchip,pins = <RK_GPIO2 24 RK_FUNC_GPIO
+					 &pcfg_pull_down>;
+		};
+		ucam_rst: ucam_rst {
+			rockchip,pins = <RK_GPIO2 3 RK_FUNC_GPIO
+					 &pcfg_pull_down>;
+		};
+		wcam_rst: wcam_rst {
+			rockchip,pins = <RK_GPIO2 5 RK_FUNC_GPIO
+					 &pcfg_pull_down>;
+		};
+	};
 
 	digitizer {
 		pen_int_odl: pen-int-odl {
