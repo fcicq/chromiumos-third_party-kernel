@@ -105,6 +105,10 @@
 	pp1800_s3: pp1800 {
 	};
 
+	/* EC turns on pp3300_s0_en */
+	pp3300_s0: pp3300 {
+	};
+
 	/* EC turns on pp3300_s3_en */
 	pp3300_s3: pp3300 {
 	};
@@ -303,12 +307,22 @@ pp1800_pcie: &pp1800_s0 {
 };
 
 &mipi_dsi {
+	status = "okay";
+	rockchip,dual-channel = <&mipi_dsi1>;
+
 	panel {
-		compatible = "TODO TODO TODO TODO";
+		compatible = "kingdisplay,kd097d04";
 		reg = <0>;
 		backlight = <&backlight>;
-		power-supply = <&ppvarp_lcd>, <&ppvarn_lcd>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&display_rst_l>;
+		enable-gpios= <&gpio4 25 GPIO_ACTIVE_HIGH>;
+		power-supply = <&pp3300_s0>;
 	};
+};
+
+&mipi_dsi1 {
+	status = "okay";
 };
 
 &pcie0 {
@@ -440,6 +454,10 @@ pp1800_pcie: &pp1800_s0 {
 };
 
 &discrete_regulators {
+	display_rst_l: display-rst-l {
+		rockchip,pins = <4 25 RK_FUNC_GPIO &pcfg_pull_none>;
+	};
+
 	ppvarp_lcd_en: ppvarp-lcd-en {
 		rockchip,pins = <4 27 RK_FUNC_GPIO &pcfg_pull_none>;
 	};
