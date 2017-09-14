@@ -167,7 +167,7 @@ int drm_simple_display_pipe_init(struct drm_device *dev,
 	drm_plane_helper_add(plane, &drm_simple_kms_plane_helper_funcs);
 	ret = drm_universal_plane_init(dev, plane, 0,
 				       &drm_simple_kms_plane_funcs,
-				       formats, format_count, NULL, 0,
+				       formats, format_count,
 				       DRM_PLANE_TYPE_PRIMARY, NULL);
 	if (ret)
 		return ret;
