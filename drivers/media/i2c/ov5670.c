@@ -13,9 +13,13 @@
  */
 
 #include <linux/acpi.h>
+#include <linux/clk.h>
+#include <linux/delay.h>
+#include <linux/gpio/consumer.h>
 #include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/pm_runtime.h>
+#include <linux/regulator/consumer.h>
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-device.h>
 
@@ -81,6 +85,9 @@
 /* Initial number of frames to skip to avoid possible garbage */
 #define OV5670_NUM_OF_SKIP_FRAMES	2
 
+#define XCLK_19_2M			19200000
+#define XCLK_24M			24000000
+
 struct ov5670_reg {
 	u16 address;
 	u8 val;
@@ -91,9 +98,15 @@ struct ov5670_reg_list {
 	const struct ov5670_reg *regs;
 };
 
+enum input_xclk {
+	XCLK_19_2M_INDEX = 0,
+	XCLK_24M_INDEX,
+	XCLK_NUM_MAX
+};
+
 struct ov5670_link_freq_config {
 	u32 pixel_rate;
-	const struct ov5670_reg_list reg_list;
+	const struct ov5670_reg_list reg_lists[XCLK_NUM_MAX];
 };
 
 struct ov5670_mode {
@@ -116,7 +129,24 @@ struct ov5670_mode {
 	const struct ov5670_reg_list reg_list;
 };
 
-static const struct ov5670_reg mipi_data_rate_840mbps[] = {
+static const struct ov5670_reg pll_setting_24M[] = {
+	{0x030a, 0x00},
+	{0x0300, 0x04},
+	{0x0301, 0x00},
+	{0x0302, 0x69},
+	{0x0304, 0x03},
+	{0x0303, 0x00},
+	{0x0305, 0x01},
+	{0x0306, 0x01},
+	{0x0312, 0x00},
+	{0x030b, 0x00},
+	{0x030c, 0x00},
+	{0x030d, 0x1e},
+	{0x030f, 0x06},
+	{0x030e, 0x00},
+};
+
+static const struct ov5670_reg pll_setting_19_2M[] = {
 	{0x0300, 0x04},
 	{0x0301, 0x00},
 	{0x0302, 0x84},
@@ -1741,11 +1771,15 @@ static const struct ov5670_link_freq_config link_freq_configs[] = {
 	{
 		/* pixel_rate = link_freq * 2 * nr_of_lanes / bits_per_sample */
 		.pixel_rate = (OV5670_LINK_FREQ_422MHZ * 2 * 2) / 10,
-		.reg_list = {
-			.num_of_regs = ARRAY_SIZE(mipi_data_rate_840mbps),
-			.regs = mipi_data_rate_840mbps,
-		}
-	}
+		.reg_lists[XCLK_19_2M_INDEX] = {
+			.num_of_regs = ARRAY_SIZE(pll_setting_19_2M),
+			.regs = pll_setting_19_2M,
+		},
+		.reg_lists[XCLK_24M_INDEX] = {
+			.num_of_regs = ARRAY_SIZE(pll_setting_24M),
+			.regs = pll_setting_24M,
+		},
+	},
 };
 
 static const s64 link_freq_menu_items[] = {
@@ -1846,6 +1880,15 @@ struct ov5670 {
 
 	/* Streaming on/off */
 	bool streaming;
+	enum input_xclk xclk_index;
+
+#ifdef CONFIG_OF
+	struct clk *xclk;
+	struct regulator *avdd_regulator;
+	struct regulator *dovdd_regulator;
+	struct regulator *dvdd_regulator;
+	struct gpio_desc *rst_gpio;
+#endif
 };
 
 #define to_ov5670(_sd)	container_of(_sd, struct ov5670, sd)
@@ -2304,7 +2347,7 @@ static int ov5670_start_streaming(struct ov5670 *ov5670)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&ov5670->sd);
 	const struct ov5670_reg_list *reg_list;
-	int link_freq_index;
+	int link_freq_index, xclk_index;
 	int ret;
 
 	/* Get out of from software reset */
@@ -2318,7 +2361,8 @@ static int ov5670_start_streaming(struct ov5670 *ov5670)
 
 	/* Setup PLL */
 	link_freq_index = ov5670->cur_mode->link_freq_index;
-	reg_list = &link_freq_configs[link_freq_index].reg_list;
+	xclk_index = ov5670->xclk_index;
+	reg_list = &link_freq_configs[link_freq_index].reg_lists[xclk_index];
 	ret = ov5670_write_reg_list(ov5670, reg_list);
 	if (ret) {
 		dev_err(&client->dev, "%s failed to set plls\n", __func__);
@@ -2400,6 +2444,94 @@ unlock_and_return:
 	return ret;
 }
 
+#ifdef CONFIG_OF
+/* There are two cases of powerup sequence as,
+ *  1. PWDNB connects to DOVDD,
+ *  2. XSHUTDOWN connects to DOVDD,
+ * This routine assume the case 1.
+ */
+static int __maybe_unused ov5670_poweron(struct ov5670 *ov5670)
+{
+	struct i2c_client *client = v4l2_get_subdevdata(&ov5670->sd);
+	int ret;
+
+	ret = clk_set_rate(ov5670->xclk, 24000000);
+	if (ret < 0) {
+		dev_err(&client->dev, "Failed to set xclk rate (24M)\n");
+		return ret;
+	}
+	ret = clk_prepare_enable(ov5670->xclk);
+	if (ret < 0) {
+		dev_err(&client->dev, "Failed to enable mclk\n");
+		return ret;
+	}
+
+	gpiod_set_value_cansleep(ov5670->rst_gpio, 1);
+	/* AVDD and DOVDD may rise in any order */
+	ret = regulator_enable(ov5670->avdd_regulator);
+	if (ret < 0) {
+		dev_err(&client->dev, "Failed to enable AVDD regulator\n");
+		goto disable_xclk;
+	}
+	ret = regulator_enable(ov5670->dovdd_regulator);
+	if (ret < 0) {
+		dev_err(&client->dev, "Failed to enable DOVDD regulator\n");
+		goto disable_avdd;
+	}
+	/* DVDD must rise after AVDD and DOVDD */
+	ret = regulator_enable(ov5670->dvdd_regulator);
+	if (ret < 0) {
+		dev_err(&client->dev, "Failed to enable DVDD regulator\n");
+		goto disable_dovdd;
+	}
+	/* The reset pulse width should be greater than or equal to 2 ms */
+	usleep_range(2000, 2500);
+	gpiod_set_value_cansleep(ov5670->rst_gpio, 0);
+	/* 8192 xclk cycles before SCCB transaction */
+	usleep_range(350, 500);
+
+	return 0;
+
+disable_dovdd:
+	regulator_disable(ov5670->dovdd_regulator);
+disable_avdd:
+	regulator_disable(ov5670->avdd_regulator);
+disable_xclk:
+	clk_disable_unprepare(ov5670->xclk);
+
+	return ret;
+}
+
+static void __maybe_unused ov5670_poweroff(struct ov5670 *ov5670)
+{
+	gpiod_set_value_cansleep(ov5670->rst_gpio, 1);
+	regulator_disable(ov5670->dvdd_regulator);
+	regulator_disable(ov5670->dovdd_regulator);
+	regulator_disable(ov5670->avdd_regulator);
+}
+
+static int ov5670_set_power(struct v4l2_subdev *sd, int on)
+{
+	struct ov5670 *ov5670 = to_ov5670(sd);
+	int ret = 0;
+
+	mutex_lock(&ov5670->mutex);
+	if (on)
+		ret = ov5670_poweron(ov5670);
+	else
+		ov5670_poweroff(ov5670);
+
+	mutex_unlock(&ov5670->mutex);
+
+	return ret;
+}
+#else
+static int ov5670_set_power(struct v4l2_subdev *sd, int on)
+{
+	return 0;
+}
+#endif
+
 static int __maybe_unused ov5670_suspend(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
@@ -2437,8 +2569,16 @@ static int ov5670_identify_module(struct ov5670 *ov5670)
 	int ret;
 	u32 val;
 
+#ifdef CONFIG_OF
+	ret = ov5670_poweron(ov5670);
+	if (ret < 0)
+		return ret;
+#endif
 	ret = ov5670_read_reg(ov5670, OV5670_REG_CHIP_ID,
 			      OV5670_REG_VALUE_24BIT, &val);
+#ifdef CONFIG_OF
+	ov5670_poweroff(ov5670);
+#endif
 	if (ret)
 		return ret;
 
@@ -2450,6 +2590,10 @@ static int ov5670_identify_module(struct ov5670 *ov5670)
 
 	return 0;
 }
+
+static const struct v4l2_subdev_core_ops ov5670_core_ops = {
+	.s_power = ov5670_set_power,
+};
 
 static const struct v4l2_subdev_video_ops ov5670_video_ops = {
 	.s_stream = ov5670_set_stream,
@@ -2467,6 +2611,7 @@ static const struct v4l2_subdev_sensor_ops ov5670_sensor_ops = {
 };
 
 static const struct v4l2_subdev_ops ov5670_subdev_ops = {
+	.core = &ov5670_core_ops,
 	.video = &ov5670_video_ops,
 	.pad = &ov5670_pad_ops,
 	.sensor = &ov5670_sensor_ops,
@@ -2480,16 +2625,67 @@ static const struct v4l2_subdev_internal_ops ov5670_internal_ops = {
 	.open = ov5670_open,
 };
 
+static int __maybe_unused ov5670_parse_fwnode(struct ov5670 *ov5670,
+					      struct device *dev)
+{
+	u32 input_clk = 0;
+
+	device_property_read_u32(dev, "clock-frequency", &input_clk);
+	if (input_clk != XCLK_19_2M)
+		return -EINVAL;
+	ov5670->xclk_index = XCLK_19_2M_INDEX;
+
+	return 0;
+}
+
+static int __maybe_unused ov5670_parse_dt(struct ov5670 *ov5670,
+					  struct device *dev)
+{
+	u32 input_clk = 0;
+
+	of_property_read_u32(dev->of_node, "clock-frequency", &input_clk);
+	if (input_clk == XCLK_19_2M)
+		ov5670->xclk_index = XCLK_19_2M_INDEX;
+	else if (input_clk == XCLK_24M)
+		ov5670->xclk_index = XCLK_24M_INDEX;
+	else
+		return -EINVAL;
+
+	ov5670->xclk = devm_clk_get(dev, "xclk");
+	if (IS_ERR(ov5670->xclk)) {
+		dev_err(dev, "Failed to get xclk\n");
+		return -EINVAL;
+	}
+
+	ov5670->rst_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_LOW);
+	if (IS_ERR(ov5670->rst_gpio)) {
+		dev_err(dev, "Failed to get reset-gpios\n");
+		return -EINVAL;
+	}
+	ov5670->avdd_regulator = devm_regulator_get(dev, "avdd");
+	if (IS_ERR(ov5670->avdd_regulator)) {
+		dev_err(dev, "Failed to get avdd-supply\n");
+		return -EINVAL;
+	}
+	ov5670->dovdd_regulator = devm_regulator_get(dev, "dovdd");
+	if (IS_ERR(ov5670->dovdd_regulator)) {
+		dev_err(dev, "Failed to get dovdd-supply\n");
+		return -EINVAL;
+	}
+	ov5670->dvdd_regulator = devm_regulator_get(dev, "dvdd");
+	if (IS_ERR(ov5670->dvdd_regulator)) {
+		dev_err(dev, "Failed to get dvdd-supply\n");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static int ov5670_probe(struct i2c_client *client)
 {
 	struct ov5670 *ov5670;
 	const char *err_msg;
-	u32 input_clk = 0;
 	int ret;
-
-	device_property_read_u32(&client->dev, "clock-frequency", &input_clk);
-	if (input_clk != 19200000)
-		return -EINVAL;
 
 	ov5670 = devm_kzalloc(&client->dev, sizeof(*ov5670), GFP_KERNEL);
 	if (!ov5670) {
@@ -2497,6 +2693,20 @@ static int ov5670_probe(struct i2c_client *client)
 		err_msg = "devm_kzalloc() error";
 		goto error_print;
 	}
+
+#ifdef CONFIG_ACPI
+	ret = ov5670_parse_fwnode(&client->dev);
+	if (ret)
+		return ret;
+#endif
+
+#ifdef CONFIG_OF
+	ret = ov5670_parse_dt(ov5670, &client->dev);
+	if (ret) {
+		err_msg = "DT parse error";
+		goto error_print;
+	}
+#endif
 
 	/* Initialize subdev */
 	v4l2_i2c_subdev_init(&ov5670->sd, client, &ov5670_subdev_ops);
@@ -2602,11 +2812,23 @@ static const struct acpi_device_id ov5670_acpi_ids[] = {
 MODULE_DEVICE_TABLE(acpi, ov5670_acpi_ids);
 #endif
 
+#ifdef CONFIG_OF
+static const struct of_device_id ov5670_of_match[] = {
+	{ .compatible = "ovti,ov5670" },
+	{},
+};
+#endif
+
 static struct i2c_driver ov5670_i2c_driver = {
 	.driver = {
 		.name = "ov5670",
 		.pm = &ov5670_pm_ops,
+#ifdef CONFIG_ACPI
 		.acpi_match_table = ACPI_PTR(ov5670_acpi_ids),
+#endif
+#ifdef CONFIG_OF
+		.of_match_table = ov5670_of_match,
+#endif
 	},
 	.probe_new = ov5670_probe,
 	.remove = ov5670_remove,
