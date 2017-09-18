@@ -4689,10 +4689,6 @@ intel_dp_long_pulse(struct intel_connector *intel_connector)
 	if (intel_encoder->type != INTEL_OUTPUT_EDP)
 		intel_encoder->type = INTEL_OUTPUT_DP;
 
-	DRM_DEBUG_KMS("Display Port TPS3 support: source %s, sink %s\n",
-		      yesno(intel_dp_source_supports_hbr2(intel_dp)),
-		      yesno(drm_dp_tps3_supported(intel_dp->dpcd)));
-
 	if (intel_dp->reset_link_params) {
 		/* Set the max lane count for link */
 		intel_dp->max_link_lane_count = drm_dp_max_lane_count(intel_dp->dpcd);
