@@ -1613,6 +1613,7 @@ void intel_psr_single_frame_update(struct drm_i915_private *dev_priv,
 /* intel_runtime_pm.c */
 int intel_power_domains_init(struct drm_i915_private *);
 void intel_power_domains_fini(struct drm_i915_private *);
+void intel_vlv_dpiocmn_wa(struct drm_i915_private *dev_priv, bool on);
 void intel_power_domains_init_hw(struct drm_i915_private *dev_priv, bool resume);
 void intel_power_domains_suspend(struct drm_i915_private *dev_priv);
 void bxt_display_core_init(struct drm_i915_private *dev_priv, bool resume);
