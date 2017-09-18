@@ -28,6 +28,7 @@
 
 #include <linux/pm_runtime.h>
 #include <linux/vgaarb.h>
+#include <linux/dmi.h>
 
 #include "i915_drv.h"
 #include "intel_drv.h"
@@ -2527,6 +2528,39 @@ static void vlv_cmnlane_wa(struct drm_i915_private *dev_priv)
 	cmn->ops->disable(dev_priv, cmn);
 }
 
+static int intel_vlv_dpiocmn_wa_dmi_callback(const struct dmi_system_id *id)
+{
+	return 1;
+}
+
+static const struct dmi_system_id intel_vlv_dpiocmn_wa_dmi[] = {
+	{
+		.callback = intel_vlv_dpiocmn_wa_dmi_callback,
+		.ident = "AOPEN Ninja",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "GOOGLE"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Ninja"),
+		},
+	},
+	{ }
+};
+
+void intel_vlv_dpiocmn_wa(struct drm_i915_private *dev_priv, bool on)
+{
+	struct i915_power_well *cmn_bc;
+
+	if (!dmi_check_system(intel_vlv_dpiocmn_wa_dmi))
+		return;
+
+	cmn_bc = lookup_power_well(dev_priv, PUNIT_POWER_WELL_DPIO_CMN_BC);
+	if (on) {
+		DRM_INFO("Keep PUNIT_POWER_WELL_DPIO_CMN_BC enabled on Ninja due to crbug.com/764813\n");
+		intel_power_well_get(dev_priv, cmn_bc);
+	} else {
+		intel_power_well_put(dev_priv, cmn_bc);
+	}
+}
+
 /**
  * intel_power_domains_init_hw - initialize hardware power domain state
  * @dev_priv: i915 device instance
@@ -2560,6 +2594,7 @@ void intel_power_domains_init_hw(struct drm_i915_private *dev_priv, bool resume)
 	/* Disable power support if the user asked so. */
 	if (!i915.disable_power_well)
 		intel_display_power_get(dev_priv, POWER_DOMAIN_INIT);
+	intel_vlv_dpiocmn_wa(dev_priv, true);
 	intel_power_domains_sync_hw(dev_priv);
 	power_domains->initializing = false;
 }

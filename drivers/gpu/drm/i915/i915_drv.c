@@ -1496,6 +1496,7 @@ static int i915_drm_suspend_late(struct drm_device *dev, bool hibernation)
 
 	disable_rpm_wakeref_asserts(dev_priv);
 
+	intel_vlv_dpiocmn_wa(dev_priv, false);
 	intel_display_set_init_power(dev_priv, false);
 
 	fw_csr = !IS_BROXTON(dev_priv) &&
