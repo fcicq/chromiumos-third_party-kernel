@@ -3838,7 +3838,7 @@ intel_dp_can_mst(struct intel_dp *intel_dp)
 {
 	u8 buf[1];
 
-	if (!i915.enable_dp_mst)
+	if (!i915_modparams.enable_dp_mst)
 		return false;
 
 	if (!intel_dp->can_mst)
@@ -3856,7 +3856,7 @@ intel_dp_can_mst(struct intel_dp *intel_dp)
 static void
 intel_dp_configure_mst(struct intel_dp *intel_dp)
 {
-	if (!i915.enable_dp_mst)
+	if (!i915_modparams.enable_dp_mst)
 		return;
 
 	if (!intel_dp->can_mst)
