@@ -20,7 +20,7 @@
 #include <linux/pm_runtime.h>
 
 #include <sound/soc.h>
-#include <drm/amd_asic_type.h>
+
 #include "acp.h"
 
 #define PLAYBACK_MIN_NUM_PERIODS    2
@@ -494,7 +494,7 @@ static void acp_set_sram_bank_state(void __iomem *acp_mmio, u16 bank,
 }
 
 /* Initialize and bring ACP hardware to default state. */
-static int acp_init(void __iomem *acp_mmio, u32 asic_type)
+static int acp_init(void __iomem *acp_mmio)
 {
 	u16 bank;
 	u32 val, count, sram_pte_offset;
@@ -568,14 +568,9 @@ static int acp_init(void __iomem *acp_mmio, u32 asic_type)
        /* When ACP_TILE_P1 is turned on, all SRAM banks get turned on.
 	* Now, turn off all of them. This can't be done in 'poweron' of
 	* ACP pm domain, as this requires ACP to be initialized.
-	* For Stoney, Memory gating is disabled,i.e SRAM Banks
-	* won't be turned off. The default state for SRAM banks is ON.
-	* Setting SRAM bank state code skipped for STONEY platform.
 	*/
-	if (asic_type != CHIP_STONEY) {
-		for (bank = 1; bank < 48; bank++)
-			acp_set_sram_bank_state(acp_mmio, bank, false);
-	}
+	for (bank = 1; bank < 48; bank++)
+		acp_set_sram_bank_state(acp_mmio, bank, false);
 
 	/* Stoney supports 16bit resolution */
 	if (asic_type == CHIP_STONEY) {
@@ -745,22 +740,14 @@ static int acp_dma_open(struct snd_pcm_substream *substream)
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		intr_data->play_stream = substream;
-		/* For Stoney, Memory gating is disabled,i.e SRAM Banks
-		 * won't be turned off. The default state for SRAM banks is ON.
-		 * Setting SRAM bank state code skipped for STONEY platform.
-		 */
-		if (intr_data->asic_type != CHIP_STONEY) {
-			for (bank = 1; bank <= 4; bank++)
-				acp_set_sram_bank_state(intr_data->acp_mmio,
-							bank, true);
-		}
+		for (bank = 1; bank <= 4; bank++)
+			acp_set_sram_bank_state(intr_data->acp_mmio, bank,
+						true);
 	} else {
 		intr_data->capture_stream = substream;
-		if (intr_data->asic_type != CHIP_STONEY) {
-			for (bank = 5; bank <= 8; bank++)
-				acp_set_sram_bank_state(intr_data->acp_mmio,
-							bank, true);
-		}
+		for (bank = 5; bank <= 8; bank++)
+			acp_set_sram_bank_state(intr_data->acp_mmio, bank,
+						true);
 	}
 
 	return 0;
@@ -986,23 +973,14 @@ static int acp_dma_close(struct snd_pcm_substream *substream)
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		adata->play_stream = NULL;
-		/* For Stoney, Memory gating is disabled,i.e SRAM Banks
-		 * won't be turned off. The default state for SRAM banks is ON.
-		 * Setting SRAM bank state code skipped for STONEY platform.
-		 * added condition checks for Carrizo platform only
-		 */
-		if (adata->asic_type != CHIP_STONEY) {
-			for (bank = 1; bank <= 4; bank++)
-				acp_set_sram_bank_state(adata->acp_mmio, bank,
-				false);
-		}
-	} else  {
+		for (bank = 1; bank <= 4; bank++)
+			acp_set_sram_bank_state(adata->acp_mmio, bank,
+						false);
+	} else {
 		adata->capture_stream = NULL;
-		if (adata->asic_type != CHIP_STONEY) {
-			for (bank = 5; bank <= 8; bank++)
-				acp_set_sram_bank_state(adata->acp_mmio, bank,
-						     false);
-		}
+		for (bank = 5; bank <= 8; bank++)
+			acp_set_sram_bank_state(adata->acp_mmio, bank,
+						false);
 	}
 
 	/* Disable ACP irq, when the current stream is being closed and
@@ -1071,7 +1049,7 @@ static int acp_audio_probe(struct platform_device *pdev)
 	dev_set_drvdata(&pdev->dev, audio_drv_data);
 
 	/* Initialize the ACP */
-	acp_init(audio_drv_data->acp_mmio, audio_drv_data->asic_type);
+	acp_init(audio_drv_data->acp_mmio);
 
 	status = snd_soc_register_platform(&pdev->dev, &acp_asoc_platform);
 	if (status != 0) {
@@ -1102,28 +1080,20 @@ static int acp_pcm_resume(struct device *dev)
 	u16 bank;
 	struct audio_drv_data *adata = dev_get_drvdata(dev);
 
-	acp_init(adata->acp_mmio, adata->asic_type);
+	acp_init(adata->acp_mmio);
 
 	if (adata->play_stream && adata->play_stream->runtime) {
-		/* For Stoney, Memory gating is disabled,i.e SRAM Banks
-		 * won't be turned off. The default state for SRAM banks is ON.
-		 * Setting SRAM bank state code skipped for STONEY platform.
-		 */
-		if (adata->asic_type != CHIP_STONEY) {
-			for (bank = 1; bank <= 4; bank++)
-				acp_set_sram_bank_state(adata->acp_mmio, bank,
+		for (bank = 1; bank <= 4; bank++)
+			acp_set_sram_bank_state(adata->acp_mmio, bank,
 						true);
-		}
 		config_acp_dma(adata->acp_mmio,
 			adata->play_stream->runtime->private_data,
 			adata->asic_type);
 	}
 	if (adata->capture_stream && adata->capture_stream->runtime) {
-		if (adata->asic_type != CHIP_STONEY) {
-			for (bank = 5; bank <= 8; bank++)
-				acp_set_sram_bank_state(adata->acp_mmio, bank,
+		for (bank = 5; bank <= 8; bank++)
+			acp_set_sram_bank_state(adata->acp_mmio, bank,
 						true);
-		}
 		config_acp_dma(adata->acp_mmio,
 			adata->capture_stream->runtime->private_data,
 			adata->asic_type);
@@ -1145,7 +1115,7 @@ static int acp_pcm_runtime_resume(struct device *dev)
 {
 	struct audio_drv_data *adata = dev_get_drvdata(dev);
 
-	acp_init(adata->acp_mmio, adata->asic_type);
+	acp_init(adata->acp_mmio);
 	acp_reg_write(1, adata->acp_mmio, mmACP_EXTERNAL_INTR_ENB);
 	return 0;
 }
@@ -1167,7 +1137,6 @@ static struct platform_driver acp_dma_driver = {
 
 module_platform_driver(acp_dma_driver);
 
-MODULE_AUTHOR("Vijendar.Mukunda@amd.com");
 MODULE_AUTHOR("Maruthi.Bayyavarapu@amd.com");
 MODULE_DESCRIPTION("AMD ACP PCM Driver");
 MODULE_LICENSE("GPL v2");
