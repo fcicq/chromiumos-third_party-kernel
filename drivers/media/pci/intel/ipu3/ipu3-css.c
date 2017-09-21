@@ -298,23 +298,25 @@ fail:
 int ipu3_css_set_powerdown(struct device *dev, void __iomem *base)
 {
 	dev_dbg(dev, "power down.\n");
-	/* Clear the CSS busy signal */
-	readl(base + IMGU_REG_GP_BUSY);
-	writel(0, base + IMGU_REG_GP_BUSY);
 
-	/* Wait for idle signal */
+	/* wait for cio idle signal */
+	if (ipu3_hw_wait(base, IMGU_REG_CIO_GATE_BURST_STATE,
+			 IMGU_CIO_GATE_BURST_MASK, 0))
+		dev_warn(dev, "wait cio gate idle timeout");
+
+	/* wait for css idle signal */
 	if (ipu3_hw_wait(base, IMGU_REG_STATE, IMGU_STATE_IDLE_STS,
 			 IMGU_STATE_IDLE_STS))
-		dev_warn(dev, "failed to set CSS idle\n");
+		dev_warn(dev, "wait css idle timeout\n");
 
-	/* Reset the css */
-	writel(readl(base + IMGU_REG_PM_CTRL) | IMGU_PM_CTRL_CSS_PWRDN,
-		base + IMGU_REG_PM_CTRL);
+	/* do halt-halted handshake with css */
+	writel(1, base + IMGU_REG_GP_HALT);
+	if (ipu3_hw_wait(base, IMGU_REG_STATE, IMGU_STATE_HALT_STS,
+			     IMGU_STATE_HALT_STS))
+		dev_warn(dev, "failed to halt css");
 
-	/* Wait for power down signal */
-	if (ipu3_hw_wait(base, IMGU_REG_STATE, IMGU_STATE_POWER_DOWN,
-			     IMGU_STATE_POWER_DOWN))
-		dev_warn(dev, "failed to set CSS power down\n");
+	/* de-assert the busy bit */
+	writel(0, base + IMGU_REG_GP_BUSY);
 
 	return 0;
 }
