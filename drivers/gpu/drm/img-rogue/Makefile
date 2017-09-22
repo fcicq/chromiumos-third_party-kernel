@@ -11,5 +11,7 @@ ccflags-y += \
  -I$(img_basedir)/km \
  -D__linux__
 
+subdir-ccflags-y += $(call cc-disable-warning,typedef-redefinition)
+
 include $(img_basedir)/pvrsrvkm.mk
 include $(img_basedir)/mt8173/Makefile
