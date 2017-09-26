@@ -512,7 +512,6 @@ struct drm_mode_config {
 	 */
 	struct drm_property *prop_mode_id;
 	struct drm_property *content_protection_property;
-	struct drm_property *content_protection_ksv_property;
 
 	/**
 	 * @dvi_i_subconnector_property: Optional DVI-I property to
