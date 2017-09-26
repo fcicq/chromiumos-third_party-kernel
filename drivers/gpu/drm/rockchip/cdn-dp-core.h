@@ -129,6 +129,7 @@ struct cdn_dp_device {
 	u8 dpcd[DP_RECEIVER_CAP_SIZE];
 	bool sink_has_audio;
 
+	bool hdcp_desired;
 	struct cdn_dp_hdcp_key_1x key;
 	struct delayed_work hdcp_event_work;
 };
