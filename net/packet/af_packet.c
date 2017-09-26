@@ -1500,7 +1500,7 @@ static int fanout_add(struct sock *sk, u16 id, u16 type_flags)
 	}
 	spin_unlock(&po->bind_lock);
 
-	if (err && !refcount_read(&match->sk_ref)) {
+	if (err && !atomic_read(&match->sk_ref)) {
 		list_del(&match->list);
 		kfree(match);
 	}
@@ -2405,6 +2405,7 @@ static int packet_snd(struct socket *sock, struct msghdr *msg, size_t len)
 	int vnet_hdr_len;
 	struct packet_sock *po = pkt_sk(sk);
 	unsigned short gso_type = 0;
+	bool has_vnet_hdr = false;
 	int hlen, tlen;
 	int extra_len = 0;
 
@@ -2481,6 +2482,7 @@ static int packet_snd(struct socket *sock, struct msghdr *msg, size_t len)
 				goto out_unlock;
 
 		}
+		has_vnet_hdr = true;
 	}
 
 	if (unlikely(sock_flag(sk, SOCK_NOFCS))) {
@@ -2538,7 +2540,7 @@ static int packet_snd(struct socket *sock, struct msghdr *msg, size_t len)
 
 	packet_pick_tx_queue(dev, skb);
 
-	if (po->has_vnet_hdr) {
+	if (has_vnet_hdr) {
 		if (vnet_hdr.flags & VIRTIO_NET_HDR_F_NEEDS_CSUM) {
 			if (!skb_partial_csum_set(skb, vnet_hdr.csum_start,
 						  vnet_hdr.csum_offset)) {
