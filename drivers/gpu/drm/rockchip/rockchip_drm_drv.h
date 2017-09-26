@@ -62,6 +62,7 @@ struct rockchip_crtc_state {
 	struct drm_crtc_state base;
 	int output_type;
 	int output_mode;
+	int output_flags;
 	int output_bpc;
 	bool needs_dmcfreq_block;
 };

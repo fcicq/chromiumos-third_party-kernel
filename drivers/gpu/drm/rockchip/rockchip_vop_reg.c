@@ -333,6 +333,7 @@ static const struct vop_ctrl rk3399_ctrl_data = {
 	.hdmi_en = VOP_REG(RK3399_SYS_CTRL, 0x1, 13),
 	.edp_en = VOP_REG(RK3399_SYS_CTRL, 0x1, 14),
 	.mipi_en = VOP_REG(RK3399_SYS_CTRL, 0x1, 15),
+	.mipi_dual_channel_en = VOP_REG(RK3399_SYS_CTRL, 0x1, 3),
 	.pre_dither_down = VOP_REG(RK3399_DSP_CTRL1, 0x1, 1),
 	.dither_down = VOP_REG(RK3399_DSP_CTRL1, 0x7, 2),
 	.dither_up = VOP_REG(RK3399_DSP_CTRL1, 0x1, 6),
