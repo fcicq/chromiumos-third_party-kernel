@@ -86,7 +86,18 @@ struct drm_plane_state {
 	 */
 	bool visible;
 
+
+ 	/**
+	 * @ctm:
+	 *
+	 * Color transformation matrix. See drm_plane_enable_color_mgmt(). The
+	 * blob (if not NULL) is a &struct drm_color_ctm.
+	 */
+	struct drm_property_blob *ctm;
+
 	struct drm_atomic_state *state;
+
+	bool color_mgmt_changed : 1;
 };
 
 static inline struct drm_rect
@@ -398,6 +409,7 @@ enum drm_plane_type {
  * @state: current atomic state for this plane
  * @zpos_property: zpos property for this plane
  * @rotation_property: rotation property for this plane
+ * @ctm_property: color transform matrix property for this plane
  * @helper_private: mid-layer private data
  */
 struct drm_plane {
@@ -448,6 +460,11 @@ struct drm_plane {
 
 	struct drm_property *zpos_property;
 	struct drm_property *rotation_property;
+	/**
+	 * @ctm_property: Optional property to set the
+	 * matrix used to convert colors.
+	 */
+	struct drm_property *ctm_property;
 };
 
 #define obj_to_plane(x) container_of(x, struct drm_plane, base)
