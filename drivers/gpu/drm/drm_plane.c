@@ -118,6 +118,29 @@ done:
 	return 0;
 }
 
+ /**
+ * drm_plane_enable_color_mgmt - enable color management properties
+ * @plane: DRM Plane
+ * @plane_has_ctm: whether to attach ctm_property for CSC matrix
+ *
+ * This function lets the driver enable the color correction
+ * matrix on a plane.
+ */
+void drm_plane_enable_color_mgmt(struct drm_plane *plane,
+				bool plane_has_ctm)
+{
+	struct drm_device *dev = plane->dev;
+
+	if (plane_has_ctm) {
+		plane->ctm_property = drm_property_create(dev,
+							  DRM_MODE_PROP_BLOB,
+							  "PLANE_CTM", 0);
+		drm_object_attach_property(&plane->base,
+					   plane->ctm_property, 0);
+	}
+}
+EXPORT_SYMBOL(drm_plane_enable_color_mgmt);
+
 /**
  * drm_universal_plane_init - Initialize a new universal plane object
  * @dev: DRM device

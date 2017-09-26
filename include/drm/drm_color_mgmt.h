@@ -52,5 +52,7 @@ static inline uint32_t drm_color_lut_extract(uint32_t user_input,
 	return clamp_val(val, 0, max);
 }
 
+void drm_plane_enable_color_mgmt(struct drm_plane *plane,
+				 bool plane_has_ctm);
 
 #endif
