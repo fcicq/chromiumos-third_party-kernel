@@ -910,44 +910,46 @@ static void cio2_vb2_buf_queue(struct vb2_buffer *vb)
 	struct cio2_buffer *b =
 		container_of(vb, struct cio2_buffer, vbb.vb2_buf);
 	struct cio2_fbpt_entry *entry;
-	unsigned int next = q->bufs_next;
+	unsigned int i, next = q->bufs_next;
 	int bufs_queued = atomic_inc_return(&q->bufs_queued);
+	u32 fbpt_rp;
 
-	if (vb2_start_streaming_called(&q->vbq)) {
-		u32 fbpt_rp =
-			(readl(cio2->base + CIO2_REG_CDMARI(CIO2_DMA_CHAN))
-			 >> CIO2_CDMARI_FBPT_RP_SHIFT)
-			& CIO2_CDMARI_FBPT_RP_MASK;
+	fbpt_rp = (readl(cio2->base + CIO2_REG_CDMARI(CIO2_DMA_CHAN))
+		   >> CIO2_CDMARI_FBPT_RP_SHIFT) & CIO2_CDMARI_FBPT_RP_MASK;
 
+	/*
+	 * fbpt_rp is the fbpt entry that the dma is currently working
+	 * on, but since it could jump to next entry at any time,
+	 * assume that we might already be there.
+	 */
+	fbpt_rp = (fbpt_rp + 1) % CIO2_MAX_BUFFERS;
+
+	if (bufs_queued <= 1 || fbpt_rp == next)
+		/* Buffers were drained */
+		next = (fbpt_rp + 1) % CIO2_MAX_BUFFERS;
+
+	for (i = 0; i < CIO2_MAX_BUFFERS; i++) {
 		/*
-		 * fbpt_rp is the fbpt entry that the dma is currently working
-		 * on, but since it could jump to next entry at any time,
-		 * assume that we might already be there.
+		 * We have allocated CIO2_MAX_BUFFERS circularly for the
+		 * hw, the user has requested N buffer queue. The driver
+		 * ensures N <= CIO2_MAX_BUFFERS and guarantees that whenever
+		 * user queues a buffer, there necessarily is a free buffer.
 		 */
-		fbpt_rp = (fbpt_rp + 1) % CIO2_MAX_BUFFERS;
+		if (!q->bufs[next]) {
+			q->bufs[next] = b;
+			entry = &q->fbpt[next * CIO2_MAX_LOPS];
+			cio2_fbpt_entry_init_buf(cio2, b, entry);
+			q->bufs_next = (next + 1) % CIO2_MAX_BUFFERS;
+			return;
+		}
 
-		if (bufs_queued <= 1)
-			next = fbpt_rp + 1;	/* Buffers were drained */
-		else if (fbpt_rp == next)
-			next++;
-		next %= CIO2_MAX_BUFFERS;
-	}
-
-	while (q->bufs[next]) {
-		/*
-		 * If the entry is used, get the next one,
-		 * We can not break here if all are filled,
-		 * Will wait for one free, otherwise it will crash
-		 */
-		dev_dbg(&cio2->pci_dev->dev,
-			"entry %i was already full!\n", next);
+		dev_dbg(&cio2->pci_dev->dev, "entry %i was full!\n", next);
 		next = (next + 1) % CIO2_MAX_BUFFERS;
 	}
 
-	q->bufs[next] = b;
-	entry = &q->fbpt[next * CIO2_MAX_LOPS];
-	cio2_fbpt_entry_init_buf(cio2, b, entry);
-	q->bufs_next = (next + 1) % CIO2_MAX_BUFFERS;
+	dev_err(&cio2->pci_dev->dev, "error: all cio2 entries were full!\n");
+	atomic_dec(&q->bufs_queued);
+	vb2_buffer_done(vb, VB2_BUF_STATE_ERROR);
 }
 
 /* Called when each buffer is freed */
