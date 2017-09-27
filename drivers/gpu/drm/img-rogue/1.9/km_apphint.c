@@ -43,6 +43,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include "pvr_debugfs.h"
 #include "pvr_uaccess.h"
+#include <linux/kernel.h>
 #include <linux/moduleparam.h>
 #include <linux/workqueue.h>
 #include <linux/string.h>
@@ -221,21 +222,14 @@ static const struct apphint_init_data init_data_debugfs_device[] = {
 #undef UINT32Bitfield
 #undef UINT32List
 
-/* Don't use the kernel ARRAY_SIZE macro here because it checks
- * __must_be_array() and we need to be able to use this safely on a NULL ptr.
- * This will return an undefined size for a NULL ptr - so should only be
- * used here.
- */
-#define APPHINT_HELP_ARRAY_SIZE(a) (sizeof((a))/(sizeof((a[0]))))
+__maybe_unused static const char NO_PARAM_TABLE[] = {};
 
 static const struct apphint_param param_lookup[] = {
 #define X(a, b, c, d, e) \
-	{APPHINT_ID_ ## a, APPHINT_DATA_TYPE_ ## b, e, APPHINT_HELP_ARRAY_SIZE(e) },
+	{APPHINT_ID_ ## a, APPHINT_DATA_TYPE_ ## b, e, ARRAY_SIZE(e) },
 	APPHINT_LIST_ALL
 #undef X
 };
-
-#undef APPHINT_HELP_ARRAY_SIZE
 
 static const struct apphint_class_state class_state[] = {
 #define X(a) {APPHINT_CLASS_ ## a, APPHINT_ENABLED_CLASS_ ## a},
@@ -492,7 +486,7 @@ static int apphint_read(char *buffer, size_t count, APPHINT_ID ue,
 		/* buffer may include '\n', remove it */
 		char *arg = strsep(&buffer, "\n");
 
-		if (!lookup) {
+		if (lookup == (struct apphint_lookup *)NO_PARAM_TABLE) {
 			result = -EINVAL;
 			goto err_exit;
 		}
@@ -528,7 +522,7 @@ static int apphint_read(char *buffer, size_t count, APPHINT_ID ue,
 		char *string = strsep(&buffer, "\n");
 		char *token = strsep(&string, ",");
 
-		if (!lookup) {
+		if (lookup == (struct apphint_lookup *)NO_PARAM_TABLE) {
 			result = -EINVAL;
 			goto err_exit;
 		}
@@ -673,7 +667,7 @@ static int apphint_write(char *buffer, const size_t size,
 			(struct apphint_lookup *) hint->data_type_helper;
 		IMG_UINT32 i;
 
-		if (!lookup) {
+		if (lookup == (struct apphint_lookup *)NO_PARAM_TABLE) {
 			result = -EINVAL;
 			goto err_exit;
 		}
@@ -695,7 +689,7 @@ static int apphint_write(char *buffer, const size_t size,
 			(struct apphint_lookup *) hint->data_type_helper;
 		IMG_UINT32 i;
 
-		if (!lookup) {
+		if (lookup == (struct apphint_lookup *)NO_PARAM_TABLE) {
 			result = -EINVAL;
 			goto err_exit;
 		}
