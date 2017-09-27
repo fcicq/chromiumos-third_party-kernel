@@ -285,6 +285,12 @@ ENDPROC(native_usergs_sysret64)
 	TRACE_IRQS_OFF
 	.endm
 
+/*
+ * Return: ebx=0: needs swapgs but not SWITCH_USER_CR3 in paranoid_exit
+ *         ebx=1: needs neither swapgs nor SWITCH_USER_CR3 in paranoid_exit
+ *         ebx=2: needs both swapgs and SWITCH_USER_CR3 in paranoid_exit
+ *         ebx=3: needs SWITCH_USER_CR3 but not swapgs in paranoid_exit
+ */
 ENTRY(save_paranoid)
 	XCPT_FRAME 1 RDI+8
 	cld
@@ -309,9 +315,26 @@ ENTRY(save_paranoid)
 	testl %edx,%edx
 	js 1f	/* negative -> in kernel */
 	SWAPGS
-	SWITCH_KERNEL_CR3
 	xorl %ebx,%ebx
-1:	ret
+1:
+#ifdef CONFIG_KAISER
+	/*
+	 * We might have come in between a swapgs and a SWITCH_KERNEL_CR3
+	 * on entry, or between a SWITCH_USER_CR3 and a swapgs on exit.
+	 * Do a conditional SWITCH_KERNEL_CR3: this could safely be done
+	 * unconditionally, but we need to find out whether the reverse
+	 * should be done on return (conveyed to paranoid_exit in %ebx).
+	 */
+	movq	%cr3, %rax
+	testl	$KAISER_SHADOW_PGD_OFFSET, %eax
+	jz	2f
+	orl	$2, %ebx
+	andq	$(~(X86_CR3_PCID_ASID_MASK | KAISER_SHADOW_PGD_OFFSET)), %rax
+	orq	x86_cr3_pcid_noflush, %rax
+	movq	%rax, %cr3
+2:
+#endif
+	ret
 	CFI_ENDPROC
 END(save_paranoid)
 
@@ -1328,31 +1351,40 @@ idtentry machine_check has_error_code=0 paranoid=1 do_sym=*machine_check_vector(
 	 * is fundamentally NMI-unsafe. (we cannot change the soft and
 	 * hard flags at once, atomically)
 	 */
-
-	/* ebx:	no swapgs flag */
+/*
+ * On entry: ebx=0: needs swapgs but not SWITCH_USER_CR3
+ *           ebx=1: needs neither swapgs nor SWITCH_USER_CR3
+ *           ebx=2: needs both swapgs and SWITCH_USER_CR3
+ *           ebx=3: needs SWITCH_USER_CR3 but not swapgs
+ */
 ENTRY(paranoid_exit)
 	DEFAULT_FRAME
 	DISABLE_INTERRUPTS(CLBR_NONE)
 	TRACE_IRQS_OFF_DEBUG
-	testl %ebx,%ebx				/* swapgs needed? */
-	jnz paranoid_restore
-	testl $3,CS(%rsp)
-	jnz   paranoid_userspace
-paranoid_swapgs:
-	TRACE_IRQS_IRETQ 0
-	SWITCH_USER_CR3_NO_STACK
-	SWAPGS_UNSAFE_STACK
-	RESTORE_ALL 8
-	jmp irq_return
-paranoid_restore:
+	movq	%rbx, %r12		/* paranoid_userspace uses %ebx */
+	testl	$3, CS(%rsp)
+	jnz	paranoid_userspace
+paranoid_kernel:
+	movq	%r12, %rbx		/* restore after paranoid_userspace */
 	TRACE_IRQS_IRETQ_DEBUG 0
+#ifdef CONFIG_KAISER
+	testl	$2, %ebx			/* SWITCH_USER_CR3 needed? */
+	jz	paranoid_exit_no_switch
+	SWITCH_USER_CR3
+paranoid_exit_no_switch:
+#endif
+	testl	$1, %ebx			/* swapgs needed? */
+	jnz	paranoid_exit_no_swapgs
+	SWAPGS_UNSAFE_STACK
+paranoid_exit_no_swapgs:
 	RESTORE_ALL 8
-	jmp irq_return
+	jmp	irq_return
+
 paranoid_userspace:
 	GET_THREAD_INFO(%rcx)
 	movl TI_flags(%rcx),%ebx
 	andl $_TIF_WORK_MASK,%ebx
-	jz paranoid_swapgs
+	jz paranoid_kernel
 	movq %rsp,%rdi			/* &pt_regs */
 	call sync_regs
 	movq %rax,%rsp			/* switch stack for scheduling */
