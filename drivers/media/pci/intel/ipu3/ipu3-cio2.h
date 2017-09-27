@@ -370,6 +370,7 @@ struct cio2_buffer {
 	struct vb2_v4l2_buffer vbb;
 	u32 *lop;
 	dma_addr_t lop_bus_addr;
+	unsigned int offset;
 };
 
 /**************** Virtual channel ****************/

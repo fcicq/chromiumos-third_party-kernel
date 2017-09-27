@@ -146,8 +146,7 @@ static void cio2_fbpt_entry_init_buf(struct cio2_device *cio2,
 	dma_addr_t lop_bus_addr = b->lop_bus_addr;
 	int remaining;
 
-	entry[0].first_entry.first_page_offset =
-		offset_in_page(vb2_plane_vaddr(vb, 0));
+	entry[0].first_entry.first_page_offset = b->offset;
 	remaining = length + entry[0].first_entry.first_page_offset;
 	entry[1].second_entry.num_of_pages =
 		DIV_ROUND_UP(remaining, CIO2_PAGE_SIZE);
@@ -893,6 +892,9 @@ static int cio2_vb2_buf_init(struct vb2_buffer *vb)
 	sg = vb2_dma_sg_plane_desc(vb, 0);
 	if (!sg)
 		return -ENOMEM;
+
+	if (sg->nents && sg->sgl)
+		b->offset = sg->sgl->offset;
 
 	for_each_sg_page(sg->sgl, &sg_iter, sg->nents, 0)
 		*lop++ = sg_page_iter_dma_address(&sg_iter) >> PAGE_SHIFT;
