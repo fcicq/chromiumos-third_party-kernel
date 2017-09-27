@@ -912,9 +912,27 @@ static void cio2_vb2_buf_queue(struct vb2_buffer *vb)
 	struct cio2_buffer *b =
 		container_of(vb, struct cio2_buffer, vbb.vb2_buf);
 	struct cio2_fbpt_entry *entry;
+	unsigned long flags;
 	unsigned int i, next = q->bufs_next;
 	int bufs_queued = atomic_inc_return(&q->bufs_queued);
 	u32 fbpt_rp;
+
+	dev_dbg(&cio2->pci_dev->dev, "queue buffer %d\n", vb->index);
+
+	/*
+	 * This code queues the buffer to the CIO2 DMA engine, which starts
+	 * running once streaming has started. It is possible that this code
+	 * gets pre-empted due to increased CPU load. Upon this, the driver
+	 * does not get an opportunity to queue new buffers to the CIO2 DMA
+	 * engine. When the DMA engine encounters an FBPT entry without the
+	 * VALID bit set, the DMA engine halts, which requires a restart of
+	 * the DMA engine and sensor, to continue streaming.
+	 * This is not desired and is highly unlikely given that there are
+	 * 32 FBPT entries that the DMA engine needs to process, to run into
+	 * an FBPT entry, without the VALID bit set. We try to mitigate this
+	 * by disabling interrupts for the duration of this queueing.
+	 */
+	local_irq_save(flags);
 
 	fbpt_rp = (readl(cio2->base + CIO2_REG_CDMARI(CIO2_DMA_CHAN))
 		   >> CIO2_CDMARI_FBPT_RP_SHIFT) & CIO2_CDMARI_FBPT_RP_MASK;
@@ -941,6 +959,7 @@ static void cio2_vb2_buf_queue(struct vb2_buffer *vb)
 			q->bufs[next] = b;
 			entry = &q->fbpt[next * CIO2_MAX_LOPS];
 			cio2_fbpt_entry_init_buf(cio2, b, entry);
+			local_irq_restore(flags);
 			q->bufs_next = (next + 1) % CIO2_MAX_BUFFERS;
 			return;
 		}
@@ -949,6 +968,7 @@ static void cio2_vb2_buf_queue(struct vb2_buffer *vb)
 		next = (next + 1) % CIO2_MAX_BUFFERS;
 	}
 
+	local_irq_restore(flags);
 	dev_err(&cio2->pci_dev->dev, "error: all cio2 entries were full!\n");
 	atomic_dec(&q->bufs_queued);
 	vb2_buffer_done(vb, VB2_BUF_STATE_ERROR);
