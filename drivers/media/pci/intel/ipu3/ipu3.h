@@ -144,9 +144,7 @@ struct imgu_device {
 
 	/* Internally enabled queues */
 	struct {
-		size_t dummybuf_size;
-		void *dummybuf_vaddr;
-		dma_addr_t dummybuf_daddr;
+		struct ipu3_css_map dmap;
 		struct ipu3_css_buffer dummybufs[IMGU_MAX_QUEUE_DEPTH];
 	} queues[IPU3_CSS_QUEUES];
 	struct imgu_video_device mem2mem2_nodes[IMGU_NODE_NUM];

@@ -42,6 +42,8 @@ struct ipu3_css_pool {
 int ipu3_css_dma_alloc(struct device *dma_dev, struct ipu3_css_map *map,
 			size_t size);
 void ipu3_css_dma_free(struct device *dma_dev, struct ipu3_css_map *map);
+int ipu3_css_dma_buffer_resize(struct device *dma_dev,
+			       struct ipu3_css_map *map, size_t size);
 void ipu3_css_pool_cleanup(struct device *dma_dev, struct ipu3_css_pool *pool);
 int ipu3_css_pool_init(struct device *dma_dev, struct ipu3_css_pool *pool,
 			int size);

@@ -41,6 +41,16 @@
 #define FILTER_SIZE             4
 #define MIN_ENVELOPE            8
 
+/*
+ * pre-allocated buffer size for CSS ABI, auxiliary frames
+ * after BDS and before GDC. Those values should be tuned
+ * to big enough to avoid buffer re-allocation when
+ * streaming to lower streaming latency.
+ */
+#define CSS_ABI_SIZE    136
+#define CSS_BDS_SIZE    (4480 * 3200 * 3)
+#define CSS_GDC_SIZE    (4224 * 3200 * 12 / 8)
+
 /* Formats supported by IPU3 Camera Sub System */
 static const struct ipu3_css_format ipu3_css_formats[] = {
 	{
@@ -1196,6 +1206,41 @@ static void ipu3_css_binary_cleanup(struct ipu3_css *css)
 			&css->aux_frames[IPU3_CSS_AUX_FRAME_TNR].mem[i]);
 }
 
+static int ipu3_css_binary_preallocate(struct ipu3_css *css)
+{
+	int i, j;
+
+	for (j = IMGU_ABI_PARAM_CLASS_CONFIG;
+	     j < IMGU_ABI_PARAM_CLASS_NUM; j++)
+		for (i = 0; i < IMGU_ABI_NUM_MEMORIES; i++) {
+			if (ipu3_css_dma_alloc(
+				css->dma_dev,
+				&css->binary_params_cs[j - 1][i],
+				CSS_ABI_SIZE))
+				goto out_of_memory;
+	}
+
+	for (i = 0; i < IPU3_CSS_AUX_FRAMES; i++)
+		if (ipu3_css_dma_alloc(
+			css->dma_dev,
+			&css->aux_frames[IPU3_CSS_AUX_FRAME_REF].mem[i],
+			CSS_BDS_SIZE))
+			goto out_of_memory;
+
+	for (i = 0; i < IPU3_CSS_AUX_FRAMES; i++)
+		if (ipu3_css_dma_alloc(
+			css->dma_dev,
+			&css->aux_frames[IPU3_CSS_AUX_FRAME_TNR].mem[i],
+			CSS_GDC_SIZE))
+			goto out_of_memory;
+
+	return 0;
+
+out_of_memory:
+	ipu3_css_binary_cleanup(css);
+	return -ENOMEM;
+}
+
 /* allocate binary-specific resources */
 static int ipu3_css_binary_setup(struct ipu3_css *css)
 {
@@ -1207,7 +1252,7 @@ static int ipu3_css_binary_setup(struct ipu3_css *css)
 	/* Allocate parameter memory blocks for this binary */
 	for (j = IMGU_ABI_PARAM_CLASS_CONFIG; j < IMGU_ABI_PARAM_CLASS_NUM; j++)
 		for (i = 0; i < IMGU_ABI_NUM_MEMORIES; i++)
-			if (ipu3_css_dma_alloc(
+			if (ipu3_css_dma_buffer_resize(
 			    css->dma_dev,
 			    &css->binary_params_cs[j - 1][i],
 			    bi->info.isp.sp.mem_initializers.params[j][i].size))
@@ -1228,7 +1273,7 @@ static int ipu3_css_binary_setup(struct ipu3_css *css)
 		css->aux_frames[IPU3_CSS_AUX_FRAME_REF].bytesperpixel * w;
 	size = w * h * BYPC + (w / 2) * (h / 2) * BYPC * 2;
 	for (i = 0; i < IPU3_CSS_AUX_FRAMES; i++)
-		if (ipu3_css_dma_alloc(
+		if (ipu3_css_dma_buffer_resize(
 			    css->dma_dev,
 			    &css->aux_frames[IPU3_CSS_AUX_FRAME_REF].mem[i],
 			    size))
@@ -1246,7 +1291,7 @@ static int ipu3_css_binary_setup(struct ipu3_css *css)
 	css->aux_frames[IPU3_CSS_AUX_FRAME_TNR].bytesperline = w;
 	size = w * ALIGN(h * 3 / 2 + 3, 2);	/* +3 for vf_pp prefetch */
 	for (i = 0; i < IPU3_CSS_AUX_FRAMES; i++)
-		if (ipu3_css_dma_alloc(
+		if (ipu3_css_dma_buffer_resize(
 			    css->dma_dev,
 			    &css->aux_frames[IPU3_CSS_AUX_FRAME_TNR].mem[i],
 			    size))
@@ -1334,8 +1379,6 @@ void ipu3_css_stop_streaming(struct ipu3_css *css)
 			b->state = IPU3_CSS_BUFFER_FAILED;
 			list_del(&b->list);
 		}
-
-	ipu3_css_binary_cleanup(css);
 
 	css->streaming = false;
 }
@@ -1435,8 +1478,13 @@ int ipu3_css_init(struct device *dev, struct ipu3_css *css,
 						sizeof(struct imgu_abi_buffer)))
 				goto error_no_memory;
 
+	if (ipu3_css_binary_preallocate(css))
+		goto error_binary_setup;
+
 	return 0;
 
+error_binary_setup:
+	ipu3_css_binary_cleanup(css);
 error_no_memory:
 	ipu3_css_cleanup(css);
 
