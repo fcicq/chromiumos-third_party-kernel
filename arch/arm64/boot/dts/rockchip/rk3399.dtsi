@@ -1675,8 +1675,8 @@
 				remote-endpoint = <&mipi_in_vopb>;
 			};
 
-			vopb_out_mipi1: endpoint@3 {
-				reg = <3>;
+			vopb_out_mipi1: endpoint@4 {
+				reg = <4>;
 				remote-endpoint = <&mipi1_in_vopb>;
 			};
 		};
