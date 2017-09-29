@@ -22,6 +22,9 @@
 #define CIO2_DMA_MASK			DMA_BIT_MASK(39)
 #define CIO2_QUEUES			2 /* 1 for each sensor */
 
+#define CIO2_IMAGE_MAX_WIDTH				4224
+#define CIO2_IMAGE_MAX_LENGTH				3136
+
 #define CIO2_MAX_LOPS			8 /* 32MB = 8xFBPT_entry */
 #define CIO2_MAX_BUFFERS		(PAGE_SIZE / 16 / CIO2_MAX_LOPS)
 #define CIO2_MAX_SUBDEVS		4 /* 4 ports */
@@ -326,7 +329,7 @@ struct cio2_queue {
 	/* Video device, /dev/videoX */
 	struct video_device vdev;
 	struct media_pad vdev_pad;
-	u32 pixelformat;
+	struct v4l2_pix_format_mplane format;
 	struct vb2_queue vbq;
 
 	/* Buffer queue handling */
@@ -425,6 +428,11 @@ struct __packed cio2_fbpt_entry {
 static inline struct cio2_queue *file_to_cio2_queue(struct file *file)
 {
 	return container_of(video_devdata(file), struct cio2_queue, vdev);
+}
+
+static inline struct cio2_queue *vb2q_to_cio2_queue(struct vb2_queue *vq)
+{
+	return container_of(vq, struct cio2_queue, vbq);
 }
 
 #endif
