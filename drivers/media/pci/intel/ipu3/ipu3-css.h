@@ -106,26 +106,18 @@ struct ipu3_css_format {
 #define IPU3_CSS_QUEUE_TO_FLAGS(q)	(1 << (q))
 #define IPU3_CSS_FORMAT_FL_IN		\
 			IPU3_CSS_QUEUE_TO_FLAGS(IPU3_CSS_QUEUE_IN)
-#define IPU3_CSS_FORMAT_FL_PARAMS		\
-			IPU3_CSS_QUEUE_TO_FLAGS(IPU3_CSS_QUEUE_PARAMS)
 #define IPU3_CSS_FORMAT_FL_OUT		\
 			IPU3_CSS_QUEUE_TO_FLAGS(IPU3_CSS_QUEUE_OUT)
 #define IPU3_CSS_FORMAT_FL_VF		\
 			IPU3_CSS_QUEUE_TO_FLAGS(IPU3_CSS_QUEUE_VF)
-#define IPU3_CSS_FORMAT_FL_STAT_3A	\
-			IPU3_CSS_QUEUE_TO_FLAGS(IPU3_CSS_QUEUE_STAT_3A)
-#define IPU3_CSS_FORMAT_FL_STAT_DVS	\
-			IPU3_CSS_QUEUE_TO_FLAGS(IPU3_CSS_QUEUE_STAT_DVS)
-#define IPU3_CSS_FORMAT_FL_STAT_LACE	\
-			IPU3_CSS_QUEUE_TO_FLAGS(IPU3_CSS_QUEUE_STAT_LACE)
-#define IPU3_CSS_FORMAT_FL_PSEUDO	(IPU3_CSS_FORMAT_FL_PARAMS | \
-					 IPU3_CSS_FORMAT_FL_STAT_3A | \
-					 IPU3_CSS_FORMAT_FL_STAT_DVS | \
-					 IPU3_CSS_FORMAT_FL_STAT_LACE)
 };
 
 struct ipu3_css_queue {
-	struct v4l2_pix_format pix_fmt;
+	union {
+		struct v4l2_pix_format	pix;
+		struct v4l2_meta_format	meta;
+
+	} fmt;
 	const struct ipu3_css_format *css_fmt;
 	unsigned int width_pad;	/* bytesperline / byp */
 	struct list_head bufs;
@@ -200,6 +192,7 @@ int ipu3_css_fmt_try(struct ipu3_css *css,
 int ipu3_css_fmt_set(struct ipu3_css *css,
 		     struct v4l2_pix_format *fmts[IPU3_CSS_QUEUES],
 		     struct v4l2_rect *rects[IPU3_CSS_RECTS]);
+int ipu3_css_meta_fmt_set(struct v4l2_meta_format *fmt);
 int ipu3_css_buf_queue(struct ipu3_css *css, struct ipu3_css_buffer *b);
 struct ipu3_css_buffer *ipu3_css_buf_dequeue(struct ipu3_css *css);
 int ipu3_css_start_streaming(struct ipu3_css *css);

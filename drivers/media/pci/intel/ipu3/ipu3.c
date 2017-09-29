@@ -81,6 +81,7 @@ void imgu_dummybufs_cleanup(struct imgu_device *imgu)
 
 int imgu_dummybufs_init(struct imgu_device *imgu)
 {
+	const struct v4l2_format *f;
 	unsigned int i, j;
 	int node;
 
@@ -108,8 +109,13 @@ int imgu_dummybufs_init(struct imgu_device *imgu)
 			continue;
 		}
 
-		imgu->queues[i].dummybuf_size =
-			imgu->mem2mem2.nodes[node].vdev_fmt.fmt.pix.sizeimage;
+		f = &imgu->mem2mem2.nodes[node].vdev_fmt;
+		if (node == IMGU_NODE_STAT_3A || node == IMGU_NODE_STAT_DVS ||
+		    node == IMGU_NODE_STAT_LACE || node == IMGU_NODE_PARAMS)
+			imgu->queues[i].dummybuf_size = f->fmt.meta.buffersize;
+		else
+			imgu->queues[i].dummybuf_size = f->fmt.pix.sizeimage;
+
 		imgu->queues[i].dummybuf_vaddr =
 			dma_alloc_coherent(&imgu->dma_dev,
 				imgu->queues[i].dummybuf_size,
@@ -336,7 +342,7 @@ static int imgu_mem2mem2_s_stream(struct ipu3_mem2mem2_device *m2m2_dev,
 	struct imgu_device *imgu =
 	    container_of(m2m2_dev, struct imgu_device, mem2mem2);
 	struct device *dev = &imgu->pci_dev->dev;
-	struct v4l2_pix_format *fmts[IPU3_CSS_QUEUES];
+	struct v4l2_pix_format *fmts[IPU3_CSS_QUEUES] = { NULL };
 	struct v4l2_rect *rects[IPU3_CSS_RECTS] = { NULL };
 	int i, r, node;
 
@@ -381,7 +387,11 @@ static int imgu_mem2mem2_s_stream(struct ipu3_mem2mem2_device *m2m2_dev,
 	/* Initialize CSS formats */
 	for (i = 0; i < IPU3_CSS_QUEUES; i++) {
 		node = imgu_map_node(imgu, i);
-		if (node < 0)
+		/* No need to reconfig meta nodes */
+		if (node < 0 || node == IMGU_NODE_STAT_3A ||
+		    node == IMGU_NODE_STAT_DVS ||
+		    node == IMGU_NODE_STAT_LACE ||
+		    node == IMGU_NODE_PARAMS)
 			continue;
 		fmts[i] = imgu->queue_enabled[node] ?
 			&m2m2_dev->nodes[node].vdev_fmt.fmt.pix : NULL;
@@ -461,7 +471,7 @@ static const struct ipu3_mem2mem2_ops imgu_mem2mem2_ops = {
 
 static int imgu_mem2mem2_init(struct imgu_device *imgu)
 {
-	struct v4l2_pix_format *fmts[IPU3_CSS_QUEUES];
+	struct v4l2_pix_format *fmts[IPU3_CSS_QUEUES] = { NULL };
 	struct v4l2_rect *rects[IPU3_CSS_RECTS] = { NULL };
 
 	int r, i;
@@ -488,8 +498,10 @@ static int imgu_mem2mem2_init(struct imgu_device *imgu)
 		imgu->mem2mem2.nodes[i].output = i < IMGU_QUEUE_FIRST_INPUT;
 		imgu->mem2mem2.nodes[i].immutable = false;
 		imgu->mem2mem2.nodes[i].enabled = false;
-		fmts[imgu_node_map[i].css_queue] =
-			&imgu->mem2mem2.nodes[i].vdev_fmt.fmt.pix;
+		if (!(i == IMGU_NODE_PARAMS || i == IMGU_NODE_STAT_3A ||
+		    i == IMGU_NODE_STAT_DVS || i == IMGU_NODE_STAT_LACE))
+			fmts[imgu_node_map[i].css_queue] =
+				&imgu->mem2mem2.nodes[i].vdev_fmt.fmt.pix;
 		atomic_set(&imgu->mem2mem2.nodes[i].sequence, 0);
 	}
 
@@ -582,7 +594,12 @@ static irqreturn_t imgu_isr_threaded(int irq, void *imgu_ptr)
 			unsigned int bytes;
 
 			vdev_fmt = imgu->mem2mem2.nodes[node].vdev_fmt;
-			bytes = vdev_fmt.fmt.pix.sizeimage;
+
+			if (buf->m2m2_buf.vbb.vb2_buf.type ==
+				 V4L2_BUF_TYPE_META_CAPTURE)
+				bytes = vdev_fmt.fmt.meta.buffersize;
+			else
+				bytes = vdev_fmt.fmt.pix.sizeimage;
 
 			vb2_set_plane_payload(&buf->m2m2_buf.vbb.vb2_buf, 0,
 						bytes);

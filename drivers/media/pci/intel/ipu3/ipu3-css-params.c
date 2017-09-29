@@ -337,8 +337,8 @@ static int ipu3_css_osys_calc_frame_and_stripe_params(
 
 	input_width = css->rect[IPU3_CSS_RECT_GDC].width;
 	input_height = css->rect[IPU3_CSS_RECT_GDC].height;
-	target_width = css->queue[IPU3_CSS_QUEUE_VF].pix_fmt.width;
-	target_height = css->queue[IPU3_CSS_QUEUE_VF].pix_fmt.height;
+	target_width = css->queue[IPU3_CSS_QUEUE_VF].fmt.pix.width;
+	target_height = css->queue[IPU3_CSS_QUEUE_VF].fmt.pix.height;
 
 	/**** Frame params ****/
 
@@ -352,18 +352,18 @@ static int ipu3_css_osys_calc_frame_and_stripe_params(
 		css->queue[IPU3_CSS_QUEUE_OUT].css_fmt->frame_format;
 
 	reso.pin_width[IMGU_ABI_OSYS_PIN_OUT] =
-		css->queue[IPU3_CSS_QUEUE_OUT].pix_fmt.width;
+		css->queue[IPU3_CSS_QUEUE_OUT].fmt.pix.width;
 	reso.pin_height[IMGU_ABI_OSYS_PIN_OUT] =
-		css->queue[IPU3_CSS_QUEUE_OUT].pix_fmt.height;
+		css->queue[IPU3_CSS_QUEUE_OUT].fmt.pix.height;
 	reso.pin_stride[IMGU_ABI_OSYS_PIN_OUT] =
 		css->queue[IPU3_CSS_QUEUE_OUT].width_pad;
 	reso.pin_format[IMGU_ABI_OSYS_PIN_OUT] =
 		css->queue[IPU3_CSS_QUEUE_OUT].css_fmt->frame_format;
 
 	reso.pin_width[IMGU_ABI_OSYS_PIN_VF] =
-		css->queue[IPU3_CSS_QUEUE_VF].pix_fmt.width;
+		css->queue[IPU3_CSS_QUEUE_VF].fmt.pix.width;
 	reso.pin_height[IMGU_ABI_OSYS_PIN_VF] =
-		css->queue[IPU3_CSS_QUEUE_VF].pix_fmt.height;
+		css->queue[IPU3_CSS_QUEUE_VF].fmt.pix.height;
 	reso.pin_stride[IMGU_ABI_OSYS_PIN_VF] =
 		css->queue[IPU3_CSS_QUEUE_VF].width_pad;
 	reso.pin_format[IMGU_ABI_OSYS_PIN_VF] =
@@ -372,13 +372,13 @@ static int ipu3_css_osys_calc_frame_and_stripe_params(
 	/* Configure the frame parameters for all output pins */
 
 	frame_params[IMGU_ABI_OSYS_PIN_OUT].width =
-		css->queue[IPU3_CSS_QUEUE_OUT].pix_fmt.width;
+		css->queue[IPU3_CSS_QUEUE_OUT].fmt.pix.width;
 	frame_params[IMGU_ABI_OSYS_PIN_OUT].height =
-		css->queue[IPU3_CSS_QUEUE_OUT].pix_fmt.height;
+		css->queue[IPU3_CSS_QUEUE_OUT].fmt.pix.height;
 	frame_params[IMGU_ABI_OSYS_PIN_VF].width =
-		css->queue[IPU3_CSS_QUEUE_VF].pix_fmt.width;
+		css->queue[IPU3_CSS_QUEUE_VF].fmt.pix.width;
 	frame_params[IMGU_ABI_OSYS_PIN_VF].height =
-		css->queue[IPU3_CSS_QUEUE_VF].pix_fmt.height;
+		css->queue[IPU3_CSS_QUEUE_VF].fmt.pix.height;
 	frame_params[IMGU_ABI_OSYS_PIN_VF].crop_top = 0;
 	frame_params[IMGU_ABI_OSYS_PIN_VF].crop_left = 0;
 
@@ -1886,9 +1886,9 @@ static int ipu3_css_cfg_acc_stripe(
 
 	acc->stripe.num_of_stripes = stripes;
 	acc->stripe.input_frame.width =
-		css->queue[IPU3_CSS_QUEUE_IN].pix_fmt.width;
+		css->queue[IPU3_CSS_QUEUE_IN].fmt.pix.width;
 	acc->stripe.input_frame.height =
-		css->queue[IPU3_CSS_QUEUE_IN].pix_fmt.height;
+		css->queue[IPU3_CSS_QUEUE_IN].fmt.pix.height;
 	acc->stripe.input_frame.bayer_order =
 		css->queue[IPU3_CSS_QUEUE_IN].css_fmt->bayer_order;
 
@@ -1928,7 +1928,7 @@ static int ipu3_css_cfg_acc_stripe(
 				css->rect[IPU3_CSS_RECT_BDS].height;
 	acc->stripe.bds_out_stripes_no_overlap[0].offset = 0;
 	acc->stripe.output_stripes[0].height =
-	    css->queue[IPU3_CSS_QUEUE_OUT].pix_fmt.height;
+	    css->queue[IPU3_CSS_QUEUE_OUT].fmt.pix.height;
 	acc->stripe.output_stripes[0].offset = 0;
 	if (stripes <= 1) {
 		acc->stripe.down_scaled_stripes[0].width =
@@ -1943,7 +1943,7 @@ static int ipu3_css_cfg_acc_stripe(
 			ALIGN(css->rect[IPU3_CSS_RECT_BDS].width, f);
 
 		acc->stripe.output_stripes[0].width =
-			css->queue[IPU3_CSS_QUEUE_OUT].pix_fmt.width;
+			css->queue[IPU3_CSS_QUEUE_OUT].fmt.pix.width;
 	} else { /* Two stripes */
 		bds_ds = css->rect[IPU3_CSS_RECT_EFFECTIVE].width *
 				IMGU_BDS_GRANULARITY /
@@ -1984,7 +1984,7 @@ static int ipu3_css_cfg_acc_stripe(
 		acc->stripe.output_stripes[1].width =
 			acc->stripe.down_scaled_stripes[1].width - f;
 		acc->stripe.output_stripes[1].height =
-			css->queue[IPU3_CSS_QUEUE_OUT].pix_fmt.height;
+			css->queue[IPU3_CSS_QUEUE_OUT].fmt.pix.height;
 		acc->stripe.output_stripes[1].offset =
 			acc->stripe.output_stripes[0].width;
 	}
@@ -1998,9 +1998,9 @@ static int ipu3_css_cfg_acc_stripe(
 				css->rect[IPU3_CSS_RECT_EFFECTIVE].width;
 	acc->stripe.bds_frame_width = css->rect[IPU3_CSS_RECT_BDS].width;
 	acc->stripe.out_frame_width =
-		css->queue[IPU3_CSS_QUEUE_OUT].pix_fmt.width;
+		css->queue[IPU3_CSS_QUEUE_OUT].fmt.pix.width;
 	acc->stripe.out_frame_height =
-		css->queue[IPU3_CSS_QUEUE_OUT].pix_fmt.height;
+		css->queue[IPU3_CSS_QUEUE_OUT].fmt.pix.height;
 	acc->stripe.gdc_in_buffer_width =
 		css->aux_frames[IPU3_CSS_AUX_FRAME_REF].bytesperline /
 		css->aux_frames[IPU3_CSS_AUX_FRAME_REF].bytesperpixel;
@@ -2009,9 +2009,9 @@ static int ipu3_css_cfg_acc_stripe(
 	acc->stripe.gdc_in_buffer_offset_x = IMGU_GDC_BUF_X;
 	acc->stripe.gdc_in_buffer_offset_y = IMGU_GDC_BUF_Y;
 	acc->stripe.display_frame_width =
-		css->queue[IPU3_CSS_QUEUE_VF].pix_fmt.width;
+		css->queue[IPU3_CSS_QUEUE_VF].fmt.pix.width;
 	acc->stripe.display_frame_height =
-		css->queue[IPU3_CSS_QUEUE_VF].pix_fmt.height;
+		css->queue[IPU3_CSS_QUEUE_VF].fmt.pix.height;
 	acc->stripe.bds_aligned_frame_width =
 		roundup(css->rect[IPU3_CSS_RECT_BDS].width,
 			2 * IPU3_UAPI_ISP_VEC_ELEMS);
@@ -2080,10 +2080,10 @@ static int ipu3_css_cfg_acc_dvs(struct ipu3_css *css,
 
 		unsigned int bin = i + 1;
 		unsigned int frame_w =
-			(css->queue[IPU3_CSS_QUEUE_OUT].pix_fmt.width >> bin) -
+			(css->queue[IPU3_CSS_QUEUE_OUT].fmt.pix.width >> bin) -
 			2 * IMGU_DVSSTAT_DEFAULT_START;
 		unsigned int frame_h =
-			(css->queue[IPU3_CSS_QUEUE_OUT].pix_fmt.height >> bin) -
+			(css->queue[IPU3_CSS_QUEUE_OUT].fmt.pix.height >> bin) -
 			2 * IMGU_DVSSTAT_DEFAULT_START;
 		unsigned int block_w = ALIGN(max_block_size[i] / 2, 2);
 		unsigned int block_h = block_w;
@@ -2201,20 +2201,20 @@ int ipu3_css_cfg_acc(struct ipu3_css *css, struct ipu3_uapi_flags *use,
 	tnr_frame_width = acc->stripe.bds_aligned_frame_width;
 	/* acc_param: input_feeder_config */
 
-	ofs_x = ((css->queue[IPU3_CSS_QUEUE_IN].pix_fmt.width -
+	ofs_x = ((css->queue[IPU3_CSS_QUEUE_IN].fmt.pix.width -
 		  css->rect[IPU3_CSS_RECT_EFFECTIVE].width) >> 1) & ~1;
 	ofs_x += css->queue[IPU3_CSS_QUEUE_IN].css_fmt->bayer_order ==
 		IMGU_ABI_BAYER_ORDER_RGGB ||
 		css->queue[IPU3_CSS_QUEUE_IN].css_fmt->bayer_order ==
 		IMGU_ABI_BAYER_ORDER_GBRG ? 1 : 0;
-	ofs_y = ((css->queue[IPU3_CSS_QUEUE_IN].pix_fmt.height -
+	ofs_y = ((css->queue[IPU3_CSS_QUEUE_IN].fmt.pix.height -
 		  css->rect[IPU3_CSS_RECT_EFFECTIVE].height) >> 1) & ~1;
 	ofs_y += css->queue[IPU3_CSS_QUEUE_IN].css_fmt->bayer_order ==
 		IMGU_ABI_BAYER_ORDER_BGGR ||
 		css->queue[IPU3_CSS_QUEUE_IN].css_fmt->bayer_order ==
 		IMGU_ABI_BAYER_ORDER_GBRG ? 1 : 0;
 	acc->input_feeder.data.row_stride =
-		css->queue[IPU3_CSS_QUEUE_IN].pix_fmt.bytesperline;
+		css->queue[IPU3_CSS_QUEUE_IN].fmt.pix.bytesperline;
 	acc->input_feeder.data.start_row_address =
 		ofs_x / IMGU_PIXELS_PER_WORD * IMGU_BYTES_PER_WORD +
 		ofs_y * acc->input_feeder.data.row_stride;

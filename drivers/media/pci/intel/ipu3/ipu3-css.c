@@ -90,37 +90,6 @@ static const struct ipu3_css_format ipu3_css_formats[] = {
 		.bytesperpixel_num = 64,
 		.width_align = 2 * IPU3_UAPI_ISP_VEC_ELEMS,
 		.flags = IPU3_CSS_FORMAT_FL_IN,
-	}, {	/* Parameter pseudo-format */
-
-		.pixelformat = V4L2_META_FMT_IPU3_PARAMS,
-		.colorspace = V4L2_COLORSPACE_DEFAULT,
-		.bytesperpixel_num = sizeof(struct ipu3_uapi_params) *
-					IPU3_CSS_FORMAT_BPP_DEN,
-		.width_align = 1,
-		.flags = IPU3_CSS_FORMAT_FL_PARAMS,
-
-	}, {	/* Statistics pseudo-formats */
-
-		.pixelformat = V4L2_META_FMT_IPU3_STAT_3A,
-		.colorspace = V4L2_COLORSPACE_DEFAULT,
-		.bytesperpixel_num = sizeof(struct ipu3_uapi_stats_3a) *
-					IPU3_CSS_FORMAT_BPP_DEN,
-		.width_align = 1,
-		.flags = IPU3_CSS_FORMAT_FL_STAT_3A,
-	}, {
-		.pixelformat = V4L2_META_FMT_IPU3_STAT_DVS,
-		.colorspace = V4L2_COLORSPACE_DEFAULT,
-		.bytesperpixel_num = sizeof(struct ipu3_uapi_stats_dvs) *
-					IPU3_CSS_FORMAT_BPP_DEN,
-		.width_align = 1,
-		.flags = IPU3_CSS_FORMAT_FL_STAT_DVS,
-	}, {
-		.pixelformat = V4L2_META_FMT_IPU3_STAT_LACE,
-		.colorspace = V4L2_COLORSPACE_DEFAULT,
-		.bytesperpixel_num = sizeof(struct ipu3_uapi_stats_lace) *
-					IPU3_CSS_FORMAT_BPP_DEN,
-		.width_align = 1,
-		.flags = IPU3_CSS_FORMAT_FL_STAT_LACE,
 	},
 };
 
@@ -154,7 +123,7 @@ static const struct {
 static int ipu3_css_queue_init(struct ipu3_css_queue *queue,
 			       struct v4l2_pix_format *fmt, u32 flags)
 {
-	struct v4l2_pix_format *const f = &queue->pix_fmt;
+	struct v4l2_pix_format *const f = &queue->fmt.pix;
 	unsigned int i;
 
 	INIT_LIST_HEAD(&queue->bufs);
@@ -173,17 +142,13 @@ static int ipu3_css_queue_init(struct ipu3_css_queue *queue,
 	if (!queue->css_fmt)
 		return -EINVAL;	/* Could not find any suitable format */
 
-	queue->pix_fmt = *fmt;
-	queue->pix_fmt.pixelformat = queue->css_fmt->pixelformat;
-	if (queue->css_fmt->flags & IPU3_CSS_FORMAT_FL_PSEUDO) {
-		f->width = 1;
-		f->height = 1;
-	} else {
-		f->width = ALIGN(clamp_t(u32, f->width,
-				IPU3_CSS_MIN_RES, IPU3_CSS_MAX_RES), 2);
-		f->height = ALIGN(clamp_t(u32, f->height,
-				IPU3_CSS_MIN_RES, IPU3_CSS_MAX_RES), 2);
-	}
+	queue->fmt.pix = *fmt;
+	queue->fmt.pix.pixelformat = queue->css_fmt->pixelformat;
+
+	f->width = ALIGN(clamp_t(u32, f->width,
+			IPU3_CSS_MIN_RES, IPU3_CSS_MAX_RES), 2);
+	f->height = ALIGN(clamp_t(u32, f->height,
+			IPU3_CSS_MIN_RES, IPU3_CSS_MAX_RES), 2);
 	queue->width_pad = ALIGN(f->width, queue->css_fmt->width_align);
 	if (queue->css_fmt->frame_format != IMGU_ABI_FRAME_FORMAT_RAW_PACKED)
 		f->bytesperline = DIV_ROUND_UP(queue->width_pad *
@@ -195,6 +160,7 @@ static int ipu3_css_queue_init(struct ipu3_css_queue *queue,
 					IPU3_CSS_FORMAT_BPP_DEN) *
 					queue->css_fmt->bytesperpixel_num;
 	f->sizeimage = f->height * f->bytesperline;
+
 	if (queue->css_fmt->chroma_decim)
 		f->sizeimage += 2 * f->sizeimage / queue->css_fmt->chroma_decim;
 
@@ -739,9 +705,9 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 		goto bad_firmware;
 
 	cfg_iter->input_info.res.width =
-	    css->queue[IPU3_CSS_QUEUE_IN].pix_fmt.width;
+	    css->queue[IPU3_CSS_QUEUE_IN].fmt.pix.width;
 	cfg_iter->input_info.res.height =
-	    css->queue[IPU3_CSS_QUEUE_IN].pix_fmt.height;
+	    css->queue[IPU3_CSS_QUEUE_IN].fmt.pix.height;
 	cfg_iter->input_info.padded_width =
 	    css->queue[IPU3_CSS_QUEUE_IN].width_pad;
 	cfg_iter->input_info.format =
@@ -766,9 +732,9 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	cfg_iter->internal_info.raw_type = IMGU_ABI_RAW_TYPE_BAYER;
 
 	cfg_iter->output_info.res.width =
-	    css->queue[IPU3_CSS_QUEUE_OUT].pix_fmt.width;
+	    css->queue[IPU3_CSS_QUEUE_OUT].fmt.pix.width;
 	cfg_iter->output_info.res.height =
-	    css->queue[IPU3_CSS_QUEUE_OUT].pix_fmt.height;
+	    css->queue[IPU3_CSS_QUEUE_OUT].fmt.pix.height;
 	cfg_iter->output_info.padded_width =
 	    css->queue[IPU3_CSS_QUEUE_OUT].width_pad;
 	cfg_iter->output_info.format =
@@ -780,9 +746,9 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	cfg_iter->output_info.raw_type = IMGU_ABI_RAW_TYPE_BAYER;
 
 	cfg_iter->vf_info.res.width =
-	    css->queue[IPU3_CSS_QUEUE_VF].pix_fmt.width;
+	    css->queue[IPU3_CSS_QUEUE_VF].fmt.pix.width;
 	cfg_iter->vf_info.res.height =
-	    css->queue[IPU3_CSS_QUEUE_VF].pix_fmt.height;
+	    css->queue[IPU3_CSS_QUEUE_VF].fmt.pix.height;
 	cfg_iter->vf_info.padded_width =
 	    css->queue[IPU3_CSS_QUEUE_VF].width_pad;
 	cfg_iter->vf_info.format =
@@ -945,9 +911,9 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	sp_stage->frames.effective_in_res.height =
 		css->rect[IPU3_CSS_RECT_EFFECTIVE].height;
 	sp_stage->frames.in.info.res.width =
-	    css->queue[IPU3_CSS_QUEUE_IN].pix_fmt.width;
+	    css->queue[IPU3_CSS_QUEUE_IN].fmt.pix.width;
 	sp_stage->frames.in.info.res.height =
-	    css->queue[IPU3_CSS_QUEUE_IN].pix_fmt.height;
+	    css->queue[IPU3_CSS_QUEUE_IN].fmt.pix.height;
 	sp_stage->frames.in.info.padded_width =
 	    css->queue[IPU3_CSS_QUEUE_IN].width_pad;
 	sp_stage->frames.in.info.format =
@@ -962,9 +928,9 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	    IMGU_ABI_BUFFER_TYPE_INPUT_FRAME;
 
 	sp_stage->frames.out[0].info.res.width =
-	    css->queue[IPU3_CSS_QUEUE_OUT].pix_fmt.width;
+	    css->queue[IPU3_CSS_QUEUE_OUT].fmt.pix.width;
 	sp_stage->frames.out[0].info.res.height =
-	    css->queue[IPU3_CSS_QUEUE_OUT].pix_fmt.height;
+	    css->queue[IPU3_CSS_QUEUE_OUT].fmt.pix.height;
 	sp_stage->frames.out[0].info.padded_width =
 	    css->queue[IPU3_CSS_QUEUE_OUT].width_pad;
 	sp_stage->frames.out[0].info.format =
@@ -976,7 +942,7 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	sp_stage->frames.out[0].info.raw_type = IMGU_ABI_RAW_TYPE_BAYER;
 	sp_stage->frames.out[0].planes.nv.uv.offset =
 	    css->queue[IPU3_CSS_QUEUE_OUT].width_pad *
-	    css->queue[IPU3_CSS_QUEUE_OUT].pix_fmt.height;
+	    css->queue[IPU3_CSS_QUEUE_OUT].fmt.pix.height;
 	sp_stage->frames.out[0].buf_attr.buf_src.queue_id = IMGU_ABI_QUEUE_D_ID;
 	sp_stage->frames.out[0].buf_attr.buf_type =
 	    IMGU_ABI_BUFFER_TYPE_OUTPUT_FRAME;
@@ -999,9 +965,9 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	sp_stage->frames.internal_frame_info.raw_type = IMGU_ABI_RAW_TYPE_BAYER;
 
 	sp_stage->frames.out_vf.info.res.width =
-	    css->queue[IPU3_CSS_QUEUE_VF].pix_fmt.width;
+	    css->queue[IPU3_CSS_QUEUE_VF].fmt.pix.width;
 	sp_stage->frames.out_vf.info.res.height =
-	    css->queue[IPU3_CSS_QUEUE_VF].pix_fmt.height;
+	    css->queue[IPU3_CSS_QUEUE_VF].fmt.pix.height;
 	sp_stage->frames.out_vf.info.padded_width =
 	    css->queue[IPU3_CSS_QUEUE_VF].width_pad;
 	sp_stage->frames.out_vf.info.format =
@@ -1013,10 +979,10 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	sp_stage->frames.out_vf.info.raw_type = IMGU_ABI_RAW_TYPE_BAYER;
 	sp_stage->frames.out_vf.planes.yuv.u.offset =
 	    css->queue[IPU3_CSS_QUEUE_VF].width_pad *
-	    css->queue[IPU3_CSS_QUEUE_VF].pix_fmt.height;
+	    css->queue[IPU3_CSS_QUEUE_VF].fmt.pix.height;
 	sp_stage->frames.out_vf.planes.yuv.v.offset =
 	    css->queue[IPU3_CSS_QUEUE_VF].width_pad *
-	    css->queue[IPU3_CSS_QUEUE_VF].pix_fmt.height * 5 / 4;
+	    css->queue[IPU3_CSS_QUEUE_VF].fmt.pix.height * 5 / 4;
 	sp_stage->frames.out_vf.buf_attr.buf_src.queue_id = IMGU_ABI_QUEUE_E_ID;
 	sp_stage->frames.out_vf.buf_attr.buf_type =
 	    IMGU_ABI_BUFFER_TYPE_VF_OUTPUT_FRAME;
@@ -1426,9 +1392,9 @@ static int ipu3_css_find_binary(struct ipu3_css *css,
 	const int binary_nr = css->fwp->file_header.binary_nr;
 	const char *name;
 
-	const struct v4l2_pix_format *in = &queue[IPU3_CSS_QUEUE_IN].pix_fmt;
-	const struct v4l2_pix_format *out = &queue[IPU3_CSS_QUEUE_OUT].pix_fmt;
-	const struct v4l2_pix_format *vf = &queue[IPU3_CSS_QUEUE_VF].pix_fmt;
+	const struct v4l2_pix_format *in = &queue[IPU3_CSS_QUEUE_IN].fmt.pix;
+	const struct v4l2_pix_format *out = &queue[IPU3_CSS_QUEUE_OUT].fmt.pix;
+	const struct v4l2_pix_format *vf = &queue[IPU3_CSS_QUEUE_VF].fmt.pix;
 	unsigned int binary_mode = (css->pipe_id == IPU3_CSS_PIPE_ID_CAPTURE) ?
 		IA_CSS_BINARY_MODE_PRIMARY : IA_CSS_BINARY_MODE_VIDEO;
 
@@ -1566,9 +1532,9 @@ int ipu3_css_fmt_try(struct ipu3_css *css,
 	};
 	struct ipu3_css_queue q[IPU3_CSS_QUEUES];
 	struct v4l2_rect r[IPU3_CSS_RECTS] = { };
-	struct v4l2_pix_format *const in  = &q[IPU3_CSS_QUEUE_IN].pix_fmt;
-	struct v4l2_pix_format *const out = &q[IPU3_CSS_QUEUE_OUT].pix_fmt;
-	struct v4l2_pix_format *const vf  = &q[IPU3_CSS_QUEUE_VF].pix_fmt;
+	struct v4l2_pix_format *const in  = &q[IPU3_CSS_QUEUE_IN].fmt.pix;
+	struct v4l2_pix_format *const out = &q[IPU3_CSS_QUEUE_OUT].fmt.pix;
+	struct v4l2_pix_format *const vf  = &q[IPU3_CSS_QUEUE_VF].fmt.pix;
 	struct v4l2_rect       *const eff = &r[IPU3_CSS_RECT_EFFECTIVE];
 	struct v4l2_rect       *const bds = &r[IPU3_CSS_RECT_BDS];
 	struct v4l2_rect       *const env = &r[IPU3_CSS_RECT_ENVELOPE];
@@ -1664,13 +1630,13 @@ int ipu3_css_fmt_try(struct ipu3_css *css,
 	/* Final adjustment and set back the queried formats */
 	for (i = 0; i < IPU3_CSS_QUEUES; i++) {
 		if (fmts[i]) {
-			if (ipu3_css_queue_init(&q[i], &q[i].pix_fmt,
+			if (ipu3_css_queue_init(&q[i], &q[i].fmt.pix,
 						IPU3_CSS_QUEUE_TO_FLAGS(i))) {
 				dev_err(css->dev,
 					"final resolution adjustment failed\n");
 				return -EINVAL;
 			}
-			*fmts[i] = q[i].pix_fmt;
+			*fmts[i] = q[i].fmt.pix;
 		}
 	}
 
@@ -1772,6 +1738,28 @@ int ipu3_css_fmt_set(struct ipu3_css *css,
 out_of_memory:
 	ipu3_css_binary_cleanup(css);
 	return -ENOMEM;
+}
+
+int ipu3_css_meta_fmt_set(struct v4l2_meta_format *fmt)
+{
+	switch (fmt->dataformat) {
+	case V4L2_META_FMT_IPU3_PARAMS:
+		fmt->buffersize = sizeof(struct ipu3_uapi_params);
+		break;
+	case V4L2_META_FMT_IPU3_STAT_3A:
+		fmt->buffersize = sizeof(struct ipu3_uapi_stats_3a);
+		break;
+	case V4L2_META_FMT_IPU3_STAT_DVS:
+		fmt->buffersize = sizeof(struct ipu3_uapi_stats_dvs);
+		break;
+	case V4L2_META_FMT_IPU3_STAT_LACE:
+		fmt->buffersize = sizeof(struct ipu3_uapi_stats_lace);
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
 }
 
 /*
