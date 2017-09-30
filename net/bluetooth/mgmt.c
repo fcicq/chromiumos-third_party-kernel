@@ -6493,6 +6493,10 @@ static int remove_advertising(struct sock *sk, struct hci_dev *hdev,
 		goto unlock;
 	}
 
+#ifdef CONFIG_BT_EVE_HACKS
+	hci_req_add(&req, HCI_OP_READ_LOCAL_NAME, 0, NULL);
+#endif
+
 	err = hci_req_run(&req, remove_advertising_complete);
 	if (err < 0)
 		mgmt_pending_remove(cmd);
