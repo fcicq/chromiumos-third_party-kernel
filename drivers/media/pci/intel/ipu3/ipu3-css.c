@@ -121,10 +121,11 @@ static const struct {
 
 /* Initialize queue based on given format, adjust format as needed */
 static int ipu3_css_queue_init(struct ipu3_css_queue *queue,
-			       struct v4l2_pix_format *fmt, u32 flags)
+			       struct v4l2_pix_format_mplane *fmt, u32 flags)
 {
-	struct v4l2_pix_format *const f = &queue->fmt.pix;
+	struct v4l2_pix_format_mplane *const f = &queue->fmt.mpix;
 	unsigned int i;
+	u32 sizeimage;
 
 	INIT_LIST_HEAD(&queue->bufs);
 
@@ -142,8 +143,7 @@ static int ipu3_css_queue_init(struct ipu3_css_queue *queue,
 	if (!queue->css_fmt)
 		return -EINVAL;	/* Could not find any suitable format */
 
-	queue->fmt.pix = *fmt;
-	queue->fmt.pix.pixelformat = queue->css_fmt->pixelformat;
+	queue->fmt.mpix = *fmt;
 
 	f->width = ALIGN(clamp_t(u32, f->width,
 			IPU3_CSS_MIN_RES, IPU3_CSS_MAX_RES), 2);
@@ -151,26 +151,28 @@ static int ipu3_css_queue_init(struct ipu3_css_queue *queue,
 			IPU3_CSS_MIN_RES, IPU3_CSS_MAX_RES), 2);
 	queue->width_pad = ALIGN(f->width, queue->css_fmt->width_align);
 	if (queue->css_fmt->frame_format != IMGU_ABI_FRAME_FORMAT_RAW_PACKED)
-		f->bytesperline = DIV_ROUND_UP(queue->width_pad *
+		f->plane_fmt[0].bytesperline = DIV_ROUND_UP(queue->width_pad *
 					queue->css_fmt->bytesperpixel_num,
 					IPU3_CSS_FORMAT_BPP_DEN);
 	else
 		/* For packed raw, alignment for bpl is by 50 to the width */
-		f->bytesperline = DIV_ROUND_UP(f->width,
+		f->plane_fmt[0].bytesperline = DIV_ROUND_UP(f->width,
 					IPU3_CSS_FORMAT_BPP_DEN) *
 					queue->css_fmt->bytesperpixel_num;
-	f->sizeimage = f->height * f->bytesperline;
+	sizeimage = f->height * f->plane_fmt[0].bytesperline;
 
 	if (queue->css_fmt->chroma_decim)
-		f->sizeimage += 2 * f->sizeimage / queue->css_fmt->chroma_decim;
+		sizeimage += 2 * sizeimage / queue->css_fmt->chroma_decim;
 
+	f->plane_fmt[0].sizeimage = sizeimage;
 	f->field = V4L2_FIELD_NONE;
 	f->colorspace = queue->css_fmt->colorspace;
-	f->priv = 0;
+	f->num_planes = 1;
 	f->flags = 0;
 	f->ycbcr_enc = V4L2_YCBCR_ENC_DEFAULT;
 	f->quantization = V4L2_QUANTIZATION_DEFAULT;
 	f->xfer_func = V4L2_XFER_FUNC_DEFAULT;
+	memset(f->reserved, 0, sizeof(f->reserved));
 
 	return 0;
 }
@@ -705,9 +707,9 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 		goto bad_firmware;
 
 	cfg_iter->input_info.res.width =
-	    css->queue[IPU3_CSS_QUEUE_IN].fmt.pix.width;
+	    css->queue[IPU3_CSS_QUEUE_IN].fmt.mpix.width;
 	cfg_iter->input_info.res.height =
-	    css->queue[IPU3_CSS_QUEUE_IN].fmt.pix.height;
+	    css->queue[IPU3_CSS_QUEUE_IN].fmt.mpix.height;
 	cfg_iter->input_info.padded_width =
 	    css->queue[IPU3_CSS_QUEUE_IN].width_pad;
 	cfg_iter->input_info.format =
@@ -732,9 +734,9 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	cfg_iter->internal_info.raw_type = IMGU_ABI_RAW_TYPE_BAYER;
 
 	cfg_iter->output_info.res.width =
-	    css->queue[IPU3_CSS_QUEUE_OUT].fmt.pix.width;
+	    css->queue[IPU3_CSS_QUEUE_OUT].fmt.mpix.width;
 	cfg_iter->output_info.res.height =
-	    css->queue[IPU3_CSS_QUEUE_OUT].fmt.pix.height;
+	    css->queue[IPU3_CSS_QUEUE_OUT].fmt.mpix.height;
 	cfg_iter->output_info.padded_width =
 	    css->queue[IPU3_CSS_QUEUE_OUT].width_pad;
 	cfg_iter->output_info.format =
@@ -746,9 +748,9 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	cfg_iter->output_info.raw_type = IMGU_ABI_RAW_TYPE_BAYER;
 
 	cfg_iter->vf_info.res.width =
-	    css->queue[IPU3_CSS_QUEUE_VF].fmt.pix.width;
+	    css->queue[IPU3_CSS_QUEUE_VF].fmt.mpix.width;
 	cfg_iter->vf_info.res.height =
-	    css->queue[IPU3_CSS_QUEUE_VF].fmt.pix.height;
+	    css->queue[IPU3_CSS_QUEUE_VF].fmt.mpix.height;
 	cfg_iter->vf_info.padded_width =
 	    css->queue[IPU3_CSS_QUEUE_VF].width_pad;
 	cfg_iter->vf_info.format =
@@ -911,9 +913,9 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	sp_stage->frames.effective_in_res.height =
 		css->rect[IPU3_CSS_RECT_EFFECTIVE].height;
 	sp_stage->frames.in.info.res.width =
-	    css->queue[IPU3_CSS_QUEUE_IN].fmt.pix.width;
+	    css->queue[IPU3_CSS_QUEUE_IN].fmt.mpix.width;
 	sp_stage->frames.in.info.res.height =
-	    css->queue[IPU3_CSS_QUEUE_IN].fmt.pix.height;
+	    css->queue[IPU3_CSS_QUEUE_IN].fmt.mpix.height;
 	sp_stage->frames.in.info.padded_width =
 	    css->queue[IPU3_CSS_QUEUE_IN].width_pad;
 	sp_stage->frames.in.info.format =
@@ -928,9 +930,9 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	    IMGU_ABI_BUFFER_TYPE_INPUT_FRAME;
 
 	sp_stage->frames.out[0].info.res.width =
-	    css->queue[IPU3_CSS_QUEUE_OUT].fmt.pix.width;
+	    css->queue[IPU3_CSS_QUEUE_OUT].fmt.mpix.width;
 	sp_stage->frames.out[0].info.res.height =
-	    css->queue[IPU3_CSS_QUEUE_OUT].fmt.pix.height;
+	    css->queue[IPU3_CSS_QUEUE_OUT].fmt.mpix.height;
 	sp_stage->frames.out[0].info.padded_width =
 	    css->queue[IPU3_CSS_QUEUE_OUT].width_pad;
 	sp_stage->frames.out[0].info.format =
@@ -942,7 +944,7 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	sp_stage->frames.out[0].info.raw_type = IMGU_ABI_RAW_TYPE_BAYER;
 	sp_stage->frames.out[0].planes.nv.uv.offset =
 	    css->queue[IPU3_CSS_QUEUE_OUT].width_pad *
-	    css->queue[IPU3_CSS_QUEUE_OUT].fmt.pix.height;
+	    css->queue[IPU3_CSS_QUEUE_OUT].fmt.mpix.height;
 	sp_stage->frames.out[0].buf_attr.buf_src.queue_id = IMGU_ABI_QUEUE_D_ID;
 	sp_stage->frames.out[0].buf_attr.buf_type =
 	    IMGU_ABI_BUFFER_TYPE_OUTPUT_FRAME;
@@ -965,9 +967,9 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	sp_stage->frames.internal_frame_info.raw_type = IMGU_ABI_RAW_TYPE_BAYER;
 
 	sp_stage->frames.out_vf.info.res.width =
-	    css->queue[IPU3_CSS_QUEUE_VF].fmt.pix.width;
+	    css->queue[IPU3_CSS_QUEUE_VF].fmt.mpix.width;
 	sp_stage->frames.out_vf.info.res.height =
-	    css->queue[IPU3_CSS_QUEUE_VF].fmt.pix.height;
+	    css->queue[IPU3_CSS_QUEUE_VF].fmt.mpix.height;
 	sp_stage->frames.out_vf.info.padded_width =
 	    css->queue[IPU3_CSS_QUEUE_VF].width_pad;
 	sp_stage->frames.out_vf.info.format =
@@ -979,10 +981,10 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	sp_stage->frames.out_vf.info.raw_type = IMGU_ABI_RAW_TYPE_BAYER;
 	sp_stage->frames.out_vf.planes.yuv.u.offset =
 	    css->queue[IPU3_CSS_QUEUE_VF].width_pad *
-	    css->queue[IPU3_CSS_QUEUE_VF].fmt.pix.height;
+	    css->queue[IPU3_CSS_QUEUE_VF].fmt.mpix.height;
 	sp_stage->frames.out_vf.planes.yuv.v.offset =
 	    css->queue[IPU3_CSS_QUEUE_VF].width_pad *
-	    css->queue[IPU3_CSS_QUEUE_VF].fmt.pix.height * 5 / 4;
+	    css->queue[IPU3_CSS_QUEUE_VF].fmt.mpix.height * 5 / 4;
 	sp_stage->frames.out_vf.buf_attr.buf_src.queue_id = IMGU_ABI_QUEUE_E_ID;
 	sp_stage->frames.out_vf.buf_attr.buf_type =
 	    IMGU_ABI_BUFFER_TYPE_VF_OUTPUT_FRAME;
@@ -1392,9 +1394,12 @@ static int ipu3_css_find_binary(struct ipu3_css *css,
 	const int binary_nr = css->fwp->file_header.binary_nr;
 	const char *name;
 
-	const struct v4l2_pix_format *in = &queue[IPU3_CSS_QUEUE_IN].fmt.pix;
-	const struct v4l2_pix_format *out = &queue[IPU3_CSS_QUEUE_OUT].fmt.pix;
-	const struct v4l2_pix_format *vf = &queue[IPU3_CSS_QUEUE_VF].fmt.pix;
+	const struct v4l2_pix_format_mplane *in =
+			&queue[IPU3_CSS_QUEUE_IN].fmt.mpix;
+	const struct v4l2_pix_format_mplane *out =
+			&queue[IPU3_CSS_QUEUE_OUT].fmt.mpix;
+	const struct v4l2_pix_format_mplane *vf =
+			&queue[IPU3_CSS_QUEUE_VF].fmt.mpix;
 	unsigned int binary_mode = (css->pipe_id == IPU3_CSS_PIPE_ID_CAPTURE) ?
 		IA_CSS_BINARY_MODE_PRIMARY : IA_CSS_BINARY_MODE_VIDEO;
 
@@ -1507,7 +1512,7 @@ static int ipu3_css_find_binary(struct ipu3_css *css,
  * is found.
  */
 int ipu3_css_fmt_try(struct ipu3_css *css,
-		     struct v4l2_pix_format *fmts[IPU3_CSS_QUEUES],
+		     struct v4l2_pix_format_mplane *fmts[IPU3_CSS_QUEUES],
 		     struct v4l2_rect *rects[IPU3_CSS_RECTS])
 {
 	static const u32 EFF_ALIGN_W = 2;
@@ -1532,9 +1537,12 @@ int ipu3_css_fmt_try(struct ipu3_css *css,
 	};
 	struct ipu3_css_queue q[IPU3_CSS_QUEUES];
 	struct v4l2_rect r[IPU3_CSS_RECTS] = { };
-	struct v4l2_pix_format *const in  = &q[IPU3_CSS_QUEUE_IN].fmt.pix;
-	struct v4l2_pix_format *const out = &q[IPU3_CSS_QUEUE_OUT].fmt.pix;
-	struct v4l2_pix_format *const vf  = &q[IPU3_CSS_QUEUE_VF].fmt.pix;
+	struct v4l2_pix_format_mplane *const in =
+			&q[IPU3_CSS_QUEUE_IN].fmt.mpix;
+	struct v4l2_pix_format_mplane *const out =
+			&q[IPU3_CSS_QUEUE_OUT].fmt.mpix;
+	struct v4l2_pix_format_mplane *const vf =
+			&q[IPU3_CSS_QUEUE_VF].fmt.mpix;
 	struct v4l2_rect       *const eff = &r[IPU3_CSS_RECT_EFFECTIVE];
 	struct v4l2_rect       *const bds = &r[IPU3_CSS_RECT_BDS];
 	struct v4l2_rect       *const env = &r[IPU3_CSS_RECT_ENVELOPE];
@@ -1630,13 +1638,13 @@ int ipu3_css_fmt_try(struct ipu3_css *css,
 	/* Final adjustment and set back the queried formats */
 	for (i = 0; i < IPU3_CSS_QUEUES; i++) {
 		if (fmts[i]) {
-			if (ipu3_css_queue_init(&q[i], &q[i].fmt.pix,
+			if (ipu3_css_queue_init(&q[i], &q[i].fmt.mpix,
 						IPU3_CSS_QUEUE_TO_FLAGS(i))) {
 				dev_err(css->dev,
 					"final resolution adjustment failed\n");
 				return -EINVAL;
 			}
-			*fmts[i] = q[i].fmt.pix;
+			*fmts[i] = q[i].fmt.mpix;
 		}
 	}
 
@@ -1654,7 +1662,7 @@ int ipu3_css_fmt_try(struct ipu3_css *css,
 }
 
 int ipu3_css_fmt_set(struct ipu3_css *css,
-		     struct v4l2_pix_format *fmts[IPU3_CSS_QUEUES],
+		     struct v4l2_pix_format_mplane *fmts[IPU3_CSS_QUEUES],
 		     struct v4l2_rect *rects[IPU3_CSS_RECTS])
 {
 	static const int BYPC = 2;	/* Bytes per component */

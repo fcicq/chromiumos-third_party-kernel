@@ -184,35 +184,23 @@ static int ipu3_vb2_queue_setup(struct vb2_queue *vq,
 	struct imgu_video_device *node =
 		container_of(vq, struct imgu_video_device, vbq);
 	const struct v4l2_format *fmt = &node->vdev_fmt;
-	const struct v4l2_pix_format *pix = &fmt->fmt.pix;
-	unsigned int size;
 
-	if (vq->type == V4L2_BUF_TYPE_VIDEO_CAPTURE ||
-	    vq->type == V4L2_BUF_TYPE_VIDEO_OUTPUT)
-		size = pix->sizeimage;
-	else
-		size = fmt->fmt.meta.buffersize;
+	*num_planes = 1;
+	*num_buffers = clamp_val(*num_buffers, 1, VB2_MAX_FRAME);
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 5, 0)
 	alloc_ctxs[0] = m2m2->vb2_alloc_ctx;
 #else
 	alloc_devs[0] = m2m2->vb2_alloc_dev;
 #endif
-
-	if (*num_planes) {
-		/*
-		 * Only single plane is supported
-		 */
-		if (*num_planes != 1 || sizes[0] < size)
-			return -EINVAL;
+	if (vq->type == V4L2_BUF_TYPE_META_CAPTURE ||
+	    vq->type == V4L2_BUF_TYPE_META_OUTPUT) {
+		sizes[0] = fmt->fmt.meta.buffersize;
+	} else {
+		sizes[0] = fmt->fmt.pix_mp.plane_fmt[0].sizeimage;
 	}
 
-	*num_planes = 1;
-	sizes[0] = size;
-	*num_buffers = clamp_val(*num_buffers, 1, VB2_MAX_FRAME);
-
 	/* Initialize buffer queue */
-
 	INIT_LIST_HEAD(&node->buffers);
 
 	return 0;
@@ -360,8 +348,8 @@ static int mem2mem2_fmt(struct ipu3_mem2mem2_device *m2m2_dev,
 {
 	struct imgu_device *imgu =
 		container_of(m2m2_dev, struct imgu_device, mem2mem2);
-	struct v4l2_pix_format try_fmts[IPU3_CSS_QUEUES];
-	struct v4l2_pix_format *fmts[IPU3_CSS_QUEUES] = { NULL };
+	struct v4l2_pix_format_mplane try_fmts[IPU3_CSS_QUEUES];
+	struct v4l2_pix_format_mplane *fmts[IPU3_CSS_QUEUES] = { NULL };
 	struct v4l2_rect *rects[IPU3_CSS_RECTS] = { NULL };
 	unsigned int i;
 	int css_q, r;
@@ -393,10 +381,11 @@ static int mem2mem2_fmt(struct ipu3_mem2mem2_device *m2m2_dev,
 			continue;
 
 		if (try) {
-			try_fmts[i] = m2m2_dev->nodes[inode].vdev_fmt.fmt.pix;
+			try_fmts[i] =
+				m2m2_dev->nodes[inode].vdev_fmt.fmt.pix_mp;
 			fmts[i] = &try_fmts[i];
 		} else {
-			fmts[i] = &m2m2_dev->nodes[inode].vdev_fmt.fmt.pix;
+			fmts[i] = &m2m2_dev->nodes[inode].vdev_fmt.fmt.pix_mp;
 		}
 
 		/* CSS expects some format on OUT queue */
@@ -422,7 +411,7 @@ static int mem2mem2_fmt(struct ipu3_mem2mem2_device *m2m2_dev,
 	 * before we return success from this function, so set it here.
 	 */
 	css_q = imgu_node_to_queue(node);
-	*fmts[css_q] = f->fmt.pix;
+	*fmts[css_q] = f->fmt.pix_mp;
 
 	if (try)
 		r = ipu3_css_fmt_try(&imgu->css, fmts, rects);
@@ -612,16 +601,16 @@ static const struct v4l2_file_operations ipu3_v4l2_fops = {
 static const struct v4l2_ioctl_ops ipu3_v4l2_ioctl_ops = {
 	.vidioc_querycap = ipu3_videoc_querycap,
 
-	.vidioc_g_fmt_vid_cap = ipu3_videoc_g_fmt,
-	.vidioc_s_fmt_vid_cap = ipu3_videoc_s_fmt,
-	.vidioc_try_fmt_vid_cap = ipu3_videoc_try_fmt,
+	.vidioc_g_fmt_vid_cap_mplane = ipu3_videoc_g_fmt,
+	.vidioc_s_fmt_vid_cap_mplane = ipu3_videoc_s_fmt,
+	.vidioc_try_fmt_vid_cap_mplane = ipu3_videoc_try_fmt,
 
 	.vidioc_s_selection = ipu3_videoc_s_selection,
 	.vidioc_g_selection = ipu3_videoc_g_selection,
 
-	.vidioc_g_fmt_vid_out = ipu3_videoc_g_fmt,
-	.vidioc_s_fmt_vid_out = ipu3_videoc_s_fmt,
-	.vidioc_try_fmt_vid_out = ipu3_videoc_try_fmt,
+	.vidioc_g_fmt_vid_out_mplane = ipu3_videoc_g_fmt,
+	.vidioc_s_fmt_vid_out_mplane = ipu3_videoc_s_fmt,
+	.vidioc_try_fmt_vid_out_mplane = ipu3_videoc_try_fmt,
 
 	/* buffer queue management */
 	.vidioc_reqbufs = vb2_ioctl_reqbufs,
@@ -674,8 +663,8 @@ static void ipu3_node_to_v4l2(u32 node, struct video_device *vdev,
 
 	switch (node) {
 	case IMGU_NODE_IN:
-		cap = V4L2_CAP_VIDEO_OUTPUT;
-		f->type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
+		cap = V4L2_CAP_VIDEO_OUTPUT_MPLANE;
+		f->type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
 		vdev->ioctl_ops = &ipu3_v4l2_ioctl_ops;
 		break;
 	case IMGU_NODE_PARAMS:
@@ -707,20 +696,19 @@ static void ipu3_node_to_v4l2(u32 node, struct video_device *vdev,
 		ipu3_css_meta_fmt_set(&f->fmt.meta);
 		break;
 	default:
-		cap = V4L2_CAP_VIDEO_CAPTURE;
-		f->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+		cap = V4L2_CAP_VIDEO_CAPTURE_MPLANE;
+		f->type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 		vdev->ioctl_ops = &ipu3_v4l2_ioctl_ops;
 	}
 
-	vdev->device_caps = V4L2_CAP_STREAMING;
-	vdev->device_caps |= cap;
+	vdev->device_caps = V4L2_CAP_STREAMING | cap;
 }
 
 int ipu3_v4l2_register(struct imgu_device *dev)
 {
 	struct ipu3_mem2mem2_device *m2m2 = &dev->mem2mem2;
 	struct v4l2_mbus_framefmt def_bus_fmt;
-	struct v4l2_pix_format def_pix_fmt;
+	struct v4l2_pix_format_mplane def_pix_fmt;
 
 	int i, r;
 
@@ -811,12 +799,12 @@ int ipu3_v4l2_register(struct imgu_device *dev)
 	def_pix_fmt.height = def_bus_fmt.height;
 	def_pix_fmt.pixelformat = V4L2_PIX_FMT_YUYV;
 	def_pix_fmt.field = def_bus_fmt.field;
-	def_pix_fmt.bytesperline = def_pix_fmt.width * 2;
-	def_pix_fmt.sizeimage =
-			def_pix_fmt.bytesperline * def_pix_fmt.height;
-	def_pix_fmt.colorspace = def_bus_fmt.colorspace;
-	def_pix_fmt.priv = 0;
+	def_pix_fmt.num_planes = 1;
+	def_pix_fmt.plane_fmt[0].bytesperline = def_pix_fmt.width * 2;
+	def_pix_fmt.plane_fmt[0].sizeimage =
+		def_pix_fmt.height * def_pix_fmt.plane_fmt[0].bytesperline;
 	def_pix_fmt.flags = 0;
+	def_pix_fmt.colorspace = def_bus_fmt.colorspace;
 	def_pix_fmt.ycbcr_enc = def_bus_fmt.ycbcr_enc;
 	def_pix_fmt.quantization = def_bus_fmt.quantization;
 	def_pix_fmt.xfer_func = def_bus_fmt.xfer_func;
@@ -837,7 +825,7 @@ int ipu3_v4l2_register(struct imgu_device *dev)
 		ipu3_node_to_v4l2(i, vdev, &node->vdev_fmt);
 		if (node->vdev_fmt.type == V4L2_BUF_TYPE_VIDEO_OUTPUT ||
 			node->vdev_fmt.type == V4L2_BUF_TYPE_VIDEO_CAPTURE)
-			node->vdev_fmt.fmt.pix = def_pix_fmt;
+			node->vdev_fmt.fmt.pix_mp = def_pix_fmt;
 
 		/* Initialize media entities */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 5, 0)

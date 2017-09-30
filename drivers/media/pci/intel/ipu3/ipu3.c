@@ -81,7 +81,8 @@ void imgu_dummybufs_cleanup(struct imgu_device *imgu)
 
 int imgu_dummybufs_init(struct imgu_device *imgu)
 {
-	const struct v4l2_format *f;
+	const struct v4l2_pix_format_mplane *mpix;
+	const struct v4l2_meta_format	*meta;
 	unsigned int i, j;
 	int node;
 
@@ -109,12 +110,14 @@ int imgu_dummybufs_init(struct imgu_device *imgu)
 			continue;
 		}
 
-		f = &imgu->mem2mem2.nodes[node].vdev_fmt;
+		meta = &imgu->mem2mem2.nodes[node].vdev_fmt.fmt.meta;
+		mpix = &imgu->mem2mem2.nodes[node].vdev_fmt.fmt.pix_mp;
 		if (node == IMGU_NODE_STAT_3A || node == IMGU_NODE_STAT_DVS ||
 		    node == IMGU_NODE_STAT_LACE || node == IMGU_NODE_PARAMS)
-			imgu->queues[i].dummybuf_size = f->fmt.meta.buffersize;
+			imgu->queues[i].dummybuf_size = meta->buffersize;
 		else
-			imgu->queues[i].dummybuf_size = f->fmt.pix.sizeimage;
+			imgu->queues[i].dummybuf_size =
+						mpix->plane_fmt[0].sizeimage;
 
 		imgu->queues[i].dummybuf_vaddr =
 			dma_alloc_coherent(&imgu->dma_dev,
@@ -342,7 +345,7 @@ static int imgu_mem2mem2_s_stream(struct ipu3_mem2mem2_device *m2m2_dev,
 	struct imgu_device *imgu =
 	    container_of(m2m2_dev, struct imgu_device, mem2mem2);
 	struct device *dev = &imgu->pci_dev->dev;
-	struct v4l2_pix_format *fmts[IPU3_CSS_QUEUES] = { NULL };
+	struct v4l2_pix_format_mplane *fmts[IPU3_CSS_QUEUES] = { NULL };
 	struct v4l2_rect *rects[IPU3_CSS_RECTS] = { NULL };
 	int i, r, node;
 
@@ -394,7 +397,7 @@ static int imgu_mem2mem2_s_stream(struct ipu3_mem2mem2_device *m2m2_dev,
 		    node == IMGU_NODE_PARAMS)
 			continue;
 		fmts[i] = imgu->queue_enabled[node] ?
-			&m2m2_dev->nodes[node].vdev_fmt.fmt.pix : NULL;
+			&m2m2_dev->nodes[node].vdev_fmt.fmt.pix_mp : NULL;
 	}
 
 	/* Enable VF output only when VF or PV queue requested by user */
@@ -471,7 +474,7 @@ static const struct ipu3_mem2mem2_ops imgu_mem2mem2_ops = {
 
 static int imgu_mem2mem2_init(struct imgu_device *imgu)
 {
-	struct v4l2_pix_format *fmts[IPU3_CSS_QUEUES] = { NULL };
+	struct v4l2_pix_format_mplane *fmts[IPU3_CSS_QUEUES] = { NULL };
 	struct v4l2_rect *rects[IPU3_CSS_RECTS] = { NULL };
 
 	int r, i;
@@ -501,7 +504,7 @@ static int imgu_mem2mem2_init(struct imgu_device *imgu)
 		if (!(i == IMGU_NODE_PARAMS || i == IMGU_NODE_STAT_3A ||
 		    i == IMGU_NODE_STAT_DVS || i == IMGU_NODE_STAT_LACE))
 			fmts[imgu_node_map[i].css_queue] =
-				&imgu->mem2mem2.nodes[i].vdev_fmt.fmt.pix;
+				&imgu->mem2mem2.nodes[i].vdev_fmt.fmt.pix_mp;
 		atomic_set(&imgu->mem2mem2.nodes[i].sequence, 0);
 	}
 
@@ -590,16 +593,16 @@ static irqreturn_t imgu_isr_threaded(int irq, void *imgu_ptr)
 
 		/* Fill vb2 buffer entries and tell it's ready */
 		if (!imgu->mem2mem2.nodes[node].output) {
-			struct v4l2_format vdev_fmt;
+			const struct v4l2_format *f;
 			unsigned int bytes;
 
-			vdev_fmt = imgu->mem2mem2.nodes[node].vdev_fmt;
+			f = &imgu->mem2mem2.nodes[node].vdev_fmt;
 
 			if (buf->m2m2_buf.vbb.vb2_buf.type ==
 				 V4L2_BUF_TYPE_META_CAPTURE)
-				bytes = vdev_fmt.fmt.meta.buffersize;
+				bytes = f->fmt.meta.buffersize;
 			else
-				bytes = vdev_fmt.fmt.pix.sizeimage;
+				bytes = f->fmt.pix_mp.plane_fmt[0].sizeimage;
 
 			vb2_set_plane_payload(&buf->m2m2_buf.vbb.vb2_buf, 0,
 						bytes);
