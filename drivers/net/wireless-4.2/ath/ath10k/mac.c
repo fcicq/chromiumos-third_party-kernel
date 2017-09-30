@@ -3684,7 +3684,7 @@ static void atf_scheduler_init(struct ieee80211_txq *txq)
 
 	atf->quantum = IEEE80211_ATF_QUANTUM;
 	atf->deficit = IEEE80211_ATF_QUANTUM;
-	atf->deficit_max = atf->quantum * 2;
+	atf->deficit_max = atf->quantum + atf->quantum / 4;
 	atf->next_epoch = codel_get_time() + IEEE80211_ATF_TXQ_AIRTIME_MIN;
 }
 
@@ -3992,12 +3992,11 @@ again:
 		list_del_init(&artxq->list);
 		if (ret != -ENOENT)
 			list_add_tail(&artxq->list, &ar->txqs);
-
 		ath10k_htt_tx_txq_update(hw, txq);
 
 		if (ath10k_atf_scheduler_enabled(ar)) {
 			if (ret != -ENOENT) {
-				if (artxq->atf.deficit > 0)
+				if ((artxq->atf.deficit > 0) && (max < 0))
 					has_deficit = true;
 				else
 					need_refill = true;
@@ -4278,13 +4277,19 @@ static void ath10k_mac_op_wake_tx_queue(struct ieee80211_hw *hw,
 
 	if (ath10k_atf_scheduler_enabled(ar)) {
 		rcu_read_lock();
+		if ((f_artxq->atf.deficit < 0) &&
+		    (f_artxq->atf.frames_inflight <= 1)) {
+			ath10k_atf_refill_deficit(ar);
+		}
 		while ((f_artxq->atf.deficit < 0)) {
 			list_add_tail(&f_artxq->list, &ar->txqs);
 			f_artxq = list_first_entry(&ar->txqs,
 						   struct ath10k_txq, list);
 			if (f_artxq == last) {
+				if (ar->airtime_inflight <
+				    ar->atf_release_limit)
+					ath10k_atf_refill_deficit(ar);
 				rcu_read_unlock();
-				ath10k_atf_refill_deficit(ar);
 				spin_unlock_bh(&ar->txqs_lock);
 				ath10k_htt_tx_txq_update(hw, txq);
 				return;
