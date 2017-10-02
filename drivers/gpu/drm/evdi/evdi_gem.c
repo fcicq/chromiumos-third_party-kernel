@@ -130,7 +130,7 @@ static int evdi_gem_get_pages(struct evdi_gem_object *obj,
 static void evdi_gem_put_pages(struct evdi_gem_object *obj)
 {
 	if (obj->base.import_attach) {
-		drm_free_large(obj->pages);
+		kvfree(obj->pages);
 		obj->pages = NULL;
 		return;
 	}
@@ -248,7 +248,7 @@ static int evdi_prime_create(struct drm_device *dev,
 		return -ENOMEM;
 
 	obj->sg = sg;
-	obj->pages = drm_malloc_ab(npages, sizeof(struct page *));
+	obj->pages = kvmalloc_array(npages, sizeof(struct page *), GFP_KERNEL);
 	if (obj->pages == NULL) {
 		DRM_ERROR("obj pages is NULL %d\n", npages);
 		return -ENOMEM;
