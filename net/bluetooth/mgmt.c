@@ -6387,6 +6387,10 @@ static int add_advertising(struct sock *sk, struct hci_dev *hdev,
 
 	hci_req_init(&req, hdev);
 
+#ifdef CONFIG_BT_EVE_HACKS
+	hci_req_add(&req, HCI_OP_READ_LOCAL_NAME, 0, NULL);
+#endif
+
 	err = __hci_req_schedule_adv_instance(&req, schedule_instance, true);
 
 	if (!err)
