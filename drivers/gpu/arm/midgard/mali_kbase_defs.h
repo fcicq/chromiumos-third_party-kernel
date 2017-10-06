@@ -354,6 +354,7 @@ struct kbase_jd_atom {
 	struct kds_resource_set *kds_rset;
 #endif				/* CONFIG_KDS */
 #ifdef CONFIG_DRM_DMA_SYNC
+	atomic_t dep_clear_tail;
 	struct drm_reservation_cb rcb;
 	struct dma_fence *rendered_fence;
 #endif				/* CONFIG_DRM_DMA_SYNC */
