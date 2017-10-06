@@ -1164,7 +1164,7 @@ static void limit_periodic_timer_frequency(struct kvm_lapic *apic)
 	 * interval, since the hrtimers are not throttled by the host
 	 * scheduler.
 	 */
-	if (apic_lvtt_period(apic) && apic->lapic_timer.period) {
+	if (apic_lvtt_period(apic)) {
 		s64 min_period = min_timer_period_us * 1000LL;
 
 		if (apic->lapic_timer.period < min_period) {
@@ -1320,23 +1320,7 @@ static bool set_target_expiration(struct kvm_lapic *apic)
 	if (!apic->lapic_timer.period)
 		return false;
 
-	/*
-	 * Do not allow the guest to program periodic timers with small
-	 * interval, since the hrtimers are not throttled by the host
-	 * scheduler.
-	 */
-	if (apic_lvtt_period(apic)) {
-		s64 min_period = min_timer_period_us * 1000LL;
-
-		if (apic->lapic_timer.period < min_period) {
-			pr_info_ratelimited(
-			    "kvm: vcpu %i: requested %lld ns "
-			    "lapic timer period limited to %lld ns\n",
-			    apic->vcpu->vcpu_id,
-			    apic->lapic_timer.period, min_period);
-			apic->lapic_timer.period = min_period;
-		}
-	}
+	limit_periodic_timer_frequency(apic);
 
 	apic_debug("%s: bus cycle is %" PRId64 "ns, now 0x%016"
 		   PRIx64 ", "
