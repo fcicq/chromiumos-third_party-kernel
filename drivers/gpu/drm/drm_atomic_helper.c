@@ -2562,6 +2562,7 @@ int drm_atomic_helper_resume(struct drm_device *dev,
 	drm_modeset_lock_all(dev);
 	state->acquire_ctx = config->acquire_ctx;
 	err = drm_atomic_commit(state);
+	drm_atomic_state_put(state);
 	drm_modeset_unlock_all(dev);
 
 	return err;
