@@ -27,10 +27,10 @@
 #include <linux/pm_runtime.h>
 #include <linux/property.h>
 #include <linux/vmalloc.h>
-#include <media/intel-acpi-camera.h>
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-event.h>
+#include <media/v4l2-fwnode.h>
 #include <media/v4l2-ioctl.h>
 #include <media/videobuf2-dma-sg.h>
 
@@ -1290,28 +1290,10 @@ static const struct v4l2_subdev_ops cio2_subdev_ops = {
 
 /******* V4L2 sub-device asynchronous registration callbacks***********/
 
-/* Match by ACPI id */
-static bool cio2_notifier_match(struct device *dev,
-				struct v4l2_async_subdev *asd)
-{
-	struct acpi_device *adev = ACPI_COMPANION(dev);
-
-	if (!adev)
-		return false;
-
-	return strcmp(asd->match.custom.priv, acpi_device_hid(adev)) == 0;
-}
-
-static int cio2_subdev_source_pad(struct v4l2_subdev *subdev)
-{
-	int pad;
-
-	for (pad = 0; pad < subdev->entity.num_pads; pad++)
-		if (subdev->entity.pads[pad].flags & MEDIA_PAD_FL_SOURCE)
-			return pad;
-
-	return -ENXIO;
-}
+struct sensor_async_subdev {
+	struct v4l2_async_subdev asd;
+	struct csi2_bus_info csi2;
+};
 
 /* The .bound() notifier callback when a match is found */
 static int cio2_notifier_bound(struct v4l2_async_notifier *notifier,
@@ -1319,68 +1301,34 @@ static int cio2_notifier_bound(struct v4l2_async_notifier *notifier,
 			       struct v4l2_async_subdev *asd)
 {
 	struct cio2_device *cio2 = container_of(notifier,
-						struct cio2_device, notifier);
-	struct acpi_handle *ahandle = ACPI_HANDLE(sd->dev);
+					struct cio2_device, notifier);
+	struct sensor_async_subdev *s_asd = container_of(asd,
+					struct sensor_async_subdev, asd);
 	struct cio2_queue *q;
-	int pad, i, r;
-	u64 camd;
 
-	if (!ahandle)
-		return -ENODEV;
+	if (cio2->queue[s_asd->csi2.port].sensor)
+		return -EBUSY;
 
-	camd = intel_acpi_camera_camd(ahandle);
-	if (camd == INTEL_ACPI_CAMERA_UNKNOWN ||
-	    camd == INTEL_ACPI_CAMERA_SENSOR) {
+	q = &cio2->queue[s_asd->csi2.port];
 
-		/* Find first free slot for the subdev */
-		for (i = 0; i < CIO2_QUEUES; i++)
-			if (!cio2->queue[i].sensor)
-				break;
-		if (i >= CIO2_QUEUES) {
-			dev_err(&cio2->pci_dev->dev, "too many subdevs\n");
-			return -ENOSPC;
-		}
-		q = &cio2->queue[i];
-
-		/* Find the pad to connect from the external subdev */
-		pad = cio2_subdev_source_pad(sd);
-		if (pad < 0) {
-			dev_err(&cio2->pci_dev->dev,
-				"sub device %s entity has no output pad\n",
-					sd->name);
-			return pad;
-		}
-
-		r = intel_acpi_camera_csi2(ahandle, &q->csi2);
-		if (r)
-			return -ENODEV;
-
-		q->sensor = sd;
-		q->csi_rx_base = cio2->base + CIO2_REG_PIPE_BASE(q->csi2.port);
-
-		dev_info(&cio2->pci_dev->dev, "bound sub device %s to %s\n",
-			 (char *)asd->match.custom.priv, sd->name);
-	}
+	q->csi2 = s_asd->csi2;
+	q->sensor = sd;
+	q->csi_rx_base = cio2->base + CIO2_REG_PIPE_BASE(q->csi2.port);
 
 	return 0;
 }
 
-/* The.unbind callback */
+/* The .unbind callback */
 static void cio2_notifier_unbind(struct v4l2_async_notifier *notifier,
 				 struct v4l2_subdev *sd,
 				 struct v4l2_async_subdev *asd)
 {
 	struct cio2_device *cio2 = container_of(notifier,
 						struct cio2_device, notifier);
-	int i;
+	struct sensor_async_subdev *s_asd = container_of(asd,
+					struct sensor_async_subdev, asd);
 
-	/* Note: sensor may here point to unallocated memory. Do not access. */
-	for (i = 0; i < CIO2_QUEUES; i++) {
-		if (cio2->queue[i].sensor == sd) {
-			cio2->queue[i].sensor = NULL;
-			return;
-		}
-	}
+	cio2->queue[s_asd->csi2.port].sensor = NULL;
 }
 
 /* .complete() is called after all subdevices have been located */
@@ -1388,72 +1336,62 @@ static int cio2_notifier_complete(struct v4l2_async_notifier *notifier)
 {
 	struct cio2_device *cio2 = container_of(notifier, struct cio2_device,
 						notifier);
-	int source_pad, i, r;
+	struct sensor_async_subdev *s_asd;
+	struct cio2_queue *q;
+	unsigned int i, pad;
+	int ret;
 
-	for (i = 0; i < CIO2_QUEUES; i++) {
-		if (!cio2->queue[i].sensor)
-			continue;
-		source_pad = cio2_subdev_source_pad(cio2->queue[i].sensor);
-		if (source_pad < 0)
-			return source_pad;
-		r = media_entity_create_link(
-			&cio2->queue[i].sensor->entity, source_pad,
-			&cio2->queue[i].subdev.entity, CIO2_PAD_SINK,
-			MEDIA_LNK_FL_ENABLED | MEDIA_LNK_FL_IMMUTABLE);
-		if (r) {
-			dev_err(&cio2->pci_dev->dev, "failed to create link for %s\n",
+	for (i = 0; i < notifier->num_subdevs; i++) {
+		s_asd = container_of(cio2->notifier.subdevs[i],
+				     struct sensor_async_subdev,
+				     asd);
+		q = &cio2->queue[s_asd->csi2.port];
+
+		for (pad = 0; pad < q->sensor->entity.num_pads; pad++)
+			if (q->sensor->entity.pads[pad].flags &
+					MEDIA_PAD_FL_SOURCE)
+			break;
+
+		if (pad == q->sensor->entity.num_pads) {
+			dev_err(&cio2->pci_dev->dev,
+				"failed to find src pad for %s\n",
+				q->sensor->name);
+
+			return -ENXIO;
+		}
+
+		ret = media_entity_create_link(
+				&q->sensor->entity, pad,
+				&q->subdev.entity, CIO2_PAD_SINK,
+				0);
+		if (ret) {
+			dev_err(&cio2->pci_dev->dev,
+				"failed to create link for %s\n",
 				cio2->queue[i].sensor->name);
-			return r;
+
+			return ret;
 		}
 	}
 
 	return v4l2_device_register_subdev_nodes(&cio2->v4l2_dev);
 }
 
-/* Callback routine to discover the interested devices */
-static acpi_status cio2_notifier_acpi_walk(acpi_handle ahandle, u32 lvl,
-					   void *cio2_ptr, void **rv)
+static int cio2_fwnode_parse(struct device *dev,
+			     struct v4l2_fwnode_endpoint *vep,
+			     struct v4l2_async_subdev *asd)
 {
-	struct cio2_device *cio2 = cio2_ptr;
-	struct acpi_device *adev = NULL;
-	struct v4l2_async_subdev *asd;
-	struct intel_acpi_camera_csi2 csi2;
-	int r;
-	u64 camd = intel_acpi_camera_camd(ahandle);
+	struct sensor_async_subdev *s_asd =
+			container_of(asd, struct sensor_async_subdev, asd);
 
-	if (camd == INTEL_ACPI_CAMERA_UNKNOWN ||
-	    camd == INTEL_ACPI_CAMERA_SENSOR ||
-	    camd == INTEL_ACPI_CAMERA_VCM) {
-
-		r = acpi_bus_get_device(ahandle, &adev);
-		if (r || !adev || !adev->status.present)
-			return AE_OK;	/* Continue to next device */
-
-		if (camd != INTEL_ACPI_CAMERA_VCM) {
-			r = intel_acpi_camera_csi2(ahandle, &csi2);
-			if (r)
-				return AE_OK;	/* Continue to next device */
-		}
-		/* Found a MIPI camera device. Add it to our devices list. */
-
-		if (cio2->notifier.num_subdevs >= CIO2_MAX_SUBDEVS)
-			return AE_LIMIT;
-
-		asd = devm_kzalloc(&cio2->pci_dev->dev,
-				   sizeof(*asd), GFP_KERNEL);
-		if (!asd)
-			return AE_NO_MEMORY;
-
-		/* Criteria to identify a match */
-		asd->match_type = V4L2_ASYNC_MATCH_CUSTOM;
-		asd->match.custom.match = cio2_notifier_match;
-		asd->match.custom.priv = (void *)acpi_device_hid(adev);
-		cio2->async_subdevs[cio2->notifier.num_subdevs++] = asd;
-
-		dev_info(&cio2->pci_dev->dev, "waiting for sensor %s\n",
-			 (char *)asd->match.custom.priv);
+	if (vep->bus_type != V4L2_MBUS_CSI2) {
+		dev_err(dev, "Only CSI2 bus type is currently supported\n");
+		return -EINVAL;
 	}
-	return AE_OK;
+
+	s_asd->csi2.port = vep->base.port;
+	s_asd->csi2.lanes = vep->bus.mipi_csi2.num_data_lanes;
+
+	return 0;
 }
 
 static const struct v4l2_async_notifier_operations cio2_async_ops = {
@@ -1462,35 +1400,35 @@ static const struct v4l2_async_notifier_operations cio2_async_ops = {
 	.complete = cio2_notifier_complete,
 };
 
-/*
- * Go through all ACPI nodes and add connected MIPI devices to V4L2 notifier.
- */
 static int cio2_notifier_init(struct cio2_device *cio2)
 {
-	int r;
+	int ret;
 
-	cio2->notifier.subdevs = cio2->async_subdevs;
-	cio2->notifier.num_subdevs = 0;
-	cio2->notifier.ops = &cio2_async_ops;
-	acpi_walk_namespace(ACPI_TYPE_DEVICE, ACPI_ROOT_OBJECT,
-			    ACPI_UINT32_MAX,
-			    cio2_notifier_acpi_walk, NULL, cio2, NULL);
+	ret = v4l2_async_notifier_parse_fwnode_endpoints(
+		&cio2->pci_dev->dev, &cio2->notifier,
+		sizeof(struct sensor_async_subdev),
+		cio2_fwnode_parse);
+	if (ret < 0)
+		return ret;
+
 	if (!cio2->notifier.num_subdevs)
 		return -ENODEV;		/* No subdevices */
 
-	r = v4l2_async_notifier_register(&cio2->v4l2_dev, &cio2->notifier);
-	if (r) {
-		cio2->notifier.num_subdevs = 0;
+	cio2->notifier.ops = &cio2_async_ops;
+	ret = v4l2_async_notifier_register(&cio2->v4l2_dev, &cio2->notifier);
+	if (ret) {
 		dev_err(&cio2->pci_dev->dev,
-			"failed to register v4l2 async notifier\n");
+			"failed to register async notifier : %d\n", ret);
+		v4l2_async_notifier_cleanup(&cio2->notifier);
 	}
-	return r;
+
+	return ret;
 }
 
 static void cio2_notifier_exit(struct cio2_device *cio2)
 {
-	if (cio2->notifier.num_subdevs > 0)
-		v4l2_async_notifier_unregister(&cio2->notifier);
+	v4l2_async_notifier_unregister(&cio2->notifier);
+	v4l2_async_notifier_cleanup(&cio2->notifier);
 }
 
 static int cio2_link_validate(struct media_link *link)
