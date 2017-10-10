@@ -192,4 +192,6 @@ source "drivers/cpuquiet/Kconfig"
 
 source "drivers/nvmem/Kconfig"
 
+source "drivers/pkglist/Kconfig"
+
 endmenu
