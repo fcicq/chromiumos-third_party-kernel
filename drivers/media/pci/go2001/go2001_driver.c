@@ -150,14 +150,6 @@ static struct go2001_fmt formats[] = {
 		.hw_format = GO2001_FMT_VP8,
 		.codec_modes = CODEC_MODE_DECODER | CODEC_MODE_ENCODER,
 	},
-	{
-		.type = FMT_TYPE_CODED,
-		.desc = "VP9 raw stream",
-		.pixelformat = V4L2_PIX_FMT_VP9,
-		.num_planes = 1,
-		.hw_format = GO2001_FMT_VP9,
-		.codec_modes = CODEC_MODE_DECODER,
-	},
 };
 
 static struct go2001_ctrl go2001_dec_ctrls[] = {
@@ -188,31 +180,10 @@ static struct go2001_ctrl go2001_enc_ctrls[] = {
 		.def = GO2001_DEF_BITRATE,
 	},
 	{
-		.id = V4L2_CID_MPEG_MFC51_VIDEO_FORCE_FRAME_TYPE,
-		.name = "Force frame type",
-		.type = V4L2_CTRL_TYPE_MENU,
-		.min = V4L2_MPEG_MFC51_VIDEO_FORCE_FRAME_TYPE_DISABLED,
-		.max = V4L2_MPEG_MFC51_VIDEO_FORCE_FRAME_TYPE_I_FRAME,
-		.def = V4L2_MPEG_MFC51_VIDEO_FORCE_FRAME_TYPE_DISABLED,
-		.flags = V4L2_CTRL_FLAG_VOLATILE,
+		.id = V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME,
+		.type = V4L2_CTRL_TYPE_BUTTON,
 	},
 };
-
-static const char * const *go2001_get_qmenu(u32 ctrl_id) {
-	static const char * const mfc51_video_force_frame[] = {
-		"Disabled",
-		"I Frame",
-		"Not Coded",
-		NULL,
-	};
-
-	switch (ctrl_id) {
-	case V4L2_CID_MPEG_MFC51_VIDEO_FORCE_FRAME_TYPE:
-		return mfc51_video_force_frame;
-	default:
-		return NULL;
-	}
-}
 
 static struct go2001_fmt *go2001_find_fmt(struct go2001_ctx *ctx,
 						__u32 pixelformat)
@@ -243,7 +214,7 @@ static int go2001_querycap(struct file *file, void *priv,
 	snprintf(cap->bus_info, sizeof(cap->bus_info), "PCI:%s",
 			pci_name(gdev->pdev));
 
-	cap->device_caps = V4L2_CAP_VIDEO_M2M | V4L2_CAP_STREAMING
+	cap->device_caps = V4L2_CAP_VIDEO_M2M_MPLANE | V4L2_CAP_STREAMING
 			 | V4L2_CAP_VIDEO_CAPTURE_MPLANE
 			 | V4L2_CAP_VIDEO_OUTPUT_MPLANE;
 	cap->capabilities = cap->device_caps | V4L2_CAP_DEVICE_CAPS;
@@ -689,17 +660,12 @@ static int go2001_enc_s_ctrl(struct v4l2_ctrl *ctrl)
 				ctx->pending_rt_params.enc_params.bitrate);
 		break;
 
-	case V4L2_CID_MPEG_MFC51_VIDEO_FORCE_FRAME_TYPE: {
-		bool keyframe = (ctrl->val ==
-			V4L2_MPEG_MFC51_VIDEO_FORCE_FRAME_TYPE_I_FRAME);
-		ctx->pending_rt_params.enc_params.request_keyframe = keyframe;
-		if (keyframe) {
-			set_bit(GO2001_KEYFRAME_REQUESTED,
-					ctx->pending_rt_params.changed_mask);
-			go2001_dbg(ctx->gdev, 2, "Keyframe requested.\n");
-		}
+	case V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME:
+		set_bit(GO2001_KEYFRAME_REQUESTED,
+				ctx->pending_rt_params.changed_mask);
+		ctx->pending_rt_params.enc_params.request_keyframe = true;
+		go2001_dbg(ctx->gdev, 2, "Keyframe requested.\n");
 		break;
-	}
 
 	default:
 		go2001_dbg(ctx->gdev, 1,
@@ -756,13 +722,8 @@ static int go2001_init_ctrl_handler(struct go2001_ctx *ctx)
 			cfg.max = ctrl->max;
 			cfg.def = ctrl->def;
 			cfg.step = ctrl->step;
-			if (cfg.type == V4L2_CTRL_TYPE_MENU)
-				cfg.qmenu = go2001_get_qmenu(ctrl->id);
 			cfg.flags = ctrl->flags;
 			v4l2_ctrl_new_custom(hdl, &cfg, NULL);
-		} else if (ctrl->type == V4L2_CTRL_TYPE_MENU) {
-			v4l2_ctrl_new_std_menu(hdl, ops, ctrl->id, ctrl->max,
-						0, ctrl->def);
 		} else {
 			v4l2_ctrl_new_std(hdl, ops, ctrl->id, ctrl->min,
 					ctrl->max, ctrl->step, ctrl->def);
@@ -830,6 +791,11 @@ static int go2001_init_ctx(struct go2001_dev *gdev, struct go2001_ctx *ctx,
 
 	file->private_data = &ctx->v4l2_fh;
 	v4l2_fh_add(&ctx->v4l2_fh);
+
+	ctx->dummy_flush_buf.vb.vb2_queue =
+	    go2001_get_vq(ctx, V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE);
+	ctx->dummy_flush_buf.vb.v4l2_buf.index = GO2001_DUMMY_FLUSH_BUF_INDEX;
+	INIT_LIST_HEAD(&ctx->dummy_flush_buf.list);
 
 	return 0;
 }
@@ -2257,6 +2223,75 @@ static int go2001_enum_framesizes(struct file *file, void *fh,
 	return 0;
 }
 
+static int go2001_try_decoder_cmd(struct file *file, void *priv,
+				struct v4l2_decoder_cmd *cmd)
+{
+	switch (cmd->cmd) {
+	case V4L2_DEC_CMD_STOP:
+	case V4L2_DEC_CMD_START:
+		if (cmd->flags != 0) {
+			struct go2001_ctx *ctx = fh_to_ctx(priv);
+
+			go2001_err(ctx->gdev,
+				"Unsupported DECODER_CMD flags given: %u",
+				cmd->flags);
+			return -EINVAL;
+		}
+		break;
+	default:
+		return -EINVAL;
+	}
+	return 0;
+}
+
+static int go2001_decoder_cmd(struct file *file, void *priv,
+			struct v4l2_decoder_cmd *cmd)
+{
+	struct go2001_ctx *ctx = fh_to_ctx(priv);
+	struct vb2_queue *src_vq, *dst_vq;
+	unsigned long flags;
+	int ret;
+
+	ret = go2001_try_decoder_cmd(file, priv, cmd);
+	if (ret)
+		return ret;
+
+	dst_vq = go2001_get_vq(ctx, V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE);
+	switch (cmd->cmd) {
+	case V4L2_DEC_CMD_STOP:
+		src_vq = go2001_get_vq(ctx, V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE);
+		if (!vb2_is_streaming(src_vq)) {
+			go2001_dbg(ctx->gdev, 1,
+				"Output stream is off. No need to flush.\n");
+			return 0;
+		}
+		if (!vb2_is_streaming(dst_vq)) {
+			go2001_dbg(ctx->gdev, 1,
+				"Capture stream is off. No need to flush.\n");
+			return 0;
+		}
+		spin_lock_irqsave(&ctx->qlock, flags);
+		if (!list_empty(&ctx->dummy_flush_buf.list)) {
+			go2001_dbg(ctx->gdev, 1,
+				"The previous flush is not done yet.\n");
+			spin_unlock_irqrestore(&ctx->qlock, flags);
+			return 0;
+		}
+		spin_unlock_irqrestore(&ctx->qlock, flags);
+		go2001_buf_queue(&ctx->dummy_flush_buf.vb);
+		break;
+
+	case V4L2_DEC_CMD_START:
+		vb2_clear_last_buffer_dequeued(dst_vq);
+		break;
+
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static const struct v4l2_ioctl_ops go2001_ioctl_dec_ops = {
 	.vidioc_querycap = go2001_querycap,
 
@@ -2285,6 +2320,9 @@ static const struct v4l2_ioctl_ops go2001_ioctl_dec_ops = {
 	.vidioc_enum_framesizes = go2001_enum_framesizes,
 
 	.vidioc_subscribe_event = go2001_subscribe_event,
+
+	.vidioc_decoder_cmd = go2001_decoder_cmd,
+	.vidioc_try_decoder_cmd = go2001_try_decoder_cmd,
 };
 
 static const struct v4l2_ioctl_ops go2001_ioctl_enc_ops = {

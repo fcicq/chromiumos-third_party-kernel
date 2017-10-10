@@ -396,6 +396,8 @@ struct intel_crtc {
 		/* watermarks currently being used  */
 		struct intel_pipe_wm active;
 	} wm;
+
+	atomic_t error_count;
 };
 
 struct intel_plane_wm_parameters {
@@ -511,6 +513,7 @@ struct intel_dp {
 	bool use_tps3;
 	bool is_apple_vga;
 	bool is_ps8617;
+	bool is_dellda200;
 	bool has_hdmi_sink;
 	bool has_dvi_sink;
 	bool has_dpcd_blc;

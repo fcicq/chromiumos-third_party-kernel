@@ -126,7 +126,7 @@ struct wmi_ops {
 					     enum wmi_force_fw_hang_type type,
 					     u32 delay_ms);
 	struct sk_buff *(*gen_mgmt_tx)(struct ath10k *ar, struct sk_buff *skb);
-	struct sk_buff *(*gen_dbglog_cfg)(struct ath10k *ar, u32 module_enable,
+	struct sk_buff *(*gen_dbglog_cfg)(struct ath10k *ar, u64 module_enable,
 					  u32 log_level);
 	struct sk_buff *(*gen_pktlog_enable)(struct ath10k *ar, u32 filter);
 	struct sk_buff *(*gen_pktlog_disable)(struct ath10k *ar);
@@ -187,6 +187,10 @@ struct wmi_ops {
 	void (*fw_stats_fill)(struct ath10k *ar,
 			      struct ath10k_fw_stats *fw_stats,
 			      char *buf);
+	struct sk_buff *(*gen_pdev_enable_adaptive_cca)(struct ath10k *ar,
+							u8 enable,
+							u32 detect_level,
+							u32 detect_margin);
 	struct sk_buff *(*gen_pdev_sa_disabled_ant_sel)(struct ath10k *ar,
 							u32 mode, u32 tx_ant,
 							u32 rx_ant);
@@ -954,7 +958,7 @@ ath10k_wmi_force_fw_hang(struct ath10k *ar,
 }
 
 static inline int
-ath10k_wmi_dbglog_cfg(struct ath10k *ar, u32 module_enable, u32 log_level)
+ath10k_wmi_dbglog_cfg(struct ath10k *ar, u64 module_enable, u32 log_level)
 {
 	struct sk_buff *skb;
 
@@ -1354,6 +1358,26 @@ ath10k_wmi_fw_stats_fill(struct ath10k *ar, struct ath10k_fw_stats *fw_stats,
 
 	ar->wmi.ops->fw_stats_fill(ar, fw_stats, buf);
 	return 0;
+}
+
+static inline int
+ath10k_wmi_pdev_enable_adaptive_cca(struct ath10k *ar, u8 enable,
+				    u32 detect_level, u32 detect_margin)
+{
+	struct sk_buff *skb;
+
+	if (!ar->wmi.ops->gen_pdev_enable_adaptive_cca)
+		return -EOPNOTSUPP;
+
+	skb = ar->wmi.ops->gen_pdev_enable_adaptive_cca(ar, enable,
+							detect_level,
+							detect_margin);
+
+	if (IS_ERR(skb))
+		return PTR_ERR(skb);
+
+	return ath10k_wmi_cmd_send(ar, skb,
+				   ar->wmi.cmd->pdev_enable_adaptive_cca_cmdid);
 }
 
 static inline int

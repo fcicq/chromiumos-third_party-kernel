@@ -13,6 +13,8 @@
  *
  */
 
+
+
 #ifndef _BASE_DEVFREQ_H_
 #define _BASE_DEVFREQ_H_
 

@@ -124,6 +124,7 @@ static int panel_simple_disable(struct drm_panel *panel)
 
 	if (p->backlight) {
 		p->backlight->props.power = FB_BLANK_POWERDOWN;
+		p->backlight->props.state |= BL_CORE_FBBLANK;
 		backlight_update_status(p->backlight);
 	}
 
@@ -191,6 +192,7 @@ static int panel_simple_enable(struct drm_panel *panel)
 		msleep(p->desc->delay.enable);
 
 	if (p->backlight) {
+		p->backlight->props.state &= ~BL_CORE_FBBLANK;
 		p->backlight->props.power = FB_BLANK_UNBLANK;
 		backlight_update_status(p->backlight);
 	}
@@ -355,15 +357,15 @@ static const struct panel_desc auo_b101aw03 = {
 };
 
 static const struct drm_display_mode auo_b101ean01_mode = {
-	.clock = 72500,
+	.clock = 66667,
 	.hdisplay = 1280,
-	.hsync_start = 1280 + 119,
-	.hsync_end = 1280 + 119 + 32,
-	.htotal = 1280 + 119 + 32 + 21,
+	.hsync_start = 1280 + 18,
+	.hsync_end = 1280 + 18 + 32,
+	.htotal = 1280 + 18 + 32 + 21,
 	.vdisplay = 800,
 	.vsync_start = 800 + 4,
-	.vsync_end = 800 + 4 + 20,
-	.vtotal = 800 + 4 + 20 + 8,
+	.vsync_end = 800 + 4 + 18,
+	.vtotal = 800 + 4 + 18 + 8,
 	.vrefresh = 60,
 };
 
@@ -447,7 +449,7 @@ static const struct panel_desc chunghwa_claa101wb01 = {
 };
 
 static const struct drm_display_mode cmn_n116bgeea2_mode = {
-	.clock = 76420,
+	.clock = 74250,
 	.hdisplay = 1366,
 	.hsync_start = 1366 + 136,
 	.hsync_end = 1366 + 136 + 30,
@@ -456,7 +458,7 @@ static const struct drm_display_mode cmn_n116bgeea2_mode = {
 	.vsync_start = 768 + 8,
 	.vsync_end = 768 + 8 + 12,
 	.vtotal = 768 + 8 + 12 + 12,
-	.vrefresh = 60,
+	.vrefresh = 58,
 };
 
 static const struct panel_desc cmn_n116bgeea2 = {

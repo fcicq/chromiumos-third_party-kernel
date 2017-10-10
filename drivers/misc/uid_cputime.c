@@ -19,6 +19,7 @@
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/list.h>
+#include <linux/pid_namespace.h>
 #include <linux/proc_fs.h>
 #include <linux/profile.h>
 #include <linux/sched.h>
@@ -33,27 +34,26 @@ static DEFINE_MUTEX(uid_lock);
 static struct proc_dir_entry *parent;
 
 struct uid_entry {
-	uid_t uid;
+	kuid_t uid;
 	cputime_t utime;
 	cputime_t stime;
 	cputime_t active_utime;
 	cputime_t active_stime;
-	unsigned long long active_power;
-	unsigned long long power;
 	struct hlist_node hash;
 };
 
-static struct uid_entry *find_uid_entry(uid_t uid)
+static struct uid_entry *find_uid_entry(kuid_t uid)
 {
 	struct uid_entry *uid_entry;
-	hash_for_each_possible(hash_table, uid_entry, hash, uid) {
-		if (uid_entry->uid == uid)
+	hash_for_each_possible(hash_table, uid_entry, hash,
+			       __kuid_val(uid)) {
+		if (uid_eq(uid_entry->uid, uid))
 			return uid_entry;
 	}
 	return NULL;
 }
 
-static struct uid_entry *find_or_register_uid(uid_t uid)
+static struct uid_entry *find_or_register_uid(kuid_t uid)
 {
 	struct uid_entry *uid_entry;
 
@@ -67,15 +67,24 @@ static struct uid_entry *find_or_register_uid(uid_t uid)
 
 	uid_entry->uid = uid;
 
-	hash_add(hash_table, &uid_entry->hash, uid);
+	hash_add(hash_table, &uid_entry->hash, __kuid_val(uid));
 
 	return uid_entry;
+}
+
+static bool pid_ns_is_descendant(struct pid_namespace *ns,
+				 struct pid_namespace *ancestor)
+{
+	while (ns != &init_pid_ns && ns != ancestor)
+		ns = ns->parent;
+	return ns == ancestor;
 }
 
 static int uid_stat_show(struct seq_file *m, void *v)
 {
 	struct uid_entry *uid_entry;
-	struct task_struct *task;
+	struct task_struct *task, *temp;
+	struct pid_namespace *current_ns, *task_ns;
 	cputime_t utime;
 	cputime_t stime;
 	unsigned long bkt;
@@ -85,13 +94,12 @@ static int uid_stat_show(struct seq_file *m, void *v)
 	hash_for_each(hash_table, bkt, uid_entry, hash) {
 		uid_entry->active_stime = 0;
 		uid_entry->active_utime = 0;
-		uid_entry->active_power = 0;
 	}
 
+	current_ns = task_active_pid_ns(current);
 	read_lock(&tasklist_lock);
-	for_each_process(task) {
-		uid_entry = find_or_register_uid(from_kuid_munged(
-			current_user_ns(), task_uid(task)));
+	do_each_thread(temp, task) {
+		uid_entry = find_or_register_uid(task_uid(task));
 		if (!uid_entry) {
 			read_unlock(&tasklist_lock);
 			mutex_unlock(&uid_lock);
@@ -100,16 +108,16 @@ static int uid_stat_show(struct seq_file *m, void *v)
 				task_uid(task)));
 			return -ENOMEM;
 		}
-		/* if this task is exiting, we have already accounted for the
-		 * time and power.
+		task_ns = task_active_pid_ns(task);
+		/* Only account for tasks in the descendants of the current
+		 * pid-namespace.
 		 */
-		if (task->cpu_power == ULLONG_MAX)
+		if (!pid_ns_is_descendant(task_ns, current_ns))
 			continue;
 		task_cputime_adjusted(task, &utime, &stime);
 		uid_entry->active_utime += utime;
 		uid_entry->active_stime += stime;
-		uid_entry->active_power += task->cpu_power;
-	}
+	} while_each_thread(temp, task);
 	read_unlock(&tasklist_lock);
 
 	hash_for_each(hash_table, bkt, uid_entry, hash) {
@@ -117,12 +125,16 @@ static int uid_stat_show(struct seq_file *m, void *v)
 							uid_entry->active_utime;
 		cputime_t total_stime = uid_entry->stime +
 							uid_entry->active_stime;
-		unsigned long long total_power = uid_entry->power +
-							uid_entry->active_power;
-		seq_printf(m, "%d: %u %u %llu\n", uid_entry->uid,
-						cputime_to_usecs(total_utime),
-						cputime_to_usecs(total_stime),
-						total_power);
+		uid_t uid = from_kuid_munged(current_user_ns(), uid_entry->uid);
+		/* Only show uids in the current uid-namespace. */
+		if (uid == overflowuid)
+			continue;
+		seq_printf(m, "%d: %llu %llu\n",
+			   uid,
+			   (unsigned long long)jiffies_to_msecs(
+				cputime_to_jiffies(total_utime)) * USEC_PER_MSEC,
+			   (unsigned long long)jiffies_to_msecs(
+				cputime_to_jiffies(total_stime)) * USEC_PER_MSEC);
 	}
 
 	mutex_unlock(&uid_lock);
@@ -172,14 +184,18 @@ static ssize_t uid_remove_write(struct file *file,
 		kstrtol(end_uid, 10, &uid_end) != 0) {
 		return -EINVAL;
 	}
-
 	mutex_lock(&uid_lock);
 
 	for (; uid_start <= uid_end; uid_start++) {
+		kuid_t kuid = make_kuid(current_user_ns(), uid_start);
+		if (!uid_valid(kuid))
+			continue;
 		hash_for_each_possible_safe(hash_table, uid_entry, tmp,
-							hash, uid_start) {
-			hash_del(&uid_entry->hash);
-			kfree(uid_entry);
+					    hash, __kuid_val(kuid)) {
+			if (uid_eq(kuid, uid_entry->uid)) {
+				hash_del(&uid_entry->hash);
+				kfree(uid_entry);
+			}
 		}
 	}
 
@@ -199,24 +215,23 @@ static int process_notifier(struct notifier_block *self,
 	struct task_struct *task = v;
 	struct uid_entry *uid_entry;
 	cputime_t utime, stime;
-	uid_t uid;
+	kuid_t uid;
 
 	if (!task)
 		return NOTIFY_OK;
 
 	mutex_lock(&uid_lock);
-	uid = from_kuid_munged(current_user_ns(), task_uid(task));
+	uid = task_uid(task);
 	uid_entry = find_or_register_uid(uid);
 	if (!uid_entry) {
-		pr_err("%s: failed to find uid %d\n", __func__, uid);
+		pr_err("%s: failed to find uid %d\n", __func__,
+		       from_kuid(current_user_ns(), uid));
 		goto exit;
 	}
 
 	task_cputime_adjusted(task, &utime, &stime);
 	uid_entry->utime += utime;
 	uid_entry->stime += stime;
-	uid_entry->power += task->cpu_power;
-	task->cpu_power = ULLONG_MAX;
 
 exit:
 	mutex_unlock(&uid_lock);

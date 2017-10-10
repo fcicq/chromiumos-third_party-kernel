@@ -251,7 +251,7 @@ static const struct file_operations fops_wmi_services = {
 	.llseek = default_llseek,
 };
 
-static void ath10k_debug_fw_stats_pdevs_free(struct list_head *head)
+static void ath10k_fw_stats_pdevs_free(struct list_head *head)
 {
 	struct ath10k_fw_stats_pdev *i, *tmp;
 
@@ -261,7 +261,7 @@ static void ath10k_debug_fw_stats_pdevs_free(struct list_head *head)
 	}
 }
 
-static void ath10k_debug_fw_stats_vdevs_free(struct list_head *head)
+static void ath10k_fw_stats_vdevs_free(struct list_head *head)
 {
 	struct ath10k_fw_stats_vdev *i, *tmp;
 
@@ -271,7 +271,7 @@ static void ath10k_debug_fw_stats_vdevs_free(struct list_head *head)
 	}
 }
 
-static void ath10k_debug_fw_stats_peers_free(struct list_head *head)
+static void ath10k_fw_stats_peers_free(struct list_head *head)
 {
 	struct ath10k_fw_stats_peer *i, *tmp;
 
@@ -285,16 +285,16 @@ static void ath10k_debug_fw_stats_reset(struct ath10k *ar)
 {
 	spin_lock_bh(&ar->data_lock);
 	ar->debug.fw_stats_done = false;
-	ath10k_debug_fw_stats_pdevs_free(&ar->debug.fw_stats.pdevs);
-	ath10k_debug_fw_stats_vdevs_free(&ar->debug.fw_stats.vdevs);
-	ath10k_debug_fw_stats_peers_free(&ar->debug.fw_stats.peers);
+	ath10k_fw_stats_pdevs_free(&ar->debug.fw_stats.pdevs);
+	ath10k_fw_stats_vdevs_free(&ar->debug.fw_stats.vdevs);
+	ath10k_fw_stats_peers_free(&ar->debug.fw_stats.peers);
 	spin_unlock_bh(&ar->data_lock);
 }
 
 void ath10k_debug_fw_stats_process(struct ath10k *ar, struct sk_buff *skb)
 {
 	struct ath10k_fw_stats stats = {};
-	bool is_start, is_started, is_end;
+	bool is_start, is_started, is_end, peer_stats_svc;
 	size_t num_peers;
 	size_t num_vdevs;
 	int ret;
@@ -322,8 +322,14 @@ void ath10k_debug_fw_stats_process(struct ath10k *ar, struct sk_buff *skb)
 	 *     delivered which is treated as end-of-data and is itself discarded
 	 */
 
+	peer_stats_svc = test_bit(WMI_SERVICE_PEER_STATS, ar->wmi.svc_map);
+	if (peer_stats_svc)
+		ath10k_sta_update_rx_duration(ar, &stats.peers);
+
 	if (ar->debug.fw_stats_done) {
-		ath10k_warn(ar, "received unsolicited stats update event\n");
+		if (!peer_stats_svc)
+			ath10k_warn(ar, "received unsolicited stats update event\n");
+
 		goto free;
 	}
 
@@ -347,11 +353,13 @@ void ath10k_debug_fw_stats_process(struct ath10k *ar, struct sk_buff *skb)
 			/* Although this is unlikely impose a sane limit to
 			 * prevent firmware from DoS-ing the host.
 			 */
+			ath10k_fw_stats_peers_free(&ar->debug.fw_stats.peers);
 			ath10k_warn(ar, "dropping fw peer stats\n");
 			goto free;
 		}
 
 		if (num_vdevs >= BITS_PER_LONG) {
+			ath10k_fw_stats_vdevs_free(&ar->debug.fw_stats.vdevs);
 			ath10k_warn(ar, "dropping fw vdev stats\n");
 			goto free;
 		}
@@ -366,9 +374,9 @@ free:
 	/* In some cases lists have been spliced and cleared. Free up
 	 * resources if that is not the case.
 	 */
-	ath10k_debug_fw_stats_pdevs_free(&stats.pdevs);
-	ath10k_debug_fw_stats_vdevs_free(&stats.vdevs);
-	ath10k_debug_fw_stats_peers_free(&stats.peers);
+	ath10k_fw_stats_pdevs_free(&stats.pdevs);
+	ath10k_fw_stats_vdevs_free(&stats.vdevs);
+	ath10k_fw_stats_peers_free(&stats.peers);
 
 	spin_unlock_bh(&ar->data_lock);
 }
@@ -1176,9 +1184,9 @@ static ssize_t ath10k_read_fw_dbglog(struct file *file,
 {
 	struct ath10k *ar = file->private_data;
 	unsigned int len;
-	char buf[64];
+	char buf[96];
 
-	len = scnprintf(buf, sizeof(buf), "0x%08x %u\n",
+	len = scnprintf(buf, sizeof(buf), "0x%16llx %u\n",
 			ar->debug.fw_dbglog_mask, ar->debug.fw_dbglog_level);
 
 	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
@@ -1190,15 +1198,16 @@ static ssize_t ath10k_write_fw_dbglog(struct file *file,
 {
 	struct ath10k *ar = file->private_data;
 	int ret;
-	char buf[64];
-	unsigned int log_level, mask;
+	char buf[96];
+	unsigned int log_level;
+	u64 mask;
 
 	simple_write_to_buffer(buf, sizeof(buf) - 1, ppos, user_buf, count);
 
 	/* make sure that buf is null terminated */
 	buf[sizeof(buf) - 1] = 0;
 
-	ret = sscanf(buf, "%x %u", &mask, &log_level);
+	ret = sscanf(buf, "%llx %u", &mask, &log_level);
 
 	if (!ret)
 		return -EINVAL;
@@ -1995,7 +2004,12 @@ static ssize_t ath10k_write_pktlog_filter(struct file *file,
 		goto out;
 	}
 
-	if (filter && (filter != ar->debug.pktlog_filter)) {
+	if (filter == ar->debug.pktlog_filter) {
+		ret = count;
+		goto out;
+	}
+
+	if (filter) {
 		ret = ath10k_wmi_pdev_pktlog_enable(ar, filter);
 		if (ret) {
 			ath10k_warn(ar, "failed to enable pktlog filter %x: %d\n",

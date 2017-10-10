@@ -782,7 +782,7 @@ static int go2001_s_ctrl(struct go2001_ctx *ctx, enum go2001_hw_ctrl_type type,
 	return go2001_queue_msg_and_wait(ctx, msg);
 }
 
-static int go2001_set_def_encoder_ctrls(struct go2001_ctx *ctx)
+static int go2001_set_def_encoder_coding_ctrl(struct go2001_ctx *ctx)
 {
 	union go2001_hw_ctrl hw_ctrl;
 	struct go2001_enc_coding_ctrl *ctrl = &hw_ctrl.coding_ctrl;
@@ -801,6 +801,32 @@ static int go2001_set_def_encoder_ctrls(struct go2001_ctx *ctx)
 	ctrl->quality_metric = GO2001_CODING_CTRL_QM_SSIM;
 
 	return go2001_s_ctrl(ctx, GO2001_HW_CTRL_TYPE_CODING, &hw_ctrl);
+}
+
+static int go2001_set_def_encoder_rate_ctrl(struct go2001_ctx *ctx)
+{
+	union go2001_hw_ctrl hw_ctrl;
+	struct go2001_enc_rate_ctrl *ctrl = &hw_ctrl.rate_ctrl;
+
+	memset(&hw_ctrl, 0, sizeof(hw_ctrl));
+
+	/* TODO(pbos): Consider propagating QP thresholds. */
+	ctrl->qp_min = 2;
+	ctrl->qp_max = 106;
+	/* Disable periodic refreshing. */
+	ctrl->intra_picture_rate = 0;
+	ctrl->golden_picture_rate = 0;
+	ctrl->altref_picture_rate = 0;
+	/* This matches the default settings. */
+	ctrl->picture_rc = 1;
+	ctrl->picture_skip = 0;
+	ctrl->qp_hdr = -1;
+	ctrl->bitrate_window = 150;
+	/* TODO(pbos): Disable this when turning on temporal layers. */
+	ctrl->adaptive_golden_update = 1;
+	ctrl->adaptive_golden_boost = 15;
+
+	return go2001_s_ctrl(ctx, GO2001_HW_CTRL_TYPE_RATE, &hw_ctrl);
 }
 
 static int go2001_init_encoder(struct go2001_ctx *ctx)
@@ -845,7 +871,10 @@ static int go2001_init_encoder(struct go2001_ctx *ctx)
 		return ret ? ret : -EIO;
 	}
 
-	return go2001_set_def_encoder_ctrls(ctx);
+	ret = go2001_set_def_encoder_coding_ctrl(ctx);
+	if (ret)
+		return ret;
+	return go2001_set_def_encoder_rate_ctrl(ctx);
 }
 
 void go2001_release_codec(struct go2001_ctx *ctx)
@@ -1081,43 +1110,25 @@ static int go2001_build_enc_msg(struct go2001_ctx *ctx, struct go2001_msg *msg,
 	param->bits_per_sec = ctx->enc_params.bitrate;
 	ctx->enc_params.bitrate = 0;
 
-	if (!ctx->enc_params.multi_ref_frame_mode ||
-	    ctx->enc_params.frames_since_intra % 4 == 0) {
-		/* Frame controls for temporal layer 0. */
+	/* TODO(pbos): When VEA supports temporal layers, set those up here. */
+	if (ctx->enc_params.multi_ref_frame_mode) {
+		param->ipf_frame_ctrl = GO2001_FRM_CTRL_REFERENCE_AND_REFRESH;
+		param->grf_frame_ctrl = GO2001_FRM_CTRL_REFERENCE;
+		param->arf_frame_ctrl = GO2001_FRM_CTRL_REFERENCE;
+	} else {
+		/*
+		 * TODO(pbos): Consider removing multi_ref_frame_mode or to use
+		 * it for 1080p as well. This is bad for quality.
+		 */
+		/* Only reference/refresh one layer. */
 		param->ipf_frame_ctrl = GO2001_FRM_CTRL_REFERENCE_AND_REFRESH;
 		param->grf_frame_ctrl = GO2001_FRM_CTRL_NO_REFRESH;
 		param->arf_frame_ctrl = GO2001_FRM_CTRL_NO_REFRESH;
-	} else if (ctx->enc_params.frames_since_intra % 2 == 0) {
-		/* Frame controls for temporal layer 1. */
-		param->ipf_frame_ctrl = GO2001_FRM_CTRL_REFERENCE;
-		param->grf_frame_ctrl = GO2001_FRM_CTRL_REFERENCE_AND_REFRESH;
-		param->arf_frame_ctrl = GO2001_FRM_CTRL_NO_REFRESH;
-	} else {
-		/* Frame controls for temporal layer 2. */
-		param->ipf_frame_ctrl = GO2001_FRM_CTRL_REFERENCE;
-		param->grf_frame_ctrl = GO2001_FRM_CTRL_REFERENCE;
-		param->arf_frame_ctrl = GO2001_FRM_CTRL_REFERENCE_AND_REFRESH;
 	}
+
 	ctx->enc_params.frames_since_intra++;
 
 	return 0;
-}
-
-static void go2001_flush(struct go2001_ctx *ctx, struct go2001_buffer *src_buf)
-{
-	assert_spin_locked(&ctx->qlock);
-
-	go2001_dbg(ctx->gdev, 4, "Flushing at src_buf ts=%ld.%06ld\n",
-			src_buf->vb.v4l2_buf.timestamp.tv_sec,
-			src_buf->vb.v4l2_buf.timestamp.tv_usec);
-
-	/*
-	 * Since VPX has no frame reordering and buffers are returned as
-	 * soon as they are decoded, there is no need trigger anything on the
-	 * destination queue. Just return the flush buffer to userspace.
-	 */
-	list_del(&src_buf->list);
-	vb2_buffer_done(&src_buf->vb, VB2_BUF_STATE_DONE);
 }
 
 int go2001_prepare_gbuf(struct go2001_ctx *ctx, struct go2001_buffer *gbuf,
@@ -1171,7 +1182,6 @@ int go2001_schedule_frames(struct go2001_ctx *ctx)
 	BUG_ON(job->dst_buf);
 
 	go2001_dbg(gdev, 5, "State: %d\n", ctx->state);
-again:
 	src_buf = NULL;
 	dst_buf = NULL;
 
@@ -1201,21 +1211,30 @@ again:
 	if (!src_buf)
 		goto out;
 
+	if (ctx->codec_mode == CODEC_MODE_DECODER &&
+	    src_buf->vb.v4l2_buf.index == GO2001_DUMMY_FLUSH_BUF_INDEX) {
+		/* Flush buffer */
+		int i;
+
+		list_del_init(&src_buf->list);
+		list_del(&dst_buf->list);
+		for (i = 0; i < dst_buf->vb.num_planes; ++i)
+			vb2_set_plane_payload(&dst_buf->vb, i, 0);
+		dst_buf->vb.v4l2_buf.flags |= V4L2_BUF_FLAG_LAST;
+		dst_buf->vb.v4l2_buf.bytesused = 0;
+		vb2_buffer_done(&dst_buf->vb, VB2_BUF_STATE_DONE);
+		goto out;
+	}
+
 	msg = src_buf->msg;
 	if (WARN_ON(!msg))
 		goto out;
 
-	if (ctx->codec_mode == CODEC_MODE_DECODER) {
-		if (vb2_get_plane_payload(&src_buf->vb, 0) == 0) {
-			/* Flush buffer */
-			go2001_flush(ctx, src_buf);
-			goto again;
-		}
-
+	if (ctx->codec_mode == CODEC_MODE_DECODER)
 		ret = go2001_build_dec_msg(ctx, msg, src_buf, dst_buf);
-	} else {
+	else
 		ret = go2001_build_enc_msg(ctx, msg, src_buf, dst_buf);
-	}
+
 	if (ret)
 		goto out;
 

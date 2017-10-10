@@ -6,6 +6,7 @@
 #include <linux/platform_device.h>
 #include <linux/gpio/consumer.h>
 #include <linux/delay.h>
+#include <linux/input.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
 #include <sound/soc.h>
@@ -68,6 +69,7 @@ static const struct snd_kcontrol_new bdw_rt5650_controls[] = {
 
 static struct snd_soc_jack headphone_jack;
 static struct snd_soc_jack mic_jack;
+static struct snd_soc_jack headset_btn;
 
 static int broadwell_ssp0_fixup(struct snd_soc_pcm_runtime *rtd,
 			struct snd_pcm_hw_params *params)
@@ -96,11 +98,21 @@ static int bdw_rt5650_hw_params(struct snd_pcm_substream *substream,
 	struct snd_soc_dai *codec_dai = rtd->codec_dai;
 	int ret;
 
+	/* Workaround: set codec PLL to 19.2MHz that PLL source is
+	 * from MCLK(24MHz) to conform 2.4MHz DMIC clock.
+	 */
+	ret = snd_soc_dai_set_pll(codec_dai, 0, RT5645_PLL1_S_MCLK,
+		24000000, 19200000);
+	if (ret < 0) {
+		dev_err(rtd->dev, "can't set codec pll: %d\n", ret);
+		return ret;
+	}
+
 	/* The actual MCLK freq is 24MHz. The codec is told that MCLK is
 	 * 24.576MHz to satisfy the requirement of rl6231_get_clk_info.
 	 * ASRC is enabled on AD and DA filters to ensure good audio quality.
 	 */
-	ret = snd_soc_dai_set_sysclk(codec_dai, RT5645_SCLK_S_MCLK, 24576000,
+	ret = snd_soc_dai_set_sysclk(codec_dai, RT5645_SCLK_S_PLL1, 24576000,
 		SND_SOC_CLOCK_IN);
 	if (ret < 0) {
 		dev_err(rtd->dev, "can't set codec sysclk configuration\n");
@@ -174,7 +186,20 @@ static int bdw_rt5650_init(struct snd_soc_pcm_runtime *rtd)
 		dev_err(codec->dev, "Can't create mic jack\n");
 	}
 
-	rt5645_set_jack_detect(codec, &headphone_jack, &mic_jack, NULL);
+	/* Create and initialize headset button */
+	if (snd_soc_jack_new(codec, "Headset Button", SND_JACK_BTN_0 |
+		SND_JACK_BTN_1 | SND_JACK_BTN_2 | SND_JACK_BTN_3,
+		&headset_btn)) {
+		dev_err(codec->dev, "Can't create Headset Button\n");
+	}
+
+	rt5645_set_jack_detect(codec, &headphone_jack, &mic_jack,
+		&headset_btn);
+
+	snd_jack_set_key(headset_btn.jack, SND_JACK_BTN_0, KEY_MEDIA);
+	snd_jack_set_key(headset_btn.jack, SND_JACK_BTN_1, KEY_VOICECOMMAND);
+	snd_jack_set_key(headset_btn.jack, SND_JACK_BTN_2, KEY_VOLUMEUP);
+	snd_jack_set_key(headset_btn.jack, SND_JACK_BTN_3, KEY_VOLUMEDOWN);
 
 	bdw_rt5650->codec = codec;
 

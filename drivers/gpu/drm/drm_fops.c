@@ -89,10 +89,6 @@ int drm_open(struct inode *inode, struct file *filp)
 		return PTR_ERR(minor);
 
 	dev = minor->dev;
-	if (drm_device_is_unplugged(dev)) {
-		retcode = -ENODEV;
-		goto err_release;
-	}
 
 	if (!dev->open_count++)
 		need_setup = 1;
@@ -112,7 +108,6 @@ int drm_open(struct inode *inode, struct file *filp)
 
 err_undo:
 	dev->open_count--;
-err_release:
 	drm_minor_release(minor);
 	return retcode;
 }
@@ -142,8 +137,6 @@ int drm_stub_open(struct inode *inode, struct file *filp)
 		goto out_unlock;
 
 	dev = minor->dev;
-	if (drm_device_is_unplugged(dev))
-		goto out_release;
 
 	new_fops = fops_get(dev->driver->fops);
 	if (!new_fops)
@@ -561,8 +554,6 @@ int drm_release(struct inode *inode, struct file *filp)
 
 	if (!--dev->open_count) {
 		retcode = drm_lastclose(dev);
-		if (drm_device_is_unplugged(dev))
-			drm_put_dev(dev);
 	}
 	mutex_unlock(&drm_global_mutex);
 

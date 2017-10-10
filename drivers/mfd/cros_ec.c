@@ -17,15 +17,16 @@
  * battery charging and regulator control, firmware update.
  */
 
+#include <linux/delay.h>
 #include <linux/interrupt.h>
-#include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/mfd/core.h>
 #include <linux/mfd/cros_ec.h>
 #include <linux/mfd/cros_ec_commands.h>
 #include <linux/module.h>
 #include <linux/of_platform.h>
-#include <linux/delay.h>
+#include <linux/slab.h>
+#include <linux/suspend.h>
 
 #include "cros_ec_dev.h"
 
@@ -69,6 +70,11 @@ static int send_command(struct cros_ec_device *ec_dev,
 			struct cros_ec_command *msg)
 {
 	int ret, i;
+
+	if (ec_dev->suspended) {
+		dev_dbg(ec_dev->dev, "Device suspended.\n");
+		return -EHOSTDOWN;
+	}
 
 	if (ec_dev->proto_version > 2)
 		ret = ec_dev->pkt_xfer(ec_dev, msg);
@@ -270,6 +276,20 @@ static int cros_ec_probe_all(struct cros_ec_device *ec_dev)
 	}
 
 	return 0;
+}
+
+static int cros_ec_sleep_event(struct cros_ec_device *ec_dev, u8 sleep_event)
+{
+	struct cros_ec_command msg;
+	struct ec_params_host_sleep_event data;
+
+	memset(&msg, 0, sizeof(msg));
+	data.sleep_event = sleep_event;
+	msg.command = EC_CMD_HOST_SLEEP_EVENT;
+	msg.outdata = (u8 *)&data;
+	msg.outsize = sizeof(data);
+
+	return cros_ec_cmd_xfer(ec_dev, &msg);
 }
 
 int cros_ec_prepare_tx(struct cros_ec_device *ec_dev,
@@ -499,6 +519,14 @@ int cros_ec_register(struct cros_ec_device *ec_dev)
 	if (err && err != -ENODEV)
 		dev_err(dev, "failed to add cros-ec-accel mfd devices\n");
 
+	/*
+	 * Clear sleep event - this will fail harmlessly on platforms that
+	 * don't implement the sleep event host command.
+	 */
+	err = cros_ec_sleep_event(ec_dev, 0);
+	if (err < 0)
+		dev_dbg(dev, "Error %d clearing sleep event to ec", err);
+
 	dev_info(dev, "Chrome EC device registered\n");
 
 	return 0;
@@ -516,12 +544,19 @@ EXPORT_SYMBOL(cros_ec_remove);
 int cros_ec_suspend(struct cros_ec_device *ec_dev)
 {
 	struct device *dev = ec_dev->dev;
+	int ret;
+
+	ret = cros_ec_sleep_event(ec_dev, HOST_SLEEP_EVENT_S3_SUSPEND);
+	if (ret < 0)
+		dev_dbg(ec_dev->dev, "Error %d sending suspend event to ec",
+			ret);
 
 	if (device_may_wakeup(dev))
 		ec_dev->wake_enabled = !enable_irq_wake(ec_dev->irq);
 
 	disable_irq(ec_dev->irq);
 	ec_dev->was_wake_device = ec_dev->wake_enabled;
+	ec_dev->suspended = true;
 
 	return 0;
 }
@@ -529,7 +564,16 @@ EXPORT_SYMBOL(cros_ec_suspend);
 
 int cros_ec_resume(struct cros_ec_device *ec_dev)
 {
+	int ret;
+
+	ec_dev->suspended = false;
+
 	enable_irq(ec_dev->irq);
+
+	ret = cros_ec_sleep_event(ec_dev, HOST_SLEEP_EVENT_S3_RESUME);
+	if (ret < 0)
+		dev_dbg(ec_dev->dev, "Error %d sending resume event to ec",
+			ret);
 
 	if (ec_dev->wake_enabled) {
 		disable_irq_wake(ec_dev->irq);

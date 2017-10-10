@@ -894,6 +894,8 @@ mm_fault_error(struct pt_regs *regs, unsigned long error_code,
 		if (fault & (VM_FAULT_SIGBUS|VM_FAULT_HWPOISON|
 			     VM_FAULT_HWPOISON_LARGE))
 			do_sigbus(regs, error_code, address, fault);
+		else if (fault & VM_FAULT_SIGSEGV)
+			bad_area_nosemaphore(regs, error_code, address);
 		else
 			BUG();
 	}
@@ -1179,8 +1181,14 @@ retry:
 		 * The large cushion allows instructions like enter
 		 * and pusha to work. ("enter $65535, $31" pushes
 		 * 32 pointers and then decrements %sp by 65535.)
+		 *
+		 * However accesses within one page of the lowest
+		 * stack address are exempt from this check, since
+		 * historically userspace has been able to expand
+		 * the stack by touching the stack guard page.
 		 */
-		if (unlikely(address + 65536 + 32 * sizeof(unsigned long) < regs->sp)) {
+		if (unlikely(address + 65536 + 32 * sizeof(unsigned long) < regs->sp) &&
+				address < vma->vm_start - PAGE_SIZE) {
 			bad_area(regs, error_code, address);
 			return;
 		}

@@ -1380,6 +1380,10 @@ static void intel_disable_ddi(struct intel_encoder *intel_encoder)
 		struct intel_dp *intel_dp = enc_to_intel_dp(encoder);
 
 		intel_edp_psr_disable(intel_dp);
+		/* Forcing a full psr init sequence when disabling DDI to make sure all
+		* registers are properly set. Some might not be persistent after
+		* suspend/resume cycle. */
+		dev_priv->psr.setup_done = false;
 		ironlake_edp_backlight_off(intel_dp);
 	}
 }

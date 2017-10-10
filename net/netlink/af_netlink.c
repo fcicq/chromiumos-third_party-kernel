@@ -1206,7 +1206,7 @@ static int netlink_create(struct net *net, struct socket *sock, int protocol,
 	struct module *module = NULL;
 	struct mutex *cb_mutex;
 	struct netlink_sock *nlk;
-	void (*bind)(int group);
+	int (*bind)(struct net *net, int group);
 	int err = 0;
 
 	sock->state = SS_UNCONNECTED;
@@ -1527,7 +1527,7 @@ static int netlink_bind(struct socket *sock, struct sockaddr *addr,
 
 		for (i=0; i<nlk->ngroups; i++) {
 			if (test_bit(i, nlk->groups))
-				nlk->netlink_bind(i);
+				nlk->netlink_bind(sock_net(sk), i);
 		}
 	}
 
@@ -2173,8 +2173,9 @@ static int netlink_setsockopt(struct socket *sock, int level, int optname,
 					 optname == NETLINK_ADD_MEMBERSHIP);
 		netlink_table_ungrab();
 
+
 		if (nlk->netlink_bind)
-			nlk->netlink_bind(val);
+			nlk->netlink_bind(sock_net(sk), val);
 
 		err = 0;
 		break;
@@ -2637,6 +2638,7 @@ static int netlink_dump(struct sock *sk)
 	struct netlink_callback *cb;
 	struct sk_buff *skb = NULL;
 	struct nlmsghdr *nlh;
+	struct module *module;
 	int len, err = -ENOBUFS;
 	int alloc_size;
 
@@ -2686,9 +2688,11 @@ static int netlink_dump(struct sock *sk)
 		cb->done(cb);
 
 	nlk->cb_running = false;
+	module = cb->module;
+	skb = cb->skb;
 	mutex_unlock(nlk->cb_mutex);
-	module_put(cb->module);
-	consume_skb(cb->skb);
+	module_put(module);
+	consume_skb(skb);
 	return 0;
 
 errout_skb:

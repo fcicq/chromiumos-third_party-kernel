@@ -396,6 +396,11 @@
 	status = "okay";
 };
 
+&power {
+	assigned-clocks = <&cru SCLK_EDP_24M>;
+	assigned-clock-parents = <&xin24m>;
+};
+
 &pwm1 {
 	status = "okay";
 };
@@ -549,6 +554,10 @@
 
 		bt_host_wake: bt-host-wake {
 			rockchip,pins = <4 31 RK_FUNC_GPIO &pcfg_pull_down>;
+		};
+
+		bt_host_wake_l: bt-host-wake-l {
+			rockchip,pins = <4 31 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 
 		/*

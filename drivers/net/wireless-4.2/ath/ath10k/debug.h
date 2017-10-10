@@ -48,7 +48,8 @@ enum ath10k_pktlog_filter {
 	ATH10K_PKTLOG_RCUPDATE   = 0x000000008,
 	ATH10K_PKTLOG_DBG_PRINT  = 0x000000010,
 	ATH10K_PKTLOG_SMART_ANT	 = 0x000000020,
-	ATH10K_PKTLOG_ANY        = 0x00000003f,
+	ATH10K_PKTLOG_PEER_STATS = 0x000000040,
+	ATH10K_PKTLOG_ANY        = 0x00000007f,
 };
 
 enum ath10k_dbg_aggr_mode {
@@ -153,6 +154,18 @@ ath10k_debug_get_new_fw_crash_data(struct ath10k *ar)
 #ifdef CONFIG_MAC80211_DEBUGFS
 void ath10k_sta_add_debugfs(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 			    struct ieee80211_sta *sta, struct dentry *dir);
+void ath10k_sta_update_rx_duration(struct ath10k *ar, struct list_head *peer);
+void ath10k_update_peer_tx_stats(struct ath10k *ar, struct ath10k_sta *sta,
+				 struct ath10k_per_peer_tx_stats *p_tx_stats);
+#else
+static inline void ath10k_sta_update_rx_duration(struct ath10k *ar,
+						 struct list_head *peer)
+{
+}
+void ath10k_update_peer_tx_stats(struct ath10k *ar, struct ath10k_sta *sta,
+				 struct ath10k_per_peer_tx_stats *p_tx_stats)
+{
+}
 #endif /* CONFIG_MAC80211_DEBUGFS */
 
 #ifdef CONFIG_ATH10K_DEBUG

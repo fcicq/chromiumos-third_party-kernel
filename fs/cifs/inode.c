@@ -283,7 +283,7 @@ cifs_unix_basic_to_fattr(struct cifs_fattr *fattr, FILE_UNIX_BASIC_INFO *info,
 				fattr->cf_uid = uid;
 		}
 	}
-	
+
 	fattr->cf_gid = cifs_sb->mnt_gid;
 	if (!(cifs_sb->mnt_cifs_flags & CIFS_MOUNT_OVERR_GID)) {
 		u64 id = le64_to_cpu(info->Gid);
@@ -1771,6 +1771,50 @@ cifs_invalidate_mapping(struct inode *inode)
 
 	cifs_fscache_reset_inode_cookie(inode);
 	return rc;
+}
+
+/**
+ * cifs_wait_bit_killable - helper for functions that are sleeping on bit locks
+ * @word: long word containing the bit lock
+ */
+static int
+cifs_wait_bit_killable(struct wait_bit_key *key)
+{
+	if (fatal_signal_pending(current))
+		return -ERESTARTSYS;
+	freezable_schedule_unsafe();
+	return 0;
+}
+
+int
+cifs_revalidate_mapping(struct inode *inode)
+{
+	int rc;
+	unsigned long *flags = &CIFS_I(inode)->flags;
+
+	rc = wait_on_bit_lock_action(flags, CIFS_INO_LOCK, cifs_wait_bit_killable,
+				     TASK_KILLABLE);
+	if (rc)
+		return rc;
+
+	if (test_and_clear_bit(CIFS_INO_INVALID_MAPPING, flags)) {
+		rc = cifs_invalidate_mapping(inode);
+		if (rc)
+			set_bit(CIFS_INO_INVALID_MAPPING, flags);
+	}
+
+	clear_bit_unlock(CIFS_INO_LOCK, flags);
+	smp_mb__after_atomic();
+	wake_up_bit(flags, CIFS_INO_LOCK);
+
+	return rc;
+}
+
+int
+cifs_zap_mapping(struct inode *inode)
+{
+	set_bit(CIFS_INO_INVALID_MAPPING, &CIFS_I(inode)->flags);
+	return cifs_revalidate_mapping(inode);
 }
 
 int cifs_revalidate_file_attr(struct file *filp)

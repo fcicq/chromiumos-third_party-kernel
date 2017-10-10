@@ -189,6 +189,8 @@ void reservation_object_add_shared_fence(struct reservation_object *obj,
 {
 	struct reservation_object_list *old, *fobj = obj->staged;
 
+	WARN_ON(!fence);
+
 	old = reservation_object_get_list(obj);
 	obj->staged = NULL;
 

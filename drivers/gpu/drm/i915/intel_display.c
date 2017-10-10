@@ -3785,11 +3785,6 @@ static void haswell_crtc_enable(struct drm_crtc *crtc)
 
 	ironlake_pfit_enable(intel_crtc);
 
-	/* Forcing a full psr init sequence when enabling crtc to make sure all
-	* registers are properly set. Some might not be persistent after
-	* suspend/resume cycle. */
-	dev_priv->psr.setup_done = false;
-
 	/*
 	 * On ILK+ LUT must be loaded before the pipe is running but with
 	 * clocks enabled
@@ -9108,8 +9103,10 @@ static int intel_crtc_page_flip(struct drm_crtc *crtc,
 	int ret;
 
 	/* Can't change pixel format via MI display flips. */
-	if (fb->pixel_format != crtc->primary->fb->pixel_format)
+	if (fb->pixel_format != crtc->primary->fb->pixel_format) {
+		atomic_inc(&intel_crtc->error_count);
 		return -EINVAL;
+	}
 
 	/*
 	 * TILEOFF/LINOFF registers can't be changed via MI display flips.
@@ -9117,12 +9114,16 @@ static int intel_crtc_page_flip(struct drm_crtc *crtc,
 	 */
 	if (INTEL_INFO(dev)->gen > 3 &&
 	    (fb->offsets[0] != crtc->primary->fb->offsets[0] ||
-	     fb->pitches[0] != crtc->primary->fb->pitches[0]))
+	     fb->pitches[0] != crtc->primary->fb->pitches[0])) {
+		atomic_inc(&intel_crtc->error_count);
 		return -EINVAL;
+	}
 
 	work = kzalloc(sizeof(*work), GFP_KERNEL);
-	if (work == NULL)
+	if (work == NULL) {
+		atomic_inc(&intel_crtc->error_count);
 		return -ENOMEM;
+	}
 
 	work->event = event;
 	work->crtc = crtc;
@@ -9148,6 +9149,7 @@ static int intel_crtc_page_flip(struct drm_crtc *crtc,
 
 			drm_vblank_put(dev, intel_crtc->pipe);
 			kfree(work);
+			atomic_inc(&intel_crtc->error_count);
 			return -EBUSY;
 		}
 	}
@@ -9228,6 +9230,7 @@ cleanup:
 free_work:
 	kfree(work);
 
+	atomic_inc(&intel_crtc->error_count);
 	return ret;
 }
 
@@ -10592,6 +10595,8 @@ fail:
 
 out_config:
 	intel_set_config_free(config);
+	if (ret)
+		atomic_inc(&to_intel_crtc(set->crtc)->error_count);
 	return ret;
 }
 

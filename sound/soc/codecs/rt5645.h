@@ -2195,6 +2195,7 @@ struct rt5645_priv {
 	struct snd_soc_jack *mic_jack;
 	struct snd_soc_jack *btn_jack;
 	struct delayed_work jack_detect_work;
+	struct timer_list btn_check_timer;
 
 	int codec_type;
 	int sysclk;
