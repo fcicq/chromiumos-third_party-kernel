@@ -51,12 +51,6 @@ extern "C" {
 #if defined(__linux__) && defined(__KERNEL__)
 #include <linux/kernel.h>
 #include <linux/string.h> //strlen, strcopy
-#if defined(LDM_PLATFROM)
-#include <linux/platform_device.h>
-#endif
-#if defined(LDM_PCI)
-#include <linux/pci.h>
-#endif
 #include <linux/ctype.h> //toupper
 #else
 #include <stddef.h>
@@ -65,16 +59,16 @@ extern "C" {
 #include <stdio.h>
 #endif
 
-#if defined(__linux__) && defined(__KERNEL__)
+#if (defined(__linux__) && defined(__KERNEL__)) || (defined(INTEGRITY_OS) && defined(SUPPORT_KERNEL_SRVINIT)) || defined(__QNXNTO__)
 #include "osfunc.h"
 static inline void SRVINITDeviceMemCopy(void *pvDst, const void *pvSrc, size_t uiSize)
 {
-	OSMemCopy(pvDst, pvSrc, uiSize);
+	OSDeviceMemCopy(pvDst, pvSrc, uiSize);
 }
 
 static inline void SRVINITDeviceMemSet(void *pvDest, IMG_UINT8 ui8Value, size_t uiSize)
 {
-	OSMemSet(pvDest, ui8Value, uiSize);
+	OSDeviceMemSet(pvDest, ui8Value, uiSize);
 }
 #else
 #include "services.h"

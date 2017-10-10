@@ -17,7 +17,7 @@
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 
-#include <media/videobuf2-core.h>
+#include <media/videobuf2-v4l2.h>
 #include <media/videobuf2-vmalloc.h>
 #include <media/videobuf2-memops.h>
 
@@ -102,8 +102,8 @@ static void *vb2_vmalloc_get_userptr(void *alloc_ctx, unsigned long vaddr,
 		first = vaddr >> PAGE_SHIFT;
 		last  = (vaddr + size - 1) >> PAGE_SHIFT;
 		buf->n_pages = last - first + 1;
-		buf->pages = kzalloc(buf->n_pages * sizeof(struct page *),
-				     GFP_KERNEL);
+		buf->pages = kvmalloc_array(buf->n_pages, sizeof(struct page *),
+					    GFP_KERNEL | __GFP_ZERO);
 		if (!buf->pages)
 			goto fail_pages_array_alloc;
 
@@ -130,7 +130,7 @@ fail_get_user_pages:
 		 buf->n_pages);
 	while (--n_pages >= 0)
 		put_page(buf->pages[n_pages]);
-	kfree(buf->pages);
+	kvfree(buf->pages);
 
 fail_pages_array_alloc:
 	kfree(buf);
@@ -152,7 +152,7 @@ static void vb2_vmalloc_put_userptr(void *buf_priv)
 				set_page_dirty_lock(buf->pages[i]);
 			put_page(buf->pages[i]);
 		}
-		kfree(buf->pages);
+		kvfree(buf->pages);
 	} else {
 		if (buf->vma)
 			vb2_put_vma(buf->vma);

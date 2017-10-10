@@ -116,6 +116,14 @@ gk104_fifo_runlist_update(struct gk104_fifo_priv *priv, u32 engine)
 	mutex_unlock(&nv_subdev(priv)->mutex);
 }
 
+static void
+gk104_fifo_chan_enable(struct nvkm_fifo_chan *chan, bool enable)
+{
+	struct nvkm_engine *engine = nv_object(chan)->engine;
+	u32 state = enable ? 0x400 : 0x800;
+	nv_mask(engine, 0x800004 + (chan->chid * 8), state, state);
+}
+
 static int
 gk104_fifo_context_attach(struct nvkm_object *parent,
 			  struct nvkm_object *object)
@@ -158,47 +166,6 @@ gk104_fifo_context_attach(struct nvkm_object *parent,
 }
 
 static int
-gk104_fifo_chan_kick_locked(struct gk104_fifo_chan *chan)
-{
-	struct nvkm_object *obj = (void *)chan;
-	struct gk104_fifo_priv *priv = (void *)obj->engine;
-	struct nvkm_pmu *pmu = nvkm_pmu(priv);
-	u32 token = 0;
-	int mutex_ret;
-	int ret = 0;
-
-	mutex_ret = pmu->acquire_mutex(pmu, PMU_MUTEX_ID_FIFO, &token);
-	if (mutex_ret)
-		nv_error(priv, "channel kick acquire mutex failed: %d\n",
-				mutex_ret);
-
-	nv_wr32(priv, 0x002634, chan->base.chid);
-	if (!nv_wait(priv, 0x002634, 0x100000, 0x000000)) {
-		nv_error(priv, "channel %d [%s] kick timeout\n",
-			 chan->base.chid, nvkm_client_name(chan));
-		ret = -EBUSY;
-	}
-
-	if (!mutex_ret)
-		pmu->release_mutex(pmu, PMU_MUTEX_ID_FIFO, &token);
-	return ret;
-}
-
-static int
-gk104_fifo_chan_kick(struct gk104_fifo_chan *chan)
-{
-	struct nvkm_object *obj = (void *)chan;
-	struct gk104_fifo_priv *priv = (void *)obj->engine;
-	int ret;
-
-	mutex_lock(&nv_subdev(priv)->mutex);
-	ret = gk104_fifo_chan_kick_locked(chan);
-	mutex_unlock(&nv_subdev(priv)->mutex);
-
-	return ret;
-}
-
-static int
 gk104_fifo_context_detach(struct nvkm_object *parent, bool suspend,
 			  struct nvkm_object *object)
 {
@@ -221,7 +188,7 @@ gk104_fifo_context_detach(struct nvkm_object *parent, bool suspend,
 		return -EINVAL;
 	}
 
-	err = gk104_fifo_chan_kick_locked(chan);
+	err = gf100_fifo_chan_kick_locked(&chan->base);
 	if (err && suspend)
 		return err;
 
@@ -334,9 +301,9 @@ gk104_fifo_chan_init(struct nvkm_object *object)
 	nv_wr32(priv, 0x800000 + (chid * 8), 0x80000000 | base->addr >> 12);
 
 	if (chan->state == STOPPED && (chan->state = RUNNING) == RUNNING) {
-		nv_mask(priv, 0x800004 + (chid * 8), 0x00000400, 0x00000400);
+		nvkm_fifo_chan_enable(&priv->base, &chan->base);
 		gk104_fifo_runlist_update(priv, chan->engine);
-		nv_mask(priv, 0x800004 + (chid * 8), 0x00000400, 0x00000400);
+		nvkm_fifo_chan_enable(&priv->base, &chan->base);
 	}
 
 	return 0;
@@ -359,11 +326,11 @@ gk104_fifo_chan_fini(struct nvkm_object *object, bool suspend)
 	}
 
 	if (chan->state == RUNNING && (chan->state = STOPPED) == STOPPED) {
-		nv_mask(priv, 0x800004 + (chid * 8), 0x00000800, 0x00000800);
+		nvkm_fifo_chan_disable(&priv->base, &chan->base);
 		gk104_fifo_runlist_update(priv, chan->engine);
 	}
 
-	err = gk104_fifo_chan_kick(chan);
+	err = gf100_fifo_chan_kick(&chan->base);
 	if (err && suspend)
 		return err;
 
@@ -378,10 +345,10 @@ gk104_fifo_set_runlist_timeslice(struct gk104_fifo_priv *priv,
 	struct nvkm_gpuobj *base = nv_gpuobj(nv_object(chan)->parent);
 	u32 chid = chan->base.chid;
 
-	nv_mask(priv, 0x800004 + (chid * 8), 0x00000800, 0x00000800);
-	WARN_ON(gk104_fifo_chan_kick(chan));
+	nvkm_fifo_chan_disable(&priv->base, &chan->base);
+	WARN_ON(gf100_fifo_chan_kick(&chan->base));
 	nv_wo32(base, 0xf8, slice | 0x10003000);
-	nv_mask(priv, 0x800004 + (chid * 8), 0x00000400, 0x00000400);
+	nvkm_fifo_chan_enable(&priv->base, &chan->base);
 	nv_debug(chan, "timeslice set to %d for %d\n", slice, chid);
 }
 
@@ -601,13 +568,112 @@ gk104_fifo_recover(struct gk104_fifo_priv *priv, struct nvkm_engine *engine,
 	nv_error(priv, "%s engine fault on channel %d, recovering...\n",
 		       nv_subdev(engine)->name, chid);
 
-	nv_mask(priv, 0x800004 + (chid * 0x08), 0x00000800, 0x00000800);
+	nvkm_fifo_chan_disable(&priv->base, &chan->base);
 	chan->state = KILLED;
 
 	spin_lock_irqsave(&priv->base.lock, flags);
 	priv->mask |= 1ULL << nv_engidx(engine);
 	spin_unlock_irqrestore(&priv->base.lock, flags);
 	schedule_work(&priv->fault);
+}
+
+static void
+gk104_fifo_mmu_fault_recover_work(struct work_struct *work)
+{
+	struct gk104_fifo_priv *priv = container_of(work, typeof(*priv), mmu_fault);
+	struct gk104_fifo_chan *chan;
+	struct nvkm_pmu *pmu = nvkm_pmu(priv);
+	struct nvkm_gr *gr = nvkm_gr(priv);
+	struct nvkm_object *engine;
+	unsigned long flags;
+	u32 engn, engm = 0, unit;
+	u64 mask, todo;
+	bool halt_fecs = false;
+	u32 grfifo_ctrl;
+
+	spin_lock_irqsave(&priv->base.lock, flags);
+	mask = priv->mask;
+	chan = priv->fault_chan;
+	unit = priv->fault_unit;
+	priv->mask = 0ULL;
+	priv->fault_chan = NULL;
+	priv->fault_unit = 0;
+	spin_unlock_irqrestore(&priv->base.lock, flags);
+
+	if (pmu->disable_clk_gating)
+		pmu->disable_clk_gating(pmu);
+
+	for (todo = mask; engn = __ffs64(todo), todo; todo &= ~(1 << engn)) {
+		engm |= 1 << gk104_fifo_engidx(priv, engn);
+		if (engn == NVDEV_ENGINE_GR)
+			halt_fecs = true;
+	}
+
+	nv_debug(priv, "disabling scheduling runlist 0x%08x\n", engm);
+	nv_mask(priv, 0x002630, engm, engm);
+	if (halt_fecs && gr->halt_fecs)
+		gr->halt_fecs(gr);
+
+	for (todo = mask; engn = __ffs64(todo), todo; todo &= ~(1 << engn)) {
+		if ((engine = (void *)nvkm_engine(priv, engn))) {
+			nv_error(priv, "resetting engine 0x%x\n", engn);
+			nv_ofuncs(engine)->fini(engine, false);
+			WARN_ON(nv_ofuncs(engine)->init(engine));
+		}
+	}
+
+	grfifo_ctrl = nv_rd32(priv, 0x400500);
+	grfifo_ctrl |= 0x1 << 16; /* semaphore access */
+	grfifo_ctrl |= 0x1 << 0; /* access */
+	nv_wr32(priv, 0x400500, grfifo_ctrl);
+
+	nv_debug(priv, "updating runlist\n");
+	for (todo = mask; engn = __ffs64(todo), todo; todo &= ~(1 << engn)) {
+		gk104_fifo_runlist_update(priv, gk104_fifo_engidx(priv, engn));
+	}
+
+	nv_wr32(priv, 0x00259c, unit);
+	nv_wr32(priv, 0x00262c, engm);
+	nv_mask(priv, 0x002630, engm, 0x00000000);
+	nv_mask(priv, 0x002140, 0x10000000, 0x10000000);
+
+	if (pmu->enable_clk_gating)
+		pmu->enable_clk_gating(pmu);
+
+	nv_error(priv, "channel clean up done\n");
+}
+
+static void
+gk104_fifo_mmu_fault_recover(struct gk104_fifo_priv *priv,
+		struct nvkm_engine *engine, struct gk104_fifo_chan *chan,
+		u32 unit)
+{
+	u32 chid = chan->base.chid;
+	unsigned long flags;
+	u32 grfifo_ctrl;
+
+	nv_error(priv, "%s engine fault on channel %d, recovering...\n",
+		       nv_subdev(engine)->name, chid);
+
+	grfifo_ctrl = nv_rd32(priv, 0x400500);
+	grfifo_ctrl &= ~(0x1 << 16); /* semaphore access */
+	grfifo_ctrl &= ~(0x1 << 0); /* access */
+	nv_wr32(priv, 0x400500, grfifo_ctrl);
+
+	nvkm_fifo_chan_disable(&priv->base, &chan->base);
+	chan->state = KILLED;
+
+	spin_lock_irqsave(&priv->base.lock, flags);
+	priv->mask |= 1ULL << nv_engidx(engine);
+	priv->fault_chan = chan;
+	priv->fault_unit |= 1 << unit;
+	spin_unlock_irqrestore(&priv->base.lock, flags);
+
+	/* Notify upper layer to signal pending fences */
+	nvkm_fifo_uevent_fault(&priv->base, chid);
+
+	/* Do the real recovery work */
+	queue_work(system_highpri_wq, &priv->mmu_fault);
 }
 
 static int
@@ -885,6 +951,8 @@ gk104_fifo_intr_fault(struct gk104_fifo_priv *priv, int unit)
 	char ecunk[6] = "";
 	char gpcid[3] = "";
 
+	nv_error(priv, "faulting unit is %d\n", unit);
+
 	er = nvkm_enum_find(gk104_fifo_fault_reason, reason);
 	if (!er)
 		snprintf(erunk, sizeof(erunk), "UNK%02X", reason);
@@ -936,7 +1004,7 @@ gk104_fifo_intr_fault(struct gk104_fifo_priv *priv, int unit)
 			nvkm_fifo_eevent(&priv->base,
 					((struct nvkm_fifo_chan*)object)->chid,
 					NOUVEAU_GEM_CHANNEL_FIFO_ERROR_MMU_ERR_FLT);
-			gk104_fifo_recover(priv, engine, (void *)object);
+			gk104_fifo_mmu_fault_recover(priv, engine, (void *)object, unit);
 			break;
 		}
 		object = object->parent;
@@ -1115,10 +1183,10 @@ gk104_fifo_intr(struct nvkm_subdev *subdev)
 
 	if (stat & 0x10000000) {
 		u32 mask = nv_rd32(priv, 0x00259c);
+		nv_mask(priv, 0x002140, 0x10000000, 0x00000000);
 		while (mask) {
 			u32 unit = __ffs(mask);
 			gk104_fifo_intr_fault(priv, unit);
-			nv_wr32(priv, 0x00259c, (1 << unit));
 			mask &= ~(1 << unit);
 		}
 		stat &= ~0x10000000;
@@ -1181,6 +1249,8 @@ gk104_fifo_fini(struct nvkm_object *object, bool suspend)
 	struct gk104_fifo_priv *priv = (void *)object;
 	int ret;
 
+	flush_work(&priv->mmu_fault);
+
 	ret = nvkm_fifo_fini(&priv->base, suspend);
 	if (ret)
 		return ret;
@@ -1236,6 +1306,8 @@ gk104_fifo_dtor(struct nvkm_object *object)
 	struct gk104_fifo_impl *impl = (void *)nv_oclass(priv);
 	int i;
 
+	flush_work(&priv->mmu_fault);
+
 	nvkm_gpuobj_unmap(&priv->user.bar);
 	nvkm_gpuobj_ref(NULL, &priv->user.mem);
 
@@ -1265,6 +1337,7 @@ gk104_fifo_ctor(struct nvkm_object *parent, struct nvkm_object *engine,
 		return ret;
 
 	INIT_WORK(&priv->fault, gk104_fifo_recover_work);
+	INIT_WORK(&priv->mmu_fault, gk104_fifo_mmu_fault_recover_work);
 
 	priv->engine = kzalloc(impl->num_engine * sizeof(priv->engine[0]),
 			GFP_KERNEL);
@@ -1303,6 +1376,9 @@ gk104_fifo_ctor(struct nvkm_object *parent, struct nvkm_object *engine,
 	nv_subdev(priv)->intr = gk104_fifo_intr;
 	nv_engine(priv)->cclass = &gk104_fifo_cclass;
 	nv_engine(priv)->sclass = gk104_fifo_sclass;
+
+	priv->base.enable = gk104_fifo_chan_enable;
+
 	return 0;
 }
 

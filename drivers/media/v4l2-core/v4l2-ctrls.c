@@ -752,6 +752,7 @@ const char *v4l2_ctrl_get_name(u32 id)
 	case V4L2_CID_MPEG_VIDEO_MV_H_SEARCH_RANGE:		return "Horizontal MV Search Range";
 	case V4L2_CID_MPEG_VIDEO_MV_V_SEARCH_RANGE:		return "Vertical MV Search Range";
 	case V4L2_CID_MPEG_VIDEO_REPEAT_SEQ_HEADER:		return "Repeat Sequence Header";
+	case V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME:		return "Force Key Frame";
 
 	/* VPX controls */
 	case V4L2_CID_MPEG_VIDEO_VPX_NUM_PARTITIONS:		return "VPX Number of Partitions";
@@ -991,6 +992,7 @@ void v4l2_ctrl_fill(u32 id, const char **name, enum v4l2_ctrl_type *type,
 	case V4L2_CID_MPEG_VIDEO_MV_V_SEARCH_RANGE:
 		*type = V4L2_CTRL_TYPE_INTEGER;
 		break;
+	case V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME:
 	case V4L2_CID_PAN_RESET:
 	case V4L2_CID_TILT_RESET:
 	case V4L2_CID_FLASH_STROBE:
@@ -1670,16 +1672,6 @@ static int cluster_changed(struct v4l2_ctrl *master)
 		if (ctrl->flags & V4L2_CTRL_FLAG_EXECUTE_ON_WRITE)
 			changed = ctrl_changed = true;
 
-		if (ctrl->flags & V4L2_CTRL_FLAG_VOLATILE) {
-			/*
-			 * Set has_changed to false to avoid generating
-			 * the event V4L2_EVENT_CTRL_CH_VALUE
-			 */
-			ctrl->has_changed = false;
-			changed = true;
-			continue;
-		}
-
 		if (ctrl->store)
 			ptr = ctrl->p_stores[ctrl->store - 1];
 		else
@@ -1789,8 +1781,9 @@ int v4l2_ctrl_handler_init_class(struct v4l2_ctrl_handler *hdl,
 	INIT_LIST_HEAD(&hdl->ctrls);
 	INIT_LIST_HEAD(&hdl->ctrl_refs);
 	hdl->nr_of_buckets = 1 + nr_of_controls_hint / 8;
-	hdl->buckets = kcalloc(hdl->nr_of_buckets, sizeof(hdl->buckets[0]),
-			       GFP_KERNEL);
+	hdl->buckets = kvmalloc_array(hdl->nr_of_buckets,
+				      sizeof(hdl->buckets[0]),
+				      GFP_KERNEL | __GFP_ZERO);
 	hdl->error = hdl->buckets ? 0 : -ENOMEM;
 	return hdl->error;
 }
@@ -1821,12 +1814,12 @@ void v4l2_ctrl_handler_free(struct v4l2_ctrl_handler *hdl)
 			unsigned s;
 
 			for (s = 0; s < ctrl->nr_of_stores; s++)
-				kfree(ctrl->p_stores[s].p);
+				kvfree(ctrl->p_stores[s].p);
 		}
-		kfree(ctrl->p_stores);
-		kfree(ctrl);
+		kvfree(ctrl->p_stores);
+		kvfree(ctrl);
 	}
-	kfree(hdl->buckets);
+	kvfree(hdl->buckets);
 	hdl->buckets = NULL;
 	hdl->cached = NULL;
 	hdl->error = 0;
@@ -2091,7 +2084,7 @@ static struct v4l2_ctrl *v4l2_ctrl_new(struct v4l2_ctrl_handler *hdl,
 		 is_array)
 		sz_extra += 2 * tot_ctrl_size;
 
-	ctrl = kzalloc(sizeof(*ctrl) + sz_extra, GFP_KERNEL);
+	ctrl = kvzalloc(sizeof(*ctrl) + sz_extra, GFP_KERNEL);
 	if (ctrl == NULL) {
 		handler_set_err(hdl, -ENOMEM);
 		return NULL;
@@ -2140,7 +2133,7 @@ static struct v4l2_ctrl *v4l2_ctrl_new(struct v4l2_ctrl_handler *hdl,
 	}
 
 	if (handler_new_ref(hdl, ctrl)) {
-		kfree(ctrl);
+		kvfree(ctrl);
 		return NULL;
 	}
 	mutex_lock(hdl->lock);
@@ -2913,15 +2906,17 @@ static int extend_store(struct v4l2_ctrl *ctrl, unsigned stores)
 	unsigned s, idx;
 	union v4l2_ctrl_ptr *p;
 
-	p = kcalloc(stores, sizeof(union v4l2_ctrl_ptr), GFP_KERNEL);
+	p = kvmalloc_array(stores, sizeof(union v4l2_ctrl_ptr),
+			   GFP_KERNEL | __GFP_ZERO);
 	if (p == NULL)
 		return -ENOMEM;
 	for (s = ctrl->nr_of_stores; s < stores; s++) {
-		p[s].p = kcalloc(ctrl->elems, ctrl->elem_size, GFP_KERNEL);
+		p[s].p = kvmalloc_array(ctrl->elems, ctrl->elem_size,
+					GFP_KERNEL | __GFP_ZERO);
 		if (p[s].p == NULL) {
 			while (s > ctrl->nr_of_stores)
-				kfree(p[--s].p);
-			kfree(p);
+				kvfree(p[--s].p);
+			kvfree(p);
 			return -ENOMEM;
 		}
 		for (idx = 0; idx < ctrl->elems; idx++)
@@ -2929,7 +2924,7 @@ static int extend_store(struct v4l2_ctrl *ctrl, unsigned stores)
 	}
 	if (ctrl->p_stores)
 		memcpy(p, ctrl->p_stores, ctrl->nr_of_stores * sizeof(union v4l2_ctrl_ptr));
-	kfree(ctrl->p_stores);
+	kvfree(ctrl->p_stores);
 	ctrl->p_stores = p;
 	ctrl->nr_of_stores = stores;
 	return 0;
@@ -2958,8 +2953,8 @@ int v4l2_g_ext_ctrls(struct v4l2_ctrl_handler *hdl, struct v4l2_ext_controls *cs
 		return class_check(hdl, V4L2_CTRL_ID2CLASS(cs->ctrl_class));
 
 	if (cs->count > ARRAY_SIZE(helper)) {
-		helpers = kmalloc_array(cs->count, sizeof(helper[0]),
-					GFP_KERNEL);
+		helpers = kvmalloc_array(cs->count, sizeof(helper[0]),
+					 GFP_KERNEL);
 		if (helpers == NULL)
 			return -ENOMEM;
 	}
@@ -3018,7 +3013,7 @@ int v4l2_g_ext_ctrls(struct v4l2_ctrl_handler *hdl, struct v4l2_ext_controls *cs
 	}
 
 	if (cs->count > ARRAY_SIZE(helper))
-		kfree(helpers);
+		kvfree(helpers);
 	return ret;
 }
 EXPORT_SYMBOL(v4l2_g_ext_ctrls);
@@ -3235,8 +3230,8 @@ static int try_set_ext_ctrls(struct v4l2_fh *fh, struct v4l2_ctrl_handler *hdl,
 		return class_check(hdl, V4L2_CTRL_ID2CLASS(cs->ctrl_class));
 
 	if (cs->count > ARRAY_SIZE(helper)) {
-		helpers = kmalloc_array(cs->count, sizeof(helper[0]),
-					GFP_KERNEL);
+		helpers = kvmalloc_array(cs->count, sizeof(helper[0]),
+					 GFP_KERNEL);
 		if (!helpers)
 			return -ENOMEM;
 	}
@@ -3309,7 +3304,7 @@ static int try_set_ext_ctrls(struct v4l2_fh *fh, struct v4l2_ctrl_handler *hdl,
 	}
 
 	if (cs->count > ARRAY_SIZE(helper))
-		kfree(helpers);
+		kvfree(helpers);
 	return ret;
 }
 

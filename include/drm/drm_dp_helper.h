@@ -27,6 +27,8 @@
 #include <linux/i2c.h>
 #include <linux/delay.h>
 
+#include <drm/drm_crtc.h>
+
 /*
  * Unless otherwise noted, all values are from the DP 1.1a spec.  Note that
  * DP and DPCD versions are independent.  Differences from 1.0 are not noted,
@@ -41,6 +43,8 @@
  *
  * 1.2 formally includes both eDP and DPI definitions.
  */
+
+#define DP_AUX_MAX_PAYLOAD_BYTES	16
 
 #define DP_AUX_I2C_WRITE		0x0
 #define DP_AUX_I2C_READ			0x1
@@ -86,6 +90,7 @@
 # define DP_DETAILED_CAP_INFO_AVAILABLE	    (1 << 4) /* DPI */
 
 #define DP_MAIN_LINK_CHANNEL_CODING         0x006
+# define DP_CODING_ANSI_8B10B		    (1 << 0)
 
 #define DP_DOWN_STREAM_PORT_COUNT	    0x007
 # define DP_PORT_COUNT_MASK		    0x0f
@@ -208,14 +213,16 @@
 # define DP_DS_PORT_TYPE_DVI		    2
 # define DP_DS_PORT_TYPE_HDMI		    3
 # define DP_DS_PORT_TYPE_NON_EDID	    4
+# define DP_DS_PORT_TYPE_DP_DUALMODE        5
+# define DP_DS_PORT_TYPE_WIRELESS           6
 # define DP_DS_PORT_HPD			    (1 << 3)
 /* offset 1 for VGA is maximum megapixels per second / 8 */
 /* offset 2 */
-# define DP_DS_VGA_MAX_BPC_MASK		    (3 << 0)
-# define DP_DS_VGA_8BPC			    0
-# define DP_DS_VGA_10BPC		    1
-# define DP_DS_VGA_12BPC		    2
-# define DP_DS_VGA_16BPC		    3
+# define DP_DS_MAX_BPC_MASK	            (3 << 0)
+# define DP_DS_8BPC		            0
+# define DP_DS_10BPC		            1
+# define DP_DS_12BPC		            2
+# define DP_DS_16BPC		            3
 
 /* link configuration */
 #define	DP_LINK_BW_SET		            0x100
@@ -262,12 +269,14 @@
 # define DP_TRAIN_VOLTAGE_SWING_LEVEL_1 (1 << 0)
 # define DP_TRAIN_VOLTAGE_SWING_LEVEL_2 (2 << 0)
 # define DP_TRAIN_VOLTAGE_SWING_LEVEL_3 (3 << 0)
+# define DP_TRAIN_VOLTAGE_SWING_LEVEL(x) ((x) << 0)
 
 # define DP_TRAIN_PRE_EMPHASIS_MASK	    (3 << 3)
 # define DP_TRAIN_PRE_EMPH_LEVEL_0		(0 << 3)
 # define DP_TRAIN_PRE_EMPH_LEVEL_1		(1 << 3)
 # define DP_TRAIN_PRE_EMPH_LEVEL_2		(2 << 3)
 # define DP_TRAIN_PRE_EMPH_LEVEL_3		(3 << 3)
+# define DP_TRAIN_PRE_EMPHASIS_LEVEL(x)		((x) << 3)
 
 # define DP_TRAIN_PRE_EMPHASIS_SHIFT	    3
 # define DP_TRAIN_MAX_PRE_EMPHASIS_REACHED  (1 << 5)
@@ -305,6 +314,7 @@
 # define DP_LANE02_MAX_POST_CURSOR2_REACHED (1 << 2)
 # define DP_LANE13_POST_CURSOR2_SET_MASK    (3 << 4)
 # define DP_LANE13_MAX_POST_CURSOR2_REACHED (1 << 6)
+# define DP_LANE_POST_CURSOR(i, x)	    (((x) & 0x3) << (((i) & 1) << 2))
 
 #define DP_MSTM_CTRL			    0x111   /* 1.2 */
 # define DP_MST_EN			    (1 << 0)
@@ -397,6 +407,16 @@
 # define DP_ADJUST_PRE_EMPHASIS_LANE1_MASK   0xc0
 # define DP_ADJUST_PRE_EMPHASIS_LANE1_SHIFT  6
 
+#define DP_ADJUST_REQUEST_POST_CURSOR2	    0x20c
+# define DP_ADJUST_POST_CURSOR2_LANE0_MASK  0x03
+# define DP_ADJUST_POST_CURSOR2_LANE0_SHIFT 0
+# define DP_ADJUST_POST_CURSOR2_LANE1_MASK  0x0c
+# define DP_ADJUST_POST_CURSOR2_LANE1_SHIFT 2
+# define DP_ADJUST_POST_CURSOR2_LANE2_MASK  0x30
+# define DP_ADJUST_POST_CURSOR2_LANE2_SHIFT 4
+# define DP_ADJUST_POST_CURSOR2_LANE3_MASK  0xc0
+# define DP_ADJUST_POST_CURSOR2_LANE3_SHIFT 6
+
 #define DP_TEST_REQUEST			    0x218
 # define DP_TEST_LINK_TRAINING		    (1 << 0)
 # define DP_TEST_LINK_VIDEO_PATTERN	    (1 << 1)
@@ -440,6 +460,9 @@
 #define DP_SOURCE_OUI			    0x300
 #define DP_SINK_OUI			    0x400
 #define DP_BRANCH_OUI			    0x500
+#define DP_BRANCH_ID                        0x503
+#define DP_BRANCH_HW_REV                    0x509
+#define DP_BRANCH_SW_REV                    0x50A
 
 #define DP_SET_POWER                        0x600
 # define DP_SET_POWER_D0                    0x1
@@ -586,7 +609,11 @@ int
 i2c_dp_aux_add_bus(struct i2c_adapter *adapter);
 
 
-#define DP_LINK_STATUS_SIZE	   6
+/* DP 1.2 MST PORTs - Section 2.5.1 v1.2a spec */
+#define DP_MST_PHYSICAL_PORT_0 0
+#define DP_MST_LOGICAL_PORT_0 8
+
+#define DP_LINK_STATUS_SIZE	   11
 bool drm_dp_channel_eq_ok(const u8 link_status[DP_LINK_STATUS_SIZE],
 			  int lane_count);
 bool drm_dp_clock_recovery_ok(const u8 link_status[DP_LINK_STATUS_SIZE],
@@ -595,9 +622,13 @@ u8 drm_dp_get_adjust_request_voltage(const u8 link_status[DP_LINK_STATUS_SIZE],
 				     int lane);
 u8 drm_dp_get_adjust_request_pre_emphasis(const u8 link_status[DP_LINK_STATUS_SIZE],
 					  int lane);
+u8 drm_dp_get_adjust_request_post_cursor(const u8 link_status[DP_LINK_STATUS_SIZE],
+					 unsigned int lane);
 
+#define DP_BRANCH_OUI_HEADER_SIZE	0xc
 #define DP_RECEIVER_CAP_SIZE		0xf
 #define EDP_PSR_RECEIVER_CAP_SIZE	2
+#define EDP_DISPLAY_CTL_CAP_SIZE	3
 
 void drm_dp_link_train_clock_recovery_delay(const u8 dpcd[DP_RECEIVER_CAP_SIZE]);
 void drm_dp_link_train_channel_eq_delay(const u8 dpcd[DP_RECEIVER_CAP_SIZE]);
@@ -651,6 +682,19 @@ drm_dp_enhanced_frame_cap(const u8 dpcd[DP_RECEIVER_CAP_SIZE])
 		(dpcd[DP_MAX_LANE_COUNT] & DP_ENHANCED_FRAME_CAP);
 }
 
+static inline bool
+drm_dp_tps3_supported(const u8 dpcd[DP_RECEIVER_CAP_SIZE])
+{
+	return dpcd[DP_DPCD_REV] >= 0x12 &&
+		dpcd[DP_MAX_LANE_COUNT] & DP_TPS3_SUPPORTED;
+}
+
+static inline bool
+drm_dp_is_branch(const u8 dpcd[DP_RECEIVER_CAP_SIZE])
+{
+	return dpcd[DP_DOWNSTREAMPORT_PRESENT] & DP_DWN_STRM_PORT_PRESENT;
+}
+
 /*
  * DisplayPort AUX channel
  */
@@ -700,6 +744,9 @@ struct drm_dp_aux_msg {
  * transactions. The drm_dp_aux_register_i2c_bus() function registers an
  * I2C adapter that can be passed to drm_probe_ddc(). Upon removal, drivers
  * should call drm_dp_aux_unregister_i2c_bus() to remove the I2C adapter.
+ * The I2C adapter uses long transfers by default; if a partial response is
+ * received, the adapter will drop down to the size given by the partial
+ * response for this transaction only.
  *
  * Note that the aux helper code assumes that the .transfer() function
  * only modifies the reply field of the drm_dp_aux_msg structure.  The
@@ -753,26 +800,95 @@ static inline ssize_t drm_dp_dpcd_writeb(struct drm_dp_aux *aux,
 int drm_dp_dpcd_read_link_status(struct drm_dp_aux *aux,
 				 u8 status[DP_LINK_STATUS_SIZE]);
 
+void drm_dp_dpcd_dump(struct drm_dp_aux *aux, struct seq_file *s);
+
+/**
+ * struct drm_dp_link_train_set - link training settings
+ * @voltage_swing: per-lane voltage swing
+ * @pre_emphasis: per-lane pre-emphasis
+ * @post_cursor: per-lane post-cursor
+ */
+struct drm_dp_link_train_set {
+	unsigned int voltage_swing[4];
+	unsigned int pre_emphasis[4];
+	unsigned int post_cursor[4];
+};
+
+/**
+ * struct drm_dp_link_train - link training state information
+ * @request: currently requested settings
+ * @adjust: adjustments requested by sink
+ * @pattern: currently requested training pattern
+ * @clock_recovered: flag to track if clock recovery has completed
+ * @channel_equalized: flag to track if channel equalization has completed
+ */
+struct drm_dp_link_train {
+	struct drm_dp_link_train_set request;
+	struct drm_dp_link_train_set adjust;
+
+	unsigned int pattern;
+
+	bool clock_recovered;
+	bool channel_equalized;
+};
+
+void drm_dp_link_train_init(struct drm_dp_link_train *train);
+
+struct drm_dp_link;
+
+struct drm_dp_link_ops {
+	int (*apply_training)(struct drm_dp_link *link);
+	int (*configure)(struct drm_dp_link *link);
+};
+
 /*
  * DisplayPort link
  */
 #define DP_LINK_CAP_ENHANCED_FRAMING (1 << 0)
+#define DP_LINK_CAP_FAST_TRAINING (1 << 1)
+#define DP_LINK_CAP_ANSI_8B10B (1 << 2)
+#define DP_LINK_CAP_TPS3 (1 << 3)
+#define DP_LINK_CAP_ALTERNATE_SCRAMBLER_RESET (1 << 4)
 
 struct drm_dp_link {
 	unsigned char revision;
-	unsigned int rate;
-	unsigned int num_lanes;
+	unsigned char edp;
+	unsigned int max_lanes;
+	unsigned int max_rate;
 	unsigned long capabilities;
+	unsigned long aux_rd_interval;
+
+	const struct drm_dp_link_ops *ops;
+	struct drm_dp_aux *aux;
+
+	struct drm_dp_link_train train;
+	unsigned int lanes;
+	unsigned int rate;
 };
 
 int drm_dp_link_probe(struct drm_dp_aux *aux, struct drm_dp_link *link);
 int drm_dp_link_power_up(struct drm_dp_aux *aux, struct drm_dp_link *link);
+int drm_dp_link_power_down(struct drm_dp_aux *aux, struct drm_dp_link *link);
 int drm_dp_link_configure(struct drm_dp_aux *aux, struct drm_dp_link *link);
+int drm_dp_link_choose(struct drm_dp_link *link,
+		       const struct drm_display_mode *mode,
+		       const struct drm_display_info *info);
 
+int drm_dp_link_train(struct drm_dp_link *link);
+int drm_dp_downstream_max_clock(const u8 dpcd[DP_RECEIVER_CAP_SIZE],
+				const u8 port_cap[4]);
+int drm_dp_downstream_max_bpc(const u8 dpcd[DP_RECEIVER_CAP_SIZE],
+			      const u8 port_cap[4]);
+int drm_dp_downstream_id(struct drm_dp_aux *aux, char id[6]);
+void drm_dp_downstream_debug(struct seq_file *m, const u8 dpcd[DP_RECEIVER_CAP_SIZE],
+			     const u8 port_cap[4], struct drm_dp_aux *aux);
+
+void drm_dp_aux_init(struct drm_dp_aux *aux);
 int drm_dp_aux_register(struct drm_dp_aux *aux);
 void drm_dp_aux_unregister(struct drm_dp_aux *aux);
 
 #define DP_PS8617_OUI 0x1cf8
+#define DP_DELLDA200_OUI 0x22b9
 
 static inline bool drm_dp_branch_is_ps8617(const u8 buf[3])
 {
@@ -782,4 +898,14 @@ static inline bool drm_dp_branch_is_ps8617(const u8 buf[3])
 		return true;
 	return false;
 }
+
+static inline bool drm_dp_branch_is_dellda200(const u8 buf[3])
+{
+	if (buf[0] == ((DP_DELLDA200_OUI >> 16) & 0xff) &&
+	    buf[1] == ((DP_DELLDA200_OUI >> 8) & 0xff) &&
+	    buf[2] == ((DP_DELLDA200_OUI & 0xff)))
+		return true;
+	return false;
+}
+
 #endif /* _DRM_DP_HELPER_H_ */

@@ -1958,10 +1958,10 @@ gk20a_pmu_handle_zbc_msg(struct nvkm_pmu *pmu, struct pmu_msg *msg,
 	struct gk20a_pmu_priv *priv = param;
 
 	nv_debug(pmu, "reply ZBC_TABLE_UPDATE\n");
-	schedule_work(&priv->pg_init);
+	complete(&priv->zbc_save_done);
 }
 
-static void
+void
 gk20a_pmu_save_zbc(struct nvkm_pmu *pmu, u32 entries)
 {
 	struct gk20a_pmu_priv *priv = to_gk20a_priv(pmu);
@@ -1980,6 +1980,10 @@ gk20a_pmu_save_zbc(struct nvkm_pmu *pmu, u32 entries)
 	nv_debug(pmu, "cmd post ZBC_TABLE_UPDATE enteries = %d\n", entries);
 	gk20a_pmu_cmd_post(pmu, &cmd, NULL, NULL, PMU_COMMAND_QUEUE_HPQ,
 			   gk20a_pmu_handle_zbc_msg, priv, &seq, ~0);
+
+	if (!wait_for_completion_timeout(&priv->zbc_save_done,
+			msecs_to_jiffies(5000)))
+		nv_error(pmu, "save zbc timeout\n");
 }
 
 static int
@@ -2074,6 +2078,9 @@ int gk20a_pmu_enable_elpg(struct nvkm_pmu *pmu)
 {
 	struct gk20a_pmu_priv *priv = to_gk20a_priv(pmu);
 	int ret;
+
+	/* Do not enable ELPG as of now due to bug 49765 */
+	return 0;
 
 	mutex_lock(&priv->elpg_mutex);
 
@@ -2213,6 +2220,8 @@ gk20a_pmu_setup_hw_enable_elpg(struct nvkm_pmu *pmu)
 
 	/* Save zbc table after PMU is initialized */
 	gk20a_pmu_save_zbc(pmu, ltc->zbc_max);
+
+	schedule_work(&priv->pg_init);
 }
 
 static int
@@ -2924,6 +2933,19 @@ gk20a_init_pmu_setup_hw1(struct gk20a_pmu_priv *priv, struct nvkm_mc *pmc)
 	return 0;
 }
 
+static void gk20a_pmu_intr_exterr(struct gk20a_pmu_priv *priv)
+{
+	u32 addr = nv_rd32(priv, 0x10a168);
+	u32 stat = nv_rd32(priv, 0x10a16c);
+	u32 err = nv_rd32(priv, 0x10a698);
+	u32 fecserr = nv_rd32(priv, 0x10a988);
+
+	nv_error(priv, "falcon exterraddr: 0x%08x, exterrstat: 0x%08x\n",
+			addr, stat);
+	nv_error(priv, "intr err: 0x%08x, fecs err: 0x%08x\n", err, fecserr);
+	nv_mask(priv, 0x0010a16c, 0x80000000, 0x00000000);
+}
+
 void
 gk20a_pmu_intr(struct nvkm_subdev *subdev)
 {
@@ -2951,8 +2973,8 @@ gk20a_pmu_intr(struct nvkm_subdev *subdev)
 		nv_error(priv, "pmu halt intr not implemented\n");
 
 	if (intr & 0x20) {
-		nv_error(priv, "exterr interrupt  not impl..Clear interrupt\n");
-		nv_mask(priv, 0x0010a16c, (0x1 << 31), 0x00000000);
+		nv_error(priv, "exterr intr not implemented\n");
+		gk20a_pmu_intr_exterr(priv);
 	}
 
 	if (intr & 0x40) {
@@ -3158,6 +3180,7 @@ gk20a_pmu_init(struct nvkm_object *object)
 		return ret;
 
 	reinit_completion(&pmu->gr_init);
+	reinit_completion(&priv->zbc_save_done);
 	priv->pmu_state = PMU_STATE_STARTING;
 	ret = gk20a_init_pmu_setup_hw1(priv, pmc);
 	if (ret)
@@ -3179,11 +3202,7 @@ gk20a_pmu_init(struct nvkm_object *object)
 	nvkm_timer_alarm(priv, PMU_DVFS_INTERVAL, &priv->alarm);
 
 	mutex_lock(&priv->elpg_mutex);
-	/*
-	 * ELPG will be enabled when PMU finishes booting, so setting the
-	 * counter to 1 initialy.
-	 */
-	priv->elpg_disable_depth = 1;
+	priv->elpg_disable_depth = 0;
 	mutex_unlock(&priv->elpg_mutex);
 
 	mutex_lock(&priv->clk_gating_mutex);
@@ -3204,6 +3223,10 @@ gk20a_pmu_fini(struct nvkm_object *object, bool suspend)
 
 	cancel_work_sync(&priv->base.recv.work);
 	cancel_work_sync(&priv->pg_init);
+
+	mutex_lock(&priv->elpg_mutex);
+	priv->elpg_disable_depth = 0;
+	mutex_unlock(&priv->elpg_mutex);
 
 	mutex_lock(&priv->clk_gating_mutex);
 	priv->clk_gating_disable_depth = 0;
@@ -3286,6 +3309,7 @@ gk20a_pmu_ctor(struct nvkm_object *parent, struct nvkm_object *engine,
 	priv->allow_elpg = true;
 	init_completion(&priv->elpg_off_completion);
 	init_completion(&priv->elpg_on_completion);
+	init_completion(&priv->zbc_save_done);
 
 	priv->pmu_chip_data = kzalloc(sizeof(struct pmu_gk20a_data),
 			GFP_KERNEL);
@@ -3346,5 +3370,6 @@ gk20a_pmu_oclass = &(struct nvkm_pmu_impl) {
 	.pgob = gk20a_pmu_pgob,
 	.acquire_mutex = gk20a_pmu_mutex_acquire,
 	.release_mutex = gk20a_pmu_mutex_release,
+	.save_zbc = gk20a_pmu_save_zbc,
 }.base;
 

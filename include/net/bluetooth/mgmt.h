@@ -101,6 +101,7 @@ struct mgmt_rp_read_index_list {
 #define MGMT_SETTING_PRIVACY		0x00002000
 #define MGMT_SETTING_CONFIGURATION	0x00004000
 #define MGMT_SETTING_STATIC_ADDRESS	0x00008000
+#define MGMT_SETTING_ADVERTISING_INTERVALS	0x00010000
 
 #define MGMT_OP_READ_INFO		0x0004
 #define MGMT_READ_INFO_SIZE		0
@@ -586,6 +587,31 @@ struct mgmt_rp_get_adv_size_info {
 
 #define MGMT_OP_START_LIMITED_DISCOVERY	0x0041
 
+#define MGMT_OP_READ_EXT_INFO		0x0042
+#define MGMT_READ_EXT_INFO_SIZE		0
+struct mgmt_rp_read_ext_info {
+	bdaddr_t bdaddr;
+	__u8     version;
+	__le16   manufacturer;
+	__le32   supported_settings;
+	__le32   current_settings;
+	__le16   eir_len;
+	__u8     eir[0];
+} __packed;
+
+#define MGMT_OP_SET_APPEARANCE		0x0043
+struct mgmt_cp_set_appearance {
+	__u16	appearance;
+} __packed;
+#define MGMT_SET_APPEARANCE_SIZE	2
+
+#define MGMT_OP_SET_ADVERTISING_INTERVALS	0x0044
+struct mgmt_cp_set_advertising_intervals {
+	__le16	min_interval;
+	__le16	max_interval;
+} __packed;
+#define MGMT_SET_ADVERTISING_INTERVALS_SIZE	4
+
 #define MGMT_EV_CMD_COMPLETE		0x0001
 struct mgmt_ev_cmd_complete {
 	__le16	opcode;
@@ -645,6 +671,7 @@ struct mgmt_ev_device_connected {
 #define MGMT_DEV_DISCONN_TIMEOUT	0x01
 #define MGMT_DEV_DISCONN_LOCAL_HOST	0x02
 #define MGMT_DEV_DISCONN_REMOTE		0x03
+#define MGMT_DEV_DISCONN_AUTH_FAILURE	0x04
 
 #define MGMT_EV_DEVICE_DISCONNECTED	0x000C
 struct mgmt_ev_device_disconnected {
@@ -798,4 +825,10 @@ struct mgmt_ev_advertising_added {
 #define MGMT_EV_ADVERTISING_REMOVED	0x0024
 struct mgmt_ev_advertising_removed {
 	__u8    instance;
+} __packed;
+
+#define MGMT_EV_EXT_INFO_CHANGED	0x0025
+struct mgmt_ev_ext_info_changed {
+	__le16	eir_len;
+	__u8	eir[0];
 } __packed;

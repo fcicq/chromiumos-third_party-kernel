@@ -47,9 +47,29 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "pvrsrv_error.h"
 #include "img_types.h"
 #include "device.h"
+#include "pvr_notifier.h"
 #include "pvrsrv.h"
 #include "rgxdevice.h"
 
+
+/**
+ * Debug utility macro for printing FW IRQ count and Last sampled IRQ count in 
+ * LISR for each RGX FW thread.
+ * Macro takes pointer to PVRSRV_RGXDEV_INFO as input.
+ */
+#define RGXDEBUG_PRINT_IRQ_COUNT(psRgxDevInfo) \
+	do \
+	{ \
+		IMG_UINT32 ui32TID; \
+		for (ui32TID = 0; ui32TID < RGXFW_THREAD_NUM; ui32TID++) \
+		{ \
+			PVR_DPF((DBGPRIV_VERBOSE, \
+					"RGX FW thread %u: FW IRQ count = %u, Last sampled IRQ count in LISR = %u)", \
+					ui32TID, \
+					(psRgxDevInfo)->psRGXFWIfTraceBuf->aui32InterruptCount[ui32TID], \
+					(psRgxDevInfo)->aui32SampleIRQCount[ui32TID])); \
+		} \
+	} while(0)
 
 /*!
 *******************************************************************************
@@ -79,13 +99,16 @@ void RGXPanic(PVRSRV_RGXDEV_INFO	*psDevInfo);
  Does not dump debugging information for all requester types.(SysDebug, ServerSync info)
 
  @Input pfnDumpDebugPrintf  - Optional replacement print function
- @Input psDevInfo	        - RGX device info
+ @Input pvDumpDebugFile     - Optional file identifier to be passed to the
+                              'printf' function if required
+ @Input psDevInfo           - RGX device info
 
  @Return   void
 
 ******************************************************************************/
 void RGXDumpDebugInfo(DUMPDEBUG_PRINTF_FUNC *pfnDumpDebugPrintf,
-					  PVRSRV_RGXDEV_INFO	*psDevInfo);
+			void *pvDumpDebugFile,
+			PVRSRV_RGXDEV_INFO *psDevInfo);
 
 /*!
 *******************************************************************************
@@ -98,18 +121,19 @@ void RGXDumpDebugInfo(DUMPDEBUG_PRINTF_FUNC *pfnDumpDebugPrintf,
  verbosity
 
  @Input pfnDumpDebugPrintf  - Optional replacement print function
- @Input psDevInfo	        - RGX device info
+ @Input pvDumpDebugFile     - Optional file identifier to be passed to the
+                              'printf' function if required
+ @Input psDevInfo           - RGX device info
  @Input ui32VerbLevel       - Verbosity level
 
  @Return   void
 
 ******************************************************************************/
 void RGXDebugRequestProcess(DUMPDEBUG_PRINTF_FUNC *pfnDumpDebugPrintf,
-							PVRSRV_RGXDEV_INFO	*psDevInfo,
-							IMG_UINT32			ui32VerbLevel);
+				void *pvDumpDebugFile,
+				PVRSRV_RGXDEV_INFO *psDevInfo,
+				IMG_UINT32 ui32VerbLevel);
 
-
-#if defined(PVRSRV_ENABLE_FW_TRACE_DEBUGFS)
 /*!
 *******************************************************************************
 
@@ -120,15 +144,16 @@ void RGXDebugRequestProcess(DUMPDEBUG_PRINTF_FUNC *pfnDumpDebugPrintf,
  Dump useful debugging info
 
  @Input pfnDumpDebugPrintf  - Optional replacement print function
- @Input psDevInfo	        - RGX device info
+ @Input pvDumpDebugFile     - Optional file identifier to be passed to the
+                              'printf' function if required
+ @Input psDevInfo           - RGX device info
 
  @Return   void
 
 ******************************************************************************/
 void RGXDumpFirmwareTrace(DUMPDEBUG_PRINTF_FUNC *pfnDumpDebugPrintf,
-						  PVRSRV_RGXDEV_INFO	*psDevInfo);
-#endif
-
+				void *pvDumpDebugFile,
+				PVRSRV_RGXDEV_INFO  *psDevInfo);
 
 /*!
 *******************************************************************************

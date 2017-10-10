@@ -196,6 +196,14 @@ static int msm_config_reg(struct msm_pinctrl *pctrl,
 		*bit = g->oe_bit;
 		*mask = 1;
 		break;
+	case PIN_CONFIG_DRIVE_OPEN_DRAIN:
+		*bit = g->od_bit;
+		*mask = 1;
+		break;
+	case PIN_CONFIG_PULL_UP_RES:
+		*bit = g->pull_up_res_bit;
+		*mask = 3;
+		break;
 	default:
 		dev_err(pctrl->dev, "Invalid config param %04x\n", param);
 		return -ENOTSUPP;
@@ -219,10 +227,16 @@ static int msm_config_set(struct pinctrl_dev *pctldev, unsigned int pin,
 	return -ENOTSUPP;
 }
 
+#ifdef CONFIG_PINCTRL_IPQ4019
+#define MSM_NO_PULL	0
+#define MSM_PULL_DOWN	1
+#define MSM_PULL_UP	2
+#else
 #define MSM_NO_PULL	0
 #define MSM_PULL_DOWN	1
 #define MSM_KEEPER	2
 #define MSM_PULL_UP	3
+#endif
 
 static unsigned msm_regval_to_drive(u32 val)
 {
@@ -259,9 +273,11 @@ static int msm_config_group_get(struct pinctrl_dev *pctldev,
 	case PIN_CONFIG_BIAS_PULL_DOWN:
 		arg = arg == MSM_PULL_DOWN;
 		break;
+#ifndef CONFIG_PINCTRL_IPQ4019
 	case PIN_CONFIG_BIAS_BUS_HOLD:
 		arg = arg == MSM_KEEPER;
 		break;
+#endif
 	case PIN_CONFIG_BIAS_PULL_UP:
 		arg = arg == MSM_PULL_UP;
 		break;
@@ -275,6 +291,11 @@ static int msm_config_group_get(struct pinctrl_dev *pctldev,
 
 		val = readl(pctrl->regs + g->io_reg);
 		arg = !!(val & BIT(g->in_bit));
+		break;
+	case PIN_CONFIG_DRIVE_OPEN_DRAIN:
+		arg = (arg == 1);
+		break;
+	case PIN_CONFIG_PULL_UP_RES:
 		break;
 	default:
 		dev_err(pctrl->dev, "Unsupported config parameter: %x\n",
@@ -321,9 +342,11 @@ static int msm_config_group_set(struct pinctrl_dev *pctldev,
 		case PIN_CONFIG_BIAS_PULL_DOWN:
 			arg = MSM_PULL_DOWN;
 			break;
+#ifndef CONFIG_PINCTRL_IPQ4019
 		case PIN_CONFIG_BIAS_BUS_HOLD:
 			arg = MSM_KEEPER;
 			break;
+#endif
 		case PIN_CONFIG_BIAS_PULL_UP:
 			arg = MSM_PULL_UP;
 			break;
@@ -347,6 +370,13 @@ static int msm_config_group_set(struct pinctrl_dev *pctldev,
 
 			/* enable output */
 			arg = 1;
+			break;
+		case PIN_CONFIG_DRIVE_OPEN_DRAIN:
+			arg = 1;
+			break;
+		case PIN_CONFIG_PULL_UP_RES:
+			if (arg > 3 || arg < 0)
+				arg = -1;
 			break;
 		default:
 			dev_err(pctrl->dev, "Unsupported config parameter: %x\n",

@@ -20,6 +20,10 @@
 #include "led.h"
 #include "wme.h"
 
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+#include "wifi_diag.h"
+#endif
+
 
 void ieee80211_tx_status_irqsafe(struct ieee80211_hw *hw,
 				 struct sk_buff *skb)
@@ -554,6 +558,12 @@ static void ieee80211_report_used_skb(struct ieee80211_local *local,
 static void ieee80211_lost_packet(struct sta_info *sta,
 				  struct ieee80211_tx_info *info)
 {
+	/* Driver supports its own algorithm for triggering CQM packet-loss
+	 * mechanism.
+	 */
+	if (ieee80211_hw_check(&sta->local->hw, REPORTS_LOW_ACK))
+		return;
+
 	/* This packet was aggregated but doesn't carry status info */
 	if ((info->flags & IEEE80211_TX_CTL_AMPDU) &&
 	    !(info->flags & IEEE80211_TX_STAT_AMPDU))
@@ -615,6 +625,14 @@ static int ieee80211_tx_get_rates(struct ieee80211_hw *hw,
 	return rates_idx;
 }
 
+static void ieee80211_tx_upd_rateinfo(struct sta_info *sta)
+{
+	struct rate_info rinfo;
+
+	sta_set_rate_info_tx(sta, &sta->last_tx_rate, &rinfo);
+	sta->sta.last_tx_bitrate = cfg80211_calculate_bitrate(&rinfo);
+}
+
 void ieee80211_tx_status_noskb(struct ieee80211_hw *hw,
 			       struct ieee80211_sta *pubsta,
 			       struct ieee80211_tx_info *info)
@@ -655,6 +673,12 @@ void ieee80211_tx_status_noskb(struct ieee80211_hw *hw,
 		}
 
 		rate_control_tx_status_noskb(local, sband, sta, info);
+
+		if (ieee80211_hw_check(&local->hw, HAS_RATE_CONTROL) &&
+		    (rates_idx != -1)) {
+			sta->last_tx_rate = info->status.rates[rates_idx];
+			ieee80211_tx_upd_rateinfo(sta);
+		}
 	}
 
 	if (acked || noack_success) {
@@ -692,6 +716,10 @@ void ieee80211_tx_status(struct ieee80211_hw *hw, struct sk_buff *skb)
 	int shift = 0;
 	int tid = IEEE80211_NUM_TIDS;
 	const struct bucket_table *tbl;
+
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+	WIFI_DIAG_TX_STATUS_LOCAL_DBG(local, skb, "");
+#endif
 
 	rates_idx = ieee80211_tx_get_rates(hw, info, &retry_count);
 
@@ -791,7 +819,7 @@ void ieee80211_tx_status(struct ieee80211_hw *hw, struct sk_buff *skb)
 
 		rate_control_tx_status(local, sband, sta, skb);
 		if (ieee80211_vif_is_mesh(&sta->sdata->vif))
-			ieee80211s_update_metric(local, sta, skb);
+			ieee80211s_update_metric(local, sta, skb, retry_count);
 
 		if (!(info->flags & IEEE80211_TX_CTL_INJECTED) && acked)
 			ieee80211_frame_acked(sta, skb);

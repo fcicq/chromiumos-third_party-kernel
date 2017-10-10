@@ -17,6 +17,7 @@
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  *
  */
+#include <linux/pci.h>
 #include "skl.h"
 
 /* Unique identification for getting NHLT blobs */
@@ -144,4 +145,77 @@ struct nhlt_specific_cfg
 	}
 
 	return NULL;
+}
+
+int skl_get_dmic_geo(struct skl *skl)
+{
+	struct nhlt_acpi_table *nhlt = (struct nhlt_acpi_table *)skl->nhlt;
+	struct nhlt_endpoint *epnt;
+	struct nhlt_dmic_array_config *cfg;
+	struct device *dev = &skl->pci->dev;
+	unsigned int dmic_geo = 0;
+	u8 j;
+
+	epnt = (struct nhlt_endpoint *)nhlt->desc;
+
+	for (j = 0; j < nhlt->endpoint_count; j++) {
+		if (epnt->linktype == NHLT_LINK_DMIC) {
+			cfg = (struct nhlt_dmic_array_config  *)
+					(epnt->config.caps);
+			switch (cfg->array_type) {
+			case NHLT_MIC_ARRAY_2CH_SMALL:
+			case NHLT_MIC_ARRAY_2CH_BIG:
+				dmic_geo |= MIC_ARRAY_2CH;
+				break;
+
+			case NHLT_MIC_ARRAY_4CH_1ST_GEOM:
+			case NHLT_MIC_ARRAY_4CH_L_SHAPED:
+			case NHLT_MIC_ARRAY_4CH_2ND_GEOM:
+				dmic_geo |= MIC_ARRAY_4CH;
+				break;
+
+			default:
+				dev_warn(dev, "undefined DMIC array_type 0x%0x\n",
+						cfg->array_type);
+
+			}
+		}
+		epnt = (struct nhlt_endpoint *)((u8 *)epnt + epnt->length);
+	}
+
+	return dmic_geo;
+}
+
+static void skl_nhlt_trim_space(struct skl *skl)
+{
+	char *s = skl->tplg_name;
+	int cnt;
+	int i;
+
+	cnt = 0;
+	for (i = 0; s[i]; i++) {
+		if (!isspace(s[i]))
+			s[cnt++] = s[i];
+	}
+
+	s[cnt] = '\0';
+}
+
+int skl_nhlt_update_topology_bin(struct skl *skl)
+{
+	struct nhlt_acpi_table *nhlt = (struct nhlt_acpi_table *)skl->nhlt;
+	struct hdac_bus *bus = ebus_to_hbus(&skl->ebus);
+	struct device *dev = bus->dev;
+
+	dev_dbg(dev, "oem_id %.6s, oem_table_id %8s oem_revision %d\n",
+		nhlt->header.oem_id, nhlt->header.oem_table_id,
+		nhlt->header.oem_revision);
+
+	snprintf(skl->tplg_name, sizeof(skl->tplg_name), "%x-%.6s-%.8s-%d%s",
+		skl->pci_id, nhlt->header.oem_id, nhlt->header.oem_table_id,
+		nhlt->header.oem_revision, "-tplg.bin");
+
+	skl_nhlt_trim_space(skl);
+
+	return 0;
 }

@@ -47,10 +47,12 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "pvr_debug.h"
 
 #include "allocmem.h"
+#include "devicemem.h"
 #include "pvrsrv_error.h"
 #include "osfunc.h"
+#include "log2.h"
 
-#include "pvr_tlcommon.h"
+#include "pvrsrv_tlcommon.h"
 #include "tlintern.h"
 #include "tlstream.h"
 
@@ -60,7 +62,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  * stream buffer utilisation. */
 //#define TL_BUFFER_UTILIZATION 1
 
-#define EVENT_OBJECT_TIMEOUT_MS 1000
+#define EVENT_OBJECT_TIMEOUT_US 1000000ULL
 
 /* Given the state of the buffer it returns a number of bytes that the client
  * can use for a successful allocation. */
@@ -92,7 +94,7 @@ static INLINE IMG_UINT32 suggestAllocSize(IMG_UINT32 ui32LRead,
 		}
 	}
     /* The max size of a TL packet currently is UINT16. adjust accordingly */
-	return MIN(ui32AvSpace, IMG_UINT16_MAX);
+	return MIN(ui32AvSpace, PVRSRVTL_MAX_PACKET_SIZE);
 }
 
 /* Returns bytes left in the buffer. Negative if there is not any.
@@ -116,6 +118,62 @@ cbSpaceLeft(IMG_UINT32 ui32Read, IMG_UINT32 ui32Write, IMG_UINT32 ui32size)
 	}
 }   
 
+PVRSRV_ERROR TLAllocSharedMemIfNull(IMG_HANDLE hStream)
+{
+	PTL_STREAM psStream = (PTL_STREAM) hStream;
+	PVRSRV_ERROR eError;
+
+	IMG_CHAR pszBufferLabel[PRVSRVTL_MAX_STREAM_NAME_SIZE + 20];
+	DEVMEM_FLAGS_T uiMemFlags = PVRSRV_MEMALLOCFLAG_CPU_READABLE |
+	                            PVRSRV_MEMALLOCFLAG_CPU_WRITEABLE |
+	                            PVRSRV_MEMALLOCFLAG_GPU_READABLE |
+	                            PVRSRV_MEMALLOCFLAG_CPU_UNCACHED |
+	                            PVRSRV_MEMALLOCFLAG_KERNEL_CPU_MAPPABLE;
+
+	/* Exit if memory has already been allocated. */
+	if (psStream->pbyBuffer != NULL)
+		return PVRSRV_OK;
+
+	OSSNPrintf(pszBufferLabel, sizeof(pszBufferLabel), "TLStreamBuf-%s",
+	           psStream->szName);
+
+	eError = DevmemAllocateExportable((IMG_HANDLE) TLGetGlobalRgxDevice(),
+	                                  (IMG_DEVMEM_SIZE_T) psStream->ui32Size,
+	                                  (IMG_DEVMEM_ALIGN_T) OSGetPageSize(),
+	                                  ExactLog2(OSGetPageSize()),
+	                                  uiMemFlags,
+	                                  pszBufferLabel,
+	                                  &psStream->psStreamMemDesc);
+	PVR_LOGG_IF_ERROR(eError, "DevmemAllocateExportable", e0);
+
+	eError = DevmemAcquireCpuVirtAddr(psStream->psStreamMemDesc,
+	                                  (void**) &psStream->pbyBuffer);
+	PVR_LOGG_IF_ERROR(eError, "DevmemAcquireCpuVirtAddr", e1);
+
+	return PVRSRV_OK;
+
+e1:
+	DevmemFree(psStream->psStreamMemDesc);
+e0:
+	return eError;
+}
+
+void TLFreeSharedMem(IMG_HANDLE hStream)
+{
+	PTL_STREAM psStream = (PTL_STREAM) hStream;
+
+	if (psStream->pbyBuffer != NULL)
+	{
+		DevmemReleaseCpuVirtAddr(psStream->psStreamMemDesc);
+		psStream->pbyBuffer = NULL;
+	}
+	if (psStream->psStreamMemDesc != NULL)
+	{
+		DevmemFree(psStream->psStreamMemDesc);
+		psStream->psStreamMemDesc = NULL;
+	}
+}
+
 /******************************************************************************* 
  * TL Server public API implementation.
  ******************************************************************************/
@@ -124,6 +182,8 @@ TLStreamCreate(IMG_HANDLE *phStream,
 			   IMG_CHAR *szStreamName,
 			   IMG_UINT32 ui32Size,
 			   IMG_UINT32 ui32StreamFlags,
+               TL_STREAM_ONREADEROPENCB pfOnReaderOpenCB,
+               void *pvOnRederOpenUD,
                TL_STREAM_SOURCECB pfProducerCB,
                void *pvProducerUD)
 {
@@ -131,23 +191,16 @@ TLStreamCreate(IMG_HANDLE *phStream,
 	PVRSRV_ERROR   eError;
 	IMG_HANDLE     hEventList;
 	PTL_SNODE      psn = 0;
-	IMG_CHAR       pszBufferLabel[PRVSRVTL_MAX_STREAM_NAME_SIZE+20];
-
-	DEVMEM_FLAGS_T uiMemFlags =  PVRSRV_MEMALLOCFLAG_CPU_READABLE |
-								 PVRSRV_MEMALLOCFLAG_CPU_WRITEABLE | 
-								 PVRSRV_MEMALLOCFLAG_GPU_READABLE |
-								 PVRSRV_MEMALLOCFLAG_GPU_WRITEABLE |
-								 PVRSRV_MEMALLOCFLAG_CPU_CACHE_INCOHERENT | /* CPU only */
-								 PVRSRV_MEMALLOCFLAG_ZERO_ON_ALLOC;
 
 	PVR_DPF_ENTERED;
 	/* Sanity checks:  */
 	/* non NULL handler required */
-	if ( NULL == phStream ) 
-	{ 
+	if ( NULL == phStream )
+	{
 		PVR_DPF_RETURN_RC(PVRSRV_ERROR_INVALID_PARAMS);
 	}
-	if (OSStringLength(szStreamName) >= PRVSRVTL_MAX_STREAM_NAME_SIZE) 
+	if (szStreamName == NULL || *szStreamName == '\0' ||
+	    OSStringLength(szStreamName) >= PRVSRVTL_MAX_STREAM_NAME_SIZE)
 	{
 		PVR_DPF_RETURN_RC(PVRSRV_ERROR_INVALID_PARAMS);
 	}
@@ -155,7 +208,7 @@ TLStreamCreate(IMG_HANDLE *phStream,
 	/* Acquire TL_GLOBAL_DATA lock here because, if the following TLFindStreamNodeByName()
 	 * returns NULL, a new TL_SNODE will be added to TL_GLOBAL_DATA's TL_SNODE list */
 	OSLockAcquire (TLGGD()->hTLGDLock);
-	
+
 	/* Check if there already exists a stream with this name. */
 	psn = TLFindStreamNodeByName( szStreamName );
 	if ( NULL != psn )
@@ -163,7 +216,7 @@ TLStreamCreate(IMG_HANDLE *phStream,
 		eError = PVRSRV_ERROR_ALREADY_EXISTS;
 		goto e0;
 	}
-	
+
 	/* Allocate stream structure container (stream struct) for the new stream */
 	psTmp = OSAllocZMem(sizeof(TL_STREAM)) ;
 	if ( NULL == psTmp ) 
@@ -194,7 +247,7 @@ TLStreamCreate(IMG_HANDLE *phStream,
     {	/* Additional synchronization object required for this kind of stream */
         psTmp->bBlock = IMG_TRUE;
     }
-	
+
 	eError = OSEventObjectCreate(NULL, &psTmp->hProducerEventObj);
 	if (eError != PVRSRV_OK)
 	{
@@ -207,6 +260,8 @@ TLStreamCreate(IMG_HANDLE *phStream,
 		goto e2;
 	}
 
+	psTmp->pfOnReaderOpenCallback = pfOnReaderOpenCB;
+	psTmp->pvOnReaderOpenUserData = pvOnRederOpenUD;
 	/* Remember producer supplied CB and data for later */
 	psTmp->pfProducerCallback = (void(*)(void))pfProducerCB;
 	psTmp->pvProducerUserData = pvProducerUD;
@@ -217,31 +272,25 @@ TLStreamCreate(IMG_HANDLE *phStream,
 	psTmp->ui32Write = 0;
 	psTmp->ui32Pending = NOTHING_PENDING;
 
-	OSSNPrintf(pszBufferLabel, sizeof(pszBufferLabel), "TLStreamBuf-%s", szStreamName);
+	/* Memory will be allocated on first connect to the stream */
+	if (!(ui32StreamFlags & TL_FLAG_ALLOCATE_ON_FIRST_OPEN))
+	{
+		/* Allocate memory for the circular buffer and export it to user space. */
+		eError = TLAllocSharedMemIfNull(psTmp);
+		PVR_LOGG_IF_ERROR(eError, "TLAllocSharedMem", e3);
+	}
 
-	/* Allocate memory for the circular buffer and export it to user space. */
-	eError = DevmemAllocateExportable((IMG_HANDLE) TLGetGlobalRgxDevice(),
-	                                  (IMG_DEVMEM_SIZE_T)psTmp->ui32Size,
-	                                  (IMG_DEVMEM_ALIGN_T) OSGetPageSize(),
-	                                  uiMemFlags | PVRSRV_MEMALLOCFLAG_KERNEL_CPU_MAPPABLE,
-	                                  pszBufferLabel,
-	                                  &psTmp->psStreamMemDesc);
-	PVR_LOGG_IF_ERROR(eError, "DevmemAllocateExportable", e3);
-
-	eError = DevmemAcquireCpuVirtAddr( psTmp->psStreamMemDesc, (void**) &psTmp->pbyBuffer );
-	PVR_LOGG_IF_ERROR(eError, "DevmemAcquireCpuVirtAddr", e4);
-
-	/* Synchronization object to synchronize with user side data transfers. */
+	/* Synchronisation object to synchronise with user side data transfers. */
 	eError = OSEventObjectCreate(psTmp->szName, &hEventList);
 	if (eError != PVRSRV_OK)
 	{
-		goto e5;
+		goto e4;
 	}
 
 	eError = OSLockCreate (&psTmp->hStreamLock, LOCK_TYPE_PASSIVE);
 	if (eError != PVRSRV_OK)
 	{
-		goto e6;
+		goto e5;
 	}
 
 	/* Now remember the stream in the global TL structures */
@@ -249,7 +298,7 @@ TLStreamCreate(IMG_HANDLE *phStream,
 	if (psn == NULL)
 	{
 		eError=PVRSRV_ERROR_OUT_OF_MEMORY;
-		goto e7;
+		goto e6;
 	}
 
 	/* Stream node created, now reset the write reference count to 1
@@ -270,20 +319,18 @@ TLStreamCreate(IMG_HANDLE *phStream,
 	*phStream = (IMG_HANDLE)psTmp;
 	PVR_DPF_RETURN_OK;
 
-e7:
-	OSLockDestroy(psTmp->hStreamLock);
 e6:
-	OSEventObjectDestroy(hEventList);
+	OSLockDestroy(psTmp->hStreamLock);
 e5:
-	DevmemReleaseCpuVirtAddr( psTmp->psStreamMemDesc );
+	OSEventObjectDestroy(hEventList);
 e4:
-	DevmemFree(psTmp->psStreamMemDesc);
+	TLFreeSharedMem(psTmp);
 e3:
 	OSEventObjectClose(psTmp->hProducerEvent);
 e2:
 	OSEventObjectDestroy(psTmp->hProducerEventObj);
 e1:
-	OSFREEMEM(psTmp);
+	OSFreeMem(psTmp);
 e0:
 	OSLockRelease (TLGGD()->hTLGDLock);
 
@@ -428,7 +475,7 @@ TLStreamClose(IMG_HANDLE hStream)
 				/* Release lock before sleeping */
 				OSLockRelease (TLGGD()->hTLGDLock);
 				
-				OSEventObjectWaitTimeout(psTmp->hProducerEvent, EVENT_OBJECT_TIMEOUT_MS);
+				OSEventObjectWaitTimeout(psTmp->hProducerEvent, EVENT_OBJECT_TIMEOUT_US);
 				
 				OSLockAcquire (TLGGD()->hTLGDLock);
 
@@ -501,7 +548,7 @@ DoTLStreamReserve(IMG_HANDLE hStream,
 		PVR_DPF_RETURN_RC(PVRSRV_ERROR_NOT_READY);
 	}
 
-	if ( IMG_UINT16_MAX < lReqSizeAligned )
+	if ( PVRSRVTL_MAX_PACKET_SIZE < lReqSizeAligned )
 	{
 		psTmp->ui32Pending = NOTHING_PENDING;
 		if (pui32AvSpace)
@@ -693,16 +740,16 @@ TLStreamCommit(IMG_HANDLE hStream, IMG_UINT32 ui32ReqSize)
 	ui32OldWrite = ui32LWrite;
 
 	// Space in buffer is aligned
-	ui32ReqSize = PVRSRVTL_ALIGN(ui32ReqSize);
+	ui32ReqSize = PVRSRVTL_ALIGN(ui32ReqSize) + sizeof(PVRSRVTL_PACKETHDR);
 
-	/* Sanity check. ReqSize + packet header size. */
-	if ( ui32LPending != ui32ReqSize + sizeof(PVRSRVTL_PACKETHDR) )
+	/* Check pending reserver and ReqSize + packet header size. */
+	if ((ui32LPending == NOTHING_PENDING) || (ui32ReqSize > ui32LPending))
 	{
 		PVR_DPF_RETURN_RC(PVRSRV_ERROR_STREAM_MISUSE);
 	}
 
 	/* Update pointer to written data. */
-	ui32LWrite = (ui32LWrite + ui32LPending) % psTmp->ui32Size;
+	ui32LWrite = (ui32LWrite + ui32ReqSize) % psTmp->ui32Size;
 
 	/* and reset LPending to 0 since data are now submitted  */
 	ui32LPending = NOTHING_PENDING;
@@ -743,7 +790,7 @@ TLStreamCommit(IMG_HANDLE hStream, IMG_UINT32 ui32ReqSize)
 	if (ui32OldWrite == ui32LRead && !psTmp->bNoSignalOnCommit)
 	{
 		/* Signal consumers that may be waiting */
-		eError = OSEventObjectSignal(psTmp->psNode->hDataEventObj);
+		eError = OSEventObjectSignal(psTmp->psNode->hReadEventObj);
 		if ( eError != PVRSRV_OK)
 		{
 			PVR_DPF_RETURN_RC(eError);
@@ -773,7 +820,7 @@ TLStreamWrite(IMG_HANDLE hStream, IMG_UINT8 *pui8Src, IMG_UINT32 ui32Size)
 	}
 	else if ( pbyDest )
 	{
-		OSMemCopy((void*)pbyDest, (void*)pui8Src, ui32Size);
+		OSDeviceMemCopy((void*)pbyDest, (void*)pui8Src, ui32Size);
 		eError = TLStreamCommit(hStream, ui32Size);
 		if ( PVRSRV_OK != eError ) 
 		{	
@@ -794,7 +841,7 @@ void TLStreamInfo(PTL_STREAM_INFO psInfo)
 	IMG_DEVMEM_ALIGN_T align = 4; /* Low dummy value so the real value can be obtained */
 
  	actual_req_size = 2; 
-	DevmemExportalignAdjustSizeAndAlign(NULL, &actual_req_size, &align);
+	DevmemExportalignAdjustSizeAndAlign(OSGetPageShift(), &actual_req_size, &align);
 
 	psInfo->headerSize = sizeof(PVRSRVTL_PACKETHDR);
 	psInfo->minReservationSize = sizeof(IMG_UINT32);
@@ -838,10 +885,13 @@ TLStreamSync(IMG_HANDLE psStream)
 	}
 	psTmp = (PTL_STREAM)psStream;
 	
-	/* Signal clients only when data is available to read */
-	if (psTmp->ui32Read != psTmp->ui32Write)
+	/* If read client exists and has opened stream in blocking mode,
+	 * signal when data is available to read. */
+	if (psTmp->psNode->psRDesc &&
+		 (!(psTmp->psNode->psRDesc->ui32Flags & PVRSRV_STREAM_FLAG_ACQUIRE_NONBLOCKING)) &&
+			psTmp->ui32Read != psTmp->ui32Write)
 	{
-		eError = OSEventObjectSignal(psTmp->psNode->hDataEventObj);
+		eError = OSEventObjectSignal(psTmp->psNode->hReadEventObj);
 	}
 
 	PVR_DPF_RETURN_RC(eError);
@@ -853,7 +903,9 @@ TLStreamSync(IMG_HANDLE psStream)
  * these functions are internal.
  */
 IMG_UINT32
-TLStreamAcquireReadPos(PTL_STREAM psStream, IMG_UINT32* puiReadOffset)
+TLStreamAcquireReadPos(PTL_STREAM psStream,
+                       IMG_BOOL bDisableCallback,
+                       IMG_UINT32* puiReadOffset)
 {
 	IMG_UINT32 uiReadLen = 0;
 	IMG_UINT32 ui32LRead, ui32LWrite;
@@ -868,7 +920,7 @@ TLStreamAcquireReadPos(PTL_STREAM psStream, IMG_UINT32* puiReadOffset)
 	ui32LWrite = psStream->ui32Write;
 
 	/* No data available and CB defined - try and get data */
-	if ((ui32LRead == ui32LWrite) && psStream->pfProducerCallback)
+	if ((ui32LRead == ui32LWrite) && psStream->pfProducerCallback && !bDisableCallback)
 	{
 		PVRSRV_ERROR eRc;
 		IMG_UINT32   ui32Resp = 0;
@@ -955,9 +1007,8 @@ TLStreamDestroy (PTL_STREAM psStream)
 	OSEventObjectClose(psStream->hProducerEvent);
 	OSEventObjectDestroy(psStream->hProducerEventObj);
 
-	DevmemReleaseCpuVirtAddr(psStream->psStreamMemDesc);
-	DevmemFree(psStream->psStreamMemDesc);
-	OSFREEMEM(psStream);
+	TLFreeSharedMem(psStream);
+	OSFreeMem(psStream);
 }
 
 DEVMEM_MEMDESC*

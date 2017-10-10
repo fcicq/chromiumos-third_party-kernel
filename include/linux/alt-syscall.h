@@ -4,10 +4,9 @@
 #include <linux/errno.h>
 #include <linux/list.h>
 #include <linux/sched.h>
+#include <asm/syscall.h>
 
 #define ALT_SYS_CALL_NAME_MAX	32
-
-typedef void (*sys_call_ptr_t)(void);
 
 struct alt_sys_call_table {
 	char name[ALT_SYS_CALL_NAME_MAX + 1];
@@ -28,7 +27,6 @@ struct alt_sys_call_table {
  */
 
 #ifdef CONFIG_ALT_SYSCALL
-#include <asm/syscall.h>
 
 int arch_dup_sys_call_table(struct alt_sys_call_table *table);
 int arch_set_sys_call_table(struct alt_sys_call_table *table);

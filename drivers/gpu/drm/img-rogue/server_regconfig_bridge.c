@@ -63,6 +63,9 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
 
+#if !defined(EXCLUDE_REGCONFIG_BRIDGE)
+
+
 
 /* ***************************************************************************
  * Server-side bridge entry points
@@ -81,6 +84,7 @@ PVRSRVBridgeRGXSetRegConfigType(IMG_UINT32 ui32DispatchTableEntry,
 
 
 
+
 	psRGXSetRegConfigTypeOUT->eError =
 		PVRSRVRGXSetRegConfigTypeKM(psConnection, OSGetDevData(psConnection),
 					psRGXSetRegConfigTypeIN->ui8RegPowerIsland);
@@ -89,8 +93,12 @@ PVRSRVBridgeRGXSetRegConfigType(IMG_UINT32 ui32DispatchTableEntry,
 
 
 
+
+
+
 	return 0;
 }
+
 
 static IMG_INT
 PVRSRVBridgeRGXAddRegconfig(IMG_UINT32 ui32DispatchTableEntry,
@@ -98,6 +106,7 @@ PVRSRVBridgeRGXAddRegconfig(IMG_UINT32 ui32DispatchTableEntry,
 					  PVRSRV_BRIDGE_OUT_RGXADDREGCONFIG *psRGXAddRegconfigOUT,
 					 CONNECTION_DATA *psConnection)
 {
+
 
 
 
@@ -115,8 +124,12 @@ PVRSRVBridgeRGXAddRegconfig(IMG_UINT32 ui32DispatchTableEntry,
 
 
 
+
+
+
 	return 0;
 }
+
 
 static IMG_INT
 PVRSRVBridgeRGXClearRegConfig(IMG_UINT32 ui32DispatchTableEntry,
@@ -125,8 +138,9 @@ PVRSRVBridgeRGXClearRegConfig(IMG_UINT32 ui32DispatchTableEntry,
 					 CONNECTION_DATA *psConnection)
 {
 
-	PVR_UNREFERENCED_PARAMETER(psRGXClearRegConfigIN);
 
+
+	PVR_UNREFERENCED_PARAMETER(psRGXClearRegConfigIN);
 
 
 
@@ -140,8 +154,12 @@ PVRSRVBridgeRGXClearRegConfig(IMG_UINT32 ui32DispatchTableEntry,
 
 
 
+
+
+
 	return 0;
 }
+
 
 static IMG_INT
 PVRSRVBridgeRGXEnableRegConfig(IMG_UINT32 ui32DispatchTableEntry,
@@ -150,8 +168,9 @@ PVRSRVBridgeRGXEnableRegConfig(IMG_UINT32 ui32DispatchTableEntry,
 					 CONNECTION_DATA *psConnection)
 {
 
-	PVR_UNREFERENCED_PARAMETER(psRGXEnableRegConfigIN);
 
+
+	PVR_UNREFERENCED_PARAMETER(psRGXEnableRegConfigIN);
 
 
 
@@ -165,8 +184,12 @@ PVRSRVBridgeRGXEnableRegConfig(IMG_UINT32 ui32DispatchTableEntry,
 
 
 
+
+
+
 	return 0;
 }
+
 
 static IMG_INT
 PVRSRVBridgeRGXDisableRegConfig(IMG_UINT32 ui32DispatchTableEntry,
@@ -175,8 +198,9 @@ PVRSRVBridgeRGXDisableRegConfig(IMG_UINT32 ui32DispatchTableEntry,
 					 CONNECTION_DATA *psConnection)
 {
 
-	PVR_UNREFERENCED_PARAMETER(psRGXDisableRegConfigIN);
 
+
+	PVR_UNREFERENCED_PARAMETER(psRGXDisableRegConfigIN);
 
 
 
@@ -190,8 +214,12 @@ PVRSRVBridgeRGXDisableRegConfig(IMG_UINT32 ui32DispatchTableEntry,
 
 
 
+
+
+
 	return 0;
 }
+
 
 
 
@@ -200,7 +228,9 @@ PVRSRVBridgeRGXDisableRegConfig(IMG_UINT32 ui32DispatchTableEntry,
  */
 
 static IMG_BOOL bUseLock = IMG_TRUE;
+#endif /* EXCLUDE_REGCONFIG_BRIDGE */
 
+#if !defined(EXCLUDE_REGCONFIG_BRIDGE)
 PVRSRV_ERROR InitREGCONFIGBridge(void);
 PVRSRV_ERROR DeinitREGCONFIGBridge(void);
 
@@ -236,4 +266,14 @@ PVRSRV_ERROR DeinitREGCONFIGBridge(void)
 {
 	return PVRSRV_OK;
 }
+#else /* EXCLUDE_REGCONFIG_BRIDGE */
+/* This bridge is conditional on EXCLUDE_REGCONFIG_BRIDGE - when defined,
+ * do not populate the dispatch table with its functions
+ */
+#define InitREGCONFIGBridge() \
+	PVRSRV_OK
 
+#define DeinitREGCONFIGBridge() \
+	PVRSRV_OK
+
+#endif /* EXCLUDE_REGCONFIG_BRIDGE */

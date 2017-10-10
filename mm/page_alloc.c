@@ -1646,13 +1646,13 @@ failed:
 static struct {
 	struct fault_attr attr;
 
-	u32 ignore_gfp_highmem;
-	u32 ignore_gfp_wait;
+	bool ignore_gfp_highmem;
+	bool ignore_gfp_wait;
 	u32 min_order;
 } fail_page_alloc = {
 	.attr = FAULT_ATTR_INITIALIZER,
-	.ignore_gfp_wait = 1,
-	.ignore_gfp_highmem = 1,
+	.ignore_gfp_wait = true,
+	.ignore_gfp_highmem = true,
 	.min_order = 1,
 };
 
@@ -2844,10 +2844,7 @@ retry_cpuset:
 		goto out;
 	classzone_idx = zonelist_zone_idx(preferred_zoneref);
 
-#ifdef CONFIG_LOW_MEM_NOTIFY
-	if (is_low_mem_situation())
-		low_mem_notify();
-#endif
+	low_mem_check();
 
 	/* First allocation attempt */
 	page = get_page_from_freelist(gfp_mask|__GFP_HARDWALL, nodemask, order,

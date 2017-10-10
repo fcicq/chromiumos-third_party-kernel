@@ -42,8 +42,6 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #define WAIT_TRY_COUNT                           (10000)
 #endif
 
-#define SYS_DEVICE_COUNT 3 /* RGX, DISPLAY (external), BUFFER (external) */
-
-#define SYS_PHYS_HEAP_COUNT		1
+#define SYS_RGX_OF_COMPATIBLE "mediatek,mt8173-gpu"
 
 #endif	/* !defined(__SYSINFO_H__) */

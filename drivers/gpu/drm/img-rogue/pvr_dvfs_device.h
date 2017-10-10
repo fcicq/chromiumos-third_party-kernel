@@ -48,9 +48,9 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "pvrsrv_error.h"
 #include "img_types.h"
 
-PVRSRV_ERROR InitDVFS(PVRSRV_DATA *psPVRSRVData, void *hDevice);
+PVRSRV_ERROR InitDVFS(PVRSRV_DEVICE_NODE *psDeviceNode);
 
-void DeinitDVFS(PVRSRV_DATA *psPVRSRVData, void *hDevice);
+void DeinitDVFS(PVRSRV_DEVICE_NODE *psDeviceNode);
 
 PVRSRV_ERROR SuspendDVFS(void);
 

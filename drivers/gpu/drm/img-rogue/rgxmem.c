@@ -51,11 +51,19 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "rgx_fwif_km.h"
 #include "rgxfwutils.h"
 #include "pdump_km.h"
+#include "pdump_physmem.h"
+#include "pvr_notifier.h"
 #include "pvrsrv.h"
 #include "sync_internal.h"
 #include "rgx_memallocflags.h"
-
+#include "rgx_bvnc_defs_km.h"
+/*
+	FIXME:
+	For now just get global state, but what we really want is to do
+	this per memory context
+*/
 static IMG_UINT32 gui32CacheOpps = 0;
+/* FIXME: End */
 
 typedef struct _SERVER_MMU_CONTEXT_ {
 	DEVMEM_MEMDESC *psFWMemContextMemDesc;
@@ -66,11 +74,14 @@ typedef struct _SERVER_MMU_CONTEXT_ {
 	PVRSRV_RGXDEV_INFO *psDevInfo;
 } SERVER_MMU_CONTEXT;
 
+
+
 void RGXMMUCacheInvalidate(PVRSRV_DEVICE_NODE *psDeviceNode,
 						   IMG_HANDLE hDeviceData,
 						   MMU_LEVEL eMMULevel,
 						   IMG_BOOL bUnmap)
 {
+	PVRSRV_RGXDEV_INFO *psDevInfo = (PVRSRV_RGXDEV_INFO *)psDeviceNode->pvDevice;
 	PVR_UNREFERENCED_PARAMETER(bUnmap);
 
 	switch (eMMULevel)
@@ -80,7 +91,10 @@ void RGXMMUCacheInvalidate(PVRSRV_DEVICE_NODE *psDeviceNode,
 		case MMU_LEVEL_2:	gui32CacheOpps |= RGXFWIF_MMUCACHEDATA_FLAGS_PD;
 							break;
 		case MMU_LEVEL_1:	gui32CacheOpps |= RGXFWIF_MMUCACHEDATA_FLAGS_PT;
-							gui32CacheOpps |= RGXFWIF_MMUCACHEDATA_FLAGS_TLB;
+							if(!(psDevInfo->sDevFeatureCfg.ui64Features & RGX_FEATURE_SLC_VIVT_BIT_MASK))
+							{
+								gui32CacheOpps |= RGXFWIF_MMUCACHEDATA_FLAGS_TLB;
+							}
 							break;
 		default:
 							PVR_ASSERT(0);
@@ -88,69 +102,24 @@ void RGXMMUCacheInvalidate(PVRSRV_DEVICE_NODE *psDeviceNode,
 	}
 }
 
-PVRSRV_ERROR RGXSLCCacheInvalidateRequest(PVRSRV_DEVICE_NODE *psDeviceNode,
-									PMR *psPmr)
+PVRSRV_ERROR RGXMMUCacheInvalidateKick(PVRSRV_DEVICE_NODE *psDevInfo,
+                                       IMG_UINT32 *pui32MMUInvalidateUpdate,
+                                       IMG_BOOL bInterrupt)
 {
-	RGXFWIF_KCCB_CMD sFlushInvalCmd;
-	IMG_UINT32 ulPMRFlags;
-	IMG_UINT32 ui32DeviceCacheFlags;
-	PVRSRV_ERROR eError = PVRSRV_OK;
+	PVRSRV_ERROR eError;
 
-	PVR_ASSERT(psDeviceNode);
-
-	/* In DEINIT state, we stop scheduling SLC flush commands, because we don't know in what state the firmware is.
-	 * Anyway, if we are in DEINIT state, we don't care anymore about FW memory consistency
-	 */
-	if (psDeviceNode->eDevState != PVRSRV_DEVICE_STATE_DEINIT)
-	{
-
-		/* get the PMR's caching flags */
-		ulPMRFlags = PMR_Flags(psPmr);
-
-		ui32DeviceCacheFlags = DevmemDeviceCacheMode(ulPMRFlags);
-
-		/* Schedule a SLC flush and invalidate if
-		 * - the memory is cached.
-		 * - we can't get the caching attributes (by precaution).
-		 */
-		if ((ui32DeviceCacheFlags == PVRSRV_MEMALLOCFLAG_GPU_CACHED) || (eError != PVRSRV_OK))
-		{
-			/* Schedule the SLC flush command ... */
-#if defined(PDUMP)
-			PDUMPCOMMENTWITHFLAGS(PDUMP_FLAGS_CONTINUOUS, "Submit SLC flush and invalidate");
-#endif
-			sFlushInvalCmd.eCmdType = RGXFWIF_KCCB_CMD_SLCFLUSHINVAL;
-			sFlushInvalCmd.uCmdData.sSLCFlushInvalData.bInval = IMG_TRUE;
-			sFlushInvalCmd.uCmdData.sSLCFlushInvalData.bDMContext = IMG_FALSE;
-			sFlushInvalCmd.uCmdData.sSLCFlushInvalData.eDM = 0;
-			sFlushInvalCmd.uCmdData.sSLCFlushInvalData.psContext.ui32Addr = 0;
-
-			eError = RGXSendCommandWithPowLock(psDeviceNode->pvDevice,
-												RGXFWIF_DM_GP,
-												&sFlushInvalCmd,
-												sizeof(sFlushInvalCmd),
-												IMG_TRUE);
-			if (eError != PVRSRV_OK)
-			{
-				PVR_DPF((PVR_DBG_ERROR,"RGXSLCCacheInvalidateRequest: Failed to schedule SLC flush command with error (%u)", eError));
-			}
-			else
-			{
-				/* Wait for the SLC flush to complete */
-				eError = RGXWaitForFWOp(psDeviceNode->pvDevice, RGXFWIF_DM_GP, psDeviceNode->psSyncPrim, IMG_TRUE);
-				if (eError != PVRSRV_OK)
-				{
-					PVR_DPF((PVR_DBG_ERROR,"RGXSLCCacheInvalidateRequest: SLC flush and invalidate aborted with error (%u)", eError));
-				}
-			}
-		}
-	}
+	eError = RGXPreKickCacheCommand(psDevInfo->pvDevice,
+	                                RGXFWIF_DM_GP,
+	                                pui32MMUInvalidateUpdate,
+	                                bInterrupt);
 
 	return eError;
 }
 
-
-PVRSRV_ERROR RGXPreKickCacheCommand(PVRSRV_RGXDEV_INFO *psDevInfo, RGXFWIF_DM eDM)
+PVRSRV_ERROR RGXPreKickCacheCommand(PVRSRV_RGXDEV_INFO *psDevInfo,
+                                    RGXFWIF_DM eDM,
+                                    IMG_UINT32 *pui32MMUInvalidateUpdate,
+                                    IMG_BOOL bInterrupt)
 {
 	PVRSRV_DEVICE_NODE *psDeviceNode = psDevInfo->psDeviceNode;
 	RGXFWIF_KCCB_CMD sFlushCmd;
@@ -161,16 +130,9 @@ PVRSRV_ERROR RGXPreKickCacheCommand(PVRSRV_RGXDEV_INFO *psDevInfo, RGXFWIF_DM eD
 		goto _PVRSRVPowerLock_Exit;
 	}
 
-	sFlushCmd.eCmdType = RGXFWIF_KCCB_CMD_MMUCACHE;
-	/* Set which memory context this command is for (all ctxs for now) */
-	gui32CacheOpps |= RGXFWIF_MMUCACHEDATA_FLAGS_CTX_ALL;
-#if 0
-	sFlushCmd.uCmdData.sMMUCacheData.psMemoryContext = ???
-#endif
-
 	/* PVRSRVPowerLock guarantees atomicity between commands and global variables consistency.
 	 * This is helpful in a scenario with several applications allocating resources. */
-	eError = PVRSRVPowerLock();
+	eError = PVRSRVPowerLock(psDeviceNode);
 
 	if (eError != PVRSRV_OK)
 	{
@@ -179,8 +141,33 @@ PVRSRV_ERROR RGXPreKickCacheCommand(PVRSRV_RGXDEV_INFO *psDevInfo, RGXFWIF_DM eD
 		goto _PVRSRVPowerLock_Exit;
 	}
 
+	*pui32MMUInvalidateUpdate = psDeviceNode->ui32NextMMUInvalidateUpdate;
+
+	/* Setup cmd and add the device nodes sync object */
+	sFlushCmd.eCmdType = RGXFWIF_KCCB_CMD_MMUCACHE;
+	sFlushCmd.uCmdData.sMMUCacheData.ui32MMUCacheSyncUpdateValue = psDeviceNode->ui32NextMMUInvalidateUpdate;
+	SyncPrimGetFirmwareAddr(psDeviceNode->psMMUCacheSyncPrim,
+	                        &sFlushCmd.uCmdData.sMMUCacheData.sMMUCacheSync.ui32Addr);
+
+	/* Set the update value for the next kick */
+	psDeviceNode->ui32NextMMUInvalidateUpdate++;
+
+	/* Set which memory context this command is for (all ctxs for now) */
+	if(psDevInfo->sDevFeatureCfg.ui64Features & RGX_FEATURE_SLC_VIVT_BIT_MASK)
+	{
+		gui32CacheOpps |= RGXFWIF_MMUCACHEDATA_FLAGS_CTX_ALL;
+	}
+	/* Indicate the firmware should signal command completion to the host */
+	if(bInterrupt)
+	{
+		gui32CacheOpps |= RGXFWIF_MMUCACHEDATA_FLAGS_INTERRUPT;
+	}
+#if 0
+	sFlushCmd.uCmdData.sMMUCacheData.psMemoryContext = ???
+#endif
+
 	PDUMPPOWCMDSTART();
-	eError = PVRSRVSetDevicePowerStateKM(psDeviceNode->sDevId.ui32DeviceIndex,
+	eError = PVRSRVSetDevicePowerStateKM(psDeviceNode,
 										 PVRSRV_DEV_POWER_STATE_ON,
 										 IMG_FALSE);
 	PDUMPPOWCMDEND();
@@ -217,7 +204,7 @@ PVRSRV_ERROR RGXPreKickCacheCommand(PVRSRV_RGXDEV_INFO *psDevInfo, RGXFWIF_DM eD
 	}
 
 _PVRSRVSetDevicePowerStateKM_Exit:
-	PVRSRVPowerUnlock();
+	PVRSRVPowerUnlock(psDeviceNode);
 
 _PVRSRVPowerLock_Exit:
 	return eError;
@@ -259,7 +246,10 @@ static void _RecordUnregisteredMemoryContext(PVRSRV_RGXDEV_INFO *psDevInfo, SERV
 	OSLockRelease(psDevInfo->hMMUCtxUnregLock);
 
 	psRecord->uiPID = psServerMMUContext->uiPID;
-	MMU_AcquireBaseAddr(psServerMMUContext->psMMUContext, &psRecord->sPCDevPAddr);
+	if (MMU_AcquireBaseAddr(psServerMMUContext->psMMUContext, &psRecord->sPCDevPAddr) != PVRSRV_OK)
+	{
+		PVR_LOG(("_RecordUnregisteredMemoryContext: Failed to get PC address for memory context"));
+	}
 	OSStringNCopy(psRecord->szProcessName, psServerMMUContext->szProcessName, sizeof(psRecord->szProcessName));
 	psRecord->szProcessName[sizeof(psRecord->szProcessName) - 1] = '\0';
 }
@@ -282,12 +272,12 @@ void RGXUnregisterMemoryContext(IMG_HANDLE hPrivData)
 	/*
 	 * Release the page catalogue address acquired in RGXRegisterMemoryContext().
 	 */
-	MMU_ReleaseBaseAddr(NULL);
+	MMU_ReleaseBaseAddr(NULL /* FIXME */);
 	
 	/*
 	 * Free the firmware memory context.
 	 */
-	DevmemFwFree(psServerMMUContext->psFWMemContextMemDesc);
+	DevmemFwFree(psDevInfo, psServerMMUContext->psFWMemContextMemDesc);
 
 	OSFreeMem(psServerMMUContext);
 }
@@ -347,6 +337,7 @@ PVRSRV_ERROR RGXRegisterMemoryContext(PVRSRV_DEVICE_NODE	*psDeviceNode,
 			application.
 		*/
 		PDUMPCOMMENT("Allocate RGX firmware memory context");
+		/* FIXME: why cache-consistent? */
 		eError = DevmemFwAllocate(psDevInfo,
 								sizeof(*psFWMemContext),
 								uiFWMemContextMemAllocFlags,
@@ -396,16 +387,18 @@ PVRSRV_ERROR RGXRegisterMemoryContext(PVRSRV_DEVICE_NODE	*psDeviceNode,
 #if defined(SUPPORT_GPUVIRT_VALIDATION)
 {
 		IMG_UINT32 ui32OSid = 0, ui32OSidReg = 0;
+        IMG_BOOL   bOSidAxiProt;
 
-		MMU_GetOSids(psMMUContext, &ui32OSid, &ui32OSidReg);
+        MMU_GetOSids(psMMUContext, &ui32OSid, &ui32OSidReg, &bOSidAxiProt);
 
-		psFWMemContext->ui32OSid = ui32OSidReg;
+        psFWMemContext->ui32OSid     = ui32OSidReg;
+        psFWMemContext->bOSidAxiProt = bOSidAxiProt;
 }
 #endif
 
 #if defined(PDUMP)
 		{
-			IMG_CHAR			aszName[PMR_MAX_MEMSPNAME_SYMB_ADDR_LENGTH_DEFAULT];
+			IMG_CHAR			aszName[PHYSMEM_PDUMP_MEMSPNAME_SYMB_ADDR_MAX_LENGTH];
 			IMG_DEVMEM_OFFSET_T uiOffset = 0;
 
 			/*
@@ -420,7 +413,7 @@ PVRSRV_ERROR RGXRegisterMemoryContext(PVRSRV_DEVICE_NODE	*psDeviceNode,
 			eError = DevmemPDumpPageCatBaseToSAddr(psFWMemContextMemDesc, 
 												   &uiOffset, 
 												   aszName, 
-												   PMR_MAX_MEMSPNAME_SYMB_ADDR_LENGTH_DEFAULT);
+												   PHYSMEM_PDUMP_MEMSPNAME_SYMB_ADDR_MAX_LENGTH);
 
 			if (eError != PVRSRV_OK)
 			{
@@ -493,7 +486,7 @@ fail_pdump_cat_base_addr:
 fail_acquire_base_addr:
 	/* Done before jumping to the fail point as the release is done before exit */
 fail_acquire_cpu_addr:
-	DevmemFwFree(psServerMMUContext->psFWMemContextMemDesc);
+	DevmemFwFree(psDevInfo, psServerMMUContext->psFWMemContextMemDesc);
 fail_alloc_fw_ctx:
 	OSFreeMem(psServerMMUContext);
 fail_alloc_server_ctx:
@@ -508,7 +501,11 @@ DEVMEM_MEMDESC *RGXGetFWMemDescFromMemoryContextHandle(IMG_HANDLE hPriv)
 	return psMMUContext->psFWMemContextMemDesc;
 }
 
-void RGXCheckFaultAddress(PVRSRV_RGXDEV_INFO *psDevInfo, IMG_DEV_VIRTADDR *psDevVAddr, IMG_DEV_PHYADDR *psDevPAddr)
+void RGXCheckFaultAddress(PVRSRV_RGXDEV_INFO *psDevInfo,
+				IMG_DEV_VIRTADDR *psDevVAddr,
+				IMG_DEV_PHYADDR *psDevPAddr,
+				DUMPDEBUG_PRINTF_FUNC *pfnDumpDebugPrintf,
+				void *pvDumpDebugFile)
 {
 	IMG_DEV_PHYADDR sPCDevPAddr;
 	DLLIST_NODE *psNode, *psNext;
@@ -528,13 +525,12 @@ void RGXCheckFaultAddress(PVRSRV_RGXDEV_INFO *psDevInfo, IMG_DEV_VIRTADDR *psDev
 
 		if (psDevPAddr->uiAddr == sPCDevPAddr.uiAddr)
 		{
-			DUMPDEBUG_PRINTF_FUNC *pfnDumpDebugPrintf = g_pfnDumpDebugPrintf;
-
-			PVR_DUMPDEBUG_LOG(("Found memory context (PID = %d, %s)",
+			PVR_DUMPDEBUG_LOG("Found memory context (PID = %d, %s)",
 							   psServerMMUContext->uiPID,
-							   psServerMMUContext->szProcessName));
+							   psServerMMUContext->szProcessName);
 
-			MMU_CheckFaultAddress(psServerMMUContext->psMMUContext, psDevVAddr);
+			MMU_CheckFaultAddress(psServerMMUContext->psMMUContext, psDevVAddr,
+						pfnDumpDebugPrintf, pvDumpDebugFile);
 			break;
 		}
 	}
@@ -547,7 +543,8 @@ void RGXCheckFaultAddress(PVRSRV_RGXDEV_INFO *psDevInfo, IMG_DEV_VIRTADDR *psDev
 
 	if (psDevPAddr->uiAddr == sPCDevPAddr.uiAddr)
 	{
-		MMU_CheckFaultAddress(psDevInfo->psKernelMMUCtx, psDevVAddr);
+		MMU_CheckFaultAddress(psDevInfo->psKernelMMUCtx, psDevVAddr,
+					pfnDumpDebugPrintf, pvDumpDebugFile);
 	}
 
 	OSWRLockReleaseRead(psDevInfo->hMemoryCtxListLock);

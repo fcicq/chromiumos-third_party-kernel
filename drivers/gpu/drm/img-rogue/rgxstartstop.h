@@ -46,8 +46,10 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 /* The routines declared here are built on top of an abstraction layer to
  * hide DDK/OS-specific details in case they are used outside of the DDK
- * (e.g. when trusted device is enabled).
- * Any new dependency should be added to rgxlayer_km.h. */
+ * (e.g. when DRM security is enabled).
+ * Any new dependency should be added to rgxlayer_km.h.
+ * Any new code should be built on top of the existing abstraction layer,
+ * which should be extended when necessary. */
 #include "rgxlayer_km.h"
 
 /*!
@@ -79,3 +81,4 @@ PVRSRV_ERROR RGXStart(const void *hPrivate);
 PVRSRV_ERROR RGXStop(const void *hPrivate);
 
 #endif /* __RGXSTARTSTOP_H__ */
+

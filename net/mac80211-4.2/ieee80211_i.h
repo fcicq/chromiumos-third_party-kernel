@@ -30,6 +30,7 @@
 #include <net/ieee80211_radiotap.h>
 #include <net/cfg80211.h>
 #include <net/mac80211.h>
+#include <net/fq.h>
 #include "key.h"
 #include "sta_info.h"
 #include "debug.h"
@@ -637,6 +638,7 @@ struct ieee80211_if_mesh {
 	struct timer_list housekeeping_timer;
 	struct timer_list mesh_path_timer;
 	struct timer_list mesh_path_root_timer;
+	struct timer_list mpath_stats_timer;
 
 	unsigned long wrkq_flags;
 	unsigned long mbss_changed;
@@ -705,6 +707,14 @@ struct ieee80211_if_mesh {
 
 	/* offset from skb->data while building IE */
 	int meshconf_offset;
+
+	u8 path_switch_threshold;
+
+#if CONFIG_MAC80211_DEBUGFS
+	/* mpath debugfs structures */
+	spinlock_t path_debugfs_lock;
+	struct list_head *path_df_list;
+#endif
 };
 
 #ifdef CONFIG_MAC80211_MESH
@@ -808,8 +818,18 @@ enum txq_info_flags {
 	IEEE80211_TXQ_AMPDU,
 };
 
+/**
+ * struct txq_info - per tid queue
+ *
+ * @tin: contains packets split into multiple flows
+ * @def_flow: used as a fallback flow when a packet destined to @tin hashes to
+ *	a fq_flow which is already owned by a different tin
+ * @def_cvars: codel vars for @def_flow
+ */
 struct txq_info {
-	struct sk_buff_head queue;
+	struct fq_tin tin;
+	struct fq_flow def_flow;
+	struct codel_vars def_cvars;
 	unsigned long flags;
 
 	/* keep last! */
@@ -858,7 +878,7 @@ struct ieee80211_sub_if_data {
 	bool control_port_no_encrypt;
 	int encrypt_headroom;
 
-	atomic_t txqs_len[IEEE80211_NUM_ACS];
+	atomic_t num_tx_queued;
 	struct ieee80211_tx_queue_params tx_conf[IEEE80211_NUM_ACS];
 	struct mac80211_qos_map __rcu *qos_map;
 
@@ -920,6 +940,9 @@ struct ieee80211_sub_if_data {
 		struct dentry *default_unicast_key;
 		struct dentry *default_multicast_key;
 		struct dentry *default_mgmt_key;
+#ifdef CONFIG_MAC80211_MESH
+		struct dentry *subdir_destinations;
+#endif
 	} debugfs;
 #endif
 
@@ -1098,6 +1121,11 @@ struct ieee80211_local {
 	 * don't cast (use the static inlines below), but we keep
 	 * it first anyway so they become a no-op */
 	struct ieee80211_hw hw;
+
+	struct fq fq;
+	struct codel_vars *cvars;
+	struct codel_params cparams;
+	struct codel_stats cstats;
 
 	const struct ieee80211_ops *ops;
 
@@ -1328,11 +1356,18 @@ struct ieee80211_local {
 
 	struct work_struct restart_work;
 
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+	bool wifi_diag_enable;
+	void *wifi_diag_config;
+#endif
+
 #ifdef CONFIG_MAC80211_DEBUGFS
 	struct local_debugfsdentries {
 		struct dentry *rcdir;
 		struct dentry *keys;
 	} debugfs;
+
+	bool rx_stats_enabled;
 #endif
 
 	/*
@@ -1919,9 +1954,13 @@ static inline bool ieee80211_can_run_worker(struct ieee80211_local *local)
 	return true;
 }
 
-void ieee80211_init_tx_queue(struct ieee80211_sub_if_data *sdata,
-			     struct sta_info *sta,
-			     struct txq_info *txq, int tid);
+int ieee80211_txq_setup_flows(struct ieee80211_local *local);
+void ieee80211_txq_teardown_flows(struct ieee80211_local *local);
+void ieee80211_txq_init(struct ieee80211_sub_if_data *sdata,
+			struct sta_info *sta,
+			struct txq_info *txq, int tid);
+void ieee80211_txq_purge(struct ieee80211_local *local,
+			 struct txq_info *txqi);
 void ieee80211_send_auth(struct ieee80211_sub_if_data *sdata,
 			 u16 transaction, u16 auth_alg, u16 status,
 			 const u8 *extra, size_t extra_len, const u8 *bssid,

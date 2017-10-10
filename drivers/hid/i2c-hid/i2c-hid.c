@@ -276,17 +276,21 @@ static int i2c_hid_set_or_send_report(struct i2c_client *client, u8 reportType,
 	u16 dataRegister = le16_to_cpu(ihid->hdesc.wDataRegister);
 	u16 outputRegister = le16_to_cpu(ihid->hdesc.wOutputRegister);
 	u16 maxOutputLength = le16_to_cpu(ihid->hdesc.wMaxOutputLength);
-
-	/* hid_hw_* already checked that data_len < HID_MAX_BUFFER_SIZE */
-	u16 size =	2			/* size */ +
-			(reportID ? 1 : 0)	/* reportID */ +
-			data_len		/* buf */;
-	int args_len =	(reportID >= 0x0F ? 1 : 0) /* optional third byte */ +
-			2			/* dataRegister */ +
-			size			/* args */;
+	u16 size;
+	int args_len;
 	int index = 0;
 
 	i2c_hid_dbg(ihid, "%s\n", __func__);
+
+	if (data_len > ihid->bufsize)
+		return -EINVAL;
+
+	size =		2			/* size */ +
+			(reportID ? 1 : 0)	/* reportID */ +
+			data_len		/* buf */;
+	args_len =	(reportID >= 0x0F ? 1 : 0) /* optional third byte */ +
+			2			/* dataRegister */ +
+			size			/* args */;
 
 	if (!use_data && maxOutputLength == 0)
 		return -ENOSYS;
@@ -369,7 +373,10 @@ static int i2c_hid_hwreset(struct i2c_client *client)
 static int i2c_hid_get_input(struct i2c_hid *ihid)
 {
 	int ret, ret_size;
-	int size = ihid->bufsize;
+	int size = le16_to_cpu(ihid->hdesc.wMaxInputLength);
+
+	if (size > ihid->bufsize)
+		size = ihid->bufsize;
 
 	ret = i2c_master_recv(ihid->client, ihid->inbuf, size);
 	if (ret != size) {
@@ -516,7 +523,8 @@ static int i2c_hid_alloc_buffers(struct i2c_hid *ihid, size_t report_size)
 {
 	/* the worst case is computed from the set_report command with a
 	 * reportID > 15 and the maximum report length */
-	int args_len = sizeof(__u8) + /* optional ReportID byte */
+	int args_len = sizeof(__u8) + /* ReportID */
+		       sizeof(__u8) + /* optional ReportID byte */
 		       sizeof(__u16) + /* data register */
 		       sizeof(__u16) + /* size of the report */
 		       report_size; /* report */
@@ -881,6 +889,7 @@ static inline int i2c_hid_acpi_pdata(struct i2c_client *client,
 }
 #endif
 
+#ifdef CONFIG_OF
 /* for probe deferral */
 static bool inited = IS_MODULE(CONFIG_I2C_HID);
 
@@ -894,7 +903,6 @@ static int __init i2c_hid_late_initcall(void)
 late_initcall_sync(i2c_hid_late_initcall);
 #endif
 
-#ifdef CONFIG_OF
 static int i2c_hid_of_probe(struct i2c_client *client,
 		struct i2c_hid_platform_data *pdata)
 {
@@ -1081,6 +1089,14 @@ static int i2c_hid_remove(struct i2c_client *client)
 	return 0;
 }
 
+static void i2c_hid_shutdown(struct i2c_client *client)
+{
+	struct i2c_hid *ihid = i2c_get_clientdata(client);
+
+	i2c_hid_set_power(client, I2C_HID_PWR_SLEEP);
+	free_irq(client->irq, ihid);
+}
+
 #ifdef CONFIG_PM_SLEEP
 static int i2c_hid_suspend(struct device *dev)
 {
@@ -1093,10 +1109,11 @@ static int i2c_hid_suspend(struct device *dev)
 		/* Save some power */
 		i2c_hid_set_power(client, I2C_HID_PWR_SLEEP);
 
-		if (hid->driver && hid->driver->suspend)
+		if (hid->driver && hid->driver->suspend) {
 			ret = hid->driver->suspend(hid, PMSG_SUSPEND);
-		if (ret)
-			return ret;
+			if (ret)
+				return ret;
+		}
 
 		disable_irq(client->irq);
 	}
@@ -1219,7 +1236,7 @@ static struct i2c_driver i2c_hid_driver = {
 
 	.probe		= i2c_hid_probe,
 	.remove		= i2c_hid_remove,
-
+	.shutdown	= i2c_hid_shutdown,
 	.id_table	= i2c_hid_id_table,
 };
 

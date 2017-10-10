@@ -34,6 +34,7 @@
 #include <linux/slab.h>
 #include <drm/drmP.h>
 #include <drm/drm_core.h>
+#include "drm_crtc_internal.h"
 #include "drm_legacy.h"
 #include "drm_internal.h"
 
@@ -391,9 +392,6 @@ struct drm_minor *drm_minor_acquire(unsigned int minor_id)
 
 	if (!minor) {
 		return ERR_PTR(-ENODEV);
-	} else if (drm_device_is_unplugged(minor->dev)) {
-		drm_dev_unref(minor->dev);
-		return ERR_PTR(-ENODEV);
 	}
 
 	return minor;
@@ -443,8 +441,6 @@ void drm_unplug_dev(struct drm_device *dev)
 	drm_minor_unregister(dev, DRM_MINOR_CONTROL);
 
 	mutex_lock(&drm_global_mutex);
-
-	drm_device_set_unplugged(dev);
 
 	if (dev->open_count == 0) {
 		drm_put_dev(dev);
@@ -717,6 +713,9 @@ int drm_dev_register(struct drm_device *dev, unsigned long flags)
 			goto err_minors;
 	}
 
+	if (drm_core_check_feature(dev, DRIVER_MODESET))
+		drm_modeset_register_all(dev);
+
 	ret = 0;
 	goto out_unlock;
 
@@ -743,6 +742,9 @@ void drm_dev_unregister(struct drm_device *dev)
 	struct drm_map_list *r_list, *list_temp;
 
 	drm_lastclose(dev);
+
+	if (drm_core_check_feature(dev, DRIVER_MODESET))
+		drm_modeset_unregister_all(dev);
 
 	if (dev->driver->unload)
 		dev->driver->unload(dev);
@@ -840,8 +842,8 @@ out_unlock:
 	return err;
 }
 
-/* When set to 1, allow set/drop master ioctls as normal user */
-u32 drm_master_relax;
+/* When set to true, allow set/drop master ioctls as normal user */
+bool drm_master_relax;
 
 static const struct file_operations drm_stub_fops = {
 	.owner = THIS_MODULE,

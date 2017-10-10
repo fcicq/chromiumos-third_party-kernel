@@ -27,12 +27,14 @@
 
 #define EDID_LENGTH 128
 #define DDC_ADDR 0x50
+#define DDC_ADDR2 0x52 /* E-DDC 1.2 - where DisplayID can hide */
 
 #define CEA_EXT	    0x02
 #define VTB_EXT	    0x10
 #define DI_EXT	    0x40
 #define LS_EXT	    0x50
 #define MI_EXT	    0x60
+#define DISPLAYID_EXT 0x70
 
 struct est_timings {
 	u8 t1;
@@ -322,9 +324,8 @@ void drm_edid_to_eld(struct drm_connector *connector, struct edid *edid);
 int drm_edid_to_sad(struct edid *edid, struct cea_sad **sads);
 int drm_edid_to_speaker_allocation(struct edid *edid, u8 **sadb);
 int drm_av_sync_delay(struct drm_connector *connector,
-		      struct drm_display_mode *mode);
-struct drm_connector *drm_select_eld(struct drm_encoder *encoder,
-				     struct drm_display_mode *mode);
+		      const struct drm_display_mode *mode);
+struct drm_connector *drm_select_eld(struct drm_encoder *encoder);
 int drm_load_edid_firmware(struct drm_connector *connector);
 
 int

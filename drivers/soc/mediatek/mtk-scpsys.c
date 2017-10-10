@@ -417,10 +417,10 @@ static int scpsys_mfg_power_on(struct generic_pm_domain *genpd)
 
 	return 0;
 
-failed_mfg_2d:
-	scpsys_power_off(&scp->domains[MT8173_POWER_DOMAIN_MFG_ASYNC].genpd);
 failed_mfg:
 	scpsys_power_off(&scp->domains[MT8173_POWER_DOMAIN_MFG_2D].genpd);
+failed_mfg_2d:
+	scpsys_power_off(&scp->domains[MT8173_POWER_DOMAIN_MFG_ASYNC].genpd);
 
 	return ret;
 }

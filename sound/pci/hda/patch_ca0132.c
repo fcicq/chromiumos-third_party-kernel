@@ -841,7 +841,7 @@ static int chipio_write_address(struct hda_codec *codec,
 				  chip_addx >> 16);
 	}
 
-	spec->curr_chip_addx = (res < 0) ? ~0UL : chip_addx;
+	spec->curr_chip_addx = (res < 0) ? ~0U : chip_addx;
 
 	return res;
 }
@@ -866,7 +866,7 @@ static int chipio_write_data(struct hda_codec *codec, unsigned int data)
 	/*If no error encountered, automatically increment the address
 	as per chip behaviour*/
 	spec->curr_chip_addx = (res != -EIO) ?
-					(spec->curr_chip_addx + 4) : ~0UL;
+					(spec->curr_chip_addx + 4) : ~0U;
 	return res;
 }
 
@@ -917,7 +917,7 @@ static int chipio_read_data(struct hda_codec *codec, unsigned int *data)
 	/*If no error encountered, automatically increment the address
 	as per chip behaviour*/
 	spec->curr_chip_addx = (res != -EIO) ?
-					(spec->curr_chip_addx + 4) : ~0UL;
+					(spec->curr_chip_addx + 4) : ~0U;
 	return res;
 }
 
@@ -1152,7 +1152,7 @@ static int dspio_write_multiple(struct hda_codec *codec,
 	int status = 0;
 	unsigned int count;
 
-	if ((buffer == NULL))
+	if (buffer == NULL)
 		return -EINVAL;
 
 	count = 0;
@@ -1194,7 +1194,7 @@ static int dspio_read_multiple(struct hda_codec *codec, unsigned int *buffer,
 	unsigned int skip_count;
 	unsigned int dummy;
 
-	if ((buffer == NULL))
+	if (buffer == NULL)
 		return -1;
 
 	count = 0;

@@ -1516,6 +1516,33 @@ static int mwifiex_cmd_cfg_data(struct mwifiex_private *priv,
 	return 0;
 }
 
+static int mwifiex_cmd_robust_coex(struct mwifiex_private *priv,
+				   struct host_cmd_ds_command *cmd,
+				   u16 cmd_action, bool *is_timeshare)
+{
+	struct host_cmd_ds_robust_coex *coex = &cmd->params.coex;
+	struct mwifiex_ie_types_robust_coex *coex_tlv;
+
+	cmd->command = cpu_to_le16(HostCmd_CMD_ROBUST_COEX);
+	cmd->size = cpu_to_le16(sizeof(*coex) + sizeof(*coex_tlv) + S_DS_GEN);
+
+	coex->action = cpu_to_le16(cmd_action);
+	coex_tlv = (struct mwifiex_ie_types_robust_coex *)
+				((u8 *)coex + sizeof(*coex));
+	coex_tlv->header.type = cpu_to_le16(TLV_TYPE_ROBUST_COEX);
+	coex_tlv->header.len = cpu_to_le16(sizeof(coex_tlv->mode));
+
+	if (coex->action == HostCmd_ACT_GEN_GET)
+		return 0;
+
+	if (*is_timeshare)
+		coex_tlv->mode = cpu_to_le32(MWIFIEX_COEX_MODE_TIMESHARE);
+	else
+		coex_tlv->mode = cpu_to_le32(MWIFIEX_COEX_MODE_SPATIAL);
+
+	return 0;
+}
+
 static int
 mwifiex_cmd_coalesce_cfg(struct mwifiex_private *priv,
 			 struct host_cmd_ds_command *cmd,
@@ -1992,6 +2019,11 @@ int mwifiex_sta_prepare_cmd(struct mwifiex_private *priv, uint16_t cmd_no,
 		ret = mwifiex_cmd_get_wakeup_reason(priv, cmd_ptr);
 		break;
 
+	case HostCmd_CMD_ROBUST_COEX:
+		ret = mwifiex_cmd_robust_coex(priv, cmd_ptr, cmd_action,
+					      data_buf);
+		break;
+
 	default:
 		mwifiex_dbg(priv->adapter, ERROR,
 			    "PREP_CMD: unknown cmd- %#x\n", cmd_no);
@@ -2025,11 +2057,13 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta)
 	struct mwifiex_adapter *adapter = priv->adapter;
 	int ret;
 	u16 enable = true;
+	bool timeshare_coex = true;
 	struct mwifiex_ds_11n_amsdu_aggr_ctrl amsdu_aggr_ctrl;
 	struct mwifiex_ds_auto_ds auto_ds;
 	enum state_11d_t state_11d;
 	struct mwifiex_ds_11n_tx_cfg tx_cfg;
 	u8 sdio_sp_rx_aggr_enable;
+	int data;
 
 	if (first_sta) {
 		if (priv->adapter->iface_type == MWIFIEX_PCIE) {
@@ -2050,9 +2084,16 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta)
 		 * The cal-data can be read from device tree and/or
 		 * a configuration file and downloaded to firmware.
 		 */
-		adapter->dt_node =
-				of_find_node_by_name(NULL, "marvell_cfgdata");
-		if (adapter->dt_node) {
+		if (priv->adapter->iface_type == MWIFIEX_SDIO &&
+		    adapter->dev->of_node) {
+			adapter->dt_node = adapter->dev->of_node;
+			if (of_property_read_u32(adapter->dt_node,
+						 "marvell,wakeup-pin",
+						 &data) == 0) {
+				pr_debug("Wakeup pin = 0x%x\n", data);
+				adapter->hs_cfg.gpio = data;
+			}
+
 			ret = mwifiex_dnld_dt_cfgdata(priv, adapter->dt_node,
 						      "marvell,caldata");
 			if (ret)
@@ -2075,7 +2116,8 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta)
 
 		/** Set SDIO Single Port RX Aggr Info */
 		if (priv->adapter->iface_type == MWIFIEX_SDIO &&
-		    ISSUPP_SDIO_SPA_ENABLED(priv->adapter->fw_cap_info)) {
+		    ISSUPP_SDIO_SPA_ENABLED(priv->adapter->fw_cap_info) &&
+		    !priv->adapter->host_disable_sdio_rx_aggr) {
 			sdio_sp_rx_aggr_enable = true;
 			ret = mwifiex_send_cmd(priv,
 					       HostCmd_CMD_SDIO_SP_RX_AGGR_CFG,
@@ -2170,6 +2212,10 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta)
 			mwifiex_dbg(priv->adapter, ERROR,
 				    "11D: failed to enable 11D\n");
 	}
+
+	/* Send cmd to fw to enable timeshare coexistence */
+	ret = mwifiex_send_cmd(priv, HostCmd_CMD_ROBUST_COEX,
+			       HostCmd_ACT_GEN_SET, 0, &timeshare_coex, true);
 
 	/* set last_init_cmd before sending the command */
 	priv->adapter->last_init_cmd = HostCmd_CMD_11N_CFG;

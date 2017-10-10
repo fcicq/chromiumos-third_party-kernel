@@ -31,6 +31,11 @@
 #include "tkip.h"
 #include "wme.h"
 #include "rate.h"
+#include "debugfs_sta.h"
+
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+#include "wifi_diag.h"
+#endif
 
 static inline void ieee80211_rx_stats(struct net_device *dev, u32 len)
 {
@@ -77,8 +82,7 @@ static inline bool should_drop_frame(struct sk_buff *skb, int present_fcs_len,
 	hdr = (void *)(skb->data + rtap_vendor_space);
 
 	if (status->flag & (RX_FLAG_FAILED_FCS_CRC |
-			    RX_FLAG_FAILED_PLCP_CRC |
-			    RX_FLAG_AMPDU_IS_ZEROLEN))
+			    RX_FLAG_FAILED_PLCP_CRC))
 		return true;
 
 	if (unlikely(skb->len < 16 + present_fcs_len + rtap_vendor_space))
@@ -346,10 +350,6 @@ ieee80211_add_rx_radiotap_header(struct ieee80211_local *local,
 			cpu_to_le32(1 << IEEE80211_RADIOTAP_AMPDU_STATUS);
 		put_unaligned_le32(status->ampdu_reference, pos);
 		pos += 4;
-		if (status->flag & RX_FLAG_AMPDU_REPORT_ZEROLEN)
-			flags |= IEEE80211_RADIOTAP_AMPDU_REPORT_ZEROLEN;
-		if (status->flag & RX_FLAG_AMPDU_IS_ZEROLEN)
-			flags |= IEEE80211_RADIOTAP_AMPDU_IS_ZEROLEN;
 		if (status->flag & RX_FLAG_AMPDU_LAST_KNOWN)
 			flags |= IEEE80211_RADIOTAP_AMPDU_LAST_KNOWN;
 		if (status->flag & RX_FLAG_AMPDU_IS_LAST)
@@ -1210,7 +1210,7 @@ static void sta_ps_start(struct sta_info *sta)
 	for (tid = 0; tid < ARRAY_SIZE(sta->sta.txq); tid++) {
 		struct txq_info *txqi = to_txq_info(sta->sta.txq[tid]);
 
-		if (!skb_queue_len(&txqi->queue))
+		if (!txqi->tin.backlog_packets)
 			set_bit(tid, &sta->txq_buffered_tids);
 		else
 			clear_bit(tid, &sta->txq_buffered_tids);
@@ -1383,6 +1383,7 @@ ieee80211_rx_h_sta_process(struct ieee80211_rx_data *rx)
 			sta->last_rx_rate_flag = status->flag;
 			sta->last_rx_rate_vht_flag = status->vht_flag;
 			sta->last_rx_rate_vht_nss = status->vht_nss;
+			ieee80211_rx_h_sta_stats(sta, skb);
 		}
 	}
 
@@ -1550,8 +1551,13 @@ ieee80211_rx_h_decrypt(struct ieee80211_rx_data *rx)
 		if (mmie_keyidx < NUM_DEFAULT_KEYS ||
 		    mmie_keyidx >= NUM_DEFAULT_KEYS + NUM_DEFAULT_MGMT_KEYS)
 			return RX_DROP_MONITOR; /* unexpected BIP keyidx */
-		if (rx->sta)
+		if (rx->sta) {
+			if (ieee80211_is_group_privacy_action(skb) &&
+			    test_sta_flag(rx->sta, WLAN_STA_MFP))
+				return RX_DROP_MONITOR;
+
 			rx->key = rcu_dereference(rx->sta->gtk[mmie_keyidx]);
+		}
 		if (!rx->key)
 			rx->key = rcu_dereference(rx->sdata->keys[mmie_keyidx]);
 	} else if (!ieee80211_has_protected(fc)) {
@@ -2195,7 +2201,7 @@ ieee80211_rx_h_mesh_fwding(struct ieee80211_rx_data *rx)
 	struct ieee80211_local *local = rx->local;
 	struct ieee80211_sub_if_data *sdata = rx->sdata;
 	struct ieee80211_if_mesh *ifmsh = &sdata->u.mesh;
-	u16 q, hdrlen;
+	u16 ac, q, hdrlen;
 
 	hdr = (struct ieee80211_hdr *) skb->data;
 	hdrlen = ieee80211_hdrlen(hdr->frame_control);
@@ -2234,11 +2240,13 @@ ieee80211_rx_h_mesh_fwding(struct ieee80211_rx_data *rx)
 		struct mesh_path *mppath;
 		char *proxied_addr;
 		char *mpp_addr;
+		bool mpp_table_updated = 0;
 
 		if (is_multicast_ether_addr(hdr->addr1)) {
 			mpp_addr = hdr->addr3;
 			proxied_addr = mesh_hdr->eaddr1;
-		} else if (mesh_hdr->flags & MESH_FLAGS_AE_A5_A6) {
+		} else if ((mesh_hdr->flags & MESH_FLAGS_AE) ==
+			    MESH_FLAGS_AE_A5_A6) {
 			/* has_a4 already checked in ieee80211_rx_mesh_check */
 			mpp_addr = hdr->addr4;
 			proxied_addr = mesh_hdr->eaddr2;
@@ -2250,13 +2258,29 @@ ieee80211_rx_h_mesh_fwding(struct ieee80211_rx_data *rx)
 		mppath = mpp_path_lookup(sdata, proxied_addr);
 		if (!mppath) {
 			mpp_path_add(sdata, proxied_addr, mpp_addr);
+			rcu_read_unlock();
+			mpath_dbg(sdata, "MESH MPPU add mpp %pM dest %pM  \n",
+					  mpp_addr, proxied_addr);
+			mpp_table_updated = 1;
 		} else {
+			u8 old_mpp[ETH_ALEN];
 			spin_lock_bh(&mppath->state_lock);
-			if (!ether_addr_equal(mppath->mpp, mpp_addr))
+			if (!ether_addr_equal(mppath->mpp, mpp_addr)) {
+				memcpy(old_mpp, mppath->mpp, ETH_ALEN);
 				memcpy(mppath->mpp, mpp_addr, ETH_ALEN);
+				mpp_table_updated = 1;
+			}
+			mppath->exp_time = jiffies;
 			spin_unlock_bh(&mppath->state_lock);
+			rcu_read_unlock();
+			if (mpp_table_updated) {
+				mpath_dbg(sdata, "MESH MPPU mpp changed from %pM to %pM for dest %pM \n",
+						  old_mpp,mpp_addr, proxied_addr);
+			}
 		}
-		rcu_read_unlock();
+		if (mpp_table_updated) {
+			mpp_path_table_debug_dump(sdata);
+		}
 	}
 
 	/* Frame has reached destination.  Don't forward */
@@ -2264,7 +2288,8 @@ ieee80211_rx_h_mesh_fwding(struct ieee80211_rx_data *rx)
 	    ether_addr_equal(sdata->vif.addr, hdr->addr3))
 		return RX_CONTINUE;
 
-	q = ieee80211_select_queue_80211(sdata, skb, hdr);
+	ac = ieee80211_select_queue_80211(sdata, skb, hdr);
+	q = sdata->vif.hw_queue[ac];
 	if (ieee80211_queue_stopped(&local->hw, q)) {
 		IEEE80211_IFSTA_MESH_CTR_INC(ifmsh, dropped_frames_congestion);
 		return RX_DROP_MONITOR;
@@ -3117,12 +3142,23 @@ static void ieee80211_rx_handlers(struct ieee80211_rx_data *rx,
 	ieee80211_rx_result res = RX_DROP_MONITOR;
 	struct sk_buff *skb;
 
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+#define CALL_RXH(rxh)			\
+	do {                            \
+		res = rxh(rx);          \
+		if (res != RX_QUEUED && res != RX_CONTINUE)     \
+			WIFI_DIAG_RX_DBG(rx, res, "%s", #rxh);	\
+		if (res != RX_CONTINUE)	\
+			goto rxh_next;  \
+	} while (0);
+#else
 #define CALL_RXH(rxh)			\
 	do {				\
 		res = rxh(rx);		\
 		if (res != RX_CONTINUE)	\
 			goto rxh_next;  \
 	} while (0);
+#endif
 
 	/* Lock here to avoid hitting all of the data used in the RX
 	 * path (e.g. key data, station data, ...) concurrently when
@@ -3181,12 +3217,23 @@ static void ieee80211_invoke_rx_handlers(struct ieee80211_rx_data *rx)
 
 	__skb_queue_head_init(&reorder_release);
 
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+#define CALL_RXH(rxh)			\
+	do {                            \
+		res = rxh(rx);          \
+		if (res != RX_QUEUED && res != RX_CONTINUE)     \
+			WIFI_DIAG_RX_DBG(rx, res, "%s", #rxh);	\
+		if (res != RX_CONTINUE)	\
+			goto rxh_next;  \
+	} while (0);
+#else
 #define CALL_RXH(rxh)			\
 	do {				\
 		res = rxh(rx);		\
 		if (res != RX_CONTINUE)	\
 			goto rxh_next;  \
 	} while (0);
+#endif
 
 	CALL_RXH(ieee80211_rx_h_check_dup)
 	CALL_RXH(ieee80211_rx_h_check)
@@ -3367,6 +3414,10 @@ static bool ieee80211_prepare_and_rx_handle(struct ieee80211_rx_data *rx,
 	struct ieee80211_sub_if_data *sdata = rx->sdata;
 
 	rx->skb = skb;
+
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+	WIFI_DIAG_SET_RX_STATUS(local, rx->sta, skb);
+#endif
 
 	if (!ieee80211_accept_frame(rx))
 		return false;

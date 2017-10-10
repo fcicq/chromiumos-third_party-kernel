@@ -37,8 +37,10 @@ struct wmi_ops {
 			      struct wmi_peer_kick_ev_arg *arg);
 	int (*pull_swba)(struct ath10k *ar, struct sk_buff *skb,
 			 struct wmi_swba_ev_arg *arg);
-	int (*pull_phyerr)(struct ath10k *ar, struct sk_buff *skb,
-			   struct wmi_phyerr_ev_arg *arg);
+	int (*pull_phyerr_hdr)(struct ath10k *ar, struct sk_buff *skb,
+			       struct wmi_phyerr_hdr_arg *arg);
+	int (*pull_phyerr)(struct ath10k *ar, const void *phyerr_buf,
+			   int left_len, struct wmi_phyerr_ev_arg *arg);
 	int (*pull_svc_rdy)(struct ath10k *ar, struct sk_buff *skb,
 			    struct wmi_svc_rdy_ev_arg *arg);
 	int (*pull_rdy)(struct ath10k *ar, struct sk_buff *skb,
@@ -49,6 +51,10 @@ struct wmi_ops {
 			    struct wmi_roam_ev_arg *arg);
 	int (*pull_wow_event)(struct ath10k *ar, struct sk_buff *skb,
 			      struct wmi_wow_ev_arg *arg);
+	int (*pull_chan_survey_update)(struct ath10k *ar, struct sk_buff *skb,
+				       struct wmi_chan_survey_ev_arg *arg);
+
+	enum wmi_txbf_conf (*get_txbf_conf_scheme)(struct ath10k *ar);
 
 	struct sk_buff *(*gen_pdev_suspend)(struct ath10k *ar, u32 suspend_opt);
 	struct sk_buff *(*gen_pdev_resume)(struct ath10k *ar);
@@ -120,7 +126,7 @@ struct wmi_ops {
 					     enum wmi_force_fw_hang_type type,
 					     u32 delay_ms);
 	struct sk_buff *(*gen_mgmt_tx)(struct ath10k *ar, struct sk_buff *skb);
-	struct sk_buff *(*gen_dbglog_cfg)(struct ath10k *ar, u32 module_enable,
+	struct sk_buff *(*gen_dbglog_cfg)(struct ath10k *ar, u64 module_enable,
 					  u32 log_level);
 	struct sk_buff *(*gen_pktlog_enable)(struct ath10k *ar, u32 filter);
 	struct sk_buff *(*gen_pktlog_disable)(struct ath10k *ar);
@@ -174,6 +180,48 @@ struct wmi_ops {
 						const struct wmi_tdls_peer_capab_arg *cap,
 						const struct wmi_channel_arg *chan);
 	struct sk_buff *(*gen_adaptive_qcs)(struct ath10k *ar, bool enable);
+	struct sk_buff *(*gen_chan_survey_send)(struct ath10k *ar,
+						enum wmi_chan_survey_req_param param);
+	struct sk_buff *(*gen_pdev_get_tpc_config)(struct ath10k *ar,
+						   u32 param);
+	void (*fw_stats_fill)(struct ath10k *ar,
+			      struct ath10k_fw_stats *fw_stats,
+			      char *buf);
+	struct sk_buff *(*gen_pdev_enable_adaptive_cca)(struct ath10k *ar,
+							u8 enable,
+							u32 detect_level,
+							u32 detect_margin);
+	struct sk_buff *(*ext_resource_config)(struct ath10k *ar,
+					       enum wmi_host_platform_type type,
+					       u32 fw_feature_bitmap);
+	int (*get_vdev_subtype)(struct ath10k *ar,
+				enum wmi_vdev_subtype subtype);
+
+	struct sk_buff *(*gen_set_coex_param)(struct ath10k *ar,
+					      u32 wlan_traffic_priority);
+
+	struct sk_buff *(*gen_pdev_sa_disabled_ant_sel)(struct ath10k *ar,
+							u32 mode, u32 tx_ant,
+							u32 rx_ant);
+
+#ifdef CONFIG_ATH10K_SMART_ANTENNA
+	struct sk_buff *(*gen_pdev_enable_smart_ant)(struct ath10k *ar,
+						     u32 mode, u32 tx_ant,
+						     u32 rx_ant);
+	struct sk_buff *(*gen_peer_set_smart_tx_ant)(struct ath10k *ar,
+						     u32 vdev_id,
+						     const u8 *macaddr,
+						     const u32 *ant_rate_list,
+						     int n_ants);
+	struct sk_buff *(*gen_pdev_set_rx_ant)(struct ath10k *ar, u32 antenna);
+	struct sk_buff *(*gen_peer_cfg_smart_ant_fb)(
+				struct ath10k *ar,
+				const struct wmi_smart_ant_sta_cfg_arg *arg);
+	struct sk_buff *(*gen_peer_set_smart_ant_train_info)(
+				struct ath10k *ar,
+				u32 vdev_id, const u8 *mac_addr,
+				const struct wmi_peer_sant_set_train_arg *arg);
+#endif
 };
 
 int ath10k_wmi_cmd_send(struct ath10k *ar, struct sk_buff *skb, u32 cmd_id);
@@ -260,13 +308,23 @@ ath10k_wmi_pull_swba(struct ath10k *ar, struct sk_buff *skb,
 }
 
 static inline int
-ath10k_wmi_pull_phyerr(struct ath10k *ar, struct sk_buff *skb,
-		       struct wmi_phyerr_ev_arg *arg)
+ath10k_wmi_pull_phyerr_hdr(struct ath10k *ar, struct sk_buff *skb,
+			   struct wmi_phyerr_hdr_arg *arg)
+{
+	if (!ar->wmi.ops->pull_phyerr_hdr)
+		return -EOPNOTSUPP;
+
+	return ar->wmi.ops->pull_phyerr_hdr(ar, skb, arg);
+}
+
+static inline int
+ath10k_wmi_pull_phyerr(struct ath10k *ar, const void *phyerr_buf,
+		       int left_len, struct wmi_phyerr_ev_arg *arg)
 {
 	if (!ar->wmi.ops->pull_phyerr)
 		return -EOPNOTSUPP;
 
-	return ar->wmi.ops->pull_phyerr(ar, skb, arg);
+	return ar->wmi.ops->pull_phyerr(ar, phyerr_buf, left_len, arg);
 }
 
 static inline int
@@ -317,6 +375,25 @@ ath10k_wmi_pull_wow_event(struct ath10k *ar, struct sk_buff *skb,
 		return -EOPNOTSUPP;
 
 	return ar->wmi.ops->pull_wow_event(ar, skb, arg);
+}
+
+static inline enum wmi_txbf_conf
+ath10k_wmi_get_txbf_conf_scheme(struct ath10k *ar)
+{
+	if (!ar->wmi.ops->get_txbf_conf_scheme)
+		return WMI_TXBF_CONF_UNSUPPORTED;
+
+	return ar->wmi.ops->get_txbf_conf_scheme(ar);
+}
+
+static inline int
+ath10k_wmi_pull_chan_survey_update(struct ath10k *ar, struct sk_buff *skb,
+				   struct wmi_chan_survey_ev_arg *arg)
+{
+	if (!ar->wmi.ops->pull_chan_survey_update)
+		return -EOPNOTSUPP;
+
+	return ar->wmi.ops->pull_chan_survey_update(ar, skb, arg);
 }
 
 static inline int
@@ -893,7 +970,7 @@ ath10k_wmi_force_fw_hang(struct ath10k *ar,
 }
 
 static inline int
-ath10k_wmi_dbglog_cfg(struct ath10k *ar, u32 module_enable, u32 log_level)
+ath10k_wmi_dbglog_cfg(struct ath10k *ar, u64 module_enable, u32 log_level)
 {
 	struct sk_buff *skb;
 
@@ -1248,4 +1325,225 @@ ath10k_wmi_adaptive_qcs(struct ath10k *ar, bool enable)
 	return ath10k_wmi_cmd_send(ar, skb, ar->wmi.cmd->adaptive_qcs_cmdid);
 }
 
+static inline int
+ath10k_wmi_send_chan_survey_req(struct ath10k *ar,
+				enum wmi_chan_survey_req_param param)
+{
+	struct sk_buff *skb;
+	u32 cmd_id;
+
+	if (!ar->wmi.ops->gen_chan_survey_send)
+		return -EOPNOTSUPP;
+
+	skb = ar->wmi.ops->gen_chan_survey_send(ar, param);
+	if (IS_ERR(skb))
+		return PTR_ERR(skb);
+
+	cmd_id = ar->wmi.cmd->pdev_chan_survey_update_cmdid;
+
+	return ath10k_wmi_cmd_send(ar, skb, cmd_id);
+}
+
+static inline int
+ath10k_wmi_pdev_get_tpc_config(struct ath10k *ar, u32 param)
+{
+	struct sk_buff *skb;
+
+	if (!ar->wmi.ops->gen_pdev_get_tpc_config)
+		return -EOPNOTSUPP;
+
+	skb = ar->wmi.ops->gen_pdev_get_tpc_config(ar, param);
+
+	if (IS_ERR(skb))
+		return PTR_ERR(skb);
+
+	return ath10k_wmi_cmd_send(ar, skb,
+				   ar->wmi.cmd->pdev_get_tpc_config_cmdid);
+}
+
+static inline int
+ath10k_wmi_fw_stats_fill(struct ath10k *ar, struct ath10k_fw_stats *fw_stats,
+			 char *buf)
+{
+	if (!ar->wmi.ops->fw_stats_fill)
+		return -EOPNOTSUPP;
+
+	ar->wmi.ops->fw_stats_fill(ar, fw_stats, buf);
+	return 0;
+}
+
+static inline int
+ath10k_wmi_pdev_enable_adaptive_cca(struct ath10k *ar, u8 enable,
+				    u32 detect_level, u32 detect_margin)
+{
+	struct sk_buff *skb;
+
+	if (!ar->wmi.ops->gen_pdev_enable_adaptive_cca)
+		return -EOPNOTSUPP;
+
+	skb = ar->wmi.ops->gen_pdev_enable_adaptive_cca(ar, enable,
+							detect_level,
+							detect_margin);
+
+	if (IS_ERR(skb))
+		return PTR_ERR(skb);
+
+	return ath10k_wmi_cmd_send(ar, skb,
+				   ar->wmi.cmd->pdev_enable_adaptive_cca_cmdid);
+}
+
+static inline int
+ath10k_wmi_ext_resource_config(struct ath10k *ar,
+			       enum wmi_host_platform_type type,
+			       u32 fw_feature_bitmap)
+{
+	struct sk_buff *skb;
+
+	if (!ar->wmi.ops->ext_resource_config)
+		return -EOPNOTSUPP;
+
+	skb = ar->wmi.ops->ext_resource_config(ar, type,
+					       fw_feature_bitmap);
+
+	if (IS_ERR(skb))
+		return PTR_ERR(skb);
+
+	return ath10k_wmi_cmd_send(ar, skb,
+				   ar->wmi.cmd->ext_resource_cfg_cmdid);
+}
+
+static inline int
+ath10k_wmi_get_vdev_subtype(struct ath10k *ar, enum wmi_vdev_subtype subtype)
+{
+	if (!ar->wmi.ops->get_vdev_subtype)
+		return -EOPNOTSUPP;
+
+	return ar->wmi.ops->get_vdev_subtype(ar, subtype);
+}
+
+static inline int
+ath10k_wmi_set_coex_param(struct ath10k *ar, u32 wlan_traffic_priority)
+{
+	struct sk_buff *skb;
+
+	if (!ar->wmi.ops->gen_set_coex_param)
+		return -EOPNOTSUPP;
+
+	skb = ar->wmi.ops->gen_set_coex_param(ar, wlan_traffic_priority);
+
+	if(IS_ERR(skb))
+		return PTR_ERR(skb);
+
+	return ath10k_wmi_cmd_send(ar, skb,
+				   ar->wmi.cmd->set_coex_param_cmdid);
+}
+
+static inline int
+ath10k_wmi_pdev_sa_disabled_ant_sel(struct ath10k *ar, u32 mode,
+				    u32 tx_ant, u32 rx_ant)
+{
+	struct sk_buff *skb;
+
+	if (!ar->wmi.ops->gen_pdev_sa_disabled_ant_sel)
+		return -EOPNOTSUPP;
+
+	skb = ar->wmi.ops->gen_pdev_sa_disabled_ant_sel(ar,
+							mode, tx_ant, rx_ant);
+	if (IS_ERR(skb))
+		return PTR_ERR(skb);
+
+	return ath10k_wmi_cmd_send(ar, skb,
+				   ar->wmi.cmd->pdev_set_smart_ant_cmdid);
+}
+
+#ifdef CONFIG_ATH10K_SMART_ANTENNA
+static inline int
+ath10k_wmi_pdev_enable_smart_ant(struct ath10k *ar, u32 mode,
+				 u32 tx_ant, u32 rx_ant)
+{
+	struct sk_buff *skb;
+
+	if (!ar->wmi.ops->gen_pdev_enable_smart_ant)
+		return -EOPNOTSUPP;
+
+	skb = ar->wmi.ops->gen_pdev_enable_smart_ant(ar, mode, tx_ant, rx_ant);
+	if (IS_ERR(skb))
+		return PTR_ERR(skb);
+
+	return ath10k_wmi_cmd_send(ar, skb,
+				   ar->wmi.cmd->pdev_set_smart_ant_cmdid);
+}
+
+static inline int
+ath10k_wmi_peer_set_smart_tx_ant(struct ath10k *ar, u32 vdev_id,
+				 const u8 *macaddr, const u32 *ant_rate_list,
+				 int n_ants)
+{
+	struct sk_buff *skb;
+
+	if (!ar->wmi.ops->gen_peer_set_smart_tx_ant)
+		return -EOPNOTSUPP;
+
+	skb = ar->wmi.ops->gen_peer_set_smart_tx_ant(ar, vdev_id, macaddr,
+						     ant_rate_list, n_ants);
+	if (IS_ERR(skb))
+		return PTR_ERR(skb);
+
+	return ath10k_wmi_cmd_send(ar, skb,
+				   ar->wmi.cmd->peer_set_smart_tx_ant_cmdid);
+}
+
+static inline int
+ath10k_wmi_pdev_set_rx_ant(struct ath10k *ar, u32 antenna)
+{
+	struct sk_buff *skb;
+
+	if (!ar->wmi.ops->gen_pdev_set_rx_ant)
+		return -EOPNOTSUPP;
+
+	skb = ar->wmi.ops->gen_pdev_set_rx_ant(ar, antenna);
+	if (IS_ERR(skb))
+		return PTR_ERR(skb);
+
+	return ath10k_wmi_cmd_send(ar, skb,
+				   ar->wmi.cmd->pdev_set_rx_ant_cmdid);
+}
+
+static inline int
+ath10k_wmi_peer_cfg_smart_ant(struct ath10k *ar,
+			      const struct wmi_smart_ant_sta_cfg_arg *arg)
+{
+	struct sk_buff *skb;
+
+	if (!ar->wmi.ops->gen_peer_cfg_smart_ant_fb)
+		return -EOPNOTSUPP;
+
+	skb = ar->wmi.ops->gen_peer_cfg_smart_ant_fb(ar, arg);
+	if (IS_ERR(skb))
+		return PTR_ERR(skb);
+
+	return ath10k_wmi_cmd_send(ar, skb,
+				   ar->wmi.cmd->peer_smart_ant_fb_config_cmdid);
+}
+
+static inline int
+ath10k_wmi_peer_set_smart_ant_train_info(
+			struct ath10k *ar,
+			u32 vdev_id, const u8 *macaddr,
+			const struct wmi_peer_sant_set_train_arg *arg)
+{
+	struct sk_buff *skb;
+
+	if (!ar->wmi.ops->gen_peer_set_smart_ant_train_info)
+		return -EOPNOTSUPP;
+
+	skb = ar->wmi.ops->gen_peer_set_smart_ant_train_info(ar, vdev_id,
+							     macaddr, arg);
+	if (IS_ERR(skb))
+		return PTR_ERR(skb);
+
+	return ath10k_wmi_cmd_send(ar, skb,
+			ar->wmi.cmd->peer_set_smart_ant_train_info_cmdid);
+}
+#endif
 #endif

@@ -54,14 +54,160 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "sync_internal.h"
 #include "rgxfwutils.h"
 
+
+PVRSRV_ERROR RGXQueryAPMState(const PVRSRV_DEVICE_NODE *psDeviceNode,
+	const void *pvPrivateData,
+	IMG_UINT32 *pui32State)
+{
+	PVRSRV_RGXDEV_INFO *psDevInfo;
+
+	PVR_UNREFERENCED_PARAMETER(pvPrivateData);
+
+	if (!psDeviceNode)
+		return PVRSRV_ERROR_INVALID_PARAMS;
+
+	psDevInfo = psDeviceNode->pvDevice;
+	*pui32State = psDevInfo->eActivePMConf;
+
+	return PVRSRV_OK;
+}
+
+PVRSRV_ERROR RGXSetAPMState(const PVRSRV_DEVICE_NODE *psDeviceNode,
+	const void *pvPrivateData,
+	IMG_UINT32 ui32State)
+{
+	PVRSRV_ERROR eError = PVRSRV_OK;
+	PVRSRV_RGXDEV_INFO *psDevInfo;
+
+	PVR_UNREFERENCED_PARAMETER(pvPrivateData);
+
+	if (!psDeviceNode || !psDeviceNode->pvDevice)
+	{
+		return PVRSRV_ERROR_INVALID_PARAMS;
+	}
+
+	psDevInfo = psDeviceNode->pvDevice;
+
+	if (RGX_ACTIVEPM_FORCE_OFF != ui32State
+		|| !psDevInfo->pvAPMISRData)
+	{
+		return PVRSRV_ERROR_NOT_SUPPORTED;
+	}
+
+#if !defined(NO_HARDWARE)
+	eError = OSUninstallMISR(psDevInfo->pvAPMISRData);
+	if (PVRSRV_OK == eError)
+	{
+		psDevInfo->eActivePMConf = RGX_ACTIVEPM_FORCE_OFF;
+		psDevInfo->pvAPMISRData = NULL;
+		eError = PVRSRVSetDeviceDefaultPowerState(psDeviceNode,
+		                                          PVRSRV_DEV_POWER_STATE_ON);
+	}
+#endif
+
+	return eError;
+}
+
+PVRSRV_ERROR RGXQueryPdumpPanicEnable(const PVRSRV_DEVICE_NODE *psDeviceNode,
+	const void *pvPrivateData,
+	IMG_BOOL *pbEnabled)
+{
+	PVRSRV_RGXDEV_INFO *psDevInfo;
+
+	PVR_UNREFERENCED_PARAMETER(pvPrivateData);
+
+	if (!psDeviceNode || !psDeviceNode->pvDevice)
+	{
+		return PVRSRV_ERROR_INVALID_PARAMS;
+	}
+
+	psDevInfo = psDeviceNode->pvDevice;
+
+	*pbEnabled = psDevInfo->bPDPEnabled;
+
+	return PVRSRV_OK;
+}
+
+PVRSRV_ERROR RGXSetPdumpPanicEnable(const PVRSRV_DEVICE_NODE *psDeviceNode,
+	const void *pvPrivateData,
+	IMG_BOOL bEnable)
+{
+	PVRSRV_RGXDEV_INFO *psDevInfo;
+
+	PVR_UNREFERENCED_PARAMETER(pvPrivateData);
+
+	if (!psDeviceNode || !psDeviceNode->pvDevice)
+	{
+		return PVRSRV_ERROR_INVALID_PARAMS;
+	}
+
+	psDevInfo = psDeviceNode->pvDevice;
+
+	psDevInfo->bPDPEnabled = bEnable;
+
+	return PVRSRV_OK;
+}
+
+PVRSRV_ERROR RGXGetDeviceFlags(PVRSRV_RGXDEV_INFO *psDevInfo,
+				IMG_UINT32 *pui32DeviceFlags)
+{
+	if (!pui32DeviceFlags || !psDevInfo)
+	{
+		return PVRSRV_ERROR_INVALID_PARAMS;
+	}
+
+	*pui32DeviceFlags = psDevInfo->ui32DeviceFlags;
+
+	return PVRSRV_OK;
+}
+
+PVRSRV_ERROR RGXSetDeviceFlags(PVRSRV_RGXDEV_INFO *psDevInfo,
+				IMG_UINT32 ui32Config,
+				IMG_BOOL bSetNotClear)
+{
+	IMG_UINT32 ui32DeviceFlags = 0;
+
+	if (!psDevInfo)
+	{
+		return PVRSRV_ERROR_INVALID_PARAMS;
+	}
+
+	if (ui32Config & RGXKMIF_DEVICE_STATE_ZERO_FREELIST)
+	{
+		ui32DeviceFlags |= RGXKM_DEVICE_STATE_ZERO_FREELIST;
+	}
+
+	if (ui32Config & RGXKMIF_DEVICE_STATE_DISABLE_DW_LOGGING_EN)
+	{
+		ui32DeviceFlags |= RGXKM_DEVICE_STATE_DISABLE_DW_LOGGING_EN;
+	}
+
+	if (ui32Config & RGXKMIF_DEVICE_STATE_DUST_REQUEST_INJECT_EN)
+	{
+		ui32DeviceFlags |= RGXKM_DEVICE_STATE_DUST_REQUEST_INJECT_EN;
+	}
+
+	if (bSetNotClear)
+	{
+		psDevInfo->ui32DeviceFlags |= ui32DeviceFlags;
+	}
+	else
+	{
+		psDevInfo->ui32DeviceFlags &= ~ui32DeviceFlags;
+	}
+
+	return PVRSRV_OK;
+}
+
 /*
  * RGXRunScript
  */
-PVRSRV_ERROR RGXRunScript(PVRSRV_RGXDEV_INFO	*psDevInfo,
-						 RGX_INIT_COMMAND		*psScript,
-						 IMG_UINT32				ui32NumCommands,
-						 IMG_UINT32				ui32PdumpFlags,
-						 DUMPDEBUG_PRINTF_FUNC  *pfnDumpDebugPrintf)
+PVRSRV_ERROR RGXRunScript(PVRSRV_RGXDEV_INFO *psDevInfo,
+				RGX_INIT_COMMAND *psScript,
+				IMG_UINT32 ui32NumCommands,
+				IMG_UINT32 ui32PdumpFlags,
+				DUMPDEBUG_PRINTF_FUNC *pfnDumpDebugPrintf,
+				void *pvDumpDebugFile)
 {
 	IMG_UINT32 ui32PC;
 #if !defined(NO_HARDWARE)
@@ -78,14 +224,14 @@ PVRSRV_ERROR RGXRunScript(PVRSRV_RGXDEV_INFO	*psDevInfo,
 			{
 				IMG_UINT32	ui32RegVal;
 				ui32RegVal = OSReadHWReg32(psDevInfo->pvRegsBaseKM,  psComm->sDBGReadHWReg.ui32Offset);
-				PVR_DUMPDEBUG_LOG(("%s: 0x%08X", psComm->sDBGReadHWReg.aszName, ui32RegVal));
+				PVR_DUMPDEBUG_LOG("%s: 0x%08X", psComm->sDBGReadHWReg.aszName, ui32RegVal);
 				break;
 			}
 			case RGX_INIT_OP_DBG_READ64_HW_REG:
 			{
 				IMG_UINT64	ui64RegVal;
 				ui64RegVal = OSReadHWReg64(psDevInfo->pvRegsBaseKM, psComm->sDBGReadHWReg.ui32Offset);
-				PVR_DUMPDEBUG_LOG(("%s: 0x%016llX", psComm->sDBGReadHWReg.aszName, ui64RegVal));
+				PVR_DUMPDEBUG_LOG("%s: 0x%016llX", psComm->sDBGReadHWReg.aszName, ui64RegVal);
 				break;
 			}
 			case RGX_INIT_OP_WRITE_HW_REG:
@@ -246,11 +392,11 @@ PVRSRV_ERROR RGXRunScript(PVRSRV_RGXDEV_INFO	*psDevInfo,
 				ui32RegVal3 = OSReadHWReg32(psDevInfo->pvRegsBaseKM,  psComm->sDBGCalc.ui32Offset3);
 				if (ui32RegVal1 + ui32RegVal2 > ui32RegVal3)
 				{
-					PVR_DUMPDEBUG_LOG(("%s: 0x%08X", psComm->sDBGCalc.aszName, ui32RegVal1 + ui32RegVal2 - ui32RegVal3));
+					PVR_DUMPDEBUG_LOG("%s: 0x%08X", psComm->sDBGCalc.aszName, ui32RegVal1 + ui32RegVal2 - ui32RegVal3);
 				}
 				else
 				{
-					PVR_DUMPDEBUG_LOG(("%s: 0x%08X", psComm->sDBGCalc.aszName, 0));
+					PVR_DUMPDEBUG_LOG("%s: 0x%08X", psComm->sDBGCalc.aszName, 0);
 				}
 				break;
 			}
@@ -261,7 +407,7 @@ PVRSRV_ERROR RGXRunScript(PVRSRV_RGXDEV_INFO	*psDevInfo,
 			}
 			case RGX_INIT_OP_DBG_STRING:
 			{
-				PVR_DUMPDEBUG_LOG(("%s", psComm->sDBGString.aszString));
+				PVR_DUMPDEBUG_LOG("%s", psComm->sDBGString.aszString);
 				break;
 			}
 			case RGX_INIT_OP_HALT:
@@ -280,6 +426,53 @@ PVRSRV_ERROR RGXRunScript(PVRSRV_RGXDEV_INFO	*psDevInfo,
 	}
 
 	return PVRSRV_ERROR_UNKNOWN_SCRIPT_OPERATION;
+}
+
+inline const char * RGXStringifyKickTypeDM(RGX_KICK_TYPE_DM eKickTypeDM)
+{
+	/*      
+	 *  This is based on the currently defined DMs.             
+	 *  If you need to modify the enum in include/rgx_common.h
+	 *  please keep this function up-to-date too.
+	 *
+	 *       typedef enum _RGXFWIF_DM_
+	 *       {
+	 *           RGXFWIF_DM_GP        = 0,
+	 *           RGXFWIF_DM_2D        = 1, 
+	 *           RGXFWIF_DM_TDM       = 1,
+	 *           RGXFWIF_DM_TA        = 2,
+	 *           RGXFWIF_DM_3D        = 3,
+	 *           RGXFWIF_DM_CDM       = 4,
+	 *           RGXFWIF_DM_RTU       = 5,
+	 *           RGXFWIF_DM_SHG       = 6,
+	 *           RGXFWIF_DM_LAST,
+	 *           RGXFWIF_DM_FORCE_I32 = 0x7fffffff   
+	 *       } RGXFWIF_DM;
+	 */
+	PVR_ASSERT(eKickTypeDM < RGX_KICK_TYPE_DM_LAST);
+
+	switch(eKickTypeDM) {
+		case RGX_KICK_TYPE_DM_GP:
+			return "GP ";
+		case RGX_KICK_TYPE_DM_TDM_2D:   
+			return "TDM/2D ";
+		case RGX_KICK_TYPE_DM_TA:   
+			return "TA ";
+		case RGX_KICK_TYPE_DM_3D:
+			return "3D ";
+		case RGX_KICK_TYPE_DM_CDM:
+			return "CDM ";
+		case RGX_KICK_TYPE_DM_RTU:
+			return "RTU ";
+		case RGX_KICK_TYPE_DM_SHG:
+			return "SHG ";
+		case RGX_KICK_TYPE_DM_TQ2D:
+			return "TQ2D ";
+		case RGX_KICK_TYPE_DM_TQ3D:
+			return "TQ3D ";
+		default:
+			return "Invalid DM ";
+	}
 }
 
 /******************************************************************************

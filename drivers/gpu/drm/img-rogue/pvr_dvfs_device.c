@@ -75,12 +75,10 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "power.h"
 
 #include <linux/device.h>
-#if defined(LDM_PLATFORM)
-#include <linux/platform_device.h>
-#define DEVICE_STRUCT platform_device
-#elif defined(LDM_PCI)
-#define DEVICE_STRUCT pci_dev
-#include <linux/pci.h>
+
+#if !defined(CHROMIUMOS_WORKAROUNDS_KERNEL318)
+#define dev_pm_opp_of_add_table of_init_opp_table
+#define dev_pm_opp_of_remove_table of_free_opp_table
 #endif
 
 static PVRSRV_DEVICE_NODE* gpsDeviceNode = NULL;
@@ -93,6 +91,12 @@ static IMG_INT32 devfreq_target(struct device *dev, long unsigned *requested_fre
 	RGX_TIMING_INFORMATION	*psRGXTimingInfo = psRGXData->psRGXTimingInfo;
 	IMG_UINT32		ui32Freq, ui32CurFreq, ui32Volt;
 	struct OPP_STRUCT	*opp;
+
+	if (!psDVFSDevice->bEnabled)
+	{
+		*requested_freq = psRGXTimingInfo->ui32CoreClockSpeed;
+		return 0;
+	}
 
 	rcu_read_lock();
 	opp = devfreq_recommended_opp(dev, requested_freq, flags);
@@ -113,12 +117,13 @@ static IMG_INT32 devfreq_target(struct device *dev, long unsigned *requested_fre
 		return 0;
 	}
 
-	if (!psDVFSDevice->bEnabled)
+	if (PVRSRV_OK != PVRSRVDevicePreClockSpeedChange(gpsDeviceNode,
+													 psDVFSDeviceCfg->bIdleReq,
+													 NULL))
 	{
-		return 0;
+		dev_err(dev, "PVRSRVDevicePreClockSpeedChange failed\n");
+		return -EPERM;
 	}
-
-	PVRSRVDevicePreClockSpeedChange(0, psDVFSDeviceCfg->bIdleReq, NULL);
 
 	/* Increasing frequency, change voltage first */
 	if (ui32Freq > ui32CurFreq)
@@ -136,7 +141,8 @@ static IMG_INT32 devfreq_target(struct device *dev, long unsigned *requested_fre
 
 	psRGXTimingInfo->ui32CoreClockSpeed = ui32Freq;
 
-	PVRSRVDevicePostClockSpeedChange(0, psDVFSDeviceCfg->bIdleReq, NULL);
+	PVRSRVDevicePostClockSpeedChange(gpsDeviceNode, psDVFSDeviceCfg->bIdleReq,
+									 NULL);
 
 	return 0;
 }
@@ -169,7 +175,7 @@ static int devfreq_get_dev_status(struct device *dev, struct devfreq_dev_status 
 		return -EAGAIN;
 	}
 
-	stat->busy_time = sGpuUtilStats.ui64GpuStatActiveHigh;
+	stat->busy_time = sGpuUtilStats.ui64GpuStatActiveHigh + sGpuUtilStats.ui64GpuStatActiveLow;
 	stat->total_time = sGpuUtilStats.ui64GpuStatCumulative;
 
 	return 0;
@@ -220,10 +226,20 @@ static int GetOPPValues(struct device *dev,
                         unsigned long *min_volt,
                         unsigned long *max_freq)
 {
+	struct OPP_STRUCT *opp;
 	int count, i, err = 0;
-	unsigned long *freq_table;
 	unsigned long freq;
-	struct dev_pm_opp *opp;
+
+	/* ChromiumOS kernels are carrying a fix which changes the type of
+	 * freq_table in struct devfreq_dev_profile to 'unsigned long'.
+	 * However, this change has not been merged upstream, so we need
+	 * to support using the older 'unsigned int' type too.
+	 */
+#if defined(CHROMIUMOS_WORKAROUNDS_KERNEL318)
+	unsigned long *freq_table;
+#else
+	unsigned int *freq_table;
+#endif
 
 	/* Start RCU read-side critical section to access device opp_list. */
 	rcu_read_lock();
@@ -308,6 +324,13 @@ static int RegisterCoolingDevice(struct device *dev,
 	struct device_node *of_node;
 	int err = 0;
 
+#if defined(PVRSRV_GPUVIRT_GUESTDRV)
+	/* Not supported in GuestOS drivers */
+	PVR_UNREFERENCED_PARAMETER(dev);
+	PVR_UNREFERENCED_PARAMETER(psDVFSDevice);
+	PVR_UNREFERENCED_PARAMETER(powerOps);
+	PVR_UNREFERENCED_PARAMETER(of_node);
+#else
 	if (!powerOps)
 	{
 		dev_info(dev, "Cooling: power ops not registered, not enabling cooling");
@@ -326,47 +349,38 @@ static int RegisterCoolingDevice(struct device *dev,
 	}
 
 	of_node_put(of_node);
+#endif
+
 	return err;
 }
 #endif
 
 #define TO_IMG_ERR(err) ((err == -EPROBE_DEFER) ? PVRSRV_ERROR_PROBE_DEFER : PVRSRV_ERROR_INIT_FAILURE)
 
-PVRSRV_ERROR InitDVFS(PVRSRV_DATA *psPVRSRVData, void *hDevice)
+PVRSRV_ERROR InitDVFS(PVRSRV_DEVICE_NODE *psDeviceNode)
 {
 	IMG_DVFS_DEVICE        *psDVFSDevice = NULL;
 	IMG_DVFS_DEVICE_CFG    *psDVFSDeviceCfg = NULL;
 	IMG_DVFS_GOVERNOR_CFG  *psDVFSGovernorCfg = NULL;
 	RGX_TIMING_INFORMATION *psRGXTimingInfo = NULL;
-	struct DEVICE_STRUCT   *psLDMDev = (struct DEVICE_STRUCT *) hDevice;
-	struct device          *psDev = &psLDMDev->dev;
-	unsigned long           min_freq, max_freq, min_volt;
+	struct device          *psDev = psDeviceNode->psDevConfig->pvOSDevice;
+	unsigned long           min_freq = 0, max_freq = 0, min_volt = 0;
 	PVRSRV_ERROR            eError;
-	int                     i, err;
+	int                     err;
 
-	for (i = 0; i < psPVRSRVData->ui32RegisteredDevices; i++)
+	if (gpsDeviceNode)
 	{
-		PVRSRV_DEVICE_NODE* psDeviceNode = psPVRSRVData->apsRegisteredDevNodes[i];
-
-		if (psDeviceNode && 
-			psDeviceNode->psDevConfig &&
-			psDeviceNode->psDevConfig->eDeviceType == PVRSRV_DEVICE_TYPE_RGX)
-		{
-			RGX_DATA *psRGXData = (RGX_DATA*) psDeviceNode->psDevConfig->hDevData;
-
-			gpsDeviceNode = psDeviceNode;
-			psDVFSDevice = &gpsDeviceNode->psDevConfig->sDVFS.sDVFSDevice;
-			psDVFSDeviceCfg = &gpsDeviceNode->psDevConfig->sDVFS.sDVFSDeviceCfg;
-			psDVFSGovernorCfg = &psDeviceNode->psDevConfig->sDVFS.sDVFSGovernorCfg;
-			psRGXTimingInfo = psRGXData->psRGXTimingInfo;
-		}
-	}
-
-	if (gpsDeviceNode == NULL)
-	{
-		PVR_DPF((PVR_DBG_ERROR, "Failed to find RGX device"));
+		PVR_DPF((PVR_DBG_ERROR,
+				 "DVFS already initialised for device node %p",
+				 gpsDeviceNode));
 		return PVRSRV_ERROR_INIT_FAILURE;
 	}
+
+	gpsDeviceNode = psDeviceNode;
+	psDVFSDevice = &psDeviceNode->psDevConfig->sDVFS.sDVFSDevice;
+	psDVFSDeviceCfg = &psDeviceNode->psDevConfig->sDVFS.sDVFSDeviceCfg;
+	psDVFSGovernorCfg = &psDeviceNode->psDevConfig->sDVFS.sDVFSGovernorCfg;
+	psRGXTimingInfo = ((RGX_DATA *)psDeviceNode->psDevConfig->hDevData)->psRGXTimingInfo;
 
 	eError = RGXRegisterGpuUtilStats(&psDVFSDevice->hGpuUtilUserDVFS);
 	if (eError != PVRSRV_OK) {
@@ -374,12 +388,14 @@ PVRSRV_ERROR InitDVFS(PVRSRV_DATA *psPVRSRVData, void *hDevice)
 		return eError;
 	}
 
-	err = of_init_opp_table(psDev);
+#if defined(CONFIG_OF)
+	err = dev_pm_opp_of_add_table(psDev);
 	if (err) {
 		PVR_DPF((PVR_DBG_ERROR, "Failed to init opp table from devicetree, %d", err));
 		eError = TO_IMG_ERR(err);
 		goto err_exit;
 	}
+#endif
 
 	if (psDVFSDeviceCfg->pasOPPTable) {
 		err = FillOPPTable(psDev);
@@ -434,7 +450,6 @@ PVRSRV_ERROR InitDVFS(PVRSRV_DATA *psPVRSRVData, void *hDevice)
 	if (eError != PVRSRV_OK)
 	{
 		PVR_DPF((PVR_DBG_ERROR,"PVRSRVInit: Failed to suspend DVFS"));
-		eError = eError;
 		goto err_exit;
 	}
 
@@ -463,16 +478,17 @@ PVRSRV_ERROR InitDVFS(PVRSRV_DATA *psPVRSRVData, void *hDevice)
 	return PVRSRV_OK;
 
 err_exit:
-	DeinitDVFS(psPVRSRVData, hDevice);
+	DeinitDVFS(psDeviceNode);
 	return eError;
 }
 
-void DeinitDVFS(PVRSRV_DATA *psPVRSRVData, void *hDevice)
+void DeinitDVFS(PVRSRV_DEVICE_NODE *psDeviceNode)
 {
-	IMG_DVFS_DEVICE      *psDVFSDevice = &gpsDeviceNode->psDevConfig->sDVFS.sDVFSDevice;
-	struct DEVICE_STRUCT *psPlatDev = (struct DEVICE_STRUCT *) hDevice;
-	struct device        *psDev = &psPlatDev->dev;
+	IMG_DVFS_DEVICE      *psDVFSDevice = &psDeviceNode->psDevConfig->sDVFS.sDVFSDevice;
+	struct device        *psDev = psDeviceNode->psDevConfig->pvOSDevice;
 	IMG_INT32            i32Error;
+
+	PVR_ASSERT(psDeviceNode == gpsDeviceNode);
 
 	if (!psDVFSDevice)
 		return;
@@ -505,7 +521,9 @@ void DeinitDVFS(PVRSRV_DATA *psPVRSRVData, void *hDevice)
 	kfree(img_devfreq_dev_profile.freq_table);
 #endif
 
-	of_free_opp_table(psDev);
+#if defined(CONFIG_OF) && ((LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)) || defined(CHROMIUMOS_WORKAROUNDS_KERNEL318))
+	dev_pm_opp_of_remove_table(psDev);
+#endif
 
 	RGXUnregisterGpuUtilStats(psDVFSDevice->hGpuUtilUserDVFS);
 	psDVFSDevice->hGpuUtilUserDVFS = NULL;
@@ -526,7 +544,12 @@ PVRSRV_ERROR ResumeDVFS(void)
 {
 	IMG_DVFS_DEVICE		*psDVFSDevice = &gpsDeviceNode->psDevConfig->sDVFS.sDVFSDevice;
 
+#if defined(PVRSRV_GPUVIRT_GUESTDRV)
+	/* Not supported in GuestOS drivers */
+	psDVFSDevice->bEnabled = IMG_FALSE;
+#else
 	psDVFSDevice->bEnabled = IMG_TRUE;
+#endif
 
 	return PVRSRV_OK;
 }

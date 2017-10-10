@@ -2565,7 +2565,7 @@ static netdev_features_t harmonize_features(struct sk_buff *skb,
 
 netdev_features_t netif_skb_features(struct sk_buff *skb)
 {
-	const struct net_device *dev = skb->dev;
+	struct net_device *dev = skb->dev;
 	netdev_features_t features = dev->features;
 	u16 gso_segs = skb_shinfo(skb)->gso_segs;
 	__be16 protocol = skb->protocol;
@@ -2573,11 +2573,21 @@ netdev_features_t netif_skb_features(struct sk_buff *skb)
 	if (gso_segs > dev->gso_max_segs || gso_segs < dev->gso_min_segs)
 		features &= ~NETIF_F_GSO_MASK;
 
-	if (protocol == htons(ETH_P_8021Q) || protocol == htons(ETH_P_8021AD)) {
-		struct vlan_ethhdr *veh = (struct vlan_ethhdr *)skb->data;
-		protocol = veh->h_vlan_encapsulated_proto;
-	} else if (!vlan_tx_tag_present(skb)) {
-		return harmonize_features(skb, features);
+	/* If encapsulation offload request, verify we are testing
+	 * hardware encapsulation features instead of standard
+	 * features for the netdev
+	 */
+	if (skb->encapsulation)
+		features &= dev->hw_enc_features;
+
+	if (!vlan_tx_tag_present(skb)) {
+		if (unlikely(protocol == htons(ETH_P_8021Q) ||
+			     protocol == htons(ETH_P_8021AD))) {
+			struct vlan_ethhdr *veh = (struct vlan_ethhdr *)skb->data;
+			protocol = veh->h_vlan_encapsulated_proto;
+		} else {
+			goto finalize;
+		}
 	}
 
 	features = netdev_intersect_features(features,
@@ -2594,6 +2604,11 @@ netdev_features_t netif_skb_features(struct sk_buff *skb)
 						     NETIF_F_HW_VLAN_CTAG_TX |
 						     NETIF_F_HW_VLAN_STAG_TX);
 
+finalize:
+	if (dev->netdev_ops->ndo_features_check)
+		features &= dev->netdev_ops->ndo_features_check(skb, dev,
+								features);
+
 	return harmonize_features(skb, features);
 }
 EXPORT_SYMBOL(netif_skb_features);
@@ -2604,8 +2619,14 @@ static int xmit_one(struct sk_buff *skb, struct net_device *dev,
 	unsigned int len;
 	int rc;
 
-	if (!list_empty(&ptype_all))
-		dev_queue_xmit_nit(skb, dev);
+	/*
+	 * If this skb has been fast forwarded then we don't want it to
+	 * go to any taps (by definition we're trying to bypass them).
+	 */
+	if (!skb->fast_forwarded) {
+		if (!list_empty(&ptype_all))
+			dev_queue_xmit_nit(skb, dev);
+	}
 
 	len = skb->len;
 	trace_net_dev_start_xmit(skb, dev);
@@ -2667,13 +2688,6 @@ static struct sk_buff *validate_xmit_skb(struct sk_buff *skb, struct net_device 
 	skb = validate_xmit_vlan(skb, features);
 	if (unlikely(!skb))
 		goto out_null;
-
-	/* If encapsulation offload request, verify we are testing
-	 * hardware encapsulation features instead of standard
-	 * features for the netdev
-	 */
-	if (skb->encapsulation)
-		features &= dev->hw_enc_features;
 
 	if (netif_needs_gso(dev, skb, features)) {
 		struct sk_buff *segs;
@@ -3590,6 +3604,9 @@ void netdev_rx_handler_unregister(struct net_device *dev)
 }
 EXPORT_SYMBOL_GPL(netdev_rx_handler_unregister);
 
+int (*fast_nat_recv)(struct sk_buff *skb) __rcu __read_mostly;
+EXPORT_SYMBOL_GPL(fast_nat_recv);
+
 /*
  * Limit the use of PFMEMALLOC reserves to those protocols that implement
  * the special handling of PFMEMALLOC skbs.
@@ -3617,6 +3634,7 @@ static int __netif_receive_skb_core(struct sk_buff *skb, bool pfmemalloc)
 	bool deliver_exact = false;
 	int ret = NET_RX_DROP;
 	__be16 type;
+	int (*fast_recv)(struct sk_buff *skb);
 
 	net_timestamp_check(!netdev_tstamp_prequeue, skb);
 
@@ -3643,6 +3661,12 @@ another_round:
 		skb = skb_vlan_untag(skb);
 		if (unlikely(!skb))
 			goto unlock;
+	}
+
+	fast_recv = rcu_dereference(fast_nat_recv);
+	if (fast_recv && fast_recv(skb)) {
+		ret = NET_RX_SUCCESS;
+		goto unlock;
 	}
 
 #ifdef CONFIG_NET_CLS_ACT
@@ -4012,7 +4036,8 @@ static enum gro_result dev_gro_receive(struct napi_struct *napi, struct sk_buff 
 		NAPI_GRO_CB(skb)->same_flow = 0;
 		NAPI_GRO_CB(skb)->flush = 0;
 		NAPI_GRO_CB(skb)->free = 0;
-		NAPI_GRO_CB(skb)->udp_mark = 0;
+		NAPI_GRO_CB(skb)->encap_mark = 0;
+		NAPI_GRO_CB(skb)->recursion_counter = 0;
 
 		/* Setup for GRO checksum validation */
 		switch (skb->ip_summed) {
@@ -6675,6 +6700,11 @@ struct net_device *alloc_netdev_mqs(int sizeof_priv, const char *name,
 	INIT_LIST_HEAD(&dev->all_adj_list.lower);
 	dev->priv_flags = IFF_XMIT_DST_RELEASE | IFF_XMIT_DST_RELEASE_PERM;
 	setup(dev);
+
+	if (!dev->tx_queue_len) {
+		dev->priv_flags |= IFF_NO_QUEUE;
+		dev->tx_queue_len = DEFAULT_TX_QUEUE_LEN;
+	}
 
 	dev->num_tx_queues = txqs;
 	dev->real_num_tx_queues = txqs;

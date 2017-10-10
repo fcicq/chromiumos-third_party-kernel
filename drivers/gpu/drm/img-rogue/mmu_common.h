@@ -83,6 +83,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 /* include/ */
 #include "img_types.h"
+#include "pvr_notifier.h"
 #include "pvrsrv_error.h"
 #include "servicesext.h"
 
@@ -114,6 +115,8 @@ struct _MMU_DEVVADDR_CONFIG_;
 typedef struct _MMU_DEVICEATTRIBS_
 {
 	PDUMP_MMU_TYPE eMMUType;
+
+	IMG_CHAR *pszMMUPxPDumpMemSpaceName;
 
 	/*! The type of the top level object */
 	MMU_LEVEL eTopLevel;
@@ -320,7 +323,7 @@ MMU_Alloc (MMU_CONTEXT *psMMUContext,
            IMG_UINT32 uiProtFlags,
            IMG_DEVMEM_SIZE_T uDevVAddrAlignment,
            IMG_DEV_VIRTADDR *psDevVAddr,
-           IMG_UINT8 uiLog2PageSize);
+           IMG_UINT32 uiLog2PageSize);
 
 
 /*************************************************************************/ /*!
@@ -381,7 +384,7 @@ MMU_MapPages(MMU_CONTEXT *psMMUContext,
              IMG_UINT32 ui32PhysPgOffset,
              IMG_UINT32 ui32MapPageCount,
              IMG_UINT32 *paui32MapIndices,
-             IMG_UINT8 uiLog2PageSize);
+             IMG_UINT32 uiLog2PageSize);
 
 /*************************************************************************/ /*!
 @Function       MMU_UnmapPages
@@ -414,7 +417,7 @@ MMU_UnmapPages (MMU_CONTEXT *psMMUContext,
                 IMG_DEV_VIRTADDR sDevVAddr,
                 IMG_UINT32 ui32PageCount,
                 IMG_UINT32 *pai32UnmapIndicies,
-                IMG_UINT8 uiLog2PageSize,
+                IMG_UINT32 uiLog2PageSize,
                 IMG_BOOL bDummyBacking);
 
 /*************************************************************************/ /*!
@@ -444,7 +447,7 @@ MMU_MapPMRFast (MMU_CONTEXT *psMMUContext,
                 const PMR *psPMR,
                 IMG_DEVMEM_SIZE_T uiSizeBytes,
                 PVRSRV_MEMALLOCFLAGS_T uiMappingFlags,
-                IMG_UINT8 uiLog2PageSize);
+                IMG_UINT32 uiLog2PageSize);
 
 /*************************************************************************/ /*!
 @Function       MMU_UnmapPMRFast
@@ -467,7 +470,7 @@ extern void
 MMU_UnmapPMRFast(MMU_CONTEXT *psMMUContext,
                  IMG_DEV_VIRTADDR sDevVAddrBase,
                  IMG_UINT32 ui32PageCount,
-                 IMG_UINT8 uiLog2PageSize);
+                 IMG_UINT32 uiLog2PageSize);
 
 /*************************************************************************/ /*!
 @Function       MMU_ChangeValidity
@@ -545,28 +548,34 @@ MMU_ReleaseBaseAddr(MMU_CONTEXT *psMMUContext);
 
 @Input			ui32OSidReg				The value that the firmware will assign to the
 										registers.
+
+@Input          bOSidAxiProt            Toggles whether the AXI prot bit will be set or
+                                        not.
 @Return None
 */
 /***********************************************************************************/
 
-void MMU_SetOSids(MMU_CONTEXT *psMMUContext, IMG_UINT32 ui32OSid, IMG_UINT32 ui32OSidReg);
+void MMU_SetOSids(MMU_CONTEXT *psMMUContext, IMG_UINT32 ui32OSid, IMG_UINT32 ui32OSidReg, IMG_BOOL bOSidAxiProt);
 
 /***********************************************************************************/ /*!
 @Function       MMU_GetOSid
 
 @Description    Retrieve the OSid associated with the MMU context.
 
-@Input          psMMUContext            MMU context to store the OSid on
+@Input          psMMUContext            MMU context in which the OSid is stored
 
-@Output			ui32OSid                the OSid in question
+@Output			pui32OSid               The OSid in question
 
-@Output			ui32OSidReg				The OSid that the firmware will assign to the
-										registers
+@Output			pui32OSidReg            The OSid that the firmware will assign to the
+                                        registers.
+
+@Output         pbOSidAxiProt           Toggles whether the AXI prot bit will be set or
+                                        not.
 @Return None
 */
 /***********************************************************************************/
 
-void MMU_GetOSids(MMU_CONTEXT *psMMUContext, IMG_UINT32 * pui32OSid, IMG_UINT32 * pui32OSidReg);
+void MMU_GetOSids(MMU_CONTEXT *psMMUContext, IMG_UINT32 * pui32OSid, IMG_UINT32 * pui32OSidReg, IMG_BOOL *pbOSidAxiProt);
 #endif
 
 /*************************************************************************/ /*!
@@ -593,10 +602,18 @@ void MMU_SetDeviceData(MMU_CONTEXT *psMMUContext, IMG_HANDLE hDevData);
 
 @Input          psDevVAddr              Address to check
 
+@Input          pfnDumpDebugPrintf      Debug print function
+
+@Input          pvDumpDebugFile         Optional file identifier to be passed
+                                        to the debug print function if required
+
 @Return         None
 */
 /*****************************************************************************/
-void MMU_CheckFaultAddress(MMU_CONTEXT *psMMUContext, IMG_DEV_VIRTADDR *psDevVAddr);
+void MMU_CheckFaultAddress(MMU_CONTEXT *psMMUContext,
+				IMG_DEV_VIRTADDR *psDevVAddr,
+				DUMPDEBUG_PRINTF_FUNC *pfnDumpDebugPrintf,
+				void *pvDumpDebugFile);
 
 /*************************************************************************/ /*!
 @Function       MMUI_IsVDevAddrValid

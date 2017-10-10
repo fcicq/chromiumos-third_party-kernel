@@ -50,6 +50,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "rgxfwutils.h"
 #include "rgx_fwif_resetframework.h"
 #include "rgxdebug.h"
+#include "pvr_notifier.h"
 
 #include "sync_server.h"
 #include "connection_server.h"
@@ -66,6 +67,8 @@ typedef struct _RGX_SERVER_TQ_CONTEXT_ RGX_SERVER_TQ_CONTEXT;
 
  @Input pvDeviceNode - device node
  
+FIXME fill this in
+
  @Return   PVRSRV_ERROR
 
 ******************************************************************************/
@@ -110,6 +113,7 @@ PVRSRV_ERROR PVRSRVRGXDestroyTransferContextKM(RGX_SERVER_TQ_CONTEXT *psTransfer
 ******************************************************************************/
 IMG_EXPORT
 PVRSRV_ERROR PVRSRVRGXSubmitTransferKM(RGX_SERVER_TQ_CONTEXT	*psTransferContext,
+									IMG_UINT32				ui32ClientCacheOpSeqNum,
 									IMG_UINT32				ui32PrepareCount,
 									IMG_UINT32				*paui32ClientFenceCount,
 									SYNC_PRIMITIVE_BLOCK		***papauiClientFenceUFOSyncPrimBlock,
@@ -130,7 +134,6 @@ PVRSRV_ERROR PVRSRVRGXSubmitTransferKM(RGX_SERVER_TQ_CONTEXT	*psTransferContext,
 									IMG_UINT8				**papaui8FWCommand,
 									IMG_UINT32				*pui32TQPrepareFlags,
 									IMG_UINT32				ui32ExtJobRef,
-									IMG_UINT32				ui32IntJobRef,
 									IMG_UINT32				ui32SyncPMRCount,
 									IMG_UINT32				*paui32SyncPMRFlags,
 									PMR						**ppsSyncPMRs);
@@ -143,28 +146,10 @@ PVRSRV_ERROR PVRSRVRGXSetTransferContextPriorityKM(CONNECTION_DATA *psConnection
 
 /* Debug - check if transfer context is waiting on a fence */
 void CheckForStalledTransferCtxt(PVRSRV_RGXDEV_INFO *psDevInfo,
-								 DUMPDEBUG_PRINTF_FUNC *pfnDumpDebugPrintf);
+					DUMPDEBUG_PRINTF_FUNC *pfnDumpDebugPrintf,
+					void *pvDumpDebugFile);
 
 /* Debug/Watchdog - check if client transfer contexts are stalled */
-IMG_BOOL CheckForStalledClientTransferCtxt(PVRSRV_RGXDEV_INFO *psDevInfo);
+IMG_UINT32 CheckForStalledClientTransferCtxt(PVRSRV_RGXDEV_INFO *psDevInfo);
 
-PVRSRV_ERROR PVRSRVRGXKickSyncTransferKM(RGX_SERVER_TQ_CONTEXT	*psTransferContext,
-									   IMG_UINT32				ui32ClientFenceCount,
-									   SYNC_PRIMITIVE_BLOCK		**pauiClientFenceUFOSyncPrimBlock,
-									   IMG_UINT32				*paui32ClientFenceSyncOffset,
-									   IMG_UINT32				*paui32ClientFenceValue,
-									   IMG_UINT32				ui32ClientUpdateCount,
-									   SYNC_PRIMITIVE_BLOCK		**pauiClientUpdateUFOSyncPrimBlock,
-									   IMG_UINT32				*paui32ClientUpdateSyncOffset,
-									   IMG_UINT32				*paui32ClientUpdateValue,
-									   IMG_UINT32				ui32ServerSyncCount,
-									   IMG_UINT32				*pui32ServerSyncFlags,
-									   SERVER_SYNC_PRIMITIVE	**pasServerSyncs,
-									   IMG_INT32				i32CheckFenceFD,
-									   IMG_INT32				i32UpdateTimelineFD,
-									   IMG_INT32				*pi32UpdateFenceFD,
-									   IMG_CHAR					szFenceName[32],
-									   IMG_UINT32				ui32TQPrepareFlags,
-									   IMG_UINT32				ui32ExtJobRef,
-									   IMG_UINT32				ui32IntJobRef);
 #endif /* __RGXTRANSFER_H__ */

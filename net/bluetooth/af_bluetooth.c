@@ -26,11 +26,13 @@
 
 #include <linux/module.h>
 #include <linux/debugfs.h>
+#include <linux/stringify.h>
 #include <asm/ioctls.h>
 
 #include <net/bluetooth/bluetooth.h>
 #include <linux/proc_fs.h>
 
+#include "leds.h"
 #include "selftest.h"
 
 /* Bluetooth sockets */
@@ -65,7 +67,7 @@ static const char *const bt_slock_key_strings[BT_MAX_PROTO] = {
 void bt_sock_reclassify_lock(struct sock *sk, int proto)
 {
 	BUG_ON(!sk);
-	BUG_ON(sock_owned_by_user(sk));
+	BUG_ON(!sock_allow_reclassification(sk));
 
 	sock_lock_init_class_and_name(sk,
 			bt_slock_key_strings[proto], &bt_slock_key[proto],
@@ -244,6 +246,7 @@ int bt_sock_recvmsg(struct kiocb *iocb, struct socket *sock,
 	struct sock *sk = sock->sk;
 	struct sk_buff *skb;
 	size_t copied;
+	size_t skblen;
 	int err;
 
 	BT_DBG("sock %p sk %p len %zu", sock, sk, len);
@@ -259,6 +262,7 @@ int bt_sock_recvmsg(struct kiocb *iocb, struct socket *sock,
 		return err;
 	}
 
+	skblen = skb->len;
 	copied = skb->len;
 	if (len < copied) {
 		msg->msg_flags |= MSG_TRUNC;
@@ -276,6 +280,9 @@ int bt_sock_recvmsg(struct kiocb *iocb, struct socket *sock,
 	}
 
 	skb_free_datagram(sk, skb);
+
+	if (flags & MSG_TRUNC)
+		copied = skblen;
 
 	return err ? : copied;
 }
@@ -736,19 +743,24 @@ static struct net_proto_family bt_sock_family_ops = {
 struct dentry *bt_debugfs;
 EXPORT_SYMBOL_GPL(bt_debugfs);
 
+#define VERSION __stringify(BT_SUBSYS_VERSION) "." \
+		__stringify(BT_SUBSYS_REVISION)
+
 static int __init bt_init(void)
 {
 	int err;
 
 	sock_skb_cb_check_size(sizeof(struct bt_skb_cb));
 
-	BT_INFO("Core ver %s", BT_SUBSYS_VERSION);
+	BT_INFO("Core ver %s", VERSION);
 
 	err = bt_selftest();
 	if (err < 0)
 		return err;
 
 	bt_debugfs = debugfs_create_dir("bluetooth", NULL);
+
+	bt_leds_init();
 
 	err = bt_sysfs_init();
 	if (err < 0)
@@ -809,6 +821,8 @@ static void __exit bt_exit(void)
 
 	bt_sysfs_cleanup();
 
+	bt_leds_cleanup();
+
 	debugfs_remove_recursive(bt_debugfs);
 }
 
@@ -816,7 +830,7 @@ subsys_initcall(bt_init);
 module_exit(bt_exit);
 
 MODULE_AUTHOR("Marcel Holtmann <marcel@holtmann.org>");
-MODULE_DESCRIPTION("Bluetooth Core ver " BT_SUBSYS_VERSION);
-MODULE_VERSION(BT_SUBSYS_VERSION);
+MODULE_DESCRIPTION("Bluetooth Core ver " VERSION);
+MODULE_VERSION(VERSION);
 MODULE_LICENSE("GPL");
 MODULE_ALIAS_NETPROTO(PF_BLUETOOTH);

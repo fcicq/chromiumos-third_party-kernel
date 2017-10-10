@@ -98,7 +98,7 @@ static int cros_ec_sensors_read(struct iio_dev *indio_dev,
 			 * EC returns data in g, iio exepects m/s^2.
 			 * Do not use IIO_G_TO_M_S_2 to avoid precision loss.
 			 */
-			*val = (val64 * 980665) / 10;
+			*val = div_s64(val64 * 980665, 10);
 			*val2 = 10000 << (CROS_EC_SENSOR_BITS - 1);
 			ret = IIO_VAL_FRACTIONAL;
 			break;
@@ -107,7 +107,7 @@ static int cros_ec_sensors_read(struct iio_dev *indio_dev,
 			 * Do not use IIO_DEGREE_TO_RAD to avoid precision
 			 * loss. Round to the nearest integer.
 			 */
-			*val = (val64 * 314159 + 9000000ULL) / 1000;
+			*val = div_s64(val64 * 314159 + 9000000ULL, 1000);
 			*val2 = 18000 << (CROS_EC_SENSOR_BITS - 1);
 			ret = IIO_VAL_FRACTIONAL;
 			break;
@@ -244,6 +244,13 @@ static int cros_ec_sensors_probe(struct platform_device *pdev)
 			break;
 		case MOTIONSENSE_TYPE_GYRO:
 			channel->type = IIO_ANGL_VEL;
+			/*
+			 * Workaround for b:65000611:
+			 * The BMI160 gyro EC code may report minimal frequency
+			 * at 25mHz instead of 25Hz.
+			 */
+			if (state->core.min_freq < 1000)
+				state->core.min_freq = 25000;
 			break;
 		case MOTIONSENSE_TYPE_MAG:
 			channel->type = IIO_MAGN;

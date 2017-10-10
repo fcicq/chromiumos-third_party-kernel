@@ -23,7 +23,12 @@
 
 static void ath10k_report_offchan_tx(struct ath10k *ar, struct sk_buff *skb)
 {
-	if (!ATH10K_SKB_CB(skb)->htt.is_offchan)
+	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
+
+	if (likely(!(info->flags & IEEE80211_TX_CTL_TX_OFFCHAN)))
+		return;
+
+	if (ath10k_mac_tx_frm_has_freq(ar))
 		return;
 
 	/* If the original wait_for_completion() timed out before
@@ -44,16 +49,67 @@ out:
 	spin_unlock_bh(&ar->data_lock);
 }
 
-void ath10k_txrx_tx_unref(struct ath10k_htt *htt,
-			  const struct htt_tx_done *tx_done)
+static inline u32 txdelay_time_to_10ms(u32 val)
+{
+	u64 valns = ((u64)val << IEEE80211_TX_DELAY_SHIFT);
+
+	do_div(valns, NSEC_PER_MSEC * 10);
+	return (u32)valns;
+}
+
+void ath10k_update_latency_stats(struct ath10k *ar, struct sk_buff *msdu, u8 ac)
+{
+	u32	enqueue_time, now, bin;
+	struct ieee80211_tx_info *info;
+
+	now = ieee80211_txdelay_get_time();
+
+	info = IEEE80211_SKB_CB(msdu);
+	enqueue_time = info->tx_start_time;
+	if (enqueue_time == 0)
+		return;
+
+	bin = txdelay_time_to_10ms(now - enqueue_time);
+	if (bin > ATH10K_DELAY_STATS_MAX_BIN)
+		bin = ATH10K_DELAY_STATS_MAX_BIN;
+
+	ar->debug.tx_delay_stats[ac]->counts[bin]++;
+}
+
+/* Update airtime upon tx completion. It is called while holding txq_lock */
+void ath10k_atf_tx_complete(struct ath10k *ar, struct sk_buff *skb)
+{
+	struct ieee80211_txq *txq;
+	struct ath10k_skb_cb *skb_cb;
+	struct ath10k_txq *artxq;
+	struct atf_scheduler *atf;
+
+	skb_cb = ATH10K_SKB_CB(skb);
+
+	txq = skb_cb->txq;
+	if (!txq)
+		return;
+	ar->airtime_inflight -= skb_cb->airtime_est;
+	ar->atf_bytes_send += skb->len;
+	artxq = (void *)txq->drv_priv;
+	atf = &artxq->atf;
+
+	atf->frames_inflight--;
+	atf->bytes_send += skb->len;
+	atf->airtime_inflight -= skb_cb->airtime_est;
+	trace_ath10k_atf_tx_complete(ar, skb, skb_cb->airtime_est, txq);
+}
+
+int ath10k_txrx_tx_unref(struct ath10k_htt *htt,
+			 const struct htt_tx_done *tx_done)
 {
 	struct ath10k *ar = htt->ar;
 	struct device *dev = ar->dev;
 	struct ieee80211_tx_info *info;
+	struct ieee80211_txq *txq;
 	struct ath10k_skb_cb *skb_cb;
+	struct ath10k_txq *artxq;
 	struct sk_buff *msdu;
-
-	lockdep_assert_held(&htt->tx_lock);
 
 	ath10k_dbg(ar, ATH10K_DBG_HTT,
 		   "htt tx completion msdu_id %u discard %d no_ack %d success %d\n",
@@ -63,34 +119,47 @@ void ath10k_txrx_tx_unref(struct ath10k_htt *htt,
 	if (tx_done->msdu_id >= htt->max_num_pending_tx) {
 		ath10k_warn(ar, "warning: msdu_id %d too big, ignoring\n",
 			    tx_done->msdu_id);
-		return;
+		return -EINVAL;
 	}
 
+	spin_lock_bh(&htt->tx_lock);
 	msdu = idr_find(&htt->pending_tx, tx_done->msdu_id);
 	if (!msdu) {
 		ath10k_warn(ar, "received tx completion for invalid msdu_id: %d\n",
 			    tx_done->msdu_id);
-		return;
+		spin_unlock_bh(&htt->tx_lock);
+		return -ENOENT;
 	}
 
 	skb_cb = ATH10K_SKB_CB(msdu);
+	txq = skb_cb->txq;
+
+	if (txq) {
+		artxq = (void *)txq->drv_priv;
+		artxq->num_fw_queued--;
+		ath10k_atf_tx_complete(htt->ar, msdu);
+	}
+
+	ath10k_htt_tx_free_msdu_id(htt, tx_done->msdu_id);
+	ath10k_htt_tx_dec_pending(htt);
+	if (htt->num_pending_tx == 0)
+		wake_up(&htt->empty_tx_wq);
+	spin_unlock_bh(&htt->tx_lock);
 
 	dma_unmap_single(dev, skb_cb->paddr, msdu->len, DMA_TO_DEVICE);
-
-	if (skb_cb->htt.txbuf)
-		dma_pool_free(htt->tx_pool,
-			      skb_cb->htt.txbuf,
-			      skb_cb->htt.txbuf_paddr);
 
 	ath10k_report_offchan_tx(htt->ar, msdu);
 
 	info = IEEE80211_SKB_CB(msdu);
+	if (txq)
+		ath10k_update_latency_stats(htt->ar, msdu, txq->ac);
 	memset(&info->status, 0, sizeof(info->status));
+	info->status.rates[0].idx = -1;
 	trace_ath10k_txrx_tx_unref(ar, tx_done->msdu_id);
 
 	if (tx_done->discard) {
 		ieee80211_free_txskb(htt->ar->hw, msdu);
-		goto exit;
+		return 0;
 	}
 
 	if (!(info->flags & IEEE80211_TX_CTL_NO_ACK))
@@ -105,11 +174,7 @@ void ath10k_txrx_tx_unref(struct ath10k_htt *htt,
 	ieee80211_tx_status(htt->ar->hw, msdu);
 	/* we do not own the msdu anymore */
 
-exit:
-	ath10k_htt_tx_free_msdu_id(htt, tx_done->msdu_id);
-	__ath10k_htt_tx_dec_pending(htt);
-	if (htt->num_pending_tx == 0)
-		wake_up(&htt->empty_tx_wq);
+	return 0;
 }
 
 struct ath10k_peer *ath10k_peer_find(struct ath10k *ar, int vdev_id,
@@ -147,9 +212,9 @@ struct ath10k_peer *ath10k_peer_find_by_id(struct ath10k *ar, int peer_id)
 static int ath10k_wait_for_peer_common(struct ath10k *ar, int vdev_id,
 				       const u8 *addr, bool expect_mapped)
 {
-	int ret;
+	long time_left;
 
-	ret = wait_event_timeout(ar->peer_mapping_wq, ({
+	time_left = wait_event_timeout(ar->peer_mapping_wq, ({
 			bool mapped;
 
 			spin_lock_bh(&ar->data_lock);
@@ -160,7 +225,7 @@ static int ath10k_wait_for_peer_common(struct ath10k *ar, int vdev_id,
 			 test_bit(ATH10K_FLAG_CRASH_FLUSH, &ar->dev_flags));
 		}), 3*HZ);
 
-	if (ret <= 0)
+	if (time_left == 0)
 		return -ETIMEDOUT;
 
 	return 0;
@@ -198,6 +263,7 @@ void ath10k_peer_map_event(struct ath10k_htt *htt,
 	ath10k_dbg(ar, ATH10K_DBG_HTT, "htt peer map vdev %d peer %pM id %d\n",
 		   ev->vdev_id, ev->addr, ev->peer_id);
 
+	ar->peer_map[ev->peer_id] = peer;
 	set_bit(ev->peer_id, peer->peer_ids);
 exit:
 	spin_unlock_bh(&ar->data_lock);
@@ -220,6 +286,7 @@ void ath10k_peer_unmap_event(struct ath10k_htt *htt,
 	ath10k_dbg(ar, ATH10K_DBG_HTT, "htt peer unmap vdev %d peer %pM id %d\n",
 		   peer->vdev_id, peer->addr, ev->peer_id);
 
+	ar->peer_map[ev->peer_id] = NULL;
 	clear_bit(ev->peer_id, peer->peer_ids);
 
 	if (bitmap_empty(peer->peer_ids, ATH10K_MAX_NUM_PEER_IDS)) {

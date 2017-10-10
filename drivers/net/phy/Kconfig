@@ -12,6 +12,12 @@ menuconfig PHYLIB
 
 if PHYLIB
 
+config SWCONFIG
+	tristate "Switch configuration API"
+	---help---
+	  Switch configuration API using netlink. This allows
+	  you to configure the VLAN features of certain switches.
+
 comment "MII PHY device drivers"
 
 config AT803X_PHY
@@ -211,6 +217,20 @@ config MDIO_BCM_UNIMAC
 	  This hardware can be found in the Broadcom GENET Ethernet MAC
 	  controllers as well as some Broadcom Ethernet switches such as the
 	  Starfighter 2 switches.
+
+config MDIO_IPQ40XX
+	tristate "Qualcomm Atheros ipq40xx MDIO interface"
+	depends on HAS_IOMEM && OF
+	help
+	  This driver supports the MDIO interface found in Qualcomm
+	  Atheros ipq40xx Soc chip.
+
+config AR40XX_PHY
+	tristate "Driver for Qualcomm Atheros IPQ40XX switches"
+	depends on HAS_IOMEM && OF
+	select SWCONFIG
+	---help---
+	  This is the driver for Qualcomm Atheros IPQ40XX ESS switches.
 
 endif # PHYLIB
 

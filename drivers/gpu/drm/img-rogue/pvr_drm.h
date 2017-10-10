@@ -2,9 +2,8 @@
 /* vi: set ts=8 sw=8 sts=8: */
 /*************************************************************************/ /*!
 @File
-@Title          PowerVR drm driver
+@Title          PVR DRM definitions shared between kernel and user space.
 @Copyright      Copyright (c) Imagination Technologies Ltd. All Rights Reserved
-@Description    drm module
 @License        Dual MIT/GPLv2
 
 The contents of this file are subject to the MIT license as set out below.
@@ -46,51 +45,58 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #if !defined(__PVR_DRM_H__)
 #define __PVR_DRM_H__
 
-#include <linux/version.h>
-#include <drm/drmP.h>
+#include <linux/types.h>
 
-#include "module_common.h"
-#include "connection_server.h"
-#include "sync_server.h"
-#include "pmr.h"
-
-#if defined(SUPPORT_BUFFER_SYNC)
-#include "pvr_fence.h"
+#if defined(__KERNEL__)
+#include <drm/drm.h>
+#elif defined(SUPPORT_ANDROID_PLATFORM) && \
+     !defined(PVR_ANDROID_OLD_LIBDRM_HEADER_PATH)
+#include <drm.h>
+#else
+#include <libdrm/drm.h>
 #endif
 
-#if defined(PDUMP)
-#include "linuxsrv.h"
-#endif
+/*
+ * IMPORTANT:
+ * All structures below are designed to be the same size when compiled for 32
+ * and/or 64 bit architectures, i.e. there should be no compiler inserted
+ * padding. This is achieved by sticking to the following rules:
+ * 1) only use fixed width types
+ * 2) always naturally align fields by arranging them appropriately and by using
+ *    padding fields when necessary
+ *
+ * These rules should _always_ be followed when modifying or adding new
+ * structures to this file.
+ */
 
-#if defined(SUPPORT_DRM)
-#if (!defined(LDM_PLATFORM) && !defined(LDM_PCI)) || \
-	(defined(LDM_PLATFORM) && defined(LDM_PCI))
-	#error "LDM_PLATFORM or LDM_PCI must be defined"
-#endif
+struct drm_pvr_srvkm_cmd {
+	__u32 bridge_id;
+	__u32 bridge_func_id;
+	__u64 in_data_ptr;
+	__u64 out_data_ptr;
+	__u32 in_data_size;
+	__u32 out_data_size;
+};
 
-#define	PVR_DRM_FILE_FROM_FILE(pFile)		((struct drm_file *)((pFile)->private_data))
-#define	PVR_FILE_FROM_DRM_FILE(pDRMFile)	((pDRMFile)->filp)
+struct drm_pvr_dbgdrv_cmd {
+	__u32 cmd;
+	__u32 pad;
+	__u64 in_data_ptr;
+	__u64 out_data_ptr;
+	__u32 in_data_size;
+	__u32 out_data_size;
+};
 
-extern struct drm_driver sPVRDRMDriver;
+/*
+ * DRM command numbers, relative to DRM_COMMAND_BASE.
+ * These defines must be prefixed with "DRM_".
+ */
+#define DRM_PVR_SRVKM_CMD		0 /* Used for PVR Services ioctls */
+#define DRM_PVR_DBGDRV_CMD		1 /* Debug driver (PDUMP) ioctls */
 
-int PVRSRVSystemInit(struct drm_device *pDrmDevice);
-void PVRSRVSystemDeInit(LDM_DEV *pDevice);
 
-int PVRSRVOpen(struct drm_device *dev, struct drm_file *file);
-void PVRSRVRelease(struct drm_device *dev, struct drm_file *file);
+/* These defines must be prefixed with "DRM_IOCTL_". */
+#define	DRM_IOCTL_PVR_SRVKM_CMD		DRM_IOWR(DRM_COMMAND_BASE + DRM_PVR_SRVKM_CMD, struct drm_pvr_srvkm_cmd)
+#define	DRM_IOCTL_PVR_DBGDRV_CMD	DRM_IOWR(DRM_COMMAND_BASE + DRM_PVR_DBGDRV_CMD, struct drm_pvr_dbgdrv_cmd)
 
-#if defined(PDUMP)
-int dbgdrv_init(void);
-void dbgdrv_cleanup(void);
-int dbgdrv_ioctl(struct drm_device *dev, void *arg, struct drm_file *file);
-int dbgdrv_ioctl_compat(struct drm_device *dev, void *arg, struct drm_file *file);
-#endif
-
-int PVRSRV_BridgeDispatchKM(struct drm_device *dev, void *arg, struct drm_file *file);
-
-#if defined(CONFIG_COMPAT)
-int PVRSRV_BridgeCompatDispatchKM(struct file *file, unsigned int cmd, unsigned long arg);
-#endif
-
-#endif	/* defined(SUPPORT_DRM) */
-#endif /* !defined(__PVR_DRM_H__) */
+#endif /* defined(__PVR_DRM_H__) */

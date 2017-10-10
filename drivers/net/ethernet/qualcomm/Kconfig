@@ -26,4 +26,23 @@ config QCA7000
 	  To compile this driver as a module, choose M here. The module
 	  will be called qcaspi.
 
+config ESSEDMA
+	tristate "Qualcomm Atheros ESS Edma support"
+	---help---
+	  This driver supports ethernet edma adapter.
+	  Say Y to build this driver.
+
+	  To compile this driver as a module, choose M here. The module
+	  will be called essedma.ko.
+
+config SHORTCUT_FE
+	tristate "Qualcomm/Atheros shortcut forward engine"
+	select NF_CONNTRACK
+	select NF_CONNTRACK_MARK
+	select NF_CONNTRACK_CHAIN_EVENTS
+	---help---
+	  This driver provides support for accelerated "shortcut" packet forwarding.
+
+	  The module will be called sfe.
+
 endif # NET_VENDOR_QUALCOMM

@@ -44,7 +44,9 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <linux/firmware.h>
 #include <linux/version.h>
 #include <linux/kernel.h>
+#include <linux/err.h>
 
+#include "device.h"
 #include "module_common.h"
 #include "rgxfwload.h"
 #include "pvr_debug.h"
@@ -88,7 +90,7 @@ static bool VerifyFirmware(const struct firmware *psFW)
 	uint8_t i;
 	int res;
 
-	if (psFW->size < FW_BLOCK_SIZE)
+	if (psFW->size < FW_SIGN_BACKWARDS_OFFSET)
 	{
 		PVR_DPF((PVR_DBG_ERROR, "%s: Firmware is too small (%zu bytes)",
 								__func__, psFW->size));
@@ -96,7 +98,7 @@ static bool VerifyFirmware(const struct firmware *psFW)
 	}
 
 	psHeader = (struct FirmwareSignatureHeader *)
-					(psFW->data + (psFW->size - FW_BLOCK_SIZE));
+					(psFW->data + (psFW->size - FW_SIGN_BACKWARDS_OFFSET));
 
 	/* All derived from u8 so can't be exploited to flow out of this page */
 	pvSigner    = (u8 *)psHeader + sizeof(struct FirmwareSignatureHeader);
@@ -162,7 +164,7 @@ static bool VerifyFirmware(const struct firmware *psFW)
 		goto err_free_pks;
 	}
 
-	res = crypto_shash_finup(psDesc, psFW->data, psFW->size - FW_BLOCK_SIZE,
+	res = crypto_shash_finup(psDesc, psFW->data, psFW->size - FW_SIGN_BACKWARDS_OFFSET,
 							 psPKS->digest);
 	if (res < 0)
 	{
@@ -243,16 +245,38 @@ static inline bool VerifyFirmware(const struct firmware *psFW)
 #endif /* defined(RGX_FW_SIGNED) */
 
 IMG_INTERNAL struct RGXFW *
-RGXLoadFirmware(void)
+RGXLoadFirmware(SHARED_DEV_CONNECTION psDeviceNode, const IMG_CHAR *pszBVNCString, const IMG_CHAR *pszBVpNCString)
 {
 	const struct firmware *psFW;
 	int res;
 
-	res = request_firmware(&psFW, RGX_FW_FILENAME, &gpsPVRLDMDev->dev);
+	if(pszBVNCString != NULL)
+	{
+		res = request_firmware(&psFW, pszBVNCString, psDeviceNode->psDevConfig->pvOSDevice);
+		if (res != 0)
+		{
+			if(pszBVpNCString != NULL)
+			{
+				PVR_DPF((PVR_DBG_WARNING, "%s: request_firmware('%s') failed (%d), trying '%s'",
+										__func__, pszBVNCString, res, pszBVpNCString));
+				res = request_firmware(&psFW, pszBVpNCString, psDeviceNode->psDevConfig->pvOSDevice);
+			}
+			if (res != 0)
+			{
+				PVR_DPF((PVR_DBG_WARNING, "%s: request_firmware('%s') failed (%d), trying '%s'",
+										__func__, pszBVpNCString, res, RGX_FW_FILENAME));
+				res = request_firmware(&psFW, RGX_FW_FILENAME, psDeviceNode->psDevConfig->pvOSDevice);
+			}
+		}
+	}
+	else
+	{
+		res = request_firmware(&psFW, RGX_FW_FILENAME, psDeviceNode->psDevConfig->pvOSDevice);
+	}
 	if (res != 0)
 	{
-		PVR_DPF((PVR_DBG_ERROR, "%s: request_firmware() failed (%d)",
-								__func__, res));
+		PVR_DPF((PVR_DBG_ERROR, "%s: request_firmware('%s') failed (%d)",
+								__func__, RGX_FW_FILENAME, res));
 		return NULL;
 	}
 

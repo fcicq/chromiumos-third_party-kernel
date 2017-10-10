@@ -25,6 +25,8 @@ struct nouveau_bo {
 	bool validate_mapped;
 
 	struct list_head vma_list;
+	struct mutex vma_list_lock;
+	bool vma_immutable;
 	unsigned page_shift;
 
 	u32 tile_mode;
@@ -73,7 +75,7 @@ void nouveau_bo_move_init(struct nouveau_drm *);
 int  nouveau_bo_new(struct drm_device *, int size, int align, u32 flags,
 		    u32 tile_mode, u32 tile_flags, struct sg_table *sg,
 		    struct reservation_object *robj,
-		    struct nouveau_bo **);
+		    struct nouveau_bo **, bool unchanged_vma_list);
 int  nouveau_bo_pin(struct nouveau_bo *, u32 flags, bool contig);
 int  nouveau_bo_unpin(struct nouveau_bo *);
 int  nouveau_bo_map(struct nouveau_bo *);
@@ -96,13 +98,25 @@ void nouveau_bo_l2_flush(struct nouveau_bo *nvbo);
 struct nvkm_vma *
 nouveau_bo_vma_find(struct nouveau_bo *, struct nvkm_vm *);
 
+struct nvkm_vma *
+nouveau_bo_subvma_find(struct nouveau_bo *, struct nvkm_vm *, u64, u64, u64);
+
+struct nvkm_vma *
+nouveau_bo_subvma_find_offset(struct nouveau_bo *, struct nvkm_vm *, u64);
+
 int  nouveau_bo_vma_add(struct nouveau_bo *, struct nvkm_vm *,
 			struct nvkm_vma *, bool lazy);
 int  nouveau_bo_vma_add_offset(struct nouveau_bo *, struct nvkm_vm *,
 			       struct nvkm_vma *, u64 offset, bool lazy);
 void nouveau_bo_vma_del(struct nouveau_bo *, struct nvkm_vma *);
+int  nouveau_bo_subvma_add(struct nouveau_bo *, struct nvkm_vm *,
+			   struct nvkm_vma *, u64 offset, u64 delta, u64 length,
+			   u32 memtype, bool lazy);
+void nouveau_bo_subvma_del(struct nouveau_bo *, struct nvkm_vma *);
 void nouveau_defer_vm_map(struct nvkm_vma *vma, struct nouveau_bo *nvbo);
 void nouveau_cancel_defer_vm_map(struct nvkm_vma *vma, struct nouveau_bo *nvbo);
+void nouveau_bo_vma_list_lock(struct nouveau_bo *);
+void nouveau_bo_vma_list_unlock(struct nouveau_bo *);
 
 /* TODO: submit equivalent to TTM generic API upstream? */
 static inline void __iomem *
