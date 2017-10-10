@@ -1800,39 +1800,47 @@ static void intel_disable_ddi_buf(struct intel_encoder *encoder)
 		intel_wait_ddi_buf_idle(dev_priv, port);
 }
 
-static void intel_ddi_post_disable(struct intel_encoder *intel_encoder,
-				   struct intel_crtc_state *old_crtc_state,
-				   struct drm_connector_state *old_conn_state)
+static void intel_ddi_post_disable_dp(struct intel_encoder *encoder,
+				      const struct intel_crtc_state *old_crtc_state,
+				      const struct drm_connector_state *old_conn_state)
 {
-	struct drm_encoder *encoder = &intel_encoder->base;
-	struct drm_i915_private *dev_priv = to_i915(encoder->dev);
-	enum port port = intel_ddi_get_encoder_port(intel_encoder);
-	struct intel_dp *intel_dp = NULL;
-	int type = intel_encoder->type;
+	struct drm_i915_private *dev_priv = to_i915(encoder->base.dev);
+	enum port port = intel_ddi_get_encoder_port(encoder);
+	struct intel_dp *intel_dp = enc_to_intel_dp(&encoder->base);
+	/*
+	 * old_crtc_state and old_conn_state are NULL when called from
+	 * DP_MST. The main connector associated with this port is never
+	 * bound to a crtc for MST.
+	 */
+	bool is_mst = !old_crtc_state;
 
-	if (type == INTEL_OUTPUT_DP || type == INTEL_OUTPUT_EDP) {
-		/*
-		 * old_crtc_state and old_conn_state are NULL when called from
-		 * DP_MST. The main connector associated with this port is never
-		 * bound to a crtc for MST.
-		 */
-		bool is_mst = !old_crtc_state;
-		intel_dp = enc_to_intel_dp(encoder);
+	/*
+	 * Power down sink before disabling the port, otherwise we end
+	 * up getting interrupts from the sink on detecting link loss.
+	 */
+	if (!is_mst)
+		intel_dp_sink_dpms(intel_dp, DRM_MODE_DPMS_OFF);
 
-		/*
-		 * Power down sink before disabling the port, otherwise we end
-		 * up getting interrupts from the sink on detecting link loss.
-		 */
-		if (!is_mst)
-			intel_dp_sink_dpms(intel_dp, DRM_MODE_DPMS_OFF);
-	}
+	intel_disable_ddi_buf(encoder);
 
-	intel_disable_ddi_buf(intel_encoder);
+	intel_edp_panel_vdd_on(intel_dp);
+	intel_edp_panel_off(intel_dp);
 
-	if (intel_dp) {
-		intel_edp_panel_vdd_on(intel_dp);
-		intel_edp_panel_off(intel_dp);
-	}
+	if (IS_SKYLAKE(dev_priv) || IS_KABYLAKE(dev_priv))
+		I915_WRITE(DPLL_CTRL2, (I915_READ(DPLL_CTRL2) |
+					DPLL_CTRL2_DDI_CLK_OFF(port)));
+	else if (INTEL_GEN(dev_priv) < 9)
+		I915_WRITE(PORT_CLK_SEL(port), PORT_CLK_SEL_NONE);
+}
+static void intel_ddi_post_disable_hdmi(struct intel_encoder *encoder,
+					const struct intel_crtc_state *old_crtc_state,
+					const struct drm_connector_state *old_conn_state)
+{
+	struct drm_i915_private *dev_priv = to_i915(encoder->base.dev);
+	enum port port = intel_ddi_get_encoder_port(encoder);
+	struct intel_hdmi *intel_hdmi = enc_to_intel_hdmi(&encoder->base);
+
+	intel_disable_ddi_buf(encoder);
 
 	if (IS_SKYLAKE(dev_priv) || IS_KABYLAKE(dev_priv))
 		I915_WRITE(DPLL_CTRL2, (I915_READ(DPLL_CTRL2) |
@@ -1840,11 +1848,25 @@ static void intel_ddi_post_disable(struct intel_encoder *intel_encoder,
 	else if (INTEL_GEN(dev_priv) < 9)
 		I915_WRITE(PORT_CLK_SEL(port), PORT_CLK_SEL_NONE);
 
-	if (type == INTEL_OUTPUT_HDMI) {
-		struct intel_hdmi *intel_hdmi = enc_to_intel_hdmi(encoder);
+	intel_dp_dual_mode_set_tmds_output(intel_hdmi, false);
+}
 
-		intel_dp_dual_mode_set_tmds_output(intel_hdmi, false);
-	}
+static void intel_ddi_post_disable(struct intel_encoder *encoder,
+				   struct intel_crtc_state *old_crtc_state,
+				   struct drm_connector_state *old_conn_state)
+{
+	/*
+	 * old_crtc_state and old_conn_state are NULL when called from
+	 * DP_MST. The main connector associated with this port is never
+	 * bound to a crtc for MST.
+	 */
+	if (old_crtc_state &&
+	    intel_crtc_has_type(old_crtc_state, INTEL_OUTPUT_HDMI))
+		intel_ddi_post_disable_hdmi(encoder,
+					    old_crtc_state, old_conn_state);
+	else
+		intel_ddi_post_disable_dp(encoder,
+					  old_crtc_state, old_conn_state);
 }
 
 void intel_ddi_fdi_post_disable(struct intel_encoder *intel_encoder,
