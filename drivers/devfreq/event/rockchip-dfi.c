@@ -27,7 +27,6 @@
 #include <linux/slab.h>
 #include <linux/list.h>
 #include <linux/of.h>
-#include <soc/rockchip/rk3399_dmc.h>
 
 #include "rockchip-dfi.h"
 #include "../governor.h"
@@ -103,6 +102,7 @@ struct rockchip_dfi {
 	struct clk *clk;
 	unsigned int top;
 	unsigned int floor;
+	bool enabled;
 };
 
 static unsigned int rockchip_dfi_calc_threshold_num(unsigned long rate,
@@ -201,7 +201,11 @@ static void rockchip_dfi_stop_hardware_counter(struct devfreq_event_dev *edev)
 	struct rockchip_dfi *info = devfreq_event_get_drvdata(edev);
 	void __iomem *dfi_regs = info->regs;
 
-	writel_relaxed(TIME_CNT_DIS | HARDWARE_DIS, dfi_regs + DDRMON_CTRL);
+	writel_relaxed(CLR_DDRMON_CTRL, dfi_regs + DDRMON_CTRL);
+	writel_relaxed(0, dfi_regs + DDRMON_TOP_NUM);
+	writel_relaxed(0, dfi_regs + DDRMON_FLOOR_NUM);
+	writel_relaxed(0, dfi_regs + DDRMON_TIMER_COUNT);
+	writel_relaxed(0x0000ffff, dfi_regs + DDRMON_INT_STATUS);
 }
 
 static int rockchip_dfi_get_busier_ch(struct devfreq_event_dev *edev)
@@ -231,6 +235,7 @@ static int rockchip_dfi_disable(struct devfreq_event_dev *edev)
 {
 	struct rockchip_dfi *info = devfreq_event_get_drvdata(edev);
 
+	info->enabled = false;
 	rockchip_dfi_stop_hardware_counter(edev);
 	clk_disable_unprepare(info->clk);
 
@@ -249,6 +254,7 @@ static int rockchip_dfi_enable(struct devfreq_event_dev *edev)
 	}
 
 	rockchip_dfi_start_hardware_counter(edev);
+	info->enabled = true;
 	return 0;
 }
 
@@ -275,11 +281,11 @@ static int rockchip_dfi_get_event(struct devfreq_event_dev *edev,
 static irqreturn_t ddrmon_thread_isr(int irq, void *data)
 {
 	struct rockchip_dfi *info = data;
-	struct rk3399_dmcfreq *dmcfreq = dev_get_drvdata(&info->edev->dev);
-	struct devfreq *devfreq = dmcfreq->devfreq;
+	struct devfreq *devfreq = dev_get_drvdata(&info->edev->dev);
 
 	mutex_lock(&devfreq->lock);
-	update_devfreq(devfreq);
+	if (info->enabled)
+		update_devfreq(devfreq);
 	mutex_unlock(&devfreq->lock);
 
 	return IRQ_HANDLED;
@@ -288,12 +294,12 @@ static irqreturn_t ddrmon_thread_isr(int irq, void *data)
 static irqreturn_t ddrmon_isr(int irq, void *dev_id)
 {
 	struct rockchip_dfi *info = dev_id;
-	struct rk3399_dmcfreq *dmcfreq = dev_get_drvdata(&info->edev->dev);
+	struct devfreq *devfreq = dev_get_drvdata(&info->edev->dev);
 	void __iomem *dfi_regs = info->regs;
 	irqreturn_t ret = IRQ_NONE;
 	u32 val;
 
-	if (!dmcfreq || !dmcfreq->devfreq)
+	if (!devfreq)
 		return IRQ_HANDLED;
 
 	val = readl_relaxed(dfi_regs + DDRMON_INT_STATUS);

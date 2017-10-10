@@ -27,6 +27,13 @@ enum {
 	NVME_NS_LIGHTNVM	= 1,
 };
 
+/* The below value is the specific amount of delay needed before checking
+ * readiness in case of the PCI_DEVICE(0x1c58, 0x0003), which needs the
+ * NVME_QUIRK_DELAY_BEFORE_CHK_RDY quirk enabled. The value (in ms) was
+ * found empirically.
+ */
+#define NVME_QUIRK_DELAY_AMOUNT		2000
+
 /*
  * Represents an NVM Express device.  Each nvme_dev is a PCI function.
  */
@@ -71,6 +78,17 @@ struct nvme_dev {
 	u16 abort_limit;
 	u8 event_limit;
 	u8 vwc;
+	u8 npss;
+	u8 apsta;
+	u32 *dbbuf_dbs;
+	dma_addr_t dbbuf_dbs_dma_addr;
+	u32 *dbbuf_eis;
+	dma_addr_t dbbuf_eis_dma_addr;
+
+	struct nvme_id_power_state psd[32];
+
+	/* Power saving configuration */
+	u64 ps_max_latency_us;
 };
 
 /*
@@ -83,6 +101,9 @@ struct nvme_ns {
 	struct request_queue *queue;
 	struct gendisk *disk;
 	struct kref kref;
+
+	u8 eui[8];
+	u8 uuid[16];
 
 	unsigned ns_id;
 	int lba_shift;
@@ -126,9 +147,9 @@ int nvme_identify_ns(struct nvme_dev *dev, unsigned nsid,
 		struct nvme_id_ns **id);
 int nvme_get_log_page(struct nvme_dev *dev, struct nvme_smart_log **log);
 int nvme_get_features(struct nvme_dev *dev, unsigned fid, unsigned nsid,
-			dma_addr_t dma_addr, u32 *result);
+		      void *buffer, size_t buflen, u32 *result);
 int nvme_set_features(struct nvme_dev *dev, unsigned fid, unsigned dword11,
-			dma_addr_t dma_addr, u32 *result);
+		      void *buffer, size_t buflen, u32 *result);
 
 struct sg_io_hdr;
 

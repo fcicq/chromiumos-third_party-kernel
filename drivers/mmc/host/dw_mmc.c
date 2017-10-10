@@ -360,6 +360,42 @@ static void dw_mci_wait_while_busy(struct dw_mci *host, u32 cmd_flags)
 	}
 }
 
+static inline void dw_mci_set_cto(struct dw_mci *host)
+{
+	unsigned int cto_clks;
+	unsigned int cto_div;
+	unsigned int cto_ms;
+	unsigned long irqflags;
+
+	cto_clks = mci_readl(host, TMOUT) & 0xff;
+	cto_div = (mci_readl(host, CLKDIV) & 0xff) * 2;
+	if (cto_div == 0)
+		cto_div = 1;
+	cto_ms = DIV_ROUND_UP(MSEC_PER_SEC * cto_clks * cto_div, host->bus_hz);
+
+	/* add a bit spare time */
+	cto_ms += 10;
+
+	/*
+	 * The durations we're working with are fairly short so we have to be
+	 * extra careful about synchronization here.  Specifically in hardware a
+	 * command timeout is _at most_ 5.1 ms, so that means we expect an
+	 * interrupt (either command done or timeout) to come rather quickly
+	 * after the mci_writel.  ...but just in case we have a long interrupt
+	 * latency let's add a bit of paranoia.
+	 *
+	 * In general we'll assume that at least an interrupt will be asserted
+	 * in hardware by the time the cto_timer runs.  ...and if it hasn't
+	 * been asserted in hardware by that time then we'll assume it'll never
+	 * come.
+	 */
+	spin_lock_irqsave(&host->irq_lock, irqflags);
+	if (!test_bit(EVENT_CMD_COMPLETE, &host->pending_events))
+		mod_timer(&host->cto_timer,
+			jiffies + msecs_to_jiffies(cto_ms) + 1);
+	spin_unlock_irqrestore(&host->irq_lock, irqflags);
+}
+
 static void dw_mci_start_command(struct dw_mci *host,
 				 struct mmc_command *cmd, u32 cmd_flags)
 {
@@ -373,6 +409,10 @@ static void dw_mci_start_command(struct dw_mci *host,
 	dw_mci_wait_while_busy(host, cmd_flags);
 
 	mci_writel(host, CMD, cmd_flags | SDMMC_CMD_START);
+
+	/* response expected command only */
+	if (cmd_flags & SDMMC_CMD_RESP_EXP)
+		dw_mci_set_cto(host);
 }
 
 static inline void send_stop_abort(struct dw_mci *host, struct mmc_data *data)
@@ -1718,6 +1758,24 @@ static void dw_mci_set_drto(struct dw_mci *host)
 	mod_timer(&host->dto_timer, jiffies + msecs_to_jiffies(drto_ms));
 }
 
+static bool dw_mci_clear_pending_cmd_complete(struct dw_mci *host)
+{
+	if (!test_bit(EVENT_CMD_COMPLETE, &host->pending_events))
+		return false;
+
+	/*
+	 * Really be certain that the timer has stopped.  This is a bit of
+	 * paranoia and could only really happen if we had really bad
+	 * interrupt latency and the interrupt routine and timeout were
+	 * running concurrently so that the del_timer() in the interrupt
+	 * handler couldn't run.
+	 */
+	WARN_ON(del_timer_sync(&host->cto_timer));
+	clear_bit(EVENT_CMD_COMPLETE, &host->pending_events);
+
+	return true;
+}
+
 static void dw_mci_tasklet_func(unsigned long priv)
 {
 	struct dw_mci *host = (struct dw_mci *)priv;
@@ -1744,8 +1802,7 @@ static void dw_mci_tasklet_func(unsigned long priv)
 
 		case STATE_SENDING_CMD11:
 		case STATE_SENDING_CMD:
-			if (!test_and_clear_bit(EVENT_CMD_COMPLETE,
-						&host->pending_events))
+			if (!dw_mci_clear_pending_cmd_complete(host))
 				break;
 
 			cmd = host->cmd;
@@ -1800,8 +1857,7 @@ static void dw_mci_tasklet_func(unsigned long priv)
 				 * If all data-related interrupts don't come
 				 * within the given time in reading data state.
 				 */
-				if ((host->quirks & DW_MCI_QUIRK_BROKEN_DTO) &&
-				    (host->dir_status == DW_MCI_RECV_STATUS))
+				if (host->dir_status == DW_MCI_RECV_STATUS)
 					dw_mci_set_drto(host);
 				break;
 			}
@@ -1843,8 +1899,7 @@ static void dw_mci_tasklet_func(unsigned long priv)
 				 * interrupt doesn't come within the given time.
 				 * in reading data state.
 				 */
-				if ((host->quirks & DW_MCI_QUIRK_BROKEN_DTO) &&
-				    (host->dir_status == DW_MCI_RECV_STATUS))
+				if (host->dir_status == DW_MCI_RECV_STATUS)
 					dw_mci_set_drto(host);
 				break;
 			}
@@ -1891,8 +1946,7 @@ static void dw_mci_tasklet_func(unsigned long priv)
 			/* fall through */
 
 		case STATE_SENDING_STOP:
-			if (!test_and_clear_bit(EVENT_CMD_COMPLETE,
-						&host->pending_events))
+			if (!dw_mci_clear_pending_cmd_complete(host))
 				break;
 
 			/* CMD error in data command */
@@ -2339,6 +2393,8 @@ done:
 
 static void dw_mci_cmd_interrupt(struct dw_mci *host, u32 status)
 {
+	del_timer(&host->cto_timer);
+
 	if (!host->cmd_status)
 		host->cmd_status = status;
 
@@ -2369,6 +2425,7 @@ static irqreturn_t dw_mci_interrupt(int irq, void *dev_id)
 {
 	struct dw_mci *host = dev_id;
 	u32 pending;
+	unsigned long irqflags;
 	int i;
 
 	pending = mci_readl(host, MINTSTS); /* read-only mask reg */
@@ -2377,8 +2434,6 @@ static irqreturn_t dw_mci_interrupt(int irq, void *dev_id)
 		/* Check volt switch first, since it can look like an error */
 		if ((host->state == STATE_SENDING_CMD11) &&
 		    (pending & SDMMC_INT_VOLT_SWITCH)) {
-			unsigned long irqflags;
-
 			mci_writel(host, RINTSTS, SDMMC_INT_VOLT_SWITCH);
 			pending &= ~SDMMC_INT_VOLT_SWITCH;
 
@@ -2394,10 +2449,15 @@ static irqreturn_t dw_mci_interrupt(int irq, void *dev_id)
 		}
 
 		if (pending & DW_MCI_CMD_ERROR_FLAGS) {
+			spin_lock_irqsave(&host->irq_lock, irqflags);
+
+			del_timer(&host->cto_timer);
 			mci_writel(host, RINTSTS, DW_MCI_CMD_ERROR_FLAGS);
 			host->cmd_status = pending;
 			smp_wmb(); /* drain writebuffer */
 			set_bit(EVENT_CMD_COMPLETE, &host->pending_events);
+
+			spin_unlock_irqrestore(&host->irq_lock, irqflags);
 		}
 
 		if (pending & DW_MCI_DATA_ERROR_FLAGS) {
@@ -2410,8 +2470,7 @@ static irqreturn_t dw_mci_interrupt(int irq, void *dev_id)
 		}
 
 		if (pending & SDMMC_INT_DATA_OVER) {
-			if (host->quirks & DW_MCI_QUIRK_BROKEN_DTO)
-				del_timer(&host->dto_timer);
+			del_timer(&host->dto_timer);
 
 			mci_writel(host, RINTSTS, SDMMC_INT_DATA_OVER);
 			if (!host->data_status)
@@ -2438,8 +2497,12 @@ static irqreturn_t dw_mci_interrupt(int irq, void *dev_id)
 		}
 
 		if (pending & SDMMC_INT_CMD_DONE) {
+			spin_lock_irqsave(&host->irq_lock, irqflags);
+
 			mci_writel(host, RINTSTS, SDMMC_INT_CMD_DONE);
 			dw_mci_cmd_interrupt(host, pending);
+
+			spin_unlock_irqrestore(&host->irq_lock, irqflags);
 		}
 
 		if (pending & SDMMC_INT_CD) {
@@ -2841,6 +2904,61 @@ static void dw_mci_cmd11_timer(unsigned long arg)
 	tasklet_schedule(&host->tasklet);
 }
 
+static void dw_mci_cto_timer(unsigned long arg)
+{
+	struct dw_mci *host = (struct dw_mci *)arg;
+	unsigned long irqflags;
+	u32 pending;
+
+	spin_lock_irqsave(&host->irq_lock, irqflags);
+
+	/*
+	 * If somehow we have very bad interrupt latency it's remotely possible
+	 * that the timer could fire while the interrupt is still pending or
+	 * while the interrupt is midway through running.  Let's be paranoid
+	 * and detect those two cases.  Note that this is paranoia is somewhat
+	 * justified because in this function we don't actually cancel the
+	 * pending command in the controller--we just assume it will never come.
+	 */
+	pending = mci_readl(host, MINTSTS); /* read-only mask reg */
+	if (pending & (DW_MCI_CMD_ERROR_FLAGS | SDMMC_INT_CMD_DONE)) {
+		/* The interrupt should fire; no need to act but we can warn */
+		dev_warn(host->dev, "Unexpected interrupt latency\n");
+		goto exit;
+	}
+	if (test_bit(EVENT_CMD_COMPLETE, &host->pending_events)) {
+		/* Presumably interrupt handler couldn't delete the timer */
+		dev_warn(host->dev, "CTO timeout when already completed\n");
+		goto exit;
+	}
+
+	/*
+	 * Continued paranoia to make sure we're in the state we expect.
+	 * This paranoia isn't really justified but it seems good to be safe.
+	 */
+	switch (host->state) {
+	case STATE_SENDING_CMD11:
+	case STATE_SENDING_CMD:
+	case STATE_SENDING_STOP:
+		/*
+		 * If CMD_DONE interrupt does NOT come in sending command
+		 * state, we should notify the driver to terminate current
+		 * transfer and report a command timeout to the core.
+		 */
+		host->cmd_status = SDMMC_INT_RTO;
+		set_bit(EVENT_CMD_COMPLETE, &host->pending_events);
+		tasklet_schedule(&host->tasklet);
+		break;
+	default:
+		dev_warn(host->dev, "Unexpected command timeout, state %d\n",
+			 host->state);
+		break;
+	}
+
+exit:
+	spin_unlock_irqrestore(&host->irq_lock, irqflags);
+}
+
 static void dw_mci_dto_timer(unsigned long arg)
 {
 	struct dw_mci *host = (struct dw_mci *)arg;
@@ -2876,6 +2994,13 @@ static struct dw_mci_board *dw_mci_parse_dt(struct dw_mci *host)
 	pdata = devm_kzalloc(dev, sizeof(*pdata), GFP_KERNEL);
 	if (!pdata)
 		return ERR_PTR(-ENOMEM);
+
+	/* find reset controller when exist */
+	pdata->rstc = devm_reset_control_get_optional(dev, "reset");
+	if (IS_ERR(pdata->rstc)) {
+		if (PTR_ERR(pdata->rstc) == -EPROBE_DEFER)
+			return ERR_PTR(-EPROBE_DEFER);
+	}
 
 	/* find out number of slots supported */
 	of_property_read_u32(np, "num-slots", &pdata->num_slots);
@@ -2948,7 +3073,9 @@ int dw_mci_probe(struct dw_mci *host)
 
 	if (!host->pdata) {
 		host->pdata = dw_mci_parse_dt(host);
-		if (IS_ERR(host->pdata)) {
+		if (PTR_ERR(host->pdata) == -EPROBE_DEFER) {
+			return -EPROBE_DEFER;
+		} else if (IS_ERR(host->pdata)) {
 			dev_err(host->dev, "platform data not available\n");
 			return -EINVAL;
 		}
@@ -3002,23 +3129,20 @@ int dw_mci_probe(struct dw_mci *host)
 		}
 	}
 
-	if (drv_data && drv_data->setup_clock) {
-		ret = drv_data->setup_clock(host);
-		if (ret) {
-			dev_err(host->dev,
-				"implementation specific clock setup failed\n");
-			goto err_clk_ciu;
-		}
+	if (!IS_ERR(host->pdata->rstc)) {
+		reset_control_assert(host->pdata->rstc);
+		usleep_range(10, 50);
+		reset_control_deassert(host->pdata->rstc);
 	}
 
 	setup_timer(&host->cmd11_timer,
 		    dw_mci_cmd11_timer, (unsigned long)host);
 
-	host->quirks = host->pdata->quirks;
+	setup_timer(&host->cto_timer,
+		    dw_mci_cto_timer, (unsigned long)host);
 
-	if (host->quirks & DW_MCI_QUIRK_BROKEN_DTO)
-		setup_timer(&host->dto_timer,
-			    dw_mci_dto_timer, (unsigned long)host);
+	setup_timer(&host->dto_timer,
+		    dw_mci_dto_timer, (unsigned long)host);
 
 	spin_lock_init(&host->lock);
 	spin_lock_init(&host->irq_lock);
@@ -3163,13 +3287,14 @@ err_dmaunmap:
 	if (host->use_dma && host->dma_ops->exit)
 		host->dma_ops->exit(host);
 
+	if (!IS_ERR(host->pdata->rstc))
+		reset_control_assert(host->pdata->rstc);
+
 err_clk_ciu:
-	if (!IS_ERR(host->ciu_clk))
-		clk_disable_unprepare(host->ciu_clk);
+	clk_disable_unprepare(host->ciu_clk);
 
 err_clk_biu:
-	if (!IS_ERR(host->biu_clk))
-		clk_disable_unprepare(host->biu_clk);
+	clk_disable_unprepare(host->biu_clk);
 
 	return ret;
 }
@@ -3195,11 +3320,11 @@ void dw_mci_remove(struct dw_mci *host)
 	if (host->use_dma && host->dma_ops->exit)
 		host->dma_ops->exit(host);
 
-	if (!IS_ERR(host->ciu_clk))
-		clk_disable_unprepare(host->ciu_clk);
+	if (!IS_ERR(host->pdata->rstc))
+		reset_control_assert(host->pdata->rstc);
 
-	if (!IS_ERR(host->biu_clk))
-		clk_disable_unprepare(host->biu_clk);
+	clk_disable_unprepare(host->ciu_clk);
+	clk_disable_unprepare(host->biu_clk);
 }
 EXPORT_SYMBOL(dw_mci_remove);
 

@@ -32,6 +32,14 @@
 #include "sdhci-pci.h"
 #include "sdhci-pci-o2micro.h"
 
+static int sdhci_pci_enable_dma(struct sdhci_host *host);
+static void sdhci_pci_set_bus_width(struct sdhci_host *host, int width);
+static void sdhci_pci_hw_reset(struct sdhci_host *host);
+static int sdhci_pci_select_drive_strength(struct sdhci_host *host,
+					   struct mmc_card *card,
+					   unsigned int max_dtr, int host_drv,
+					   int card_drv, int *drv_type);
+
 /*****************************************************************************\
  *                                                                           *
  * Hardware specific quirk handling                                          *
@@ -382,10 +390,12 @@ static int byt_sdio_probe_slot(struct sdhci_pci_slot *slot)
 
 static int byt_sd_probe_slot(struct sdhci_pci_slot *slot)
 {
-	slot->host->mmc->caps |= MMC_CAP_WAIT_WHILE_BUSY;
+	slot->host->mmc->caps |= MMC_CAP_WAIT_WHILE_BUSY |
+				 MMC_CAP_AGGRESSIVE_PM;
 	slot->cd_con_id = NULL;
 	slot->cd_idx = 0;
 	slot->cd_override_level = true;
+	slot->cd_wake = true;
 	if (slot->chip->pdev->device == PCI_DEVICE_ID_INTEL_BXT_SD ||
 	    slot->chip->pdev->device == PCI_DEVICE_ID_INTEL_BXTM_SD ||
 	    slot->chip->pdev->device == PCI_DEVICE_ID_INTEL_APL_SD)
@@ -394,6 +404,45 @@ static int byt_sd_probe_slot(struct sdhci_pci_slot *slot)
 	return 0;
 }
 
+#define SDHCI_INTEL_PWR_TIMEOUT_CNT	20
+#define SDHCI_INTEL_PWR_TIMEOUT_UDELAY	100
+
+static void sdhci_intel_set_power(struct sdhci_host *host, unsigned char mode,
+				  unsigned short vdd)
+{
+	int cntr;
+	u8 reg;
+
+	sdhci_set_power(host, mode, vdd);
+
+	if (mode == MMC_POWER_OFF)
+		return;
+
+	/*
+	 * Bus power might not enable after D3 -> D0 transition due to the
+	 * present state not yet having propagated. Retry for up to 2ms.
+	 */
+	for (cntr = 0; cntr < SDHCI_INTEL_PWR_TIMEOUT_CNT; cntr++) {
+		reg = sdhci_readb(host, SDHCI_POWER_CONTROL);
+		if (reg & SDHCI_POWER_ON)
+			break;
+		udelay(SDHCI_INTEL_PWR_TIMEOUT_UDELAY);
+		reg |= SDHCI_POWER_ON;
+		sdhci_writeb(host, reg, SDHCI_POWER_CONTROL);
+	}
+}
+
+static const struct sdhci_ops sdhci_intel_byt_ops = {
+	.set_clock		= sdhci_set_clock,
+	.set_power		= sdhci_intel_set_power,
+	.enable_dma		= sdhci_pci_enable_dma,
+	.set_bus_width		= sdhci_pci_set_bus_width,
+	.reset			= sdhci_reset,
+	.set_uhs_signaling	= sdhci_set_uhs_signaling,
+	.hw_reset		= sdhci_pci_hw_reset,
+	.select_drive_strength	= sdhci_pci_select_drive_strength,
+};
+
 static const struct sdhci_pci_fixes sdhci_intel_byt_emmc = {
 	.allow_runtime_pm = true,
 	.probe_slot	= byt_emmc_probe_slot,
@@ -401,6 +450,7 @@ static const struct sdhci_pci_fixes sdhci_intel_byt_emmc = {
 	.quirks2	= SDHCI_QUIRK2_PRESET_VALUE_BROKEN |
 			  SDHCI_QUIRK2_CAPS_BIT63_FOR_HS400 |
 			  SDHCI_QUIRK2_STOP_WITH_TC,
+	.ops		= &sdhci_intel_byt_ops,
 };
 
 static const struct sdhci_pci_fixes sdhci_intel_byt_sdio = {
@@ -409,6 +459,7 @@ static const struct sdhci_pci_fixes sdhci_intel_byt_sdio = {
 			SDHCI_QUIRK2_PRESET_VALUE_BROKEN,
 	.allow_runtime_pm = true,
 	.probe_slot	= byt_sdio_probe_slot,
+	.ops		= &sdhci_intel_byt_ops,
 };
 
 static const struct sdhci_pci_fixes sdhci_intel_byt_sd = {
@@ -419,6 +470,7 @@ static const struct sdhci_pci_fixes sdhci_intel_byt_sd = {
 	.allow_runtime_pm = true,
 	.own_cd_for_runtime_pm = true,
 	.probe_slot	= byt_sd_probe_slot,
+	.ops		= &sdhci_intel_byt_ops,
 };
 
 /* Define Host controllers for Intel Merrifield platform */
@@ -758,6 +810,86 @@ enum amd_chipset_gen {
 	AMD_CHIPSET_UNKNOWN,
 };
 
+/* AMD registers */
+#define AMD_SD_AUTO_PATTERN		0xB8
+#define AMD_MSLEEP_DURATION		4
+#define AMD_SD_MISC_CONTROL		0xD0
+#define AMD_MAX_TUNE_VALUE		0x0B
+#define AMD_AUTO_TUNE_SEL		0x10800
+#define AMD_FIFO_PTR			0x30
+#define AMD_BIT_MASK			0x1F
+
+static void amd_tuning_reset(struct sdhci_host *host)
+{
+	unsigned int val;
+
+	val = sdhci_readw(host, SDHCI_HOST_CONTROL2);
+	val |= SDHCI_CTRL_PRESET_VAL_ENABLE | SDHCI_CTRL_EXEC_TUNING;
+	sdhci_writew(host, val, SDHCI_HOST_CONTROL2);
+
+	val = sdhci_readw(host, SDHCI_HOST_CONTROL2);
+	val &= ~SDHCI_CTRL_EXEC_TUNING;
+	sdhci_writew(host, val, SDHCI_HOST_CONTROL2);
+}
+
+static void amd_config_tuning_phase(struct pci_dev *pdev, u8 phase)
+{
+	unsigned int val;
+
+	pci_read_config_dword(pdev, AMD_SD_AUTO_PATTERN, &val);
+	val &= ~AMD_BIT_MASK;
+	val |= (AMD_AUTO_TUNE_SEL | (phase << 1));
+	pci_write_config_dword(pdev, AMD_SD_AUTO_PATTERN, val);
+}
+
+static void amd_enable_manual_tuning(struct pci_dev *pdev)
+{
+	unsigned int val;
+
+	pci_read_config_dword(pdev, AMD_SD_MISC_CONTROL, &val);
+	val |= AMD_FIFO_PTR;
+	pci_write_config_dword(pdev, AMD_SD_MISC_CONTROL, val);
+}
+
+static int amd_execute_tuning(struct sdhci_host *host, u32 opcode)
+{
+	struct sdhci_pci_slot *slot = sdhci_priv(host);
+	struct pci_dev *pdev = slot->chip->pdev;
+	u8 valid_win = 0;
+	u8 valid_win_max = 0;
+	u8 valid_win_end = 0;
+	u8 ctrl, tune_around;
+
+	amd_tuning_reset(host);
+
+	for (tune_around = 0; tune_around < 12; tune_around++) {
+		amd_config_tuning_phase(pdev, tune_around);
+
+		if (mmc_send_tuning(host->mmc, opcode, NULL)) {
+			valid_win = 0;
+			msleep(AMD_MSLEEP_DURATION);
+			ctrl = SDHCI_RESET_CMD | SDHCI_RESET_DATA;
+			sdhci_writeb(host, ctrl, SDHCI_SOFTWARE_RESET);
+		} else if (++valid_win > valid_win_max) {
+			valid_win_max = valid_win;
+			valid_win_end = tune_around;
+		}
+	}
+
+	if (!valid_win_max) {
+		dev_err(&pdev->dev, "no tuning point found\n");
+		return -EIO;
+	}
+
+	amd_config_tuning_phase(pdev, valid_win_end - valid_win_max / 2);
+
+	amd_enable_manual_tuning(pdev);
+
+	host->mmc->retune_period = 0;
+
+	return 0;
+}
+
 static int amd_probe(struct sdhci_pci_chip *chip)
 {
 	struct pci_dev	*smbus_dev;
@@ -780,16 +912,24 @@ static int amd_probe(struct sdhci_pci_chip *chip)
 		}
 	}
 
-	if ((gen == AMD_CHIPSET_BEFORE_ML) || (gen == AMD_CHIPSET_CZ)) {
+	if (gen == AMD_CHIPSET_BEFORE_ML || gen == AMD_CHIPSET_CZ)
 		chip->quirks2 |= SDHCI_QUIRK2_CLEAR_TRANSFERMODE_REG_BEFORE_CMD;
-		chip->quirks2 |= SDHCI_QUIRK2_BROKEN_HS200;
-	}
 
 	return 0;
 }
 
+static const struct sdhci_ops amd_sdhci_pci_ops = {
+	.set_clock			= sdhci_set_clock,
+	.enable_dma			= sdhci_pci_enable_dma,
+	.set_bus_width			= sdhci_pci_set_bus_width,
+	.reset				= sdhci_reset,
+	.set_uhs_signaling		= sdhci_set_uhs_signaling,
+	.platform_execute_tuning	= amd_execute_tuning,
+};
+
 static const struct sdhci_pci_fixes sdhci_amd = {
 	.probe		= amd_probe,
+	.ops		= &amd_sdhci_pci_ops,
 };
 
 static const struct pci_device_id pci_ids[] = {
@@ -1324,7 +1464,6 @@ static int sdhci_pci_enable_dma(struct sdhci_host *host)
 {
 	struct sdhci_pci_slot *slot;
 	struct pci_dev *pdev;
-	int ret = -1;
 
 	slot = sdhci_priv(host);
 	pdev = slot->chip->pdev;
@@ -1335,20 +1474,6 @@ static int sdhci_pci_enable_dma(struct sdhci_host *host)
 		dev_warn(&pdev->dev, "Will use DMA mode even though HW "
 			"doesn't fully claim to support it.\n");
 	}
-
-	if (host->flags & SDHCI_USE_64_BIT_DMA) {
-		if (host->quirks2 & SDHCI_QUIRK2_BROKEN_64_BIT_DMA) {
-			host->flags &= ~SDHCI_USE_64_BIT_DMA;
-		} else {
-			ret = pci_set_dma_mask(pdev, DMA_BIT_MASK(64));
-			if (ret)
-				dev_warn(&pdev->dev, "Failed to set 64-bit DMA mask\n");
-		}
-	}
-	if (ret)
-		ret = pci_set_dma_mask(pdev, DMA_BIT_MASK(32));
-	if (ret)
-		return ret;
 
 	pci_set_master(pdev);
 
@@ -1661,7 +1786,9 @@ static struct sdhci_pci_slot *sdhci_pci_probe_slot(
 	}
 
 	host->hw_name = "PCI";
-	host->ops = &sdhci_pci_ops;
+	host->ops = chip->fixes && chip->fixes->ops ?
+		    chip->fixes->ops :
+		    &sdhci_pci_ops;
 	host->quirks = chip->quirks;
 	host->quirks2 = chip->quirks2;
 
@@ -1706,6 +1833,8 @@ static struct sdhci_pci_slot *sdhci_pci_probe_slot(
 				 slot->cd_override_level, 0, NULL)) {
 		dev_warn(&pdev->dev, "failed to setup card detect gpio\n");
 		slot->cd_idx = -1;
+	} else if (slot->cd_wake) {
+		mmc_gpio_cd_enable_wake(host->mmc);
 	}
 
 	ret = sdhci_add_host(host);

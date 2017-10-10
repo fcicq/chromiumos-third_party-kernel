@@ -154,6 +154,8 @@ const char *v4l2_type_names[] = {
 	[V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE] = "vid-out-mplane",
 	[V4L2_BUF_TYPE_SDR_CAPTURE]        = "sdr-cap",
 	[V4L2_BUF_TYPE_SDR_OUTPUT]         = "sdr-out",
+	[V4L2_BUF_TYPE_META_CAPTURE]       = "meta-cap",
+	[V4L2_BUF_TYPE_META_OUTPUT]	   = "meta-out",
 };
 EXPORT_SYMBOL(v4l2_type_names);
 
@@ -248,6 +250,7 @@ static void v4l_print_format(const void *arg, bool write_only)
 	const struct v4l2_sliced_vbi_format *sliced;
 	const struct v4l2_window *win;
 	const struct v4l2_sdr_format *sdr;
+	const struct v4l2_meta_format *meta;
 	unsigned i;
 
 	pr_cont("type=%s", prt_names(p->type, v4l2_type_names));
@@ -334,6 +337,16 @@ static void v4l_print_format(const void *arg, bool write_only)
 			(sdr->pixelformat >>  8) & 0xff,
 			(sdr->pixelformat >> 16) & 0xff,
 			(sdr->pixelformat >> 24) & 0xff);
+		break;
+	case V4L2_BUF_TYPE_META_CAPTURE:
+	case V4L2_BUF_TYPE_META_OUTPUT:
+		meta = &p->fmt.meta;
+		pr_cont(", dataformat=%c%c%c%c, buffersize=%u\n",
+			(meta->dataformat >>  0) & 0xff,
+			(meta->dataformat >>  8) & 0xff,
+			(meta->dataformat >> 16) & 0xff,
+			(meta->dataformat >> 24) & 0xff,
+			meta->buffersize);
 		break;
 	}
 }
@@ -980,6 +993,14 @@ static int check_fmt(struct file *file, enum v4l2_buf_type type)
 		if (is_sdr && is_tx && ops->vidioc_g_fmt_sdr_out)
 			return 0;
 		break;
+	case V4L2_BUF_TYPE_META_CAPTURE:
+		if (is_vid && is_rx && ops->vidioc_g_fmt_meta_cap)
+			return 0;
+		break;
+	case V4L2_BUF_TYPE_META_OUTPUT:
+		if (is_vid && is_tx && ops->vidioc_g_fmt_meta_out)
+			return 0;
+		break;
 	default:
 		break;
 	}
@@ -1214,6 +1235,10 @@ static void v4l_fill_fmtdesc(struct v4l2_fmtdesc *fmt)
 	case V4L2_PIX_FMT_SGBRG10P:	descr = "10-bit Bayer GBGB/RGRG Packed"; break;
 	case V4L2_PIX_FMT_SGRBG10P:	descr = "10-bit Bayer GRGR/BGBG Packed"; break;
 	case V4L2_PIX_FMT_SRGGB10P:	descr = "10-bit Bayer RGRG/GBGB Packed"; break;
+	case V4L2_PIX_FMT_IPU3_SBGGR10: descr = "10-bit bayer BGGR IPU3 Packed"; break;
+	case V4L2_PIX_FMT_IPU3_SGBRG10: descr = "10-bit bayer GBRG IPU3 Packed"; break;
+	case V4L2_PIX_FMT_IPU3_SGRBG10: descr = "10-bit bayer GRBG IPU3 Packed"; break;
+	case V4L2_PIX_FMT_IPU3_SRGGB10: descr = "10-bit bayer RGGB IPU3 Packed"; break;
 	case V4L2_PIX_FMT_SBGGR10ALAW8:	descr = "8-bit Bayer BGBG/GRGR (A-law)"; break;
 	case V4L2_PIX_FMT_SGBRG10ALAW8:	descr = "8-bit Bayer GBGB/RGRG (A-law)"; break;
 	case V4L2_PIX_FMT_SGRBG10ALAW8:	descr = "8-bit Bayer GRGR/BGBG (A-law)"; break;
@@ -1236,6 +1261,10 @@ static void v4l_fill_fmtdesc(struct v4l2_fmtdesc *fmt)
 	case V4L2_SDR_FMT_CS8:		descr = "Complex S8"; break;
 	case V4L2_SDR_FMT_CS14LE:	descr = "Complex S14LE"; break;
 	case V4L2_SDR_FMT_RU12LE:	descr = "Real U12LE"; break;
+	case V4L2_META_FMT_IPU3_PARAMS:	descr = "IPU3 processing parameters"; break;
+	case V4L2_META_FMT_IPU3_STAT_3A:	descr = "IPU3 3A statistics"; break;
+	case V4L2_META_FMT_IPU3_STAT_DVS:	descr = "IPU3 DVS statistics"; break;
+	case V4L2_META_FMT_IPU3_STAT_LACE:	descr = "IPU3 LACE statistics"; break;
 
 	default:
 		/* Compressed formats */
@@ -1347,6 +1376,16 @@ static int v4l_enum_fmt(const struct v4l2_ioctl_ops *ops,
 			break;
 		ret = ops->vidioc_enum_fmt_sdr_out(file, fh, arg);
 		break;
+	case V4L2_BUF_TYPE_META_CAPTURE:
+		if (unlikely(!is_rx || !is_vid || !ops->vidioc_enum_fmt_meta_cap))
+			break;
+		ret = ops->vidioc_enum_fmt_meta_cap(file, fh, arg);
+		break;
+	case V4L2_BUF_TYPE_META_OUTPUT:
+		if (unlikely(!is_tx || !is_vid || !ops->vidioc_enum_fmt_meta_out))
+			break;
+		ret = ops->vidioc_enum_fmt_meta_out(file, fh, arg);
+		break;
 	}
 	if (ret == 0)
 		v4l_fill_fmtdesc(p);
@@ -1445,6 +1484,14 @@ static int v4l_g_fmt(const struct v4l2_ioctl_ops *ops,
 		if (unlikely(!is_tx || !is_sdr || !ops->vidioc_g_fmt_sdr_out))
 			break;
 		return ops->vidioc_g_fmt_sdr_out(file, fh, arg);
+	case V4L2_BUF_TYPE_META_CAPTURE:
+		if (unlikely(!is_rx || !is_vid || !ops->vidioc_g_fmt_meta_cap))
+			break;
+		return ops->vidioc_g_fmt_meta_cap(file, fh, arg);
+	case V4L2_BUF_TYPE_META_OUTPUT:
+		if (unlikely(!is_tx || !is_vid || !ops->vidioc_g_fmt_meta_out))
+			break;
+		return ops->vidioc_g_fmt_meta_out(file, fh, arg);
 	}
 	return -EINVAL;
 }
@@ -1529,6 +1576,16 @@ static int v4l_s_fmt(const struct v4l2_ioctl_ops *ops,
 			break;
 		CLEAR_AFTER_FIELD(p, fmt.sdr);
 		return ops->vidioc_s_fmt_sdr_out(file, fh, arg);
+	case V4L2_BUF_TYPE_META_CAPTURE:
+		if (unlikely(!is_rx || !is_vid || !ops->vidioc_s_fmt_meta_cap))
+			break;
+		CLEAR_AFTER_FIELD(p, fmt.meta);
+		return ops->vidioc_s_fmt_meta_cap(file, fh, arg);
+	case V4L2_BUF_TYPE_META_OUTPUT:
+		if (unlikely(!is_tx || !is_vid || !ops->vidioc_s_fmt_meta_out))
+			break;
+		CLEAR_AFTER_FIELD(p, fmt.meta);
+		return ops->vidioc_s_fmt_meta_out(file, fh, arg);
 	}
 	return -EINVAL;
 }
@@ -1613,6 +1670,16 @@ static int v4l_try_fmt(const struct v4l2_ioctl_ops *ops,
 			break;
 		CLEAR_AFTER_FIELD(p, fmt.sdr);
 		return ops->vidioc_try_fmt_sdr_out(file, fh, arg);
+	case V4L2_BUF_TYPE_META_CAPTURE:
+		if (unlikely(!is_rx || !is_vid || !ops->vidioc_try_fmt_meta_cap))
+			break;
+		CLEAR_AFTER_FIELD(p, fmt.meta);
+		return ops->vidioc_try_fmt_meta_cap(file, fh, arg);
+	case V4L2_BUF_TYPE_META_OUTPUT:
+		if (unlikely(!is_tx || !is_vid || !ops->vidioc_try_fmt_meta_out))
+			break;
+		CLEAR_AFTER_FIELD(p, fmt.meta);
+		return ops->vidioc_try_fmt_meta_out(file, fh, arg);
 	}
 	return -EINVAL;
 }
@@ -2736,7 +2803,7 @@ video_usercopy(struct file *file, unsigned int cmd, unsigned long arg,
 			parg = sbuf;
 		} else {
 			/* too big to allocate from stack */
-			mbuf = kmalloc(_IOC_SIZE(cmd), GFP_KERNEL);
+			mbuf = kvmalloc(_IOC_SIZE(cmd), GFP_KERNEL);
 			if (NULL == mbuf)
 				return -ENOMEM;
 			parg = mbuf;
@@ -2783,7 +2850,7 @@ video_usercopy(struct file *file, unsigned int cmd, unsigned long arg,
 		 * array) fits into sbuf (so that mbuf will still remain
 		 * unused up to here).
 		 */
-		mbuf = kmalloc(array_size, GFP_KERNEL);
+		mbuf = kvmalloc(array_size, GFP_KERNEL);
 		err = -ENOMEM;
 		if (NULL == mbuf)
 			goto out_array_args;
@@ -2826,7 +2893,7 @@ out_array_args:
 	}
 
 out:
-	kfree(mbuf);
+	kvfree(mbuf);
 	return err;
 }
 EXPORT_SYMBOL(video_usercopy);

@@ -178,7 +178,7 @@ extern int no_unaligned_warning;
 #define SYSCTL_WRITES_WARN	 0
 #define SYSCTL_WRITES_STRICT	 1
 
-static int sysctl_writes_strict = SYSCTL_WRITES_WARN;
+static int sysctl_writes_strict = SYSCTL_WRITES_STRICT;
 
 static int proc_do_cad_pid(struct ctl_table *table, int write,
 		  void __user *buffer, size_t *lenp, loff_t *ppos);
@@ -1692,17 +1692,6 @@ static struct ctl_table vm_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec,
 	},
-#ifdef CONFIG_DISK_BASED_SWAP
-	{
-		.procname	= "disk_based_swap",
-		.data		= &sysctl_disk_based_swap,
-		.maxlen		= sizeof(sysctl_disk_based_swap),
-		.mode		= 0644,
-		.proc_handler	= proc_dointvec_minmax,
-		.extra1		= &zero,
-		.extra2		= &one,
-	},
-#endif
 	{ }
 };
 
@@ -2201,9 +2190,12 @@ static int do_proc_douintvec_conv(bool *negp, unsigned long *lvalp,
 	if (write) {
 		if (*negp)
 			return -EINVAL;
+		if (*lvalp > UINT_MAX)
+			return -EINVAL;
 		*valp = *lvalp;
 	} else {
 		unsigned int val = *valp;
+		*negp = false;
 		*lvalp = (unsigned long)val;
 	}
 	return 0;
@@ -2557,6 +2549,7 @@ static int __do_proc_doulongvec_minmax(void *data, struct ctl_table *table, int 
 				break;
 			if (neg)
 				continue;
+			val = convmul * val / convdiv;
 			if ((min && val < *min) || (max && val > *max))
 				continue;
 			*i = val;

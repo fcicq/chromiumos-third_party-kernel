@@ -75,6 +75,8 @@
 #define EDID_QUIRK_FORCE_12BPC			(1 << 9)
 /* Force 6bpc */
 #define EDID_QUIRK_FORCE_6BPC			(1 << 10)
+/* Force 10bpc */
+#define EDID_QUIRK_FORCE_10BPC			(1 << 11)
 
 struct detailed_mode_closure {
 	struct drm_connector *connector;
@@ -117,6 +119,9 @@ static struct edid_quirk {
 	{ "FCM", 13600, EDID_QUIRK_PREFER_LARGE_75 |
 	  EDID_QUIRK_DETAILED_IN_CM },
 
+	/* LGD panel of HP zBook 17 G2, eDP 10 bpc, but reports unknown bpc */
+	{ "LGD", 764, EDID_QUIRK_FORCE_10BPC },
+
 	/* LG Philips LCD LP154W01-A5 */
 	{ "LPL", 0, EDID_QUIRK_DETAILED_USE_MAXIMUM_SIZE },
 	{ "LPL", 0x2a00, EDID_QUIRK_DETAILED_USE_MAXIMUM_SIZE },
@@ -144,6 +149,9 @@ static struct edid_quirk {
 
 	/* Panel in Samsung NP700G7A-S01PL notebook reports 6bpc */
 	{ "SEC", 0xd033, EDID_QUIRK_FORCE_8BPC },
+
+	/* Rotel RSX-1058 forwards sink's EDID but only does HDMI 1.1*/
+	{ "ETR", 13896, EDID_QUIRK_FORCE_8BPC },
 };
 
 /*
@@ -3260,6 +3268,46 @@ monitor_name(struct detailed_timing *t, void *data)
 		*(u8 **)data = t->data.other_data.data.str.str;
 }
 
+static int get_monitor_name(struct edid *edid, char name[13])
+{
+	char *edid_name = NULL;
+	int mnl;
+
+	if (!edid || !name)
+		return 0;
+
+	drm_for_each_detailed_block((u8 *)edid, monitor_name, &edid_name);
+	for (mnl = 0; edid_name && mnl < 13; mnl++) {
+		if (edid_name[mnl] == 0x0a)
+			break;
+
+		name[mnl] = edid_name[mnl];
+	}
+
+	return mnl;
+}
+
+/**
+ * drm_edid_get_monitor_name - fetch the monitor name from the edid
+ * @edid: monitor EDID information
+ * @name: pointer to a character array to hold the name of the monitor
+ * @bufsize: The size of the name buffer (should be at least 14 chars.)
+ *
+ */
+void drm_edid_get_monitor_name(struct edid *edid, char *name, int bufsize)
+{
+	int name_length;
+	char buf[13];
+	
+	if (bufsize <= 0)
+		return;
+
+	name_length = min(get_monitor_name(edid, buf), bufsize - 1);
+	memcpy(name, buf, name_length);
+	name[name_length] = '\0';
+}
+EXPORT_SYMBOL(drm_edid_get_monitor_name);
+
 /**
  * drm_edid_to_eld - build ELD from EDID
  * @connector: connector corresponding to the HDMI/DP sink
@@ -3273,7 +3321,6 @@ void drm_edid_to_eld(struct drm_connector *connector, struct edid *edid)
 {
 	uint8_t *eld = connector->eld;
 	u8 *cea;
-	u8 *name;
 	u8 *db;
 	int sad_count = 0;
 	int mnl;
@@ -3287,13 +3334,8 @@ void drm_edid_to_eld(struct drm_connector *connector, struct edid *edid)
 		return;
 	}
 
-	name = NULL;
-	drm_for_each_detailed_block((u8 *)edid, monitor_name, &name);
-	for (mnl = 0; name && mnl < 13; mnl++) {
-		if (name[mnl] == 0x0a)
-			break;
-		eld[20 + mnl] = name[mnl];
-	}
+	mnl = get_monitor_name(edid, eld + 20);
+
 	eld[4] = (cea[1] << 5) | mnl;
 	DRM_DEBUG_KMS("ELD monitor %s\n", eld + 20);
 
@@ -3645,14 +3687,7 @@ bool drm_rgb_quant_range_selectable(struct edid *edid)
 }
 EXPORT_SYMBOL(drm_rgb_quant_range_selectable);
 
-/**
- * drm_assign_hdmi_deep_color_info - detect whether monitor supports
- * hdmi deep color modes and update drm_display_info if so.
- * @edid: monitor EDID information
- * @info: Updated with maximum supported deep color bpc and color format
- *        if deep color supported.
- * @connector: DRM connector, used only for debug output
- *
+/*
  * Parse the CEA extension according to CEA-861-B.
  * Return true if HDMI deep color supported, false if not or unknown.
  */
@@ -3746,16 +3781,6 @@ static bool drm_assign_hdmi_deep_color_info(struct edid *edid,
 	return false;
 }
 
-/**
- * drm_add_display_info - pull display info out if present
- * @edid: EDID data
- * @info: display info (attached to connector)
- * @connector: connector whose edid is used to build display info
- *
- * Grab any available display info and stuff it into the drm_display_info
- * structure that's part of the connector.  Useful for tracking bpp and
- * color spaces.
- */
 static void drm_add_display_info(struct edid *edid,
                                  struct drm_display_info *info,
                                  struct drm_connector *connector)
@@ -3835,7 +3860,9 @@ static void drm_add_display_info(struct edid *edid,
  * @connector: connector we're probing
  * @edid: EDID data
  *
- * Add the specified modes to the connector's mode list.
+ * Add the specified modes to the connector's mode list. Also fills out the
+ * &drm_display_info structure in @connector with any information which can be
+ * derived from the edid.
  *
  * Return: The number of modes added or 0 if we couldn't find any.
  */
@@ -3888,6 +3915,9 @@ int drm_add_edid_modes(struct drm_connector *connector, struct edid *edid)
 
 	if (quirks & EDID_QUIRK_FORCE_8BPC)
 		connector->display_info.bpc = 8;
+
+	if (quirks & EDID_QUIRK_FORCE_10BPC)
+		connector->display_info.bpc = 10;
 
 	if (quirks & EDID_QUIRK_FORCE_12BPC)
 		connector->display_info.bpc = 12;

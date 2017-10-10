@@ -532,9 +532,8 @@ static void giveback(struct driver_data *drv_data)
 		/* see if the next and current messages point
 		 * to the same chip
 		 */
-		if (next_msg && next_msg->spi != msg->spi)
-			next_msg = NULL;
-		if (!next_msg || msg->state == ERROR_STATE)
+		if ((next_msg && next_msg->spi != msg->spi) ||
+		    msg->state == ERROR_STATE)
 			cs_deassert(drv_data);
 	}
 
@@ -882,9 +881,21 @@ static unsigned int pxa2xx_ssp_get_clk_div(struct driver_data *drv_data,
 	return clk_div << 8;
 }
 
+static bool pxa2xx_spi_can_dma(struct spi_master *master,
+			       struct spi_device *spi,
+			       struct spi_transfer *xfer)
+{
+	struct chip_data *chip = spi_get_ctldata(spi);
+
+	return chip->enable_dma &&
+	       xfer->len <= MAX_DMA_LEN &&
+	       xfer->len >= chip->dma_burst_size;
+}
+
 static void pump_transfers(unsigned long data)
 {
 	struct driver_data *drv_data = (struct driver_data *)data;
+	struct spi_master *master = drv_data->master;
 	struct spi_message *message = NULL;
 	struct spi_transfer *transfer = NULL;
 	struct spi_transfer *previous = NULL;
@@ -897,6 +908,8 @@ static void pump_transfers(unsigned long data)
 	u32 dma_thresh = drv_data->cur_chip->dma_threshold;
 	u32 dma_burst = drv_data->cur_chip->dma_burst_size;
 	u32 change_mask = pxa2xx_spi_get_ssrc1_change_mask(drv_data);
+	int err;
+	int dma_mapped;
 
 	/* Get current state information */
 	message = drv_data->cur_msg;
@@ -931,7 +944,7 @@ static void pump_transfers(unsigned long data)
 	}
 
 	/* Check if we can DMA this transfer */
-	if (!pxa2xx_spi_dma_is_possible(transfer->len) && chip->enable_dma) {
+	if (transfer->len > MAX_DMA_LEN && chip->enable_dma) {
 
 		/* reject already-mapped transfers; PIO won't always work */
 		if (message->is_dma_mapped
@@ -964,8 +977,6 @@ static void pump_transfers(unsigned long data)
 	drv_data->tx_end = drv_data->tx + transfer->len;
 	drv_data->rx = transfer->rx_buf;
 	drv_data->rx_end = drv_data->rx + transfer->len;
-	drv_data->rx_dma = transfer->rx_dma;
-	drv_data->tx_dma = transfer->tx_dma;
 	drv_data->len = transfer->len;
 	drv_data->write = drv_data->tx ? chip->write : null_writer;
 	drv_data->read = drv_data->rx ? chip->read : null_reader;
@@ -1008,30 +1019,22 @@ static void pump_transfers(unsigned long data)
 					     "pump_transfers: DMA burst size reduced to match bits_per_word\n");
 	}
 
-	/* NOTE:  PXA25x_SSP _could_ use external clocking ... */
-	cr0 = pxa2xx_configure_sscr0(drv_data, clk_div, bits);
-	if (!pxa25x_ssp_comp(drv_data))
-		dev_dbg(&message->spi->dev, "%u Hz actual, %s\n",
-			drv_data->master->max_speed_hz
-				/ (1 + ((cr0 & SSCR0_SCR(0xfff)) >> 8)),
-			chip->enable_dma ? "DMA" : "PIO");
-	else
-		dev_dbg(&message->spi->dev, "%u Hz actual, %s\n",
-			drv_data->master->max_speed_hz / 2
-				/ (1 + ((cr0 & SSCR0_SCR(0x0ff)) >> 8)),
-			chip->enable_dma ? "DMA" : "PIO");
-
 	message->state = RUNNING_STATE;
 
-	drv_data->dma_mapped = 0;
-	if (pxa2xx_spi_dma_is_possible(drv_data->len))
-		drv_data->dma_mapped = pxa2xx_spi_map_dma_buffers(drv_data);
-	if (drv_data->dma_mapped) {
+	dma_mapped = master->can_dma &&
+		     master->can_dma(master, message->spi, transfer) &&
+		     master->cur_msg_mapped;
+	if (dma_mapped) {
 
 		/* Ensure we have the correct interrupt handler */
 		drv_data->transfer_handler = pxa2xx_spi_dma_transfer;
 
-		pxa2xx_spi_dma_prepare(drv_data, dma_burst);
+		err = pxa2xx_spi_dma_prepare(drv_data, dma_burst);
+		if (err) {
+			message->status = err;
+			giveback(drv_data);
+			return;
+		}
 
 		/* Clear status and start DMA engine */
 		cr1 = chip->cr1 | dma_thresh | drv_data->dma_cr1;
@@ -1046,6 +1049,19 @@ static void pump_transfers(unsigned long data)
 		cr1 = chip->cr1 | chip->threshold | drv_data->int_cr1;
 		write_SSSR_CS(drv_data, drv_data->clear_sr);
 	}
+
+	/* NOTE:  PXA25x_SSP _could_ use external clocking ... */
+	cr0 = pxa2xx_configure_sscr0(drv_data, clk_div, bits);
+	if (!pxa25x_ssp_comp(drv_data))
+		dev_dbg(&message->spi->dev, "%u Hz actual, %s\n",
+			master->max_speed_hz
+				/ (1 + ((cr0 & SSCR0_SCR(0xfff)) >> 8)),
+			dma_mapped ? "DMA" : "PIO");
+	else
+		dev_dbg(&message->spi->dev, "%u Hz actual, %s\n",
+			master->max_speed_hz / 2
+				/ (1 + ((cr0 & SSCR0_SCR(0x0ff)) >> 8)),
+			dma_mapped ? "DMA" : "PIO");
 
 	if (is_lpss_ssp(drv_data)) {
 		if ((pxa2xx_spi_read(drv_data, SSIRF) & 0xff)
@@ -1498,6 +1514,7 @@ static int pxa2xx_spi_probe(struct platform_device *pdev)
 	master->transfer_one_message = pxa2xx_spi_transfer_one_message;
 	master->unprepare_transfer_hardware = pxa2xx_spi_unprepare_transfer;
 	master->auto_runtime_pm = true;
+	master->flags = SPI_MASTER_MUST_RX | SPI_MASTER_MUST_TX;
 
 	drv_data->ssp_type = ssp->type;
 
@@ -1538,6 +1555,8 @@ static int pxa2xx_spi_probe(struct platform_device *pdev)
 		if (status) {
 			dev_dbg(dev, "no DMA channels available, using PIO\n");
 			platform_info->enable_dma = false;
+		} else {
+			master->can_dma = pxa2xx_spi_can_dma;
 		}
 	}
 

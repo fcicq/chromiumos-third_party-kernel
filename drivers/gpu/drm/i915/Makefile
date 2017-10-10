@@ -9,34 +9,44 @@ subdir-ccflags-$(CONFIG_DRM_I915_WERROR) := -Werror
 # core driver code
 i915-y := i915_drv.o \
 	  i915_irq.o \
+	  i915_mm.o \
 	  i915_params.o \
+	  i915_pci.o \
           i915_suspend.o \
+	  i915_sw_fence.o \
 	  i915_sysfs.o \
 	  intel_csr.o \
+	  intel_device_info.o \
 	  intel_pm.o \
 	  intel_runtime_pm.o
 
 i915-$(CONFIG_COMPAT)   += i915_ioc32.o
-i915-$(CONFIG_DEBUG_FS) += i915_debugfs.o
+i915-$(CONFIG_DEBUG_FS) += i915_debugfs.o intel_pipe_crc.o
 
 # GEM code
 i915-y += i915_cmd_parser.o \
 	  i915_gem_batch_pool.o \
 	  i915_gem_context.o \
-	  i915_gem_debug.o \
 	  i915_gem_dmabuf.o \
 	  i915_gem_evict.o \
 	  i915_gem_execbuffer.o \
-	  i915_gem_fence.o \
+	  i915_gem_fence_reg.o \
 	  i915_gem_gtt.o \
+	  i915_gem_internal.o \
 	  i915_gem.o \
 	  i915_gem_render_state.o \
+	  i915_gem_request.o \
 	  i915_gem_shrinker.o \
 	  i915_gem_stolen.o \
 	  i915_gem_tiling.o \
+	  i915_gem_timeline.o \
 	  i915_gem_userptr.o \
 	  i915_gpu_error.o \
 	  i915_trace_points.o \
+	  i915_vma.o \
+	  intel_breadcrumbs.o \
+	  intel_engine_cs.o \
+	  intel_hangcheck.o \
 	  intel_lrc.o \
 	  intel_mocs.o \
 	  intel_ringbuffer.o \
@@ -57,8 +67,10 @@ i915-y += intel_audio.o \
 	  intel_atomic.o \
 	  intel_atomic_plane.o \
 	  intel_bios.o \
+	  intel_cdclk.o \
 	  intel_color.o \
 	  intel_display.o \
+	  intel_dpio_phy.o \
 	  intel_dpll_mgr.o \
 	  intel_fbc.o \
 	  intel_fifo_underrun.o \
@@ -81,6 +93,7 @@ i915-y += dvo_ch7017.o \
 	  dvo_tfp410.o \
 	  intel_crt.o \
 	  intel_ddi.o \
+	  intel_dp_aux_backlight.o \
 	  intel_dp_link_training.o \
 	  intel_dp_mst.o \
 	  intel_dp.o \
@@ -98,9 +111,10 @@ i915-y += dvo_ch7017.o \
 # virtual gpu code
 i915-y += i915_vgpu.o
 
-# legacy horrors
-i915-y += i915_dma.o
+# perf code
+i915-y += i915_perf.o \
+	  i915_oa_hsw.o
 
-obj-$(CONFIG_DRM_I915)  += i915.o
+obj-$(CONFIG_DRM_I915) += i915.o
 
 CFLAGS_i915_trace_points.o := -I$(src)

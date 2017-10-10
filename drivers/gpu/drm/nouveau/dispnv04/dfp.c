@@ -290,6 +290,7 @@ static void nv04_dfp_mode_set(struct drm_encoder *encoder,
 	struct nouveau_encoder *nv_encoder = nouveau_encoder(encoder);
 	struct drm_display_mode *output_mode = &nv_encoder->mode;
 	struct drm_connector *connector = &nv_connector->base;
+	const struct drm_framebuffer *fb = encoder->crtc->primary->fb;
 	uint32_t mode_ratio, panel_ratio;
 
 	NV_DEBUG(drm, "Output mode on CRTC %d:\n", nv_crtc->index);
@@ -415,7 +416,7 @@ static void nv04_dfp_mode_set(struct drm_encoder *encoder,
 	/* Output property. */
 	if ((nv_connector->dithering_mode == DITHERING_MODE_ON) ||
 	    (nv_connector->dithering_mode == DITHERING_MODE_AUTO &&
-	     encoder->crtc->primary->fb->depth > connector->display_info.bpc * 3)) {
+	     fb->format->depth > connector->display_info.bpc * 3)) {
 		if (drm->device.info.chipset == 0x11)
 			regp->dither = savep->dither | 0x00010000;
 		else {
@@ -652,8 +653,6 @@ static void nv04_tmds_slave_init(struct drm_encoder *encoder)
 
 static const struct drm_encoder_helper_funcs nv04_lvds_helper_funcs = {
 	.dpms = nv04_lvds_dpms,
-	.save = nv04_dfp_save,
-	.restore = nv04_dfp_restore,
 	.mode_fixup = nv04_dfp_mode_fixup,
 	.prepare = nv04_dfp_prepare,
 	.commit = nv04_dfp_commit,
@@ -663,8 +662,6 @@ static const struct drm_encoder_helper_funcs nv04_lvds_helper_funcs = {
 
 static const struct drm_encoder_helper_funcs nv04_tmds_helper_funcs = {
 	.dpms = nv04_tmds_dpms,
-	.save = nv04_dfp_save,
-	.restore = nv04_dfp_restore,
 	.mode_fixup = nv04_dfp_mode_fixup,
 	.prepare = nv04_dfp_prepare,
 	.commit = nv04_dfp_commit,
@@ -700,6 +697,9 @@ nv04_dfp_create(struct drm_connector *connector, struct dcb_output *entry)
 	nv_encoder = kzalloc(sizeof(*nv_encoder), GFP_KERNEL);
 	if (!nv_encoder)
 		return -ENOMEM;
+
+	nv_encoder->enc_save = nv04_dfp_save;
+	nv_encoder->enc_restore = nv04_dfp_restore;
 
 	encoder = to_drm_encoder(nv_encoder);
 

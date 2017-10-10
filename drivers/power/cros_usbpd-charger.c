@@ -31,7 +31,6 @@
 #include <linux/mfd/cros_ec.h>
 #include <linux/mfd/cros_ec_commands.h>
 
-#define CROS_USB_PD_MAX_PORTS		8
 #define CROS_USB_PD_MAX_LOG_ENTRIES	30
 
 #define CROS_USB_PD_LOG_UPDATE_DELAY msecs_to_jiffies(60000)
@@ -72,7 +71,7 @@ struct charger_data {
 	struct cros_ec_device *ec_device;
 	int num_charger_ports;
 	int num_registered_psy;
-	struct port_data *ports[CROS_USB_PD_MAX_PORTS];
+	struct port_data *ports[EC_USB_PD_MAX_PORTS];
 	struct delayed_work log_work;
 	struct workqueue_struct *log_workqueue;
 	struct notifier_block notifier;
@@ -265,8 +264,9 @@ static int get_ec_usb_pd_power_info(struct port_data *port)
 		else
 			port->psy_type = POWER_SUPPLY_TYPE_USB;
 		break;
+	case USB_CHG_TYPE_OTHER:
 	case USB_CHG_TYPE_PROPRIETARY:
-		port->psy_type = POWER_SUPPLY_TYPE_MAINS;
+		port->psy_type = POWER_SUPPLY_TYPE_APPLE_BRICK_ID;
 		break;
 	case USB_CHG_TYPE_C:
 		port->psy_type = POWER_SUPPLY_TYPE_USB_TYPE_C;

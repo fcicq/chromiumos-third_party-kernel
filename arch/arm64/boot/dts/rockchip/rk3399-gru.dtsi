@@ -488,7 +488,7 @@
 	};
 
 	/* END REGULATORS */
-	firmware {
+	firmware: firmware {
 		chromeos {
 			pinctrl-names = "default";
 			pinctrl-0 = <&ap_fw_wp>;
@@ -496,7 +496,7 @@
 		};
 	};
 
-	io-domains {
+	io_domains: io-domains {
 		compatible = "rockchip,rk3399-io-voltage-domain";
 		rockchip,grf = <&grf>;
 
@@ -525,10 +525,11 @@
 		pmu1830-supply = <&pp1800_pmu>;		/* PMUIO2_VDD */
 	};
 
-	sound {
+	sound: sound {
 		compatible = "rockchip,rk3399-gru-sound";
 		rockchip,cpu = <&i2s0 &i2s2>;
-		rockchip,codec = <&max98357a &headsetcodec &codec &cdn_dp>;
+		rockchip,codec = <&max98357a &headsetcodec &codec
+				  &cdn_dp &wacky_spi_audio>;
 	};
 
 	gpio_keys: gpio-keys {
@@ -536,7 +537,7 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&bt_host_wake_l>;
 
-		wake-on-bt {
+		wake_on_bt: wake-on-bt {
 			label = "Wake-on-Bluetooth";
 			gpios = <&gpio0 3 GPIO_ACTIVE_LOW>;
 			linux,code = <KEY_WAKEUP>;
@@ -564,7 +565,7 @@
 };
 
 /*
- * Set some suspend operating points to avoid OVP in suspend
+ * 1. Set some suspend operating points to avoid OVP in suspend
  *
  * When we go into S3 ARM Trusted Firmware will transition our PWM regulators
  * from wherever they're at back to the "default" operating point (whatever
@@ -579,6 +580,10 @@
  * there will not be a big jump.  Technically we only need to get within 200 mV
  * of the default voltage, but the speed here should be fast enough and we need
  * suspend/resume to be rock solid.
+ *
+ * 2. Override the "opp" table
+ * To ensure that all opp frequencies are available, we must ensure the
+ * opp-microvolt be greater than the regulator-min-microvolt of pwm regulator.
  */
 
 &cluster0_opp {
@@ -588,6 +593,12 @@
 };
 
 &cluster1_opp {
+	opp00 {
+		opp-microvolt = <800107>;
+	};
+	opp01 {
+		opp-microvolt = <800107>;
+	};
 	opp06 {
 		opp-suspend;
 	};
@@ -661,16 +672,9 @@ ap_i2c_mic: &i2c1 {
 	i2c-scl-rising-time-ns = <300>;
 
 	headsetcodec: rt5514@57 {
-		compatible = "realtek,rt5514";
+		compatible = "realtek,rt5514", "realtek,rt5514-i2c";
 		reg = <0x57>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&mic_int>;
-
-		interrupt-parent = <&gpio1>;
-		interrupts = <13 IRQ_TYPE_LEVEL_HIGH>;
-
 		realtek,dmic-init-delay = <20>;
-		wakeup-source;
 	};
 };
 
@@ -763,7 +767,7 @@ ap_i2c_audio: &i2c8 {
 	pinctrl-0 = <&pcie_clkreqn_cpm>, <&wifi_perst_l>;
 	ep-gpios = <&gpio2 27 GPIO_ACTIVE_HIGH>;
 
-	rockchip,disable-gen2;
+	max-link-speed = <1>;
 
 	vpcie3v3-supply = <&pp3300_wifi_bt>;
 	vpcie1v8-supply = <&wlan_pd_n>; /* HACK: see &wlan_pd_n */
@@ -824,7 +828,7 @@ ap_i2c_audio: &i2c8 {
 	rockchip,pd_idle_dis_freq = <1000000000>;
 	rockchip,sr_idle_dis_freq = <1000000000>;
 	rockchip,sr_mc_gate_idle_dis_freq = <1000000000>;
-	rockchip,srpd_lite_idle_dis_freq = <1000000000>;
+	rockchip,srpd_lite_idle_dis_freq = <0>;
 	rockchip,standby_idle_dis_freq = <928000000>;
 };
 
@@ -892,11 +896,18 @@ ap_i2c_audio: &i2c8 {
 	status = "okay";
 
 	wacky_spi_audio: spi2@0 {
-		compatible = "realtek,rt5514";
+		compatible = "realtek,rt5514", "realtek,rt5514-spi";
 		reg = <0>;
 
 		/* May run faster once verified. */
 		spi-max-frequency = <10000000>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&mic_int>;
+
+		interrupt-parent = <&gpio1>;
+		interrupts = <13 IRQ_TYPE_LEVEL_HIGH>;
+		wakeup-source;
 	};
 };
 
@@ -939,6 +950,9 @@ ap_i2c_audio: &i2c8 {
 			#extcon-cells = <0>;
 		};
 
+		pdupdate {
+			compatible = "google,cros-ec-pd-update";
+		};
 	};
 };
 
@@ -1031,6 +1045,8 @@ ap_i2c_audio: &i2c8 {
 
 &vopb_mmu {
 	status = "okay";
+	assigned-clocks = <&cru ACLK_VOP0>, <&cru HCLK_VOP0>, <&cru DCLK_VOP0>;
+	assigned-clock-rates = <400000000>, <200000000>, <100000000>;
 };
 
 &vopl {
@@ -1046,6 +1062,8 @@ ap_i2c_audio: &i2c8 {
 
 &vopl_mmu {
 	status = "okay";
+	assigned-clocks = <&cru ACLK_VOP1>, <&cru HCLK_VOP1>, <&cru DCLK_VOP1>;
+	assigned-clock-rates = <400000000>, <200000000>, <100000000>;
 };
 
 &vpu {
@@ -1107,7 +1125,7 @@ ap_i2c_audio: &i2c8 {
 		};
 	};
 
-	discrete-regulators {
+	discrete_regulators: discrete-regulators {
 		pp1500_en: pp1500-en {
 			rockchip,pins = <RK_GPIO0 10 RK_FUNC_GPIO
 					 &pcfg_pull_none>;
@@ -1222,6 +1240,12 @@ ap_i2c_audio: &i2c8 {
 		};
 	};
 
+	tpm {
+		h1_int_od_l: h1-int-od-l {
+			rockchip,pins = <0 5 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+
 	trackpad {
 		ap_i2c_tp_pu_en: ap-i2c-tp-pu-en {
 			rockchip,pins = <3 12 RK_FUNC_GPIO &pcfg_output_high>;
@@ -1242,7 +1266,7 @@ ap_i2c_audio: &i2c8 {
 		};
 	};
 
-	wifi {
+	wifi: wifi {
 		wifi_perst_l: wifi-perst-l {
 			rockchip,pins = <2 27 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
@@ -1254,6 +1278,10 @@ ap_i2c_audio: &i2c8 {
 			 * WiFi.
 			 */
 			rockchip,pins = <1 11 RK_FUNC_GPIO &pcfg_output_low>;
+		};
+
+		wlan_host_wake_l: wlan-host-wake-l {
+			rockchip,pins = <0 8 RK_FUNC_GPIO &pcfg_pull_up>;
 		};
 
 		bt_host_wake_l: bt-host-wake-l {

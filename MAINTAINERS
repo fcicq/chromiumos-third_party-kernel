@@ -5708,6 +5708,14 @@ F:	arch/x86/include/asm/intel_telemetry.h
 F:	drivers/platform/x86/intel_telemetry_pltdrv.c
 F:	drivers/platform/x86/intel_telemetry_debugfs.c
 
+INTEL PMC CORE DRIVER
+M:	Rajneesh Bhardwaj <rajneesh.bhardwaj@intel.com>
+M:	Vishwanath Somayaji <vishwanath.somayaji@intel.com>
+L:	platform-driver-x86@vger.kernel.org
+S:	Maintained
+F:	arch/x86/include/asm/pmc_core.h
+F:	drivers/platform/x86/intel_pmc_core*
+
 IOC3 ETHERNET DRIVER
 M:	Ralf Baechle <ralf@linux-mips.org>
 L:	linux-mips@linux-mips.org
@@ -7863,6 +7871,13 @@ L:	linux-media@vger.kernel.org
 T:	git git://linuxtv.org/media_tree.git
 S:	Maintained
 F:	drivers/media/i2c/ov7670.c
+
+OMNIVISION OV13858 SENSOR DRIVER
+M:	Sakari Ailus <sakari.ailus@linux.intel.com>
+L:	linux-media@vger.kernel.org
+T:	git git://linuxtv.org/media_tree.git
+S:	Maintained
+F:	drivers/media/i2c/ov13858.c
 
 ONENAND FLASH DRIVER
 M:	Kyungmin Park <kyungmin.park@samsung.com>
@@ -11421,6 +11436,19 @@ L:	linux-media@vger.kernel.org
 S:	Maintained
 F:	drivers/media/v4l2-core/videobuf2-*
 F:	include/media/videobuf2-*
+
+VIRTIO AND VHOST VSOCK DRIVER
+M:	Stefan Hajnoczi <stefanha@redhat.com>
+L:	kvm@vger.kernel.org
+L:	virtualization@lists.linux-foundation.org
+L:	netdev@vger.kernel.org
+S:	Maintained
+F:	include/linux/virtio_vsock.h
+F:	include/uapi/linux/virtio_vsock.h
+F:	net/vmw_vsock/virtio_transport_common.c
+F:	net/vmw_vsock/virtio_transport.c
+F:	drivers/vhost/vsock.c
+F:	drivers/vhost/vsock.h
 
 VIRTUAL SERIO DEVICE DRIVER
 M:	Stephen Chandler Paul <thatslyude@gmail.com>

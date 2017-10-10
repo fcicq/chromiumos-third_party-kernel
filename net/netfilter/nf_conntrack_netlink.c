@@ -45,6 +45,8 @@
 #include <net/netfilter/nf_conntrack_zones.h>
 #include <net/netfilter/nf_conntrack_timestamp.h>
 #include <net/netfilter/nf_conntrack_labels.h>
+#include <net/netfilter/nf_conntrack_seqadj.h>
+#include <net/netfilter/nf_conntrack_synproxy.h>
 #ifdef CONFIG_NF_NAT_NEEDED
 #include <net/netfilter/nf_nat_core.h>
 #include <net/netfilter/nf_nat_l4proto.h>
@@ -998,7 +1000,7 @@ static const struct nla_policy tuple_nla_policy[CTA_TUPLE_MAX+1] = {
 static int
 ctnetlink_parse_tuple(const struct nlattr * const cda[],
 		      struct nf_conntrack_tuple *tuple,
-		      enum ctattr_type type, u_int8_t l3num,
+		      u32 type, u_int8_t l3num,
 		      struct nf_conntrack_zone *zone)
 {
 	struct nlattr *tb[CTA_TUPLE_MAX+1];
@@ -1810,6 +1812,8 @@ ctnetlink_create_conntrack(struct net *net,
 	nf_ct_tstamp_ext_add(ct, GFP_ATOMIC);
 	nf_ct_ecache_ext_add(ct, 0, 0, GFP_ATOMIC);
 	nf_ct_labels_ext_add(ct);
+	nfct_seqadj_ext_add(ct);
+	nfct_synproxy_ext_add(ct);
 
 	/* we must add conntrack extensions before confirmation. */
 	ct->status |= IPS_CONFIRMED;
@@ -2390,12 +2394,8 @@ ctnetlink_glue_attach_expect(const struct nlattr *attr, struct nf_conn *ct,
 		return PTR_ERR(exp);
 
 	err = nf_ct_expect_related_report(exp, portid, report);
-	if (err < 0) {
-		nf_ct_expect_put(exp);
-		return err;
-	}
-
-	return 0;
+	nf_ct_expect_put(exp);
+	return err;
 }
 
 static void ctnetlink_glue_seqadj(struct sk_buff *skb, struct nf_conn *ct,
@@ -2424,7 +2424,7 @@ static struct nfnl_ct_hook ctnetlink_glue_hook = {
 static inline int
 ctnetlink_exp_dump_tuple(struct sk_buff *skb,
 			 const struct nf_conntrack_tuple *tuple,
-			 enum ctattr_expect type)
+			 u32 type)
 {
 	struct nlattr *nest_parms;
 

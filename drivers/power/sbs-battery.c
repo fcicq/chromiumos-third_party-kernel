@@ -59,8 +59,8 @@ enum {
 #define BATTERY_MODE_OFFSET		0x03
 #define BATTERY_MODE_MASK		0x8000
 enum sbs_battery_mode {
-	BATTERY_MODE_AMPS,
-	BATTERY_MODE_WATTS
+	BATTERY_MODE_AMPS = 0,
+	BATTERY_MODE_WATTS = 0x8000
 };
 
 /* manufacturer access defines */
@@ -167,6 +167,7 @@ struct sbs_info {
 	int				poll_time;
 	struct delayed_work		work;
 	int				ignore_changes;
+	struct mutex			mode_lock;
 };
 
 static char model_name[I2C_SMBUS_BLOCK_MAX + 1];
@@ -395,6 +396,11 @@ static int sbs_get_battery_property(struct i2c_client *client,
 	} else {
 		if (psp == POWER_SUPPLY_PROP_STATUS)
 			val->intval = POWER_SUPPLY_STATUS_UNKNOWN;
+		else if (psp == POWER_SUPPLY_PROP_CAPACITY)
+			/* sbs spec says that this can be >100 %
+			 * even if max value is 100 %
+			 */
+			val->intval = min(ret, 100);
 		else
 			val->intval = 0;
 	}
@@ -487,6 +493,7 @@ static enum sbs_battery_mode sbs_set_battery_mode(struct i2c_client *client,
 	return original_val & BATTERY_MODE_MASK;
 }
 
+/* Set battery mode and read desired energy / power capacity attribute. */
 static int sbs_get_battery_capacity(struct i2c_client *client,
 	int reg_offset, enum power_supply_property psp,
 	union power_supply_propval *val)
@@ -505,12 +512,7 @@ static int sbs_get_battery_capacity(struct i2c_client *client,
 	if (ret < 0)
 		return ret;
 
-	if (psp == POWER_SUPPLY_PROP_CAPACITY) {
-		/* sbs spec says that this can be >100 %
-		* even if max value is 100 % */
-		val->intval = min(ret, 100);
-	} else
-		val->intval = ret;
+	val->intval = ret;
 
 	ret = sbs_set_battery_mode(client, mode);
 	if (ret < 0)
@@ -575,12 +577,17 @@ static int sbs_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CHARGE_NOW:
 	case POWER_SUPPLY_PROP_CHARGE_FULL:
 	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
-	case POWER_SUPPLY_PROP_CAPACITY:
 		ret = sbs_get_property_index(client, psp);
 		if (ret < 0)
 			break;
 
+		/* sbs_get_battery_capacity() will change the battery mode
+		 * temporarily to read the requested attribute. Ensure we stay
+		 * in the desired mode for the duration of the attribute read.
+		 */
+		mutex_lock(&chip->mode_lock);
 		ret = sbs_get_battery_capacity(client, ret, psp, val);
+		mutex_unlock(&chip->mode_lock);
 		break;
 
 	case POWER_SUPPLY_PROP_SERIAL_NUMBER:
@@ -596,6 +603,7 @@ static int sbs_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_TIME_TO_FULL_AVG:
 	case POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN:
 	case POWER_SUPPLY_PROP_VOLTAGE_MAX_DESIGN:
+	case POWER_SUPPLY_PROP_CAPACITY:
 		ret = sbs_get_property_index(client, psp);
 		if (ret < 0)
 			break;
@@ -831,6 +839,7 @@ static int sbs_probe(struct i2c_client *client,
 	 */
 	chip->ignore_changes = 1;
 	chip->last_state = POWER_SUPPLY_STATUS_UNKNOWN;
+	mutex_init(&chip->mode_lock);
 
 	pdata = sbs_of_populate_pdata(client);
 

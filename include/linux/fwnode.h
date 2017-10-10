@@ -26,14 +26,16 @@ struct fwnode_handle {
 	struct fwnode_handle *secondary;
 };
 
-struct fwnode_handle *fwnode_get_next_child_node(struct fwnode_handle *node,
-						 struct fwnode_handle *child);
-
-#define fwnode_for_each_child_node(node, child) \
-	for (child = fwnode_get_next_child_node(node, NULL); child; \
-	     child = fwnode_get_next_child_node(node, child))
-
-struct fwnode_handle *fwnode_get_named_child_node(struct fwnode_handle *node,
-						  const char *childname);
+/**
+ * struct fwnode_endpoint - Fwnode graph endpoint
+ * @port: Port number
+ * @id: Endpoint id
+ * @local_fwnode: reference to the related fwnode
+ */
+struct fwnode_endpoint {
+	unsigned int port;
+	unsigned int id;
+	const struct fwnode_handle *local_fwnode;
+};
 
 #endif

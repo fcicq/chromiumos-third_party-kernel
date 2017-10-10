@@ -188,9 +188,7 @@ static const struct file_operations ast_fops = {
 	.unlocked_ioctl = drm_ioctl,
 	.mmap = ast_mmap,
 	.poll = drm_poll,
-#ifdef CONFIG_COMPAT
 	.compat_ioctl = drm_compat_ioctl,
-#endif
 	.read = drm_read,
 };
 
@@ -218,10 +216,8 @@ static struct drm_driver driver = {
 
 static int __init ast_init(void)
 {
-#ifdef CONFIG_VGA_CONSOLE
 	if (vgacon_text_force() && ast_modeset == -1)
 		return -EINVAL;
-#endif
 
 	if (ast_modeset == 0)
 		return -EINVAL;

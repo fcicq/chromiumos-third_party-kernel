@@ -253,7 +253,7 @@ nouveau_framebuffer_init(struct drm_device *dev,
 	struct drm_framebuffer *fb = &nv_fb->base;
 	int ret;
 
-	drm_helper_mode_fill_fb_struct(fb, mode_cmd);
+	drm_helper_mode_fill_fb_struct(dev, fb, mode_cmd);
 	nv_fb->nvbo = nvbo;
 
 	ret = drm_framebuffer_init(dev, fb, &nouveau_framebuffer_funcs);
@@ -278,7 +278,7 @@ nouveau_user_framebuffer_create(struct drm_device *dev,
 	struct drm_gem_object *gem;
 	int ret = -ENOMEM;
 
-	gem = drm_gem_object_lookup(dev, file_priv, mode_cmd->handles[0]);
+	gem = drm_gem_object_lookup(file_priv, mode_cmd->handles[0]);
 	if (!gem)
 		return ERR_PTR(-ENOENT);
 
@@ -370,7 +370,8 @@ nouveau_display_init(struct drm_device *dev)
 		return ret;
 
 	/* enable polling for external displays */
-	drm_kms_helper_poll_enable(dev);
+	if (!dev->mode_config.poll_enabled)
+		drm_kms_helper_poll_enable(dev);
 
 	/* enable hotplug interrupts */
 	list_for_each_entry(connector, &dev->mode_config.connector_list, head) {
@@ -760,7 +761,7 @@ nouveau_crtc_page_flip(struct drm_crtc *crtc, struct drm_framebuffer *fb,
 	/* Initialize a page flip struct */
 	*s = (struct nouveau_page_flip_state)
 		{ { }, event, nouveau_crtc(crtc)->index,
-		  fb->bits_per_pixel, fb->pitches[0], crtc->x, crtc->y,
+		  fb->format->cpp[0] * 8, fb->pitches[0], crtc->x, crtc->y,
 		  new_bo->bo.offset };
 
 	/* Keep vblanks on during flip, for the target crtc of this flip */
@@ -915,7 +916,7 @@ nouveau_display_dumb_map_offset(struct drm_file *file_priv,
 {
 	struct drm_gem_object *gem;
 
-	gem = drm_gem_object_lookup(dev, file_priv, handle);
+	gem = drm_gem_object_lookup(file_priv, handle);
 	if (gem) {
 		struct nouveau_bo *bo = nouveau_gem_object(gem);
 		*poffset = drm_vma_node_offset_addr(&bo->bo.vma_node);

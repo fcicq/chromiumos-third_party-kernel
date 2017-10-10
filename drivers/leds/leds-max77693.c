@@ -932,7 +932,7 @@ static void max77693_init_fled_cdev(struct max77693_sub_led *sub_led,
 	led_cdev->name = led_cfg->label[fled_id];
 
 	led_cdev->brightness_set = max77693_led_brightness_set;
-	led_cdev->brightness_set_sync = max77693_led_brightness_set_sync;
+	led_cdev->brightness_set_blocking = max77693_led_brightness_set_sync;
 	led_cdev->max_brightness = (led->iout_joint ?
 					led_cfg->iout_torch_max[FLED1] +
 					led_cfg->iout_torch_max[FLED2] :
@@ -966,8 +966,9 @@ static int max77693_register_led(struct max77693_sub_led *sub_led,
 	max77693_init_v4l2_flash_config(sub_led, led_cfg, &v4l2_sd_cfg);
 
 	/* Register in the V4L2 subsystem. */
-	sub_led->v4l2_flash = v4l2_flash_init(dev, sub_node, fled_cdev, NULL,
-					      &v4l2_flash_ops, &v4l2_sd_cfg);
+	sub_led->v4l2_flash = v4l2_flash_init(dev, of_fwnode_handle(sub_node),
+					      fled_cdev, NULL, &v4l2_flash_ops,
+					      &v4l2_sd_cfg);
 	if (IS_ERR(sub_led->v4l2_flash)) {
 		ret = PTR_ERR(sub_led->v4l2_flash);
 		goto err_v4l2_flash_init;

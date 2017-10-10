@@ -1117,6 +1117,7 @@ void pdev_enable_device(struct pci_dev *);
 int pci_enable_resources(struct pci_dev *, int mask);
 void pci_fixup_irqs(u8 (*)(struct pci_dev *, u8 *),
 		    int (*)(const struct pci_dev *, u8, u8));
+struct resource *pci_find_resource(struct pci_dev *dev, struct resource *res);
 #define HAVE_PCI_REQ_REGIONS	2
 int __must_check pci_request_regions(struct pci_dev *, const char *);
 int __must_check pci_request_regions_exclusive(struct pci_dev *, const char *);
@@ -1159,6 +1160,12 @@ int __must_check pci_bus_alloc_resource(struct pci_bus *bus,
 
 
 int pci_remap_iospace(const struct resource *res, phys_addr_t phys_addr);
+void pci_unmap_iospace(struct resource *res);
+void __iomem *devm_pci_remap_cfgspace(struct device *dev,
+				      resource_size_t offset,
+				      resource_size_t size);
+void __iomem *devm_pci_remap_cfg_resource(struct device *dev,
+					  struct resource *res);
 
 static inline pci_bus_addr_t pci_bus_address(struct pci_dev *pdev, int bar)
 {
@@ -1476,6 +1483,9 @@ static inline int pci_enable_wake(struct pci_dev *dev, pci_power_t state,
 				  int enable)
 { return 0; }
 
+static inline struct resource *pci_find_resource(struct pci_dev *dev,
+						 struct resource *res)
+{ return NULL; }
 static inline int pci_request_regions(struct pci_dev *dev, const char *res_name)
 { return -EIO; }
 static inline void pci_release_regions(struct pci_dev *dev) { }

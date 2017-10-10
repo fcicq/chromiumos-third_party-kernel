@@ -34,7 +34,7 @@ int cirrus_framebuffer_init(struct drm_device *dev,
 {
 	int ret;
 
-	drm_helper_mode_fill_fb_struct(&gfb->base, mode_cmd);
+	drm_helper_mode_fill_fb_struct(dev, &gfb->base, mode_cmd);
 	gfb->obj = obj;
 	ret = drm_framebuffer_init(dev, &gfb->base, &cirrus_fb_funcs);
 	if (ret) {
@@ -52,16 +52,16 @@ cirrus_user_framebuffer_create(struct drm_device *dev,
 	struct cirrus_device *cdev = dev->dev_private;
 	struct drm_gem_object *obj;
 	struct cirrus_framebuffer *cirrus_fb;
+	u32 bpp;
 	int ret;
-	u32 bpp, depth;
 
-	drm_fb_get_bpp_depth(mode_cmd->pixel_format, &depth, &bpp);
+	bpp = drm_format_plane_cpp(mode_cmd->pixel_format, 0) * 8;
 
 	if (!cirrus_check_framebuffer(cdev, mode_cmd->width, mode_cmd->height,
 				      bpp, mode_cmd->pitches[0]))
 		return ERR_PTR(-EINVAL);
 
-	obj = drm_gem_object_lookup(dev, filp, mode_cmd->handles[0]);
+	obj = drm_gem_object_lookup(filp, mode_cmd->handles[0]);
 	if (obj == NULL)
 		return ERR_PTR(-ENOENT);
 
@@ -319,7 +319,7 @@ cirrus_dumb_mmap_offset(struct drm_file *file,
 	struct drm_gem_object *obj;
 	struct cirrus_bo *bo;
 
-	obj = drm_gem_object_lookup(dev, file, handle);
+	obj = drm_gem_object_lookup(file, handle);
 	if (obj == NULL)
 		return -ENOENT;
 

@@ -113,7 +113,7 @@ static void udlfb_dpy_deferred_io(struct fb_info *info,
 	/* walk the written page list and render each to device */
 	list_for_each_entry(cur, &fbdefio->pagelist, lru) {
 
-		if (udl_render_hline(dev, (ufbdev->ufb.base.bits_per_pixel / 8),
+		if (udl_render_hline(dev, (ufbdev->ufb.base.format->cpp[0] / 8),
 				     &urb, (char *) info->fix.smem_start,
 				     &cmd, cur->index << PAGE_SHIFT,
 				     cur->index << PAGE_SHIFT, PAGE_SIZE, NULL,
@@ -152,7 +152,7 @@ int udl_handle_damage(struct udl_framebuffer *fb, int x, int y,
 	int bytes_identical = 0;
 	struct urb *urb;
 	int aligned_x;
-	int bpp = (fb->base.bits_per_pixel / 8);
+	int bpp = fb->base.format->cpp[0];
 	int x2, y2;
 	bool store_for_later = false;
 	unsigned long flags;
@@ -466,7 +466,7 @@ udl_framebuffer_init(struct drm_device *dev,
 
 	spin_lock_init(&ufb->dirty_lock);
 	ufb->obj = obj;
-	drm_helper_mode_fill_fb_struct(&ufb->base, mode_cmd);
+	drm_helper_mode_fill_fb_struct(dev, &ufb->base, mode_cmd);
 	ret = drm_framebuffer_init(dev, &ufb->base, &udlfb_funcs);
 	return ret;
 }
@@ -531,7 +531,7 @@ static int udlfb_create(struct drm_fb_helper *helper,
 
 	info->flags = FBINFO_DEFAULT | FBINFO_CAN_FORCE_OUTPUT;
 	info->fbops = &udlfb_ops;
-	drm_fb_helper_fill_fix(info, fb->pitches[0], fb->depth);
+	drm_fb_helper_fill_fix(info, fb->pitches[0], fb->format->depth);
 	drm_fb_helper_fill_var(info, &ufbdev->helper, sizes->fb_width, sizes->fb_height);
 
 	DRM_DEBUG_KMS("allocated %dx%d vmal %p\n",
@@ -634,7 +634,7 @@ udl_fb_user_fb_create(struct drm_device *dev,
 	int ret;
 	uint32_t size;
 
-	obj = drm_gem_object_lookup(dev, file, mode_cmd->handles[0]);
+	obj = drm_gem_object_lookup(file, mode_cmd->handles[0]);
 	if (obj == NULL)
 		return ERR_PTR(-ENOENT);
 

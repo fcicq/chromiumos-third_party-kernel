@@ -127,6 +127,8 @@ ap_i2c_bl: &i2c0 {
 		enable-gpios = <&gpio1 17 GPIO_ACTIVE_HIGH>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&bl_en>;
+		arc,led-config-0 = <0x00>;
+		arc,led-config-1 = <0x57>;
 	};
 };
 
@@ -151,7 +153,7 @@ ap_i2c_cam: &i2c2 {
 		pinctrl-0 = <&touch_int_l &touch_reset_l>;
 
 		interrupt-parent = <&gpio3>;
-		interrupts = <13 IRQ_TYPE_EDGE_FALLING>;
+		interrupts = <13 IRQ_TYPE_LEVEL_LOW>;
 
 		reset-gpios = <&gpio4 26 GPIO_ACTIVE_LOW>;
 	};
@@ -166,7 +168,7 @@ ap_i2c_cam: &i2c2 {
 		pinctrl-0 = <&trackpad_int_l>;
 
 		interrupt-parent = <&gpio1>;
-		interrupts = <4 IRQ_TYPE_EDGE_FALLING>;
+		interrupts = <4 IRQ_TYPE_LEVEL_LOW>;
 
 		wakeup-source;
 	};
@@ -189,8 +191,15 @@ ap_i2c_nfc: &i2c7 {
 
 	cr50@0 {
 		compatible = "google,cr50";
+
+		interrupt-parent = <&gpio0>;
+		interrupts = <5 IRQ_TYPE_EDGE_RISING>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&h1_int_od_l>;
+
 		reg = <0>;
-		spi-max-frequency = <800000>; // TODO: review later
+		spi-max-frequency = <800000>;
 	};
 };
 
@@ -247,12 +256,6 @@ ap_i2c_nfc: &i2c7 {
 		gps_reset_l: gps-reset-l {
 			rockchip,pins =
 				<RK_GPIO1 24 RK_FUNC_GPIO &pcfg_pull_up>;
-		};
-	};
-
-	wifi {
-		wlan_host_wake_l: wlan-host-wake-l {
-			rockchip,pins = <0 8 RK_FUNC_GPIO &pcfg_pull_up>;
 		};
 	};
 };

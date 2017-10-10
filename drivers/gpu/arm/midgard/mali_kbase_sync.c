@@ -15,168 +15,222 @@
 
 
 
-#ifdef CONFIG_SYNC
+#ifdef CONFIG_SW_SYNC
 
 #include <linux/seq_file.h>
-#include "sync.h"
+#include <linux/slab.h>
+#include "sync_debug.h"
 #include <mali_kbase.h>
 #include <mali_kbase_sync.h>
 
-struct mali_sync_timeline {
-	struct sync_timeline timeline;
-	atomic_t counter;
-	atomic_t signalled;
+static void kbase_sync_context_put(struct mali_sync_context *msc);
+
+static struct mali_sync_fence *to_mali_fence(struct dma_fence *fence)
+{
+	return container_of(fence, struct mali_sync_fence, base);
+}
+
+static struct mali_sync_context *mali_fence_parent(struct dma_fence *fence)
+{
+	return container_of(fence->lock, struct mali_sync_context, lock);
+}
+
+static const char *mali_fence_get_driver_name(struct dma_fence *fence)
+{
+	return "mali";
+}
+
+static const char *mali_fence_get_timeline_name(struct dma_fence *fence)
+{
+	return "mali_timeline";
+}
+
+static bool mali_fence_enable_signaling(struct dma_fence *fence)
+{
+	return true;
+}
+
+static void mali_fence_release(struct dma_fence *fence)
+{
+	struct mali_sync_fence *mf = to_mali_fence(fence);
+
+	WARN_ON(!list_empty(&mf->child_list_link));
+	kbase_sync_context_put(mali_fence_parent(fence));
+	dma_fence_free(fence);
+}
+
+struct dma_fence_ops mali_sync_fence_ops = {
+	.get_driver_name = mali_fence_get_driver_name,
+	.get_timeline_name = mali_fence_get_timeline_name,
+	.enable_signaling = mali_fence_enable_signaling,
+	.wait = dma_fence_default_wait,
+	.release = mali_fence_release
 };
 
-struct mali_sync_pt {
-	struct sync_pt pt;
-	int order;
-	int result;
-};
-
-static struct mali_sync_timeline *to_mali_sync_timeline(struct sync_timeline *timeline)
+int kbase_sync_fence_is_ours(struct dma_fence *fence)
 {
-	return container_of(timeline, struct mali_sync_timeline, timeline);
+	return fence->ops == &mali_sync_fence_ops;
 }
 
-static struct mali_sync_pt *to_mali_sync_pt(struct sync_pt *pt)
+static void signal_all_before_fence(struct mali_sync_fence *mf)
 {
-	return container_of(pt, struct mali_sync_pt, pt);
-}
+	struct mali_sync_context *msc = mali_fence_parent(&mf->base);
+	unsigned save_next_seqno = msc->next_signal_seqno;
+	struct mali_sync_fence *it, *next;
 
-static struct sync_pt *timeline_dup(struct sync_pt *pt)
-{
-	struct mali_sync_pt *mpt = to_mali_sync_pt(pt);
-	struct mali_sync_pt *new_mpt;
-	struct sync_pt *new_pt = sync_pt_create(sync_pt_parent(pt), sizeof(struct mali_sync_pt));
+	lockdep_assert_held(mf->base.lock);
 
-	if (!new_pt)
-		return NULL;
-
-	new_mpt = to_mali_sync_pt(new_pt);
-	new_mpt->order = mpt->order;
-	new_mpt->result = mpt->result;
-
-	return new_pt;
-}
-
-static int timeline_has_signaled(struct sync_pt *pt)
-{
-	struct mali_sync_pt *mpt = to_mali_sync_pt(pt);
-	struct mali_sync_timeline *mtl = to_mali_sync_timeline(sync_pt_parent(pt));
-	int result = mpt->result;
-
-	int diff = atomic_read(&mtl->signalled) - mpt->order;
-
-	if (diff >= 0)
-		return (result < 0) ? result : 1;
-
-	return 0;
-}
-
-static int timeline_compare(struct sync_pt *a, struct sync_pt *b)
-{
-	struct mali_sync_pt *ma = container_of(a, struct mali_sync_pt, pt);
-	struct mali_sync_pt *mb = container_of(b, struct mali_sync_pt, pt);
-
-	int diff = ma->order - mb->order;
-
-	if (diff == 0)
-		return 0;
-
-	return (diff < 0) ? -1 : 1;
-}
-
-static void timeline_value_str(struct sync_timeline *timeline, char *str,
-			       int size)
-{
-	struct mali_sync_timeline *mtl = to_mali_sync_timeline(timeline);
-
-	snprintf(str, size, "%d", atomic_read(&mtl->signalled));
-}
-
-static void pt_value_str(struct sync_pt *pt, char *str, int size)
-{
-	struct mali_sync_pt *mpt = to_mali_sync_pt(pt);
-
-	snprintf(str, size, "%d(%d)", mpt->order, mpt->result);
-}
-
-static struct sync_timeline_ops mali_timeline_ops = {
-	.driver_name = "Mali",
-	.dup = timeline_dup,
-	.has_signaled = timeline_has_signaled,
-	.compare = timeline_compare,
-	.timeline_value_str = timeline_value_str,
-	.pt_value_str       = pt_value_str,
-};
-
-int kbase_sync_timeline_is_ours(struct sync_timeline *timeline)
-{
-	return timeline->ops == &mali_timeline_ops;
-}
-
-struct sync_timeline *kbase_sync_timeline_alloc(const char *name)
-{
-	struct sync_timeline *tl;
-	struct mali_sync_timeline *mtl;
-
-	tl = sync_timeline_create(&mali_timeline_ops, sizeof(struct mali_sync_timeline), name);
-	if (!tl)
-		return NULL;
-
-	/* Set the counter in our private struct */
-	mtl = to_mali_sync_timeline(tl);
-	atomic_set(&mtl->counter, 0);
-	atomic_set(&mtl->signalled, 0);
-
-	return tl;
-}
-
-struct sync_pt *kbase_sync_pt_alloc(struct sync_timeline *parent)
-{
-	struct sync_pt *pt = sync_pt_create(parent, sizeof(struct mali_sync_pt));
-	struct mali_sync_timeline *mtl = to_mali_sync_timeline(parent);
-	struct mali_sync_pt *mpt;
-
-	if (!pt)
-		return NULL;
-
-	mpt = to_mali_sync_pt(pt);
-	mpt->order = atomic_inc_return(&mtl->counter);
-	mpt->result = 0;
-
-	return pt;
-}
-
-void kbase_sync_signal_pt(struct sync_pt *pt, int result)
-{
-	struct mali_sync_pt *mpt = to_mali_sync_pt(pt);
-	struct mali_sync_timeline *mtl = to_mali_sync_timeline(sync_pt_parent(pt));
-	int signalled;
-	int diff;
-
-	mpt->result = result;
-
-	do {
-		signalled = atomic_read(&mtl->signalled);
-
-		diff = signalled - mpt->order;
-
-		if (diff > 0) {
-			/* The timeline is already at or ahead of this point.
-			 * This should not happen unless userspace has been
-			 * signalling fences out of order, so warn but don't
-			 * violate the sync_pt API.
-			 * The warning is only in debug builds to prevent
-			 * a malicious user being able to spam dmesg.
-			 */
-#ifdef CONFIG_MALI_DEBUG
-			pr_err("Fences were triggered in a different order to allocation!");
-#endif				/* CONFIG_MALI_DEBUG */
-			return;
+	list_for_each_entry_safe(it, next, &msc->child_list_head, child_list_link)
+		if (dma_fence_is_later(&mf->base, &it->base)) {
+			/* prevent recursion */
+			msc->next_signal_seqno = it->base.seqno;
+			dma_fence_signal_locked(&it->base);
 		}
-	} while (atomic_cmpxchg(&mtl->signalled, signalled, mpt->order) != signalled);
+	msc->next_signal_seqno = save_next_seqno;
 }
 
-#endif				/* CONFIG_SYNC */
+static void mali_fence_signal_cb(struct dma_fence *fence,
+				 struct dma_fence_cb *cb)
+{
+	struct mali_sync_fence *mf = to_mali_fence(fence);
+	struct mali_sync_context *msc = mali_fence_parent(fence);
+
+	lockdep_assert_held(fence->lock);
+	/* Callbacks are called with lock held so it is safe to traverse
+	 * child list.
+	 */
+	if (fence->seqno != msc->next_signal_seqno)
+		signal_all_before_fence(mf);
+
+	msc->next_signal_seqno = fence->seqno + 1;
+
+	list_del_init(&mf->child_list_link);
+	dma_fence_put(&mf->base);
+}
+
+struct mali_sync_context *kbase_sync_context_alloc(const char *name)
+{
+	struct mali_sync_context *msc;
+
+	msc = kzalloc(sizeof(*msc), GFP_KERNEL);
+	if (!msc)
+		return NULL;
+
+	kref_init(&msc->kref);
+	msc->context = dma_fence_context_alloc(1);
+	spin_lock_init(&msc->lock);
+	INIT_LIST_HEAD(&msc->child_list_head);
+
+	return msc;
+}
+
+static void kbase_sync_context_signal_all(struct mali_sync_context *msc)
+{
+	unsigned long flags;
+	struct mali_sync_fence *it, *next;
+
+	spin_lock_irqsave(&msc->lock, flags);
+
+	list_for_each_entry_safe(it, next, &msc->child_list_head, child_list_link) {
+		dma_fence_set_error(&it->base, -ENOENT);
+		dma_fence_signal_locked(&it->base);
+	}
+
+	spin_unlock_irqrestore(&msc->lock, flags);
+}
+
+static void kbase_sync_context_release(struct kref *kref)
+{
+	struct mali_sync_context *msc =
+		container_of(kref, struct mali_sync_context, kref);
+
+	WARN_ON(spin_is_locked(&msc->lock));
+	WARN_ON(!list_empty(&msc->child_list_head));
+	kfree(msc);
+}
+
+static void kbase_sync_context_get(struct mali_sync_context *msc)
+{
+	kref_get(&msc->kref);
+}
+
+static void kbase_sync_context_put(struct mali_sync_context *msc)
+{
+	kref_put(&msc->kref, kbase_sync_context_release);
+}
+
+void kbase_sync_context_free(struct mali_sync_context *msc)
+{
+	kbase_sync_context_signal_all(msc);
+	kbase_sync_context_put(msc);
+}
+
+struct dma_fence *kbase_fence_alloc(struct mali_sync_context *msc)
+{
+	struct mali_sync_fence *mf;
+	unsigned long flags;
+	int ret;
+
+	mf = kzalloc(sizeof(*mf), GFP_KERNEL);
+
+	if (!mf)
+		return ERR_PTR(-ENOMEM);
+
+	spin_lock_irqsave(&msc->lock, flags);
+	dma_fence_init(&mf->base,
+		       &mali_sync_fence_ops,
+		       &msc->lock,
+		       msc->context,
+		       msc->seqno);
+
+	msc->seqno++;
+
+	/* Get a ref so the lock doesn't disappear on us. */
+	kbase_sync_context_get(msc);
+	INIT_LIST_HEAD(&mf->child_list_link);
+	list_add_tail(&mf->child_list_link, &msc->child_list_head);
+	/* Get a fence ref while it is on child list */
+	dma_fence_get(&mf->base);
+	spin_unlock_irqrestore(&msc->lock, flags);
+
+	ret = dma_fence_add_callback(&mf->base, &mf->cb, mali_fence_signal_cb);
+	if (ret == -ENOENT) {
+		/* Fence was signaled before callback was added. */
+		spin_lock_irqsave(&msc->lock, flags);
+		signal_all_before_fence(mf); /* Redundant? */
+		list_del_init(&mf->child_list_link);
+		/* If this fence has been signaled, it means someone has created
+		   newer fence and signaled it. So next_signal_seqno has been
+		   updated there.
+		 */
+		spin_unlock_irqrestore(&msc->lock, flags);
+		dma_fence_put(&mf->base);
+	} else if (ret < 0) {
+		goto fail;
+	}
+	return &mf->base;
+fail:
+	spin_lock_irqsave(&msc->lock, flags);
+	list_del_init(&mf->child_list_link);
+	spin_unlock_irqrestore(&msc->lock, flags);
+	dma_fence_put(&mf->base);
+	kbase_sync_context_put(msc);
+	dma_fence_put(&mf->base);
+	return NULL;
+}
+
+void kbase_sync_signal_fence(struct dma_fence *fence, int result)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(fence->lock, flags);
+
+	if (dma_fence_get_status_locked(fence) == 0) {
+		if (result < 0)
+			dma_fence_set_error(fence, result);
+		dma_fence_signal_locked(fence);
+	}
+	spin_unlock_irqrestore(fence->lock, flags);
+}
+
+#endif				/* CONFIG_SW_SYNC */

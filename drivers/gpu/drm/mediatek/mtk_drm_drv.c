@@ -23,6 +23,7 @@
 #include <linux/of_address.h>
 #include <linux/of_platform.h>
 #include <linux/pm_runtime.h>
+#include <drm/mediatek_drm.h>
 
 #include "mtk_drm_crtc.h"
 #include "mtk_drm_ddp.h"
@@ -37,11 +38,175 @@
 #define DRIVER_MAJOR 1
 #define DRIVER_MINOR 0
 
-static void mtk_atomic_schedule(struct mtk_drm_private *private,
+struct mtk_atomic_state {
+	struct drm_atomic_state base;
+	struct list_head list;
+	struct kref kref;
+	struct work_struct work;
+};
+
+static inline struct mtk_atomic_state *to_mtk_state(struct drm_atomic_state *s)
+{
+	return container_of(s, struct mtk_atomic_state, base);
+}
+
+static void mtk_atomic_state_free(struct kref *k)
+{
+	struct mtk_atomic_state *mtk_state =
+			container_of(k, struct mtk_atomic_state, kref);
+	struct drm_atomic_state *state = &mtk_state->base;
+
+	drm_atomic_state_clear(state);
+	drm_atomic_state_default_release(state);
+	kfree(mtk_state);
+}
+
+void mtk_atomic_state_get(struct drm_atomic_state *state)
+{
+	struct mtk_atomic_state *mtk_state = to_mtk_state(state);
+
+	kref_get(&mtk_state->kref);
+}
+
+static void mtk_atomic_state_put(struct drm_atomic_state *state)
+{
+	struct mtk_atomic_state *mtk_state = to_mtk_state(state);
+
+	kref_put(&mtk_state->kref, mtk_atomic_state_free);
+}
+
+void mtk_atomic_state_put_queue(struct drm_atomic_state *state)
+{
+	struct drm_device *drm = state->dev;
+	struct mtk_drm_private *mtk_drm = drm->dev_private;
+	struct mtk_atomic_state *mtk_state = to_mtk_state(state);
+	unsigned long flags;
+
+	spin_lock_irqsave(&mtk_drm->unreference.lock, flags);
+	list_add_tail(&mtk_state->list, &mtk_drm->unreference.list);
+	spin_unlock_irqrestore(&mtk_drm->unreference.lock, flags);
+
+	schedule_work(&mtk_drm->unreference.work);
+}
+
+static uint32_t mtk_atomic_crtc_mask(struct drm_device *drm,
+				     struct drm_atomic_state *state)
+{
+	uint32_t crtc_mask;
+	int i;
+
+	for (i = 0, crtc_mask = 0; i < drm->mode_config.num_crtc; i++) {
+		struct drm_crtc *crtc = state->crtcs[i].ptr;
+
+		if (!crtc)
+			continue;
+		crtc_mask |= (1 << drm_crtc_index(crtc));
+	}
+
+	return crtc_mask;
+}
+
+/*
+ * Block until specified crtcs are no longer pending update, and atomically
+ * mark them as pending update.
+ */
+static int mtk_atomic_get_crtcs(struct drm_device *drm,
 				struct drm_atomic_state *state)
 {
-	private->commit.state = state;
-	schedule_work(&private->commit.work);
+	struct mtk_drm_private *private = drm->dev_private;
+	uint32_t crtc_mask, needs_modeset, has_cursor_plane;
+	struct drm_plane *plane;
+	struct drm_plane_state *plane_state;
+	struct drm_crtc *crtc;
+	struct drm_crtc_state *crtc_state;
+	int i;
+	int ret;
+
+	crtc_mask = mtk_atomic_crtc_mask(drm, state);
+
+	/*
+	 * Allow cursor updates unless there is a pending modeset or cursor
+	 * plane update.
+	 */
+	needs_modeset = 0;
+	for_each_crtc_in_state(state, crtc, crtc_state, i) {
+		if (crtc && drm_atomic_crtc_needs_modeset(crtc_state)) {
+			needs_modeset |= (1 << drm_crtc_index(crtc));
+			break;
+		}
+	}
+
+	has_cursor_plane = 0;
+	for_each_plane_in_state(state, plane, plane_state, i) {
+		if (crtc && plane->crtc && plane == plane->crtc->cursor) {
+			has_cursor_plane |= (1 << drm_crtc_index(crtc));
+			break;
+		}
+	}
+
+	/*
+	 * Wait for all pending updates to complete for the set of crtcs being
+	 * changed in this atomic commit
+	 */
+	spin_lock(&private->commit.crtcs_event.lock);
+	ret = wait_event_interruptible_locked(private->commit.crtcs_event,
+			!(private->commit.crtcs & crtc_mask));
+	if (ret == 0)
+		private->commit.crtcs |= crtc_mask;
+
+	private->commit.flush_for_cursor |= needs_modeset | has_cursor_plane;
+	spin_unlock(&private->commit.crtcs_event.lock);
+
+	return ret;
+}
+
+/*
+ * Mark specified crtcs as no longer pending update.
+ */
+static void mtk_atomic_put_crtcs(struct drm_device *drm,
+				 struct drm_atomic_state *state)
+{
+	struct mtk_drm_private *private = drm->dev_private;
+	uint32_t crtc_mask;
+
+	crtc_mask = mtk_atomic_crtc_mask(drm, state);
+
+	spin_lock(&private->commit.crtcs_event.lock);
+	private->commit.crtcs &= ~crtc_mask;
+	private->commit.flush_for_cursor &= ~crtc_mask;
+	wake_up_all_locked(&private->commit.crtcs_event);
+	spin_unlock(&private->commit.crtcs_event.lock);
+}
+
+static void mtk_unreference_work(struct work_struct *work)
+{
+	struct mtk_drm_private *mtk_drm = container_of(work,
+			struct mtk_drm_private, unreference.work);
+	unsigned long flags;
+	struct mtk_atomic_state *state, *tmp;
+
+	/*
+	 * framebuffers cannot be unreferenced in atomic context.
+	 * Therefore, only hold the spinlock when iterating unreference_list,
+	 * and drop it when doing the unreference.
+	 */
+	spin_lock_irqsave(&mtk_drm->unreference.lock, flags);
+	list_for_each_entry_safe(state, tmp, &mtk_drm->unreference.list, list) {
+		list_del(&state->list);
+		spin_unlock_irqrestore(&mtk_drm->unreference.lock, flags);
+		mtk_atomic_state_put(&state->base);
+		spin_lock_irqsave(&mtk_drm->unreference.lock, flags);
+	}
+	spin_unlock_irqrestore(&mtk_drm->unreference.lock, flags);
+}
+
+
+static void mtk_atomic_schedule(struct drm_device *drm,
+				struct drm_atomic_state *state)
+{
+	struct mtk_atomic_state *mtk_state = to_mtk_state(state);
+
+	schedule_work(&mtk_state->work);
 }
 
 static void mtk_atomic_wait_for_fences(struct drm_atomic_state *state)
@@ -54,11 +219,10 @@ static void mtk_atomic_wait_for_fences(struct drm_atomic_state *state)
 		mtk_fb_wait(plane->state->fb);
 }
 
-static void mtk_atomic_complete(struct mtk_drm_private *private,
+static void mtk_atomic_complete(struct drm_device *drm,
 				struct drm_atomic_state *state)
 {
-	struct drm_device *drm = private->drm;
-
+	struct mtk_drm_private *private = drm->dev_private;
 	mtk_atomic_wait_for_fences(state);
 
 	/*
@@ -74,54 +238,90 @@ static void mtk_atomic_complete(struct mtk_drm_private *private,
 	 *
 	 * See the kerneldoc entries for these three functions for more details.
 	 */
+	mutex_lock(&private->hw_lock);
 	drm_atomic_helper_commit_modeset_disables(drm, state);
 	drm_atomic_helper_commit_modeset_enables(drm, state);
 	drm_atomic_helper_commit_planes(drm, state, true);
+	mutex_unlock(&private->hw_lock);
 
 	drm_atomic_helper_wait_for_vblanks(drm, state);
 
 	drm_atomic_helper_cleanup_planes(drm, state);
-	drm_atomic_state_free(state);
+
+	mtk_atomic_put_crtcs(drm, state);
+
+	mtk_atomic_state_put(state);
 }
 
 static void mtk_atomic_work(struct work_struct *work)
 {
-	struct mtk_drm_private *private = container_of(work,
-			struct mtk_drm_private, commit.work);
+	struct mtk_atomic_state *mtk_state = container_of(work,
+			struct mtk_atomic_state, work);
+	struct drm_atomic_state *state = &mtk_state->base;
+	struct drm_device *drm = state->dev;
 
-	mtk_atomic_complete(private, private->commit.state);
+	mtk_atomic_complete(drm, state);
 }
 
 static int mtk_atomic_commit(struct drm_device *drm,
 			     struct drm_atomic_state *state,
 			     bool async)
 {
-	struct mtk_drm_private *private = drm->dev_private;
 	int ret;
 
 	ret = drm_atomic_helper_prepare_planes(drm, state);
 	if (ret)
 		return ret;
 
-	mutex_lock(&private->commit.lock);
-	flush_work(&private->commit.work);
+	ret = mtk_atomic_get_crtcs(drm, state);
+	if (ret) {
+		drm_atomic_helper_cleanup_planes(drm, state);
+		return ret;
+	}
 
-	drm_atomic_helper_swap_state(drm, state);
+	drm_atomic_helper_swap_state(state, true);
 
+	drm_atomic_state_get(state);
 	if (async)
-		mtk_atomic_schedule(private, state);
+		mtk_atomic_schedule(drm, state);
 	else
-		mtk_atomic_complete(private, state);
-
-	mutex_unlock(&private->commit.lock);
+		mtk_atomic_complete(drm, state);
 
 	return 0;
+}
+
+static struct drm_atomic_state *mtk_drm_atomic_state_alloc(
+		struct drm_device *dev)
+{
+	struct mtk_atomic_state *mtk_state;
+
+	mtk_state = kzalloc(sizeof(*mtk_state), GFP_KERNEL);
+	if (!mtk_state)
+		return NULL;
+
+	if (drm_atomic_state_init(dev, &mtk_state->base) < 0) {
+		kfree(mtk_state);
+		return NULL;
+	}
+
+	INIT_LIST_HEAD(&mtk_state->list);
+	kref_init(&mtk_state->kref);
+	INIT_WORK(&mtk_state->work, mtk_atomic_work);
+
+	return &mtk_state->base;
+}
+
+static void mtk_drm_atomic_state_free(struct drm_atomic_state *state)
+{
+	mtk_atomic_state_put(state);
 }
 
 static const struct drm_mode_config_funcs mtk_drm_mode_config_funcs = {
 	.fb_create = mtk_drm_mode_fb_create,
 	.atomic_check = drm_atomic_helper_check,
 	.atomic_commit = mtk_atomic_commit,
+	.atomic_state_alloc = mtk_drm_atomic_state_alloc,
+	.atomic_state_free = mtk_drm_atomic_state_free
 };
 
 static const enum mtk_ddp_comp_id mtk_ddp_main[] = {
@@ -131,6 +331,18 @@ static const enum mtk_ddp_comp_id mtk_ddp_main[] = {
 	DDP_COMPONENT_OD,
 	DDP_COMPONENT_RDMA0,
 	DDP_COMPONENT_UFOE,
+	DDP_COMPONENT_DSI0,
+	DDP_COMPONENT_PWM0,
+};
+
+static const enum mtk_ddp_comp_id mtk_ddp_split_dsi[] = {
+	DDP_COMPONENT_OVL0,
+	DDP_COMPONENT_COLOR0,
+	DDP_COMPONENT_AAL,
+	DDP_COMPONENT_OD,
+	DDP_COMPONENT_RDMA0,
+	DDP_COMPONENT_UFOE,
+	DDP_COMPONENT_SPLIT1,
 	DDP_COMPONENT_DSI0,
 	DDP_COMPONENT_PWM0,
 };
@@ -148,6 +360,9 @@ static int mtk_drm_kms_init(struct drm_device *drm)
 	struct mtk_drm_private *private = drm->dev_private;
 	struct platform_device *pdev;
 	struct device_node *np;
+	const enum mtk_ddp_comp_id *dsi_stream;
+	int dsi_stream_len;
+	bool dual_dsi_mode;
 	int ret;
 
 	if (!iommu_present(&platform_bus_type))
@@ -182,19 +397,42 @@ static int mtk_drm_kms_init(struct drm_device *drm)
 
 	/*
 	 * We currently support two fixed data streams, each optional,
-	 * and each statically assigned to a crtc:
+	 * and each statically assigned to a crtc.
+	 *
+	 * By default, UFOE directly drives DSI0:
 	 * OVL0 -> COLOR0 -> AAL -> OD -> RDMA0 -> UFOE -> DSI0 ...
+	 *
+	 * However, if the dsi0 node has "mediatek,dual-dsi-mode" set,
+	 * UFOE will use SPLIT1 to dual drive both DSI0 and DSI1:
+	 * OVL0 -> COLOR0 -> AAL -> OD -> RDMA0 -> UFOE -> SPLIT1 -> DSI0 ...
+	 *                                                       \-> DSI1 ...
 	 */
-	ret = mtk_drm_crtc_create(drm, mtk_ddp_main, ARRAY_SIZE(mtk_ddp_main));
+	np = private->comp_node[DDP_COMPONENT_DSI0];
+	if (np && of_property_read_bool(np, "mediatek,dual-dsi-mode")) {
+		dsi_stream = mtk_ddp_split_dsi;
+		dsi_stream_len = ARRAY_SIZE(mtk_ddp_split_dsi);
+		dual_dsi_mode = true;
+	} else {
+		dsi_stream = mtk_ddp_main;
+		dsi_stream_len = ARRAY_SIZE(mtk_ddp_main);
+		dual_dsi_mode = false;
+	}
+	ret = mtk_drm_crtc_create(drm, dsi_stream, dsi_stream_len,
+				  dual_dsi_mode);
 	if (ret < 0)
 		goto err_component_unbind;
-	/* ... and OVL1 -> COLOR1 -> GAMMA -> RDMA1 -> DPI0. */
-	ret = mtk_drm_crtc_create(drm, mtk_ddp_ext, ARRAY_SIZE(mtk_ddp_ext));
+
+	/*
+	 * The DPI stream is directly driven from RDMA1:
+	 * ... and OVL1 -> COLOR1 -> GAMMA -> RDMA1 -> DPI0
+	 */
+	ret = mtk_drm_crtc_create(drm, mtk_ddp_ext, ARRAY_SIZE(mtk_ddp_ext),
+				  false);
 	if (ret < 0)
 		goto err_component_unbind;
 
 	/* Use OVL device for all DMA memory allocations */
-	np = private->comp_node[mtk_ddp_main[0]] ?:
+	np = private->comp_node[dsi_stream[0]] ?:
 	     private->comp_node[mtk_ddp_ext[0]];
 	pdev = of_find_device_by_node(np);
 	if (!pdev) {
@@ -215,8 +453,15 @@ static int mtk_drm_kms_init(struct drm_device *drm)
 	if (ret < 0)
 		goto err_component_unbind;
 
+	drm->vblank_disable_allowed = true;
 	drm_kms_helper_poll_init(drm);
 	drm_mode_config_reset(drm);
+
+	INIT_WORK(&private->unreference.work, mtk_unreference_work);
+	INIT_LIST_HEAD(&private->unreference.list);
+	spin_lock_init(&private->unreference.lock);
+	init_waitqueue_head(&private->commit.crtcs_event);
+	mutex_init(&private->hw_lock);
 
 	return 0;
 
@@ -237,6 +482,14 @@ static void mtk_drm_kms_deinit(struct drm_device *drm)
 	drm_mode_config_cleanup(drm);
 }
 
+static const struct drm_ioctl_desc mtk_ioctls[] = {
+	DRM_IOCTL_DEF_DRV(MTK_GEM_CREATE, mtk_gem_create_ioctl,
+			  DRM_UNLOCKED | DRM_AUTH | DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(MTK_GEM_MAP_OFFSET,
+			  mtk_gem_map_offset_ioctl,
+			  DRM_UNLOCKED | DRM_AUTH | DRM_RENDER_ALLOW),
+};
+
 static const struct file_operations mtk_drm_fops = {
 	.owner = THIS_MODULE,
 	.open = drm_open,
@@ -245,14 +498,12 @@ static const struct file_operations mtk_drm_fops = {
 	.mmap = mtk_drm_gem_mmap,
 	.poll = drm_poll,
 	.read = drm_read,
-#ifdef CONFIG_COMPAT
 	.compat_ioctl = drm_compat_ioctl,
-#endif
 };
 
 static struct drm_driver mtk_drm_driver = {
 	.driver_features = DRIVER_MODESET | DRIVER_GEM | DRIVER_PRIME |
-			   DRIVER_ATOMIC,
+			   DRIVER_ATOMIC | DRIVER_RENDER,
 
 	.get_vblank_counter = drm_vblank_no_hw_counter,
 	.enable_vblank = mtk_drm_crtc_enable_vblank,
@@ -271,6 +522,8 @@ static struct drm_driver mtk_drm_driver = {
 	.gem_prime_get_sg_table = mtk_gem_prime_get_sg_table,
 	.gem_prime_import_sg_table = mtk_gem_prime_import_sg_table,
 	.gem_prime_mmap = mtk_drm_gem_mmap_buf,
+	.ioctls = mtk_ioctls,
+	.num_ioctls = ARRAY_SIZE(mtk_ioctls),
 	.fops = &mtk_drm_fops,
 
 	.name = DRIVER_NAME,
@@ -349,6 +602,7 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
 	{ .compatible = "mediatek,mt8173-disp-mutex", .data = (void *)MTK_DISP_MUTEX },
 	{ .compatible = "mediatek,mt8173-disp-pwm",   .data = (void *)MTK_DISP_PWM },
 	{ .compatible = "mediatek,mt8173-disp-od",    .data = (void *)MTK_DISP_OD },
+	{ .compatible = "mediatek,mt8173-disp-split", .data = (void *)MTK_DISP_SPLIT },
 	{ }
 };
 
@@ -366,9 +620,6 @@ static int mtk_drm_probe(struct platform_device *pdev)
 	if (!private)
 		return -ENOMEM;
 
-	mutex_init(&private->commit.lock);
-	INIT_WORK(&private->commit.work, mtk_atomic_work);
-
 	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	private->config_regs = devm_ioremap_resource(dev, mem);
 	if (IS_ERR(private->config_regs)) {
@@ -376,6 +627,19 @@ static int mtk_drm_probe(struct platform_device *pdev)
 		dev_err(dev, "Failed to ioremap mmsys-config resource: %d\n",
 			ret);
 		return ret;
+	}
+
+	node = of_parse_phandle(dev->of_node, "mediatek,gce", 0);
+	if (!node) {
+		dev_err(dev, "Failed to get gce node\n");
+		return -EINVAL;
+	}
+
+	private->gce_pdev = of_find_device_by_node(node);
+	of_node_put(node);
+	if (!private->gce_pdev) {
+		dev_err(dev, "Failed to find gce platform device\n");
+		return -EINVAL;
 	}
 
 	/* Iterate over sibling DISP function blocks */

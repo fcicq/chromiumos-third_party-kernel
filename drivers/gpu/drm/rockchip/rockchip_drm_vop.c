@@ -20,6 +20,7 @@
 #include <drm/drm_flip_work.h>
 #include <drm/drm_plane_helper.h>
 
+#include <linux/atomic.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
@@ -29,6 +30,7 @@
 #include <linux/of_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/component.h>
+#include <linux/wait.h>
 
 #include <linux/reset.h>
 #include <linux/delay.h>
@@ -66,6 +68,10 @@
 		if (vop->data->afbdc) \
 			REG_SET(x, 0, (x)->data->afbdc->name, v, RELAXED)
 
+#define VOP_YUV2YUV_SET(x, name, v) \
+		if ((x)->data->yuv2yuv) \
+			REG_SET(x, 0, (x)->data->yuv2yuv->name, v, RELAXED)
+
 #define VOP_INTR_GET(vop, name) \
 		vop_read_reg(vop, 0, &vop->data->ctrl->name)
 
@@ -97,6 +103,18 @@
 #define to_vop(x) container_of(x, struct vop, crtc)
 #define to_vop_win(x) container_of(x, struct vop_win, base)
 
+/*
+ * The coefficients of the following matrix are all fixed points.
+ * The format is 3.10 for the 3x3 part of the matrix, and 10.12 for the offsets.
+ * They are all represented in two's complement.
+ */
+static const uint32_t bt601_yuv2rgb[] = {
+	0x4A8, 0x0,    0x662,
+	0x4A8, 0x1E6F, 0x1CBF,
+	0x4A8, 0x812,  0x0,
+	0x321168, 0x0877CF, 0x2EB127
+};
+
 enum vop_pending {
 	VOP_PENDING_FB_UNREF,
 };
@@ -125,7 +143,8 @@ struct vop {
 	unsigned long pending;
 
 	ktime_t line_flag_timestamp;
-	struct completion line_flag_completion;
+	atomic_t line_flag_wait_count;
+	wait_queue_head_t line_flag_wq;
 	struct notifier_block dmc_nb;
 
 	const struct vop_data *data;
@@ -140,7 +159,6 @@ struct vop {
 	spinlock_t reg_lock;
 	/* lock vop irq reg */
 	spinlock_t irq_lock;
-	struct mutex vop_lock;
 
 	unsigned int irq;
 
@@ -495,39 +513,30 @@ static void vop_dsp_hold_valid_irq_disable(struct vop *vop)
  * dsp_vact_end ----------------------------+     |   VOP_DSP_VACT_ST_END
  * dsp_total -------------------------------------+   VOP_DSP_VTOTAL_VS_END
  */
-static bool vop_line_flag_irq_is_enabled(struct vop *vop)
-{
-	uint32_t line_flag_irq;
-	unsigned long flags;
-
-	spin_lock_irqsave(&vop->irq_lock, flags);
-
-	line_flag_irq = VOP_INTR_GET_TYPE(vop, enable, LINE_FLAG_INTR);
-
-	spin_unlock_irqrestore(&vop->irq_lock, flags);
-
-	return !!line_flag_irq;
-}
-
-static void vop_line_flag_irq_enable(struct vop *vop, int line_num)
+static void vop_line_flag_irq_get(struct vop *vop)
 {
 	unsigned long flags;
+
+	if (atomic_inc_return(&vop->line_flag_wait_count) != 1)
+		return;
 
 	if (WARN_ON(!vop->is_enabled))
 		return;
 
 	spin_lock_irqsave(&vop->irq_lock, flags);
 
-	VOP_CTRL_SET(vop, line_flag_num[0], line_num);
 	VOP_INTR_SET_TYPE(vop, clear, LINE_FLAG_INTR, 1);
 	VOP_INTR_SET_TYPE(vop, enable, LINE_FLAG_INTR, 1);
 
 	spin_unlock_irqrestore(&vop->irq_lock, flags);
 }
 
-static void vop_line_flag_irq_disable(struct vop *vop)
+static void vop_line_flag_irq_put(struct vop *vop)
 {
 	unsigned long flags;
+
+	if (!atomic_dec_and_test(&vop->line_flag_wait_count))
+		return;
 
 	if (WARN_ON(!vop->is_enabled))
 		return;
@@ -641,7 +650,6 @@ static void vop_crtc_disable(struct drm_crtc *crtc)
 		return;
 
 	rockchip_dmcfreq_unregister_clk_sync_nb(priv->devfreq, &vop->dmc_nb);
-	mutex_lock(&vop->vop_lock);
 	/*
 	 * We need to make sure that all windows are disabled before we
 	 * disable that crtc. Otherwise we might try to scan from a destroyed
@@ -657,8 +665,10 @@ static void vop_crtc_disable(struct drm_crtc *crtc)
 		spin_unlock(&vop->reg_lock);
 	}
 
-	if (vop->data->afbdc)
+	if (vop->data->afbdc) {
 		VOP_AFBDC_SET(vop, enable, 0);
+		vop->afbdc_win = NULL;
+	}
 
 	vop_cfg_done(vop);
 
@@ -697,7 +707,6 @@ static void vop_crtc_disable(struct drm_crtc *crtc)
 	clk_disable(vop->aclk);
 	clk_disable(vop->hclk);
 	pm_runtime_put(vop->dev);
-	mutex_unlock(&vop->vop_lock);
 }
 
 static void vop_plane_destroy(struct drm_plane *plane)
@@ -745,7 +754,7 @@ static int vop_plane_atomic_check(struct drm_plane *plane,
 	if (!state->visible)
 		return 0;
 
-	ret = vop_convert_format(fb->pixel_format);
+	ret = vop_convert_format(fb->format->format);
 	if (ret < 0)
 		return ret;
 
@@ -753,10 +762,16 @@ static int vop_plane_atomic_check(struct drm_plane *plane,
 	 * Src.x1 can be odd when do clip, but yuv plane start point
 	 * need align with 2 pixel.
 	 */
-	if (is_yuv_support(fb->pixel_format) && ((state->src.x1 >> 16) % 2))
+	if (is_yuv_support(fb->format->format) && ((state->src.x1 >> 16) % 2))
 		return -EINVAL;
 
-	if (fb->modifier[0] == DRM_FORMAT_MOD_CHROMEOS_ROCKCHIP_AFBC) {
+	if (is_yuv_support(fb->format->format) && (state->rotation != DRM_ROTATE_0))
+		return -EINVAL;
+
+	if (!((state->rotation == DRM_REFLECT_Y) || (state->rotation == DRM_ROTATE_0)))
+		return -EINVAL;
+
+	if (fb->modifier == DRM_FORMAT_MOD_CHROMEOS_ROCKCHIP_AFBC) {
 		struct vop *vop = to_vop(crtc);
 
 		if (!vop->data->afbdc) {
@@ -764,7 +779,7 @@ static int vop_plane_atomic_check(struct drm_plane *plane,
 			return -EINVAL;
 		}
 
-		ret = vop_convert_afbdc_format(fb->pixel_format);
+		ret = vop_convert_afbdc_format(fb->format->format);
 		if (ret < 0)
 			return ret;
 
@@ -772,6 +787,12 @@ static int vop_plane_atomic_check(struct drm_plane *plane,
 			DRM_ERROR("afbdc does not support offset display\n");
 			DRM_ERROR("xpos=%d, ypos=%d, offset=%d\n",
 				  state->src.x1, state->src.y1, fb->offsets[0]);
+			return -EINVAL;
+		}
+
+		if (state->rotation != DRM_ROTATE_0) {
+			DRM_ERROR("afbdc does not support rotation\n");
+			DRM_ERROR("rotation=%d\n", state->rotation);
 			return -EINVAL;
 		}
 	}
@@ -821,6 +842,9 @@ static void vop_plane_atomic_update(struct drm_plane *plane,
 	uint32_t val;
 	bool rb_swap;
 	int format;
+	int is_yuv = is_yuv_support(fb->format->format);
+	int win_index = VOP_WIN_TO_INDEX(vop_win);
+	int i;
 
 	/*
 	 * can't update plane when vop is disabled.
@@ -853,16 +877,19 @@ static void vop_plane_atomic_update(struct drm_plane *plane,
 	dsp_sty = dest->y1 + crtc->mode.vtotal - crtc->mode.vsync_start;
 	dsp_st = dsp_sty << 16 | (dsp_stx & 0xffff);
 
-	offset = (src->x1 >> 16) * drm_format_plane_cpp(fb->pixel_format, 0);
+	offset = (src->x1 >> 16) * fb->format->cpp[0];
 	offset += (src->y1 >> 16) * fb->pitches[0];
 	dma_addr = rk_obj->dma_addr + offset + fb->offsets[0];
+	/* For rotation, move dma_addr to the beginning of the last line. */
+	if (state->rotation == DRM_REFLECT_Y)
+		dma_addr += (actual_h - 1) * fb->pitches[0];
 
-	format = vop_convert_format(fb->pixel_format);
+	format = vop_convert_format(fb->format->format);
 
 	spin_lock(&vop->reg_lock);
 
-	if (fb->modifier[0] == DRM_FORMAT_MOD_CHROMEOS_ROCKCHIP_AFBC) {
-		int afbdc_format = vop_convert_afbdc_format(fb->pixel_format);
+	if (fb->modifier == DRM_FORMAT_MOD_CHROMEOS_ROCKCHIP_AFBC) {
+		int afbdc_format = vop_convert_afbdc_format(fb->format->format);
 
 		VOP_AFBDC_SET(vop, format, afbdc_format | 1 << 4);
 		VOP_AFBDC_SET(vop, hreg_block_split, 0);
@@ -876,10 +903,18 @@ static void vop_plane_atomic_update(struct drm_plane *plane,
 	VOP_WIN_SET(vop, win, format, format);
 	VOP_WIN_SET(vop, win, yrgb_vir, fb->pitches[0] >> 2);
 	VOP_WIN_SET(vop, win, yrgb_mst, dma_addr);
-	if (is_yuv_support(fb->pixel_format)) {
-		int hsub = drm_format_horz_chroma_subsampling(fb->pixel_format);
-		int vsub = drm_format_vert_chroma_subsampling(fb->pixel_format);
-		int bpp = drm_format_plane_cpp(fb->pixel_format, 1);
+	VOP_WIN_SET(vop, win, y_mir_en, state->rotation == DRM_REFLECT_Y);
+
+	if (!win_index) {
+		VOP_YUV2YUV_SET(vop, win0_y2r_en, is_yuv);
+	} else if (win_index == 1) {
+		VOP_YUV2YUV_SET(vop, win1_y2r_en, is_yuv);
+	}
+
+	if (is_yuv) {
+		int hsub = drm_format_horz_chroma_subsampling(fb->format->format);
+		int vsub = drm_format_vert_chroma_subsampling(fb->format->format);
+		int bpp = fb->format->cpp[1];
 
 		uv_obj = rockchip_fb_get_gem_obj(fb, 1);
 		rk_uv_obj = to_rockchip_obj(uv_obj);
@@ -890,21 +925,33 @@ static void vop_plane_atomic_update(struct drm_plane *plane,
 		dma_addr = rk_uv_obj->dma_addr + offset + fb->offsets[1];
 		VOP_WIN_SET(vop, win, uv_vir, fb->pitches[1] >> 2);
 		VOP_WIN_SET(vop, win, uv_mst, dma_addr);
+
+		for (i = 0; i < 12; i++) {
+			if (!win_index) {
+				VOP_YUV2YUV_SET(vop,
+						win0_y2r_coefficients[i],
+						bt601_yuv2rgb[i]);
+			} else {
+				VOP_YUV2YUV_SET(vop,
+						win1_y2r_coefficients[i],
+						bt601_yuv2rgb[i]);
+			}
+		}
 	}
 
 	if (win->phy->scl)
 		scl_vop_cal_scl_fac(vop, win, actual_w, actual_h,
 				    drm_rect_width(dest), drm_rect_height(dest),
-				    fb->pixel_format);
+				    fb->format->format);
 
 	VOP_WIN_SET(vop, win, act_info, act_info);
 	VOP_WIN_SET(vop, win, dsp_info, dsp_info);
 	VOP_WIN_SET(vop, win, dsp_st, dsp_st);
 
-	rb_swap = has_rb_swapped(fb->pixel_format);
+	rb_swap = has_rb_swapped(fb->format->format);
 	VOP_WIN_SET(vop, win, rb_swap, rb_swap);
 
-	if (is_alpha_support(fb->pixel_format)) {
+	if (is_alpha_support(fb->format->format)) {
 		VOP_WIN_SET(vop, win, dst_alpha_ctl,
 			    DST_FACTOR_M0(ALPHA_SRC_INVERSE));
 		val = SRC_ALPHA_EN(1) | SRC_COLOR_M0(ALPHA_SRC_PRE_MUL) |
@@ -918,7 +965,7 @@ static void vop_plane_atomic_update(struct drm_plane *plane,
 	}
 
 	VOP_WIN_SET(vop, win, enable, 1);
-	vop->win_enabled |= BIT(VOP_WIN_TO_INDEX(vop_win));
+	vop->win_enabled |= BIT(win_index);
 
 	spin_unlock(&vop->reg_lock);
 }
@@ -1172,10 +1219,8 @@ static void vop_crtc_enable(struct drm_crtc *crtc)
 	uint32_t pin_pol, val;
 	int ret;
 
-	mutex_lock(&vop->vop_lock);
 	ret = vop_enable(crtc);
 	if (ret) {
-		mutex_unlock(&vop->vop_lock);
 		DRM_DEV_ERROR(vop->dev, "Failed to enable vop (%d)\n", ret);
 		return;
 	}
@@ -1217,10 +1262,10 @@ static void vop_crtc_enable(struct drm_crtc *crtc)
 	}
 
 	pin_pol = BIT(DCLK_INVERT);
-	pin_pol |= (adjusted_mode->flags & DRM_MODE_FLAG_NHSYNC) ?
-		   0 : BIT(HSYNC_POSITIVE);
-	pin_pol |= (adjusted_mode->flags & DRM_MODE_FLAG_NVSYNC) ?
-		   0 : BIT(VSYNC_POSITIVE);
+	pin_pol |= (adjusted_mode->flags & DRM_MODE_FLAG_PHSYNC) ?
+		   BIT(HSYNC_POSITIVE) : 0;
+	pin_pol |= (adjusted_mode->flags & DRM_MODE_FLAG_PVSYNC) ?
+		   BIT(VSYNC_POSITIVE) : 0;
 	VOP_CTRL_SET(vop, pin_pol, pin_pol);
 
 	switch (s->output_type) {
@@ -1267,10 +1312,11 @@ static void vop_crtc_enable(struct drm_crtc *crtc)
 	VOP_CTRL_SET(vop, vact_st_end, val);
 	VOP_CTRL_SET(vop, vpost_st_end, val);
 
+	VOP_CTRL_SET(vop, line_flag_num[0], vact_end);
+
 	clk_set_rate(vop->dclk, adjusted_mode->clock * 1000);
 
 	VOP_CTRL_SET(vop, standby, 0);
-	mutex_unlock(&vop->vop_lock);
 	rockchip_dmcfreq_register_clk_sync_nb(priv->devfreq, &vop->dmc_nb);
 }
 
@@ -1281,15 +1327,12 @@ static int dmc_notify(struct notifier_block *nb,
 	struct vop *vop = container_of(nb, struct vop, dmc_nb);
 	struct drm_crtc *crtc = &vop->crtc;
 	ktime_t *timeout = data;
-	int vact_end;
 	int ret;
 
 	if (WARN_ON(!vop->is_enabled))
 		return NOTIFY_BAD;
 
-	vact_end = crtc->mode.vtotal - crtc->mode.vsync_start +
-		   crtc->mode.vdisplay;
-	ret = rockchip_drm_wait_line_flag(crtc, vact_end, 100);
+	ret = rockchip_drm_wait_vact_end(crtc, 100);
 	*timeout = ktime_add_ns(vop->line_flag_timestamp,
 				rockchip_drm_get_vblank_ns(&crtc->mode));
 	if (ret) {
@@ -1478,7 +1521,7 @@ static irqreturn_t vop_isr(int irq, void *data)
 
 	if (active_irqs & LINE_FLAG_INTR) {
 		vop->line_flag_timestamp = ktime_get();
-		complete(&vop->line_flag_completion);
+		wake_up_all(&vop->line_flag_wq);
 		active_irqs &= ~LINE_FLAG_INTR;
 		ret = IRQ_HANDLED;
 	}
@@ -1506,6 +1549,8 @@ static int vop_create_crtc(struct vop *vop)
 	struct drm_plane *primary = NULL, *cursor = NULL, *plane, *tmp;
 	struct drm_crtc *crtc = &vop->crtc;
 	struct device_node *port;
+	struct drm_property *rotation_property =
+		drm_dev->mode_config.rotation_property;
 	int ret;
 	int i;
 
@@ -1545,6 +1590,11 @@ static int vop_create_crtc(struct vop *vop)
 
 	ret = drm_crtc_init_with_planes(drm_dev, crtc, primary, cursor,
 					&vop_crtc_funcs, NULL);
+
+	drm_object_attach_property(&primary->base,
+				   rotation_property,
+				   DRM_ROTATE_0);
+
 	if (ret)
 		goto err_cleanup_planes;
 
@@ -1576,6 +1626,9 @@ static int vop_create_crtc(struct vop *vop)
 			goto err_cleanup_crtc;
 		}
 		drm_plane_helper_add(&vop_win->base, &plane_helper_funcs);
+		drm_object_attach_property(&vop_win->base.base,
+					   rotation_property,
+					   DRM_ROTATE_0);
 	}
 
 	port = of_get_child_by_name(dev->of_node, "port");
@@ -1590,7 +1643,8 @@ static int vop_create_crtc(struct vop *vop)
 			   vop_fb_unref_worker);
 
 	init_completion(&vop->dsp_hold_completion);
-	init_completion(&vop->line_flag_completion);
+	init_waitqueue_head(&vop->line_flag_wq);
+	atomic_set(&vop->line_flag_wait_count, 0);
 	crtc->port = port;
 	rockchip_register_crtc_funcs(crtc, &private_crtc_funcs);
 
@@ -1763,57 +1817,45 @@ static void vop_win_init(struct vop *vop)
 }
 
 /**
- * rockchip_drm_wait_line_flag - acqiure the give line flag event
+ * rockchip_drm_wait_vact_end
  * @crtc: CRTC to enable line flag
- * @line_num: interested line number
  * @mstimeout: millisecond for timeout
  *
- * Driver would hold here until the interested line flag interrupt have
- * happened or timeout to wait.
+ * Wait for vact_end line flag irq or timeout.
+ * Must be called from a context that is mutually exclusive with VOP
+ * enable/disable.
  *
  * Returns:
  * Zero on success, negative errno on failure.
  */
-int rockchip_drm_wait_line_flag(struct drm_crtc *crtc, unsigned int line_num,
-				unsigned int mstimeout)
+int rockchip_drm_wait_vact_end(struct drm_crtc *crtc, unsigned int mstimeout)
 {
 	struct vop *vop = to_vop(crtc);
 	unsigned long jiffies_left;
-	int ret = 0;
+	DEFINE_WAIT(wait);
 
 	if (!crtc || !vop->is_enabled)
 		return -ENODEV;
 
-	mutex_lock(&vop->vop_lock);
+	if (mstimeout <= 0)
+		return -EINVAL;
 
-	if (line_num > crtc->mode.vtotal || mstimeout <= 0) {
-		ret = -EINVAL;
-		goto out;
-	}
+	vop_line_flag_irq_get(vop);
 
-	if (vop_line_flag_irq_is_enabled(vop)) {
-		ret = -EBUSY;
-		goto out;
-	}
+	prepare_to_wait(&vop->line_flag_wq, &wait, TASK_UNINTERRUPTIBLE);
+	jiffies_left = schedule_timeout(msecs_to_jiffies(mstimeout));
+	finish_wait(&vop->line_flag_wq, &wait);
 
-	reinit_completion(&vop->line_flag_completion);
-	vop_line_flag_irq_enable(vop, line_num);
-
-	jiffies_left = wait_for_completion_timeout(&vop->line_flag_completion,
-						   msecs_to_jiffies(mstimeout));
-	vop_line_flag_irq_disable(vop);
+	vop_line_flag_irq_put(vop);
 
 	if (jiffies_left == 0) {
 		dev_err(vop->dev, "Timeout waiting for IRQ\n");
-		ret = -ETIMEDOUT;
-		goto out;
+		return -ETIMEDOUT;
 	}
 
-out:
-	mutex_unlock(&vop->vop_lock);
-	return ret;
+	return 0;
 }
-EXPORT_SYMBOL(rockchip_drm_wait_line_flag);
+EXPORT_SYMBOL(rockchip_drm_wait_vact_end);
 
 static int vop_bind(struct device *dev, struct device *master, void *data)
 {
@@ -1867,7 +1909,6 @@ static int vop_bind(struct device *dev, struct device *master, void *data)
 
 	spin_lock_init(&vop->reg_lock);
 	spin_lock_init(&vop->irq_lock);
-	mutex_init(&vop->vop_lock);
 	vop->dmc_nb.notifier_call = dmc_notify;
 
 	ret = devm_request_irq(dev, vop->irq, vop_isr,

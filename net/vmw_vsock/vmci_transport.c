@@ -842,7 +842,7 @@ static void vmci_transport_peer_detach_cb(u32 sub_id,
 	 * qp_handle.
 	 */
 	if (vmci_handle_is_invalid(e_payload->handle) ||
-	    vmci_handle_is_equal(trans->qp_handle, e_payload->handle))
+	    !vmci_handle_is_equal(trans->qp_handle, e_payload->handle))
 		return;
 
 	/* We don't ask for delayed CBs when we subscribe to this event (we
@@ -1644,6 +1644,8 @@ static void vmci_transport_destruct(struct vsock_sock *vsk)
 
 static void vmci_transport_release(struct vsock_sock *vsk)
 {
+	vsock_remove_sock(vsk);
+
 	if (!vmci_handle_is_invalid(vmci_trans(vsk)->dg_handle)) {
 		vmci_datagram_destroy_handle(vmci_trans(vsk)->dg_handle);
 		vmci_trans(vsk)->dg_handle = VMCI_INVALID_HANDLE;
@@ -2154,7 +2156,7 @@ module_exit(vmci_transport_exit);
 
 MODULE_AUTHOR("VMware, Inc.");
 MODULE_DESCRIPTION("VMCI transport for Virtual Sockets");
-MODULE_VERSION("1.0.2.0-k");
+MODULE_VERSION("1.0.3.0-k");
 MODULE_LICENSE("GPL v2");
 MODULE_ALIAS("vmware_vsock");
 MODULE_ALIAS_NETPROTO(PF_VSOCK);

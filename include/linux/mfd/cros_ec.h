@@ -25,6 +25,8 @@
 
 #define CROS_EC_DEV_NAME "cros_ec"
 #define CROS_EC_DEV_PD_NAME "cros_pd"
+#define CROS_EC_DEV_FP_NAME "cros_fp"
+#define CROS_EC_DEV_TP_NAME "cros_tp"
 
 /*
  * The EC is unresponsive for a time after a reboot command.  Add a
@@ -201,6 +203,7 @@ struct cros_ec_dev {
 	struct cros_ec_device *ec_dev;
 	struct device *dev;
 	struct cros_ec_debugfs *debug_info;
+	bool has_kb_wake_angle;
 	u16 cmd_offset;
 	u32 features[2];
 };

@@ -111,7 +111,7 @@ static void exynos_atomic_commit_complete(struct exynos_atomic_commit *commit)
 
 	drm_atomic_helper_cleanup_planes(dev, state);
 
-	drm_atomic_state_free(state);
+	drm_atomic_state_put(state);
 
 	spin_lock(&priv->lock);
 	priv->pending &= ~commit->crtcs;
@@ -294,7 +294,7 @@ int exynos_atomic_commit(struct drm_device *dev, struct drm_atomic_state *state,
 	priv->pending |= commit->crtcs;
 	spin_unlock(&priv->lock);
 
-	drm_atomic_helper_swap_state(dev, state);
+	drm_atomic_helper_swap_state(state, true);
 
 	if (async)
 		schedule_work(&commit->work);
@@ -433,9 +433,7 @@ static const struct file_operations exynos_drm_driver_fops = {
 	.poll		= drm_poll,
 	.read		= drm_read,
 	.unlocked_ioctl	= drm_ioctl,
-#ifdef CONFIG_COMPAT
 	.compat_ioctl = drm_compat_ioctl,
-#endif
 	.release	= drm_release,
 };
 

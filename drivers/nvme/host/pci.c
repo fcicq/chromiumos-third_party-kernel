@@ -38,6 +38,7 @@
 #include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/t10-pi.h>
+#include <linux/pm_qos.h>
 #include <linux/types.h>
 #include <linux/pr.h>
 #include <scsi/sg.h>
@@ -72,6 +73,11 @@ module_param(nvme_major, int, 0);
 
 static int nvme_char_major;
 module_param(nvme_char_major, int, 0);
+
+static unsigned long default_ps_max_latency_us = 100000;
+module_param(default_ps_max_latency_us, ulong, 0644);
+MODULE_PARM_DESC(default_ps_max_latency_us,
+		 "max power saving latency for new devices; use PM QOS to change per device");
 
 static int use_threaded_interrupts;
 module_param(use_threaded_interrupts, int, 0);
@@ -127,6 +133,10 @@ struct nvme_queue {
 	u8 cq_phase;
 	u8 cqe_seen;
 	struct async_cmd_info cmdinfo;
+	u32 *dbbuf_sq_db;
+	u32 *dbbuf_cq_db;
+	u32 *dbbuf_sq_ei;
+	u32 *dbbuf_cq_ei;
 };
 
 /*
@@ -146,6 +156,121 @@ static inline void _nvme_check_size(void)
 	BUILD_BUG_ON(sizeof(struct nvme_id_ns) != 4096);
 	BUILD_BUG_ON(sizeof(struct nvme_lba_range_type) != 64);
 	BUILD_BUG_ON(sizeof(struct nvme_smart_log) != 512);
+	BUILD_BUG_ON(sizeof(struct nvme_dbbuf) != 64);
+}
+
+static inline unsigned int sq_idx(unsigned int qid, u32 stride)
+{
+	return qid * 2 * stride;
+}
+
+static inline unsigned int cq_idx(unsigned int qid, u32 stride)
+{
+	return (qid * 2 + 1) * stride;
+}
+
+static inline unsigned int nvme_dbbuf_size(u32 stride)
+{
+	return ((num_possible_cpus() + 1) * 8 * stride);
+}
+
+static int nvme_dbbuf_dma_alloc(struct nvme_dev *dev)
+{
+	unsigned int mem_size = nvme_dbbuf_size(dev->db_stride);
+
+	if (dev->dbbuf_dbs)
+		return 0;
+
+	dev->dbbuf_dbs = dma_alloc_coherent(dev->dev, mem_size,
+					    &dev->dbbuf_dbs_dma_addr,
+					    GFP_KERNEL);
+	if (!dev->dbbuf_dbs)
+		return -ENOMEM;
+	dev->dbbuf_eis = dma_alloc_coherent(dev->dev, mem_size,
+					    &dev->dbbuf_eis_dma_addr,
+					    GFP_KERNEL);
+	if (!dev->dbbuf_eis) {
+		dma_free_coherent(dev->dev, mem_size,
+				  dev->dbbuf_dbs, dev->dbbuf_dbs_dma_addr);
+		dev->dbbuf_dbs = NULL;
+		return -ENOMEM;
+	}
+
+	return 0;
+}
+
+static void nvme_dbbuf_dma_free(struct nvme_dev *dev)
+
+{
+	unsigned int mem_size = nvme_dbbuf_size(dev->db_stride);
+
+	if (dev->dbbuf_dbs) {
+		dma_free_coherent(dev->dev, mem_size,
+				  dev->dbbuf_dbs, dev->dbbuf_dbs_dma_addr);
+		dev->dbbuf_dbs = NULL;
+	}
+	if (dev->dbbuf_eis) {
+		dma_free_coherent(dev->dev, mem_size,
+				  dev->dbbuf_eis, dev->dbbuf_eis_dma_addr);
+		dev->dbbuf_eis = NULL;
+	}
+}
+
+static void nvme_dbbuf_init(struct nvme_dev *dev,
+			    struct nvme_queue *nvmeq, int qid)
+{
+	if (!dev->dbbuf_dbs || !qid)
+		return;
+
+	nvmeq->dbbuf_sq_db = &dev->dbbuf_dbs[sq_idx(qid, dev->db_stride)];
+	nvmeq->dbbuf_cq_db = &dev->dbbuf_dbs[cq_idx(qid, dev->db_stride)];
+	nvmeq->dbbuf_sq_ei = &dev->dbbuf_eis[sq_idx(qid, dev->db_stride)];
+	nvmeq->dbbuf_cq_ei = &dev->dbbuf_eis[cq_idx(qid, dev->db_stride)];
+}
+
+static void nvme_dbbuf_set(struct nvme_dev *dev)
+{
+	struct nvme_command c;
+
+	if (!dev->dbbuf_dbs)
+		return;
+
+	memset(&c, 0, sizeof(c));
+	c.dbbuf.opcode = nvme_admin_dbbuf;
+	c.dbbuf.prp1 = cpu_to_le64(dev->dbbuf_dbs_dma_addr);
+	c.dbbuf.prp2 = cpu_to_le64(dev->dbbuf_eis_dma_addr);
+
+	if (nvme_submit_sync_cmd(dev->admin_q, &c, NULL, 0)) {
+		dev_warn(dev->dev, "unable to set dbbuf\n");
+		/* Free memory and continue on */
+		nvme_dbbuf_dma_free(dev);
+	}
+}
+
+static inline int nvme_dbbuf_need_event(u16 event_idx, u16 new_idx, u16 old)
+{
+	return (u16)(new_idx - event_idx - 1) < (u16)(new_idx - old);
+}
+
+static void nvme_write_doorbell(u16 value, u32 __iomem *db, u32 *dbbuf_db,
+				volatile u32 *dbbuf_ei)
+{
+	if (dbbuf_db) {
+		u16 old_value;
+
+		/*
+		 * Ensure that the queue is written before updating
+		 * the doorbell in memory
+		 */
+		wmb();
+
+		old_value = *dbbuf_db;
+		*dbbuf_db = value;
+		if (!nvme_dbbuf_need_event(*dbbuf_ei, value, old_value))
+			return;
+	}
+
+	writel(value, db);
 }
 
 typedef void (*nvme_completion_fn)(struct nvme_queue *, void *,
@@ -401,7 +526,8 @@ static void __nvme_submit_cmd(struct nvme_queue *nvmeq,
 
 	if (++tail == nvmeq->q_depth)
 		tail = 0;
-	writel(tail, nvmeq->q_db);
+	nvme_write_doorbell(tail, nvmeq->q_db, nvmeq->dbbuf_sq_db,
+			    nvmeq->dbbuf_sq_ei);
 	nvmeq->sq_tail = tail;
 }
 
@@ -978,7 +1104,8 @@ static void __nvme_process_cq(struct nvme_queue *nvmeq, unsigned int *tag)
 		return;
 
 	if (likely(nvmeq->cq_vector >= 0))
-		writel(head, nvmeq->q_db + nvmeq->dev->db_stride);
+		nvme_write_doorbell(head, nvmeq->q_db + nvmeq->dev->db_stride,
+				    nvmeq->dbbuf_cq_db, nvmeq->dbbuf_cq_ei);
 	nvmeq->cq_head = head;
 	nvmeq->cq_phase = phase;
 
@@ -1240,32 +1367,30 @@ int nvme_identify_ns(struct nvme_dev *dev, unsigned nsid,
 }
 
 int nvme_get_features(struct nvme_dev *dev, unsigned fid, unsigned nsid,
-					dma_addr_t dma_addr, u32 *result)
+		      void *buffer, size_t buflen, u32 *result)
 {
 	struct nvme_command c;
 
 	memset(&c, 0, sizeof(c));
 	c.features.opcode = nvme_admin_get_features;
 	c.features.nsid = cpu_to_le32(nsid);
-	c.features.prp1 = cpu_to_le64(dma_addr);
 	c.features.fid = cpu_to_le32(fid);
 
-	return __nvme_submit_sync_cmd(dev->admin_q, &c, NULL, NULL, 0,
+	return __nvme_submit_sync_cmd(dev->admin_q, &c, buffer, NULL, buflen,
 			result, 0);
 }
 
 int nvme_set_features(struct nvme_dev *dev, unsigned fid, unsigned dword11,
-					dma_addr_t dma_addr, u32 *result)
+		      void *buffer, size_t buflen, u32 *result)
 {
 	struct nvme_command c;
 
 	memset(&c, 0, sizeof(c));
 	c.features.opcode = nvme_admin_set_features;
-	c.features.prp1 = cpu_to_le64(dma_addr);
 	c.features.fid = cpu_to_le32(fid);
 	c.features.dword11 = cpu_to_le32(dword11);
 
-	return __nvme_submit_sync_cmd(dev->admin_q, &c, NULL, NULL, 0,
+	return __nvme_submit_sync_cmd(dev->admin_q, &c, buffer, NULL, buflen,
 			result, 0);
 }
 
@@ -1571,6 +1696,7 @@ static void nvme_init_queue(struct nvme_queue *nvmeq, u16 qid)
 	nvmeq->cq_phase = 1;
 	nvmeq->q_db = &dev->dbs[qid * 2 * dev->db_stride];
 	memset((void *)nvmeq->cqes, 0, CQ_SIZE(nvmeq->q_depth));
+	nvme_dbbuf_init(dev, nvmeq, qid);
 	dev->online_queues++;
 	spin_unlock_irq(&nvmeq->q_lock);
 }
@@ -1633,9 +1759,14 @@ static int nvme_wait_ready(struct nvme_dev *dev, u64 cap, bool enabled)
  */
 static int nvme_disable_ctrl(struct nvme_dev *dev, u64 cap)
 {
+	struct pci_dev *pdev = to_pci_dev(dev->dev);
+
 	dev->ctrl_config &= ~NVME_CC_SHN_MASK;
 	dev->ctrl_config &= ~NVME_CC_ENABLE;
 	writel(dev->ctrl_config, &dev->bar->cc);
+
+	if (pdev->vendor == 0x1c58 && pdev->device == 0x0003)
+		msleep(NVME_QUIRK_DELAY_AMOUNT);
 
 	return nvme_wait_ready(dev, cap, false);
 }
@@ -1672,6 +1803,141 @@ static int nvme_shutdown_ctrl(struct nvme_dev *dev)
 	}
 
 	return 0;
+}
+
+static void nvme_configure_apst(struct nvme_dev *dev)
+{
+	/*
+	 * APST (Autonomous Power State Transition) lets us program a
+	 * table of power state transitions that the controller will
+	 * perform automatically.  We configure it with a simple
+	 * heuristic: we are willing to spend at most 2% of the time
+	 * transitioning between power states.  Therefore, when running
+	 * in any given state, we will enter the next lower-power
+	 * non-operational state after waiting 50 * (enlat + exlat)
+	 * microseconds, as long as that state's exit latency is under
+	 * the requested maximum latency.
+	 *
+	 * We will not autonomously enter any non-operational state for
+	 * which the total latency exceeds ps_max_latency_us.  Users
+	 * can set ps_max_latency_us to zero to turn off APST.
+	 */
+
+	unsigned apste;
+	struct nvme_feat_auto_pst *table;
+	u64 max_lat_us = 0;
+	int max_ps = -1;
+	int ret;
+
+	/*
+	 * If APST isn't supported or if we haven't been initialized yet,
+	 * then don't do anything.
+	 */
+	if (!dev->apsta)
+		return;
+
+	if (dev->npss > 31) {
+		dev_warn(dev->device, "NPSS is invalid; not using APST\n");
+		return;
+	}
+
+	table = kzalloc(sizeof(*table), GFP_KERNEL);
+	if (!table)
+		return;
+
+	if (dev->ps_max_latency_us == 0) {
+		/* Turn off APST. */
+		apste = 0;
+		dev_dbg(dev->device, "APST disabled\n");
+	} else {
+		__le64 target = cpu_to_le64(0);
+		int state;
+
+		/*
+		 * Walk through all states from lowest- to highest-power.
+		 * According to the spec, lower-numbered states use more
+		 * power.  NPSS, despite the name, is the index of the
+		 * lowest-power state, not the number of states.
+		 */
+		for (state = (int)dev->npss; state >= 0; state--) {
+			u64 total_latency_us, exit_latency_us, transition_ms;
+
+			if (target)
+				table->entries[state] = target;
+
+			/*
+			 * Is this state a useful non-operational state for
+			 * higher-power states to autonomously transition to?
+			 */
+			if (!(dev->psd[state].flags &
+			      NVME_PS_FLAGS_NON_OP_STATE))
+				continue;
+
+			exit_latency_us =
+				(u64)le32_to_cpu(dev->psd[state].exit_lat);
+			if (exit_latency_us > dev->ps_max_latency_us)
+				continue;
+
+			total_latency_us =
+				exit_latency_us +
+				le32_to_cpu(dev->psd[state].entry_lat);
+
+			/*
+			 * This state is good.  Use it as the APST idle
+			 * target for higher power states.
+			 */
+			transition_ms = total_latency_us + 19;
+			do_div(transition_ms, 20);
+			if (transition_ms > (1 << 24) - 1)
+				transition_ms = (1 << 24) - 1;
+
+			target = cpu_to_le64((state << 3) |
+					     (transition_ms << 8));
+
+			if (max_ps == -1)
+				max_ps = state;
+
+			if (total_latency_us > max_lat_us)
+				max_lat_us = total_latency_us;
+		}
+
+		apste = 1;
+
+		if (max_ps == -1) {
+			dev_dbg(dev->device, "APST enabled but no non-operational states are available\n");
+		} else {
+			dev_dbg(dev->device, "APST enabled: max PS = %d, max round-trip latency = %lluus, table = %*phN\n",
+				max_ps, max_lat_us, (int)sizeof(*table), table);
+		}
+	}
+
+	ret = nvme_set_features(dev, NVME_FEAT_AUTO_PST, apste,
+				table, sizeof(*table), NULL);
+	if (ret)
+		dev_err(dev->device, "failed to set APST feature (%d)\n", ret);
+
+	kfree(table);
+}
+
+static void nvme_set_latency_tolerance(struct device *dev, s32 val)
+{
+	struct nvme_dev *ndev = dev_get_drvdata(dev);
+	u64 latency;
+
+	switch (val) {
+	case PM_QOS_LATENCY_TOLERANCE_NO_CONSTRAINT:
+	case PM_QOS_LATENCY_ANY:
+		latency = U64_MAX;
+		break;
+
+	default:
+		latency = val;
+	}
+
+	if (ndev->ps_max_latency_us != latency) {
+		ndev->ps_max_latency_us = latency;
+		nvme_configure_apst(ndev);
+	}
 }
 
 static struct blk_mq_ops nvme_mq_admin_ops = {
@@ -2032,6 +2298,7 @@ static int nvme_revalidate_disk(struct gendisk *disk)
 	u8 lbaf, pi_type;
 	u16 old_ms;
 	unsigned short bs;
+	u32 vs = readl(&dev->bar->vs);
 
 	if (nvme_identify_ns(dev, ns->ns_id, &id)) {
 		dev_warn(dev->dev, "%s: Identify failure nvme%dn%d\n", __func__,
@@ -2052,6 +2319,11 @@ static int nvme_revalidate_disk(struct gendisk *disk)
 		}
 		ns->type = NVME_NS_LIGHTNVM;
 	}
+
+	if (vs >= NVME_VS(1, 1))
+		memcpy(ns->eui, id->eui64, sizeof(ns->eui));
+	if (vs >= NVME_VS(1, 2))
+		memcpy(ns->uuid, id->nguid, sizeof(ns->uuid));
 
 	old_ms = ns->ms;
 	lbaf = id->flbas & NVME_NS_FLBAS_LBA_MASK;
@@ -2243,6 +2515,8 @@ static int nvme_kthread(void *data)
 	return 0;
 }
 
+static const struct attribute_group nvme_ns_attr_group;
+
 static void nvme_alloc_ns(struct nvme_dev *dev, unsigned nsid)
 {
 	struct nvme_ns *ns;
@@ -2256,7 +2530,6 @@ static void nvme_alloc_ns(struct nvme_dev *dev, unsigned nsid)
 	ns->queue = blk_mq_init_queue(&dev->tagset);
 	if (IS_ERR(ns->queue))
 		goto out_free_ns;
-	queue_flag_set_unlocked(QUEUE_FLAG_NOMERGES, ns->queue);
 	queue_flag_set_unlocked(QUEUE_FLAG_NONROT, ns->queue);
 	ns->dev = dev;
 	ns->queue->queuedata = ns;
@@ -2273,9 +2546,11 @@ static void nvme_alloc_ns(struct nvme_dev *dev, unsigned nsid)
 
 	blk_queue_logical_block_size(ns->queue, 1 << ns->lba_shift);
 	if (dev->max_hw_sectors) {
+		u32 max_segments =
+			(dev->max_hw_sectors / (dev->page_size >> 9)) + 1;
+
 		blk_queue_max_hw_sectors(ns->queue, dev->max_hw_sectors);
-		blk_queue_max_segments(ns->queue,
-			(dev->max_hw_sectors / (dev->page_size >> 9)) + 1);
+		blk_queue_max_segments(ns->queue, min_t(u32, max_segments, USHRT_MAX));
 	}
 	if (dev->stripe_size)
 		blk_queue_chunk_sectors(ns->queue, dev->stripe_size >> 9);
@@ -2303,20 +2578,25 @@ static void nvme_alloc_ns(struct nvme_dev *dev, unsigned nsid)
 		goto out_free_disk;
 
 	kref_get(&dev->kref);
-	if (ns->type != NVME_NS_LIGHTNVM) {
-		add_disk(ns->disk);
-		if (ns->ms) {
-			struct block_device *bd = bdget_disk(ns->disk, 0);
-			if (!bd)
-				return;
-			if (blkdev_get(bd, FMODE_READ, NULL)) {
-				bdput(bd);
-				return;
-			}
-			blkdev_reread_part(bd);
-			blkdev_put(bd, FMODE_READ);
+	if (ns->type == NVME_NS_LIGHTNVM)
+		return;
+
+	add_disk(ns->disk);
+	if (ns->ms) {
+		struct block_device *bd = bdget_disk(ns->disk, 0);
+		if (!bd)
+			return;
+		if (blkdev_get(bd, FMODE_READ, NULL)) {
+			bdput(bd);
+			return;
 		}
+		blkdev_reread_part(bd);
+		blkdev_put(bd, FMODE_READ);
 	}
+	if (sysfs_create_group(&disk_to_dev(ns->disk)->kobj,
+					&nvme_ns_attr_group))
+		pr_warn("%s: failed to create sysfs group for identification\n",
+			ns->disk->disk_name);
 	return;
  out_free_disk:
 	kfree(disk);
@@ -2355,7 +2635,7 @@ static int set_queue_count(struct nvme_dev *dev, int count)
 	u32 result;
 	u32 q_count = (count - 1) | ((count - 1) << 16);
 
-	status = nvme_set_features(dev, NVME_FEAT_NUM_QUEUES, q_count, 0,
+	status = nvme_set_features(dev, NVME_FEAT_NUM_QUEUES, q_count, NULL, 0,
 								&result);
 	if (status < 0)
 		return status;
@@ -2551,8 +2831,11 @@ static void nvme_ns_remove(struct nvme_ns *ns)
 		 */
 		blk_mq_abort_requeue_list(ns->queue);
 	}
-	if (ns->disk->flags & GENHD_FL_UP)
+	if (ns->disk->flags & GENHD_FL_UP) {
+		sysfs_remove_group(&disk_to_dev(ns->disk)->kobj,
+					&nvme_ns_attr_group);
 		del_gendisk(ns->disk);
+	}
 	if (kill || !blk_queue_dying(ns->queue)) {
 		blk_mq_abort_requeue_list(ns->queue);
 		blk_cleanup_queue(ns->queue);
@@ -2623,6 +2906,7 @@ static int nvme_dev_add(struct nvme_dev *dev)
 	int res;
 	struct nvme_id_ctrl *ctrl;
 	int shift = NVME_CAP_MPSMIN(lo_hi_readq(&dev->bar->cap)) + 12;
+	u8 prev_apsta;
 
 	res = nvme_identify_ctrl(dev, &ctrl);
 	if (res) {
@@ -2652,7 +2936,20 @@ static int nvme_dev_add(struct nvme_dev *dev)
 		} else
 			dev->max_hw_sectors = max_hw_sectors;
 	}
+
+	dev->npss = ctrl->npss;
+	prev_apsta = dev->apsta;
+	dev->apsta = ctrl->apsta;
+	memcpy(dev->psd, ctrl->psd, sizeof(ctrl->psd));
+
 	kfree(ctrl);
+
+	if (dev->apsta && !prev_apsta)
+		dev_pm_qos_expose_latency_tolerance(dev->device);
+	else if (!dev->apsta && prev_apsta)
+		dev_pm_qos_hide_latency_tolerance(dev->device);
+
+	nvme_configure_apst(dev);
 
 	if (!dev->tagset.tags) {
 		dev->tagset.ops = &nvme_mq_ops;
@@ -2667,6 +2964,8 @@ static int nvme_dev_add(struct nvme_dev *dev)
 
 		if (blk_mq_alloc_tag_set(&dev->tagset))
 			return 0;
+
+		nvme_dbbuf_set(dev);
 	}
 	schedule_work(&dev->scan_work);
 	return 0;
@@ -3042,6 +3341,7 @@ static void nvme_free_dev(struct kref *kref)
 {
 	struct nvme_dev *dev = container_of(kref, struct nvme_dev, kref);
 
+	nvme_dbbuf_dma_free(dev);
 	put_device(dev->dev);
 	put_device(dev->device);
 	nvme_release_instance(dev);
@@ -3117,6 +3417,26 @@ static const struct file_operations nvme_dev_fops = {
 	.compat_ioctl	= nvme_dev_ioctl,
 };
 
+static int nvme_setup_dbbuf(struct nvme_dev *dev)
+{
+	struct nvme_id_ctrl *ctrl;
+	int res;
+
+	res = nvme_identify_ctrl(dev, &ctrl);
+	if (res) {
+		dev_err(dev->dev, "Identify Controller failed (%d)\n", res);
+		return res;
+	}
+	if (le16_to_cpu(ctrl->oacs) & NVME_CTRL_OACS_DBBUF_SUPP) {
+		if (nvme_dbbuf_dma_alloc(dev))
+			dev_warn(dev->dev,
+				 "unable to allocate dma for dbbuf\n");
+	}
+	kfree(ctrl);
+
+	return 0;
+}
+
 static void nvme_probe_work(struct work_struct *work)
 {
 	struct nvme_dev *dev = container_of(work, struct nvme_dev, probe_work);
@@ -3154,6 +3474,10 @@ static void nvme_probe_work(struct work_struct *work)
 	result = nvme_alloc_admin_tags(dev);
 	if (result)
 		goto disable;
+
+	result = nvme_setup_dbbuf(dev);
+	if (result)
+		goto free_tags;
 
 	result = nvme_setup_io_queues(dev);
 	if (result)
@@ -3279,6 +3603,89 @@ static ssize_t nvme_sysfs_reset(struct device *dev,
 }
 static DEVICE_ATTR(reset_controller, S_IWUSR, NULL, nvme_sysfs_reset);
 
+static ssize_t uuid_show(struct device *dev, struct device_attribute *attr,
+								char *buf)
+{
+	struct nvme_ns *ns = dev_to_disk(dev)->private_data;
+	return sprintf(buf, "%pU\n", ns->uuid);
+}
+static DEVICE_ATTR(uuid, S_IRUGO, uuid_show, NULL);
+
+static ssize_t eui_show(struct device *dev, struct device_attribute *attr,
+								char *buf)
+{
+	struct nvme_ns *ns = dev_to_disk(dev)->private_data;
+	return sprintf(buf, "%8phd\n", ns->eui);
+}
+static DEVICE_ATTR(eui, S_IRUGO, eui_show, NULL);
+
+static ssize_t nsid_show(struct device *dev, struct device_attribute *attr,
+								char *buf)
+{
+	struct nvme_ns *ns = dev_to_disk(dev)->private_data;
+	return sprintf(buf, "%d\n", ns->ns_id);
+}
+static DEVICE_ATTR(nsid, S_IRUGO, nsid_show, NULL);
+
+static struct attribute *nvme_ns_attrs[] = {
+	&dev_attr_uuid.attr,
+	&dev_attr_eui.attr,
+	&dev_attr_nsid.attr,
+	NULL,
+};
+
+static umode_t nvme_attrs_are_visible(struct kobject *kobj,
+		struct attribute *a, int n)
+{
+	struct device *dev = container_of(kobj, struct device, kobj);
+	struct nvme_ns *ns = dev_to_disk(dev)->private_data;
+
+	if (a == &dev_attr_uuid.attr) {
+		if (!memchr_inv(ns->uuid, 0, sizeof(ns->uuid)))
+			return 0;
+	}
+	if (a == &dev_attr_eui.attr) {
+		if (!memchr_inv(ns->eui, 0, sizeof(ns->eui)))
+			return 0;
+	}
+	return a->mode;
+}
+
+static const struct attribute_group nvme_ns_attr_group = {
+	.attrs		= nvme_ns_attrs,
+	.is_visible	= nvme_attrs_are_visible,
+};
+
+#define nvme_show_function(field)						\
+static ssize_t  field##_show(struct device *dev,				\
+			    struct device_attribute *attr, char *buf)		\
+{										\
+        struct nvme_dev *nvme_dev = dev_get_drvdata(dev);			\
+        return sprintf(buf, "%.*s\n", (int)sizeof(nvme_dev->field), nvme_dev->field);	\
+}										\
+static DEVICE_ATTR(field, S_IRUGO, field##_show, NULL);
+
+nvme_show_function(model);
+nvme_show_function(serial);
+nvme_show_function(firmware_rev);
+
+static struct attribute *nvme_dev_attrs[] = {
+	&dev_attr_reset_controller.attr,
+	&dev_attr_model.attr,
+	&dev_attr_serial.attr,
+	&dev_attr_firmware_rev.attr,
+	NULL
+};
+
+static struct attribute_group nvme_dev_attrs_group = {
+	.attrs = nvme_dev_attrs,
+};
+
+static const struct attribute_group *nvme_dev_attr_groups[] = {
+	&nvme_dev_attrs_group,
+	NULL,
+};
+
 static int nvme_dev_map(struct nvme_dev *dev)
 {
 	int bars;
@@ -3339,9 +3746,10 @@ static int nvme_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto release;
 
 	kref_init(&dev->kref);
-	dev->device = device_create(nvme_class, &pdev->dev,
+	dev->device = device_create_with_groups(nvme_class, &pdev->dev,
 				MKDEV(nvme_char_major, dev->instance),
-				dev, "nvme%d", dev->instance);
+				dev, nvme_dev_attr_groups,
+				"nvme%d", dev->instance);
 	if (IS_ERR(dev->device)) {
 		result = PTR_ERR(dev->device);
 		goto release_pools;
@@ -3349,9 +3757,13 @@ static int nvme_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	get_device(dev->device);
 	dev_set_drvdata(dev->device, dev);
 
-	result = device_create_file(dev->device, &dev_attr_reset_controller);
-	if (result)
-		goto put_dev;
+	/*
+	 * Initialize latency tolerance controls.  The sysfs files won't
+	 * be visible to userspace unless the device actually supports APST.
+	 */
+	dev->device->power.set_latency_tolerance = nvme_set_latency_tolerance;
+	dev_pm_qos_update_user_latency_tolerance(dev->device,
+		min(default_ps_max_latency_us, (unsigned long)S32_MAX));
 
 	INIT_LIST_HEAD(&dev->node);
 	INIT_WORK(&dev->scan_work, nvme_dev_scan);
@@ -3359,9 +3771,6 @@ static int nvme_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	schedule_work(&dev->probe_work);
 	return 0;
 
- put_dev:
-	device_destroy(nvme_class, MKDEV(nvme_char_major, dev->instance));
-	put_device(dev->device);
  release_pools:
 	nvme_release_prp_pools(dev);
  release:
@@ -3404,7 +3813,6 @@ static void nvme_remove(struct pci_dev *pdev)
 	flush_work(&dev->probe_work);
 	flush_work(&dev->reset_work);
 	flush_work(&dev->scan_work);
-	device_remove_file(dev->device, &dev_attr_reset_controller);
 	nvme_dev_remove(dev);
 	nvme_dev_shutdown(dev);
 	nvme_dev_remove_admin(dev);

@@ -743,66 +743,103 @@ void pstore_unregister(struct pstore_info *psi)
 }
 EXPORT_SYMBOL_GPL(pstore_unregister);
 
+static void decompress_record(struct pstore_record *record)
+{
+	int unzipped_len;
+	char *decompressed;
+
+	/* Only PSTORE_TYPE_DMESG support compression. */
+	if (!record->compressed || record->type != PSTORE_TYPE_DMESG) {
+		pr_warn("ignored compressed record type %d\n", record->type);
+		return;
+	}
+
+	/* No compression method has created the common buffer. */
+	if (!big_oops_buf) {
+		pr_warn("no decompression buffer allocated\n");
+		return;
+	}
+
+	unzipped_len = pstore_decompress(record->buf, big_oops_buf,
+					 record->size, big_oops_buf_sz);
+	if (unzipped_len <= 0) {
+		pr_err("decompression failed: %d\n", unzipped_len);
+		return;
+	}
+
+	/* Build new buffer for decompressed contents. */
+	decompressed = kmalloc(unzipped_len + record->ecc_notice_size,
+			       GFP_KERNEL);
+	if (!decompressed) {
+		pr_err("decompression ran out of memory\n");
+		return;
+	}
+	memcpy(decompressed, big_oops_buf, unzipped_len);
+
+	/* Append ECC notice to decompressed buffer. */
+	memcpy(decompressed + unzipped_len, record->buf + record->size,
+	       record->ecc_notice_size);
+
+	/* Swap out compresed contents with decompressed contents. */
+	kfree(record->buf);
+	record->buf = decompressed;
+	record->size = unzipped_len;
+	record->compressed = false;
+}
+
 /*
- * Read all the records from the persistent store. Create
+ * Read all the records from one persistent store backend. Create
  * files in our filesystem.  Don't warn about -EEXIST errors
  * when we are re-scanning the backing store looking to add new
  * error records.
  */
-void pstore_get_records(int quiet)
+void pstore_get_backend_records(struct pstore_info *psi,
+				struct dentry *root, int quiet)
 {
-	struct pstore_info *psi = psinfo;
-	char			*buf = NULL;
-	ssize_t			size;
-	u64			id;
-	int			count;
-	enum pstore_type_id	type;
-	struct timespec		time;
-	int			failed = 0, rc;
-	bool			compressed;
-	int			unzipped_len = -1;
-	ssize_t			ecc_notice_size = 0;
+	int failed = 0;
 
-	if (!psi)
+	if (!psi || !root)
 		return;
 
 	mutex_lock(&psi->read_mutex);
 	if (psi->open && psi->open(psi))
 		goto out;
 
-	while ((size = psi->read(&id, &type, &count, &time, &buf, &compressed,
-				 &ecc_notice_size, psi)) > 0) {
-		if (compressed && (type == PSTORE_TYPE_DMESG)) {
-			if (big_oops_buf)
-				unzipped_len = pstore_decompress(buf,
-							big_oops_buf, size,
-							big_oops_buf_sz);
+	/*
+	 * Backend callback read() allocates record.buf. decompress_record()
+	 * may reallocate record.buf. On success, pstore_mkfile() will keep
+	 * the record.buf, so free it only on failure.
+	 */
+	for (;;) {
+		struct pstore_record *record;
+		int rc;
 
-			if (unzipped_len > 0) {
-				if (ecc_notice_size)
-					memcpy(big_oops_buf + unzipped_len,
-					       buf + size, ecc_notice_size);
-				kfree(buf);
-				buf = big_oops_buf;
-				size = unzipped_len;
-				compressed = false;
-			} else {
-				pr_err("decompression failed;returned %d\n",
-				       unzipped_len);
-				compressed = true;
-			}
+		record = kzalloc(sizeof(*record), GFP_KERNEL);
+		if (!record) {
+			pr_err("out of memory creating record\n");
+			break;
 		}
-		rc = pstore_mkfile(type, psi->name, id, count, buf,
-				   compressed, size + ecc_notice_size,
-				   time, psi);
-		if (unzipped_len < 0) {
-			/* Free buffer other than big oops */
-			kfree(buf);
-			buf = NULL;
-		} else
-			unzipped_len = -1;
-		if (rc && (rc != -EEXIST || !quiet))
-			failed++;
+		record->psi = psi;
+
+		record->size = psi->read(record);
+
+		/* No more records left in backend? */
+		if (record->size <= 0) {
+			kfree(record);
+			break;
+		}
+
+		decompress_record(record);
+		rc = pstore_mkfile(root, record);
+		if (rc) {
+			/* pstore_mkfile() did not take buf, so free it. */
+			kfree(record->buf);
+			if (rc != -EEXIST || !quiet)
+				failed++;
+		}
+
+		/* Reset for next record. */
+		kfree(record);
 	}
 	if (psi->close)
 		psi->close(psi);

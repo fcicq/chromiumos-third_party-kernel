@@ -181,6 +181,10 @@ int dpcm_dapm_stream_event(struct snd_soc_pcm_runtime *fe, int dir,
 		dev_dbg(be->dev, "ASoC: BE %s event %d dir %d\n",
 				be->dai_link->name, event, dir);
 
+		if ((event == SND_SOC_DAPM_STREAM_STOP) &&
+		    (be->dpcm[dir].users >= 1))
+			continue;
+
 		snd_soc_dapm_stream_event(be, dir, event);
 	}
 
@@ -1793,7 +1797,7 @@ int dpcm_be_dai_shutdown(struct snd_soc_pcm_runtime *fe, int stream)
 			continue;
 
 		dev_dbg(be->dev, "ASoC: close BE %s\n",
-			dpcm->fe->dai_link->name);
+			be->dai_link->name);
 
 		soc_pcm_close(be_substream);
 		be_substream->runtime = NULL;
@@ -1859,7 +1863,7 @@ int dpcm_be_dai_hw_free(struct snd_soc_pcm_runtime *fe, int stream)
 			continue;
 
 		dev_dbg(be->dev, "ASoC: hw_free BE %s\n",
-			dpcm->fe->dai_link->name);
+			be->dai_link->name);
 
 		soc_pcm_hw_free(be_substream);
 
@@ -1937,7 +1941,7 @@ int dpcm_be_dai_hw_params(struct snd_soc_pcm_runtime *fe, int stream)
 			continue;
 
 		dev_dbg(be->dev, "ASoC: hw_params BE %s\n",
-			dpcm->fe->dai_link->name);
+			be->dai_link->name);
 
 		ret = soc_pcm_hw_params(be_substream, &dpcm->hw_params);
 		if (ret < 0) {
@@ -2017,7 +2021,7 @@ static int dpcm_do_trigger(struct snd_soc_dpcm *dpcm,
 	int ret;
 
 	dev_dbg(dpcm->be->dev, "ASoC: trigger BE %s cmd %d\n",
-			dpcm->fe->dai_link->name, cmd);
+			dpcm->be->dai_link->name, cmd);
 
 	ret = soc_pcm_trigger(substream, cmd);
 	if (ret < 0)
@@ -2184,8 +2188,10 @@ static int dpcm_fe_dai_do_trigger(struct snd_pcm_substream *substream, int cmd)
 		break;
 	case SNDRV_PCM_TRIGGER_STOP:
 	case SNDRV_PCM_TRIGGER_SUSPEND:
-	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
 		fe->dpcm[stream].state = SND_SOC_DPCM_STATE_STOP;
+		break;
+	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
+		fe->dpcm[stream].state = SND_SOC_DPCM_STATE_PAUSED;
 		break;
 	}
 
@@ -2232,7 +2238,7 @@ int dpcm_be_dai_prepare(struct snd_soc_pcm_runtime *fe, int stream)
 			continue;
 
 		dev_dbg(be->dev, "ASoC: prepare BE %s\n",
-			dpcm->fe->dai_link->name);
+			be->dai_link->name);
 
 		ret = soc_pcm_prepare(be_substream);
 		if (ret < 0) {

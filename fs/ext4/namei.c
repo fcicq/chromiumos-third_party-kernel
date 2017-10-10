@@ -1243,9 +1243,9 @@ static inline int ext4_match(struct ext4_filename *fname,
 	if (unlikely(!name)) {
 		if (fname->usr_fname->name[0] == '_') {
 			int ret;
-			if (de->name_len < 16)
+			if (de->name_len <= 32)
 				return 0;
-			ret = memcmp(de->name + de->name_len - 16,
+			ret = memcmp(de->name + ((de->name_len - 17) & ~15),
 				     fname->crypto_buf.name + 8, 16);
 			return (ret == 0) ? 1 : 0;
 		}
@@ -3151,6 +3151,7 @@ static int ext4_symlink(struct inode *dir,
 	if ((disk_link.len > EXT4_N_BLOCKS * 4)) {
 		if (!encryption_required)
 			inode->i_op = &ext4_symlink_inode_operations;
+		inode_nohighmem(inode);
 		ext4_set_aops(inode);
 		/*
 		 * We cannot call page_symlink() with transaction started

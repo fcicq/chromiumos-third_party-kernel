@@ -38,13 +38,6 @@
 #define XRES_MAX  8192
 #define YRES_MAX  8192
 
-static void virtio_gpu_crtc_gamma_set(struct drm_crtc *crtc,
-				      u16 *red, u16 *green, u16 *blue,
-				      uint32_t start, uint32_t size)
-{
-	/* TODO */
-}
-
 static void
 virtio_gpu_hide_cursor(struct virtio_gpu_device *vgdev,
 		       struct virtio_gpu_output *output)
@@ -75,7 +68,7 @@ static int virtio_gpu_crtc_cursor_set(struct drm_crtc *crtc,
 	}
 
 	/* lookup the cursor */
-	gobj = drm_gem_object_lookup(crtc->dev, file_priv, handle);
+	gobj = drm_gem_object_lookup(file_priv, handle);
 	if (gobj == NULL)
 		return -ENOENT;
 
@@ -94,7 +87,7 @@ static int virtio_gpu_crtc_cursor_set(struct drm_crtc *crtc,
 	if (!ret) {
 		reservation_object_add_excl_fence(qobj->tbo.resv,
 						  &fence->f);
-		fence_put(&fence->f);
+		dma_fence_put(&fence->f);
 		virtio_gpu_object_unreserve(qobj);
 		virtio_gpu_object_wait(qobj, false);
 	}
@@ -173,7 +166,6 @@ static int virtio_gpu_page_flip(struct drm_crtc *crtc,
 static const struct drm_crtc_funcs virtio_gpu_crtc_funcs = {
 	.cursor_set2            = virtio_gpu_crtc_cursor_set,
 	.cursor_move            = virtio_gpu_crtc_cursor_move,
-	.gamma_set              = virtio_gpu_crtc_gamma_set,
 	.set_config             = drm_atomic_helper_set_config,
 	.destroy                = drm_crtc_cleanup,
 
@@ -224,12 +216,13 @@ virtio_gpu_framebuffer_init(struct drm_device *dev,
 
 	bo = gem_to_virtio_gpu_obj(obj);
 
+	drm_helper_mode_fill_fb_struct(dev, &vgfb->base, mode_cmd);
+
 	ret = drm_framebuffer_init(dev, &vgfb->base, &virtio_gpu_fb_funcs);
 	if (ret) {
 		vgfb->obj = NULL;
 		return ret;
 	}
-	drm_helper_mode_fill_fb_struct(&vgfb->base, mode_cmd);
 
 	spin_lock_init(&vgfb->dirty_lock);
 	vgfb->x1 = vgfb->y1 = INT_MAX;
@@ -274,12 +267,25 @@ static int virtio_gpu_crtc_atomic_check(struct drm_crtc *crtc,
 	return 0;
 }
 
+static void virtio_gpu_crtc_atomic_flush(struct drm_crtc *crtc,
+					 struct drm_crtc_state *old_state)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&crtc->dev->event_lock, flags);
+	if (crtc->state->event)
+		drm_crtc_send_vblank_event(crtc, crtc->state->event);
+	crtc->state->event = NULL;
+	spin_unlock_irqrestore(&crtc->dev->event_lock, flags);
+}
+
 static const struct drm_crtc_helper_funcs virtio_gpu_crtc_helper_funcs = {
 	.enable        = virtio_gpu_crtc_enable,
 	.disable       = virtio_gpu_crtc_disable,
 	.mode_fixup    = virtio_gpu_crtc_mode_fixup,
 	.mode_set_nofb = virtio_gpu_crtc_mode_set_nofb,
 	.atomic_check  = virtio_gpu_crtc_atomic_check,
+	.atomic_flush  = virtio_gpu_crtc_atomic_flush,
 };
 
 static bool virtio_gpu_enc_mode_fixup(struct drm_encoder *encoder,
@@ -374,16 +380,6 @@ static const struct drm_connector_helper_funcs virtio_gpu_conn_helper_funcs = {
 	.best_encoder = virtio_gpu_best_encoder,
 };
 
-static void virtio_gpu_conn_save(struct drm_connector *connector)
-{
-	DRM_DEBUG("\n");
-}
-
-static void virtio_gpu_conn_restore(struct drm_connector *connector)
-{
-	DRM_DEBUG("\n");
-}
-
 static enum drm_connector_status virtio_gpu_conn_detect(
 			struct drm_connector *connector,
 			bool force)
@@ -409,8 +405,6 @@ static void virtio_gpu_conn_destroy(struct drm_connector *connector)
 
 static const struct drm_connector_funcs virtio_gpu_connector_funcs = {
 	.dpms = drm_atomic_helper_connector_dpms,
-	.save = virtio_gpu_conn_save,
-	.restore = virtio_gpu_conn_restore,
 	.detect = virtio_gpu_conn_detect,
 	.fill_modes = drm_helper_probe_single_connector_modes_nomerge,
 	.destroy = virtio_gpu_conn_destroy,
@@ -444,7 +438,6 @@ static int vgdev_output_init(struct virtio_gpu_device *vgdev, int index)
 		return PTR_ERR(plane);
 	drm_crtc_init_with_planes(dev, crtc, plane, NULL,
 				  &virtio_gpu_crtc_funcs, NULL);
-	drm_mode_crtc_set_gamma_size(crtc, 256);
 	drm_crtc_helper_add(crtc, &virtio_gpu_crtc_helper_funcs);
 	plane->crtc = crtc;
 
@@ -472,7 +465,7 @@ virtio_gpu_user_framebuffer_create(struct drm_device *dev,
 	int ret;
 
 	/* lookup object associated with res handle */
-	obj = drm_gem_object_lookup(dev, file_priv, mode_cmd->handles[0]);
+	obj = drm_gem_object_lookup(file_priv, mode_cmd->handles[0]);
 	if (!obj)
 		return ERR_PTR(-EINVAL);
 

@@ -73,7 +73,7 @@ struct drm_clip_rect evdi_framebuffer_sanitize_rect(
 	return rect;
 }
 
-int evdi_handle_damage(struct evdi_framebuffer *fb,
+static int evdi_handle_damage(struct evdi_framebuffer *fb,
 		       int x, int y, int width, int height)
 {
 	const struct drm_clip_rect dirty_rect = { x, y, x + width, y + height };
@@ -206,11 +206,11 @@ static struct fb_ops evdifb_ops = {
 };
 
 static int evdi_user_framebuffer_dirty(struct drm_framebuffer *fb,
-				       struct drm_file *file,
-				       unsigned flags,
-				       unsigned color,
+				       __always_unused struct drm_file *file,
+				       __always_unused unsigned int flags,
+				       __always_unused unsigned int color,
 				       struct drm_clip_rect *clips,
-				       unsigned num_clips)
+				       unsigned int num_clips)
 {
 	struct evdi_framebuffer *ufb = to_evdi_fb(fb);
 	struct drm_device *dev = ufb->base.dev;
@@ -221,11 +221,14 @@ static int evdi_user_framebuffer_dirty(struct drm_framebuffer *fb,
 	EVDI_CHECKPT();
 	drm_modeset_lock_all(fb->dev);
 
+	if (!ufb->active)
+		goto unlock;
+
 	if (ufb->obj->base.import_attach) {
 		ret =
-		    dma_buf_begin_cpu_access(ufb->obj->base.import_attach->
-					     dmabuf,
-					     DMA_FROM_DEVICE);
+		    dma_buf_begin_cpu_access(
+			ufb->obj->base.import_attach->dmabuf,
+			DMA_FROM_DEVICE);
 		if (ret)
 			goto unlock;
 	}
@@ -271,10 +274,38 @@ static void evdi_user_framebuffer_destroy(struct drm_framebuffer *fb)
 	kfree(ufb);
 }
 
+static int evdi_drm_get_reservations(struct drm_framebuffer *fb,
+				  struct reservation_object **resvs,
+				  unsigned int *num_resvs)
+{
+	int r;
+	struct evdi_framebuffer *efb = to_evdi_fb(fb);
+	struct evdi_gem_object *obj = NULL;
+
+	if (!efb) {
+		EVDI_ERROR("Failed to get framebuffer.\n");
+		return -EINVAL;
+	}
+	obj = efb->obj;
+	if (!obj) {
+		EVDI_ERROR("Failed to get gem object from framebuffer.\n");
+		return -EINVAL;
+	}
+
+	for (r = 0; r < *num_resvs; r++)
+		if (resvs[r] == obj->resv)
+			break;
+	if (r == *num_resvs)
+		resvs[(*num_resvs)++] = obj->resv;
+	return 0;
+}
+
+
 static const struct drm_framebuffer_funcs evdifb_funcs = {
 	.create_handle = evdi_user_framebuffer_create_handle,
 	.destroy = evdi_user_framebuffer_destroy,
 	.dirty = evdi_user_framebuffer_dirty,
+	.get_reservations = evdi_drm_get_reservations,
 };
 
 static int
@@ -284,7 +315,7 @@ evdi_framebuffer_init(struct drm_device *dev,
 		      struct evdi_gem_object *obj)
 {
 	ufb->obj = obj;
-	drm_helper_mode_fill_fb_struct(&ufb->base, mode_cmd);
+	drm_helper_mode_fill_fb_struct(dev, &ufb->base, mode_cmd);
 	return drm_framebuffer_init(dev, &ufb->base, &evdifb_funcs);
 }
 
@@ -353,7 +384,7 @@ static int evdifb_create(struct drm_fb_helper *helper,
 
 	info->flags = FBINFO_DEFAULT | FBINFO_CAN_FORCE_OUTPUT;
 	info->fbops = &evdifb_ops;
-	drm_fb_helper_fill_fix(info, fb->pitches[0], fb->depth);
+	drm_fb_helper_fill_fix(info, fb->pitches[0], fb->format->depth);
 	drm_fb_helper_fill_var(info, &ufbdev->helper, sizes->fb_width,
 			       sizes->fb_height);
 
@@ -377,7 +408,7 @@ static struct drm_fb_helper_funcs evdi_fb_helper_funcs = {
 	.fb_probe = evdifb_create,
 };
 
-static void evdi_fbdev_destroy(struct drm_device *dev,
+static void evdi_fbdev_destroy(__always_unused struct drm_device *dev,
 			       struct evdi_fbdev *ufbdev)
 {
 	struct fb_info *info;
@@ -419,9 +450,6 @@ int evdi_fbdev_init(struct drm_device *dev)
 
 	drm_fb_helper_single_add_all_connectors(&ufbdev->helper);
 
-	/* disable all the possible outputs/crtcs before entering KMS mode */
-	drm_helper_disable_unused_functions(dev);
-
 	ret = drm_fb_helper_initial_config(&ufbdev->helper, 32);
 	if (ret) {
 		drm_fb_helper_fini(&ufbdev->helper);
@@ -459,26 +487,38 @@ void evdi_fbdev_unplug(struct drm_device *dev)
 	}
 }
 
-struct drm_framebuffer *evdi_fb_user_fb_create(struct drm_device *dev,
-					       struct drm_file *file,
-					       const struct drm_mode_fb_cmd2
-					       *mode_cmd)
+struct drm_framebuffer *evdi_fb_user_fb_create(
+					struct drm_device *dev,
+					struct drm_file *file,
+					const struct drm_mode_fb_cmd2 *mode_cmd)
 {
 	struct drm_gem_object *obj;
 	struct evdi_framebuffer *ufb;
 	int ret;
 	uint32_t size;
 
-	unsigned int depth;
 	int bpp;
+	const struct drm_format_info *info;
 
-	drm_fb_get_bpp_depth(mode_cmd->pixel_format, &depth, &bpp);
+	info = drm_format_info(mode_cmd->pixel_format);
+	if (!info || !info->depth) {
+		struct drm_format_name_buf format_name;
+
+		DRM_DEBUG_KMS("unsupported pixel format %s\n",
+			     drm_get_format_name(mode_cmd->pixel_format,
+						&format_name));
+
+		bpp = 0;
+	}
+	else
+		bpp = info->cpp[0] * 8;
+
 	if (bpp != 32) {
-		EVDI_ERROR("Unsupported bpp (%d)", bpp);
+		EVDI_ERROR("Unsupported bpp (%d)\n", bpp);
 		return ERR_PTR(-EINVAL);
 	}
 
-	obj = drm_gem_object_lookup(dev, file, mode_cmd->handles[0]);
+	obj = drm_gem_object_lookup(file, mode_cmd->handles[0]);
 	if (obj == NULL)
 		return ERR_PTR(-ENOENT);
 

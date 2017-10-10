@@ -68,6 +68,7 @@ digilent	Diglent, Inc.
 dlg	Dialog Semiconductor
 dlink	D-Link Corporation
 dmo	Data Modul AG
+dongwoon	Dongwoon Anatech
 ea	Embedded Artists AB
 ebv	EBV Elektronik
 edt	Emerging Display Technologies
@@ -190,6 +191,7 @@ raidsonic	RaidSonic Technology GmbH
 ralink	Mediatek/Ralink Technology Corp.
 ramtron	Ramtron International
 raspberrypi	Raspberry Pi Foundation
+raydium	Raydium Semiconductor Corp.
 realtek Realtek Semiconductor Corp.
 renesas	Renesas Electronics Corporation
 richtek	Richtek Technology Corporation

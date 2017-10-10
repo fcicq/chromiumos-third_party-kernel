@@ -36,7 +36,8 @@
 
 #define DRV_NAME "cros-ec-ring"
 
-/* The ring is a FIFO that return sensor information from
+/*
+ * The ring is a FIFO that return sensor information from
  * the single EC FIFO.
  * There are always 5 channels returned:
  * | ID | FLAG | X | Y | Z | Timestamp |
@@ -62,7 +63,7 @@ enum {
 
 #define CROS_EC_SENSOR_MAX 16
 
-struct cros_ec_fifo_info {
+struct __ec_todo_packed cros_ec_fifo_info {
 	struct ec_response_motion_sense_fifo_info info;
 	uint16_t lost[CROS_EC_SENSOR_MAX];
 };
@@ -87,6 +88,7 @@ struct cros_ec_sensors_ring_state {
 
 	s64    fifo_timestamp[ALL_TS];
 	struct cros_ec_fifo_info fifo_info;
+	int    fifo_size;
 };
 
 static const struct iio_info ec_sensors_info = {
@@ -99,6 +101,19 @@ static s64 cros_ec_get_time_ns(void)
 
 	get_monotonic_boottime(&ts);
 	return timespec_to_ns(&ts);
+}
+
+static int cros_ec_ring_fifo_toggle(struct cros_ec_sensors_ring_state *state,
+				    bool on)
+{
+	int ret;
+
+	mutex_lock(&state->core.cmd_lock);
+	state->core.param.cmd = MOTIONSENSE_CMD_FIFO_INT_ENABLE;
+	state->core.param.fifo_int_enable.enable = on;
+	ret = cros_ec_motion_send_host_cmd(&state->core, 0);
+	mutex_unlock(&state->core.cmd_lock);
+	return ret;
 }
 
 /*
@@ -114,7 +129,8 @@ static s64 cros_ec_get_time_ns(void)
  * in: incoming FIFO event from EC
  * out: outgoing event to user space.
  */
-bool cros_ec_ring_process_event(const struct cros_ec_fifo_info *fifo_info,
+static bool cros_ec_ring_process_event(
+				const struct cros_ec_fifo_info *fifo_info,
 				const s64 fifo_timestamp,
 				s64 *current_timestamp,
 				struct ec_response_motion_sensor_data *in,
@@ -176,8 +192,8 @@ static void cros_ec_ring_handler(struct cros_ec_sensors_ring_state *state)
 	struct cros_ec_sensors_ring_sample *out, *last_out;
 
 
+	mutex_lock(&state->core.cmd_lock);
 	/* Get FIFO information */
-
 	fifo_timestamp = state->fifo_timestamp[NEW_TS];
 	/* Copy elements in the main fifo */
 	if (fifo_info->info.total_lost) {
@@ -188,6 +204,15 @@ static void cros_ec_ring_handler(struct cros_ec_sensors_ring_state *state)
 		memcpy(fifo_info, &state->core.resp->fifo_info,
 		       sizeof(*fifo_info));
 		fifo_timestamp = cros_ec_get_time_ns();
+	}
+	if (fifo_info->info.count > state->fifo_size ||
+	    fifo_info->info.size != state->fifo_size) {
+		dev_warn(&indio_dev->dev,
+			 "Mismatch EC data: count %d, size %d - expected %d",
+			 fifo_info->info.count, fifo_info->info.size,
+			 state->fifo_size);
+		mutex_unlock(&state->core.cmd_lock);
+		return;
 	}
 
 	current_timestamp = state->fifo_timestamp[LAST_TS];
@@ -209,11 +234,21 @@ static void cros_ec_ring_handler(struct cros_ec_sensors_ring_state *state)
 		if (number_data == 0) {
 			dev_dbg(&indio_dev->dev, "Unexpected empty FIFO\n");
 			break;
+		} else if (number_data > fifo_info->info.count - i) {
+			dev_warn(&indio_dev->dev,
+				 "Invalid EC data: too many entry received: %d, expected %d",
+				 number_data, fifo_info->info.count - i);
+			break;
+		} else if (out + number_data >
+			   state->ring + fifo_info->info.count) {
+			dev_warn(&indio_dev->dev,
+				 "Too many samples: %d (%ld data) to %d entries for expected %d entries",
+				 i, out - state->ring, i + number_data,
+				 fifo_info->info.count);
+			break;
 		}
-
 		for (in = state->core.resp->fifo_read.data, j = 0;
 		     j < number_data; j++, in++) {
-			BUG_ON(out >= state->ring + fifo_info->info.size);
 			if (cros_ec_ring_process_event(
 					fifo_info, fifo_timestamp,
 					&current_timestamp, in, out)) {
@@ -222,6 +257,7 @@ static void cros_ec_ring_handler(struct cros_ec_sensors_ring_state *state)
 			}
 		}
 	}
+	mutex_unlock(&state->core.cmd_lock);
 	last_out = out;
 
 	if (out == state->ring)
@@ -354,8 +390,7 @@ static int cros_ec_ring_event(struct notifier_block *nb,
 	if (queued_during_suspend)
 		return NOTIFY_OK;
 
-	memcpy(&state->fifo_info.info, &ec->event_data.data.sensor_fifo.info,
-	       ec->event_size);
+	state->fifo_info.info = ec->event_data.data.sensor_fifo.info;
 	state->fifo_timestamp[NEW_TS] = cros_ec_get_time_ns();
 	cros_ec_ring_handler(state);
 	return NOTIFY_OK;
@@ -370,23 +405,36 @@ static int __maybe_unused cros_ec_ring_prepare(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct iio_dev *indio_dev = platform_get_drvdata(pdev);
-	struct cros_ec_sensors_ring_state *state = iio_priv(indio_dev);
 
-	state->core.param.cmd = MOTIONSENSE_CMD_FIFO_INT_ENABLE;
-	state->core.param.fifo_int_enable.enable = 0;
-	return cros_ec_motion_send_host_cmd(&state->core, 0);
+	return cros_ec_ring_fifo_toggle(iio_priv(indio_dev), false);
 }
 
 static void __maybe_unused cros_ec_ring_complete(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct iio_dev *indio_dev = platform_get_drvdata(pdev);
-	struct cros_ec_sensors_ring_state *state = iio_priv(indio_dev);
 
-	state->core.param.cmd = MOTIONSENSE_CMD_FIFO_INT_ENABLE;
-	state->core.param.fifo_int_enable.enable = 1;
-	cros_ec_motion_send_host_cmd(&state->core, 0);
+	cros_ec_ring_fifo_toggle(iio_priv(indio_dev), true);
 }
+
+/*
+ * Once we are ready to receive data, enable the interrupt
+ * that allow EC to indicate events are available.
+ */
+static int cros_ec_ring_postenable(struct iio_dev *indio_dev)
+{
+	return cros_ec_ring_fifo_toggle(iio_priv(indio_dev), true);
+}
+
+static int cros_ec_ring_predisable(struct iio_dev *indio_dev)
+{
+	return cros_ec_ring_fifo_toggle(iio_priv(indio_dev), false);
+}
+
+static const struct iio_buffer_setup_ops cros_ec_ring_buffer_ops = {
+	.postenable = cros_ec_ring_postenable,
+	.predisable = cros_ec_ring_predisable,
+};
 
 #define CROS_EC_RING_ID(_id, _name)		\
 {						\
@@ -450,6 +498,13 @@ static int cros_ec_ring_probe(struct platform_device *pdev)
 		return ret;
 
 	state = iio_priv(indio_dev);
+	/*
+	 * Disable the ring in case it was left enabled previously.
+	 */
+	ret = cros_ec_ring_fifo_toggle(state, false);
+	if (ret)
+		return ret;
+
 	/* Retrieve FIFO information */
 	state->core.param.cmd = MOTIONSENSE_CMD_FIFO_INFO;
 	/* If it fails, just assume the FIFO is not supported.
@@ -462,8 +517,8 @@ static int cros_ec_ring_probe(struct platform_device *pdev)
 	/* Allocate the full fifo.
 	 * We need to copy the whole FIFO to set timestamps properly *
 	 */
-	state->ring = devm_kcalloc(&pdev->dev,
-			state->core.resp->fifo_info.size,
+	state->fifo_size = state->core.resp->fifo_info.size;
+	state->ring = devm_kcalloc(&pdev->dev, state->fifo_size,
 			sizeof(*state->ring), GFP_KERNEL);
 	if (!state->ring)
 		return -ENOMEM;
@@ -480,6 +535,7 @@ static int cros_ec_ring_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	iio_device_attach_buffer(indio_dev, buffer);
+	indio_dev->setup_ops = &cros_ec_ring_buffer_ops;
 
 	ret = devm_iio_device_register(indio_dev->dev.parent, indio_dev);
 	if (ret < 0)
@@ -491,11 +547,8 @@ static int cros_ec_ring_probe(struct platform_device *pdev)
 					       &state->notifier);
 	if (ret < 0) {
 		dev_warn(&indio_dev->dev, "failed to register notifier\n");
-		return ret;
 	}
-	state->core.param.cmd = MOTIONSENSE_CMD_FIFO_INT_ENABLE;
-	state->core.param.fifo_int_enable.enable = 1;
-	return cros_ec_motion_send_host_cmd(&state->core, 0);
+	return ret;
 }
 
 static int cros_ec_ring_remove(struct platform_device *pdev)
@@ -504,10 +557,10 @@ static int cros_ec_ring_remove(struct platform_device *pdev)
 	struct cros_ec_sensors_ring_state *state = iio_priv(indio_dev);
 	struct cros_ec_device *ec = state->core.ec;
 
-	state->core.param.cmd = MOTIONSENSE_CMD_FIFO_INT_ENABLE;
-	state->core.param.fifo_int_enable.enable = 0;
-	cros_ec_motion_send_host_cmd(&state->core, 0);
-
+	/*
+	 * Disable the ring, prevent EC interrupt to the AP for nothing.
+	 */
+	cros_ec_ring_fifo_toggle(state, false);
 	blocking_notifier_chain_unregister(&ec->event_notifier,
 					   &state->notifier);
 	return 0;

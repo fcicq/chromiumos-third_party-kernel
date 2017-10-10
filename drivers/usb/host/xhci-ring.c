@@ -414,7 +414,7 @@ void xhci_ring_ep_doorbell(struct xhci_hcd *xhci,
 	 * pointer command pending because the device can choose to start any
 	 * stream once the endpoint is on the HW schedule.
 	 */
-	if ((ep_state & EP_HALT_PENDING) || (ep_state & SET_DEQ_PENDING) ||
+	if ((ep_state & EP_STOP_CMD_PENDING) || (ep_state & SET_DEQ_PENDING) ||
 	    (ep_state & EP_HALTED))
 		return;
 	writel(DB_VALUE(ep_index, stream_id), db_addr);
@@ -660,13 +660,9 @@ static void td_to_noop(struct xhci_hcd *xhci, struct xhci_ring *ep_ring,
 static void xhci_stop_watchdog_timer_in_irq(struct xhci_hcd *xhci,
 		struct xhci_virt_ep *ep)
 {
-	ep->ep_state &= ~EP_HALT_PENDING;
-	/* Can't del_timer_sync in interrupt, so we attempt to cancel.  If the
-	 * timer is running on another CPU, we don't decrement stop_cmds_pending
-	 * (since we didn't successfully stop the watchdog timer).
-	 */
-	if (del_timer(&ep->stop_cmd_timer))
-		ep->stop_cmds_pending--;
+	ep->ep_state &= ~EP_STOP_CMD_PENDING;
+	/* Can't del_timer_sync in interrupt */
+	del_timer(&ep->stop_cmd_timer);
 }
 
 /* Must be called with xhci->lock held in interrupt context */
@@ -857,13 +853,16 @@ static void xhci_kill_endpoint_urbs(struct xhci_hcd *xhci,
 			(ep->ep_state & EP_GETTING_NO_STREAMS)) {
 		int stream_id;
 
-		for (stream_id = 0; stream_id < ep->stream_info->num_streams;
+		for (stream_id = 1; stream_id < ep->stream_info->num_streams;
 				stream_id++) {
+			ring = ep->stream_info->stream_rings[stream_id];
+			if (!ring)
+				continue;
+
 			xhci_dbg_trace(xhci, trace_xhci_dbg_cancel_urb,
 					"Killing URBs for slot ID %u, ep index %u, stream %u",
-					slot_id, ep_index, stream_id + 1);
-			xhci_kill_ring_urbs(xhci,
-					ep->stream_info->stream_rings[stream_id]);
+					slot_id, ep_index, stream_id);
+			xhci_kill_ring_urbs(xhci, ring);
 		}
 	} else {
 		ring = ep->ring;
@@ -896,10 +895,8 @@ static void xhci_kill_endpoint_urbs(struct xhci_hcd *xhci,
  * simple flag to say whether there is a pending stop endpoint command for a
  * particular endpoint.
  *
- * Instead we use a combination of that flag and a counter for the number of
- * pending stop endpoint commands.  If the timer is the tail end of the last
- * stop endpoint command, and the endpoint's command is still pending, we assume
- * the host is dying.
+ * Instead we use a combination of that flag and checking if a new timer is
+ * pending.
  */
 void xhci_stop_endpoint_command_watchdog(unsigned long arg)
 {
@@ -913,12 +910,11 @@ void xhci_stop_endpoint_command_watchdog(unsigned long arg)
 
 	spin_lock_irqsave(&xhci->lock, flags);
 
-	ep->stop_cmds_pending--;
-	if (!(ep->stop_cmds_pending == 0 && (ep->ep_state & EP_HALT_PENDING))) {
-		xhci_dbg_trace(xhci, trace_xhci_dbg_cancel_urb,
-				"Stop EP timer ran, but no command pending, "
-				"exiting.");
+	/* bail out if cmd completed but raced with stop ep watchdog timer.*/
+	if (!(ep->ep_state & EP_STOP_CMD_PENDING) ||
+	    timer_pending(&ep->stop_cmd_timer)) {
 		spin_unlock_irqrestore(&xhci->lock, flags);
+		xhci_dbg(xhci, "Stop EP timer raced with cmd completion, exit");
 		return;
 	}
 
@@ -927,7 +923,10 @@ void xhci_stop_endpoint_command_watchdog(unsigned long arg)
 	/* Oops, HC is dead or dying or at least not responding to the stop
 	 * endpoint command.
 	 */
+
 	xhci->xhc_state |= XHCI_STATE_DYING;
+	ep->ep_state &= ~EP_STOP_CMD_PENDING;
+
 	/* Disable interrupts from the host controller and start halting it */
 	xhci_quiesce(xhci);
 	spin_unlock_irqrestore(&xhci->lock, flags);
@@ -1634,9 +1633,14 @@ static void handle_port_status(struct xhci_hcd *xhci,
 			bus_state->resume_done[faked_port_index] = jiffies +
 				msecs_to_jiffies(USB_RESUME_TIMEOUT);
 			set_bit(faked_port_index, &bus_state->resuming_ports);
+			/* Do the rest in GetPortStatus after resume time delay.
+			 * Avoid calling usb_hcd_poll_rh_status before that,so
+			 * an usb port can auto-resume after resume time delay.
+			 */
+			set_bit(HCD_FLAG_POLL_RH, &hcd->flags);
 			mod_timer(&hcd->rh_timer,
 				  bus_state->resume_done[faked_port_index]);
-			/* Do the rest in GetPortStatus */
+			bogus_port_status = true;
 		}
 	}
 
@@ -4061,8 +4065,7 @@ static int queue_command(struct xhci_hcd *xhci, struct xhci_command *cmd,
 	int ret;
 
 	if ((xhci->xhc_state & XHCI_STATE_DYING) ||
-		(xhci->xhc_state & XHCI_STATE_HALTED) ||
-		(xhci->xhc_state & XHCI_STATE_REMOVING)) {
+		(xhci->xhc_state & XHCI_STATE_HALTED)) {
 		xhci_dbg(xhci, "xHCI dying or halted, can't queue_command\n");
 		return -ESHUTDOWN;
 	}

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013 - 2016 DisplayLink (UK) Ltd.
+ * Copyright (c) 2013 - 2017 DisplayLink (UK) Ltd.
  *
  * This file is subject to the terms and conditions of the GNU General Public
  * License v2. See the file COPYING in the main directory of this archive for
@@ -53,6 +53,7 @@ struct evdi_painter {
 	struct drm_file *drm_filp;
 
 	bool was_update_requested;
+	bool needs_full_modeset;
 };
 
 static void expand_rect(struct drm_clip_rect *a, const struct drm_clip_rect *b)
@@ -154,17 +155,17 @@ static int copy_pixels(struct evdi_framebuffer *ufb,
 				       max_x, max_y);
 }
 
-static void painter_lock(struct evdi_painter *painter)
-{
-	EVDI_CHECKPT();
-	mutex_lock(&painter->lock);
-}
+#define painter_lock(painter)                           \
+	do {                                            \
+		EVDI_VERBOSE("Painter lock\n");         \
+		mutex_lock(&painter->lock);             \
+	} while (0)
 
-static void painter_unlock(struct evdi_painter *painter)
-{
-	EVDI_CHECKPT();
-	mutex_unlock(&painter->lock);
-}
+#define painter_unlock(painter)                         \
+	do {                                            \
+		EVDI_VERBOSE("Painter unlock\n");       \
+		mutex_unlock(&painter->lock);           \
+	} while (0)
 
 bool evdi_painter_is_connected(struct evdi_device *evdi)
 {
@@ -292,7 +293,8 @@ void evdi_painter_mark_dirty(struct evdi_device *evdi,
 	painter_lock(evdi->painter);
 	efb = evdi->painter->scanout_fb;
 	if (!efb) {
-		EVDI_WARN("Skip clip rect. Scanout buffer not set.\n");
+		EVDI_WARN("(dev=%d) Skip clip rect. Scanout buffer not set.\n",
+			  evdi->dev_index);
 		goto unlock;
 	}
 
@@ -312,12 +314,19 @@ void evdi_painter_mark_dirty(struct evdi_device *evdi,
 	memcpy(&painter->dirty_rects[painter->num_dirts], &rect, sizeof(rect));
 	painter->num_dirts++;
 
+unlock:
+	painter_unlock(evdi->painter);
+}
+
+void evdi_painter_send_update_ready_if_needed(struct evdi_device *evdi)
+{
+	struct evdi_painter *painter = evdi->painter;
+
+	painter_lock(evdi->painter);
 	if (painter->was_update_requested) {
 		evdi_painter_send_update_ready(painter);
 		painter->was_update_requested = false;
 	}
-
-unlock:
 	painter_unlock(evdi->painter);
 }
 
@@ -348,21 +357,33 @@ void evdi_painter_crtc_state_notify(struct evdi_device *evdi, int state)
 }
 
 void evdi_painter_mode_changed_notify(struct evdi_device *evdi,
-				      struct drm_framebuffer *fb,
 				      struct drm_display_mode *new_mode)
 {
 	struct evdi_painter *painter = evdi->painter;
+	struct drm_framebuffer *fb = &painter->scanout_fb->base;
+	int bits_per_pixel;
+	uint32_t pixel_format;
+
+	if (fb == NULL)
+		return;
+
+	bits_per_pixel = fb->format->cpp[0];
+	pixel_format = fb->format->format;
+
 	EVDI_DEBUG("(dev=%d) Notifying mode changed: %dx%d@%d; bpp %d; ",
-		evdi->dev_index, new_mode->hdisplay, new_mode->vdisplay,
-		drm_mode_vrefresh(new_mode), fb->bits_per_pixel);
-	EVDI_DEBUG("pixel format %d\n", fb->pixel_format);
+		   evdi->dev_index, new_mode->hdisplay, new_mode->vdisplay,
+		   drm_mode_vrefresh(new_mode), bits_per_pixel);
+	EVDI_DEBUG("pixel format %d\n", pixel_format);
+
 	evdi_painter_send_mode_changed(painter,
 				       new_mode,
-				       fb->bits_per_pixel,
-				       fb->pixel_format);
+				       bits_per_pixel,
+				       pixel_format);
+	if (painter)
+		painter->needs_full_modeset = false;
 }
 
-int
+static int
 evdi_painter_connect(struct evdi_device *evdi,
 		     void const __user *edid_data, unsigned int edid_length,
 		     uint32_t sku_area_limit,
@@ -389,7 +410,7 @@ evdi_painter_connect(struct evdi_device *evdi,
 		return -ENOMEM;
 
 	if (copy_from_user(new_edid, edid_data, edid_length)) {
-		EVDI_ERROR("(dev=%d) LSP Failed to read edid\n", dev_index);
+		EVDI_ERROR("(dev=%d) Failed to read edid\n", dev_index);
 		kfree(new_edid);
 		return -EFAULT;
 	}
@@ -407,9 +428,6 @@ evdi_painter_connect(struct evdi_device *evdi,
 		EVDI_WARN("(dev=%d) Double connect - replacing %p with %p\n",
 			  dev_index, painter->drm_filp, file);
 
-	EVDI_DEBUG("(dev=%d) Connected with %p\n", evdi->dev_index,
-		   painter->drm_filp);
-
 	painter_lock(painter);
 
 	evdi->dev_index = dev_index;
@@ -419,16 +437,21 @@ evdi_painter_connect(struct evdi_device *evdi,
 	painter->edid_length = edid_length;
 	painter->edid = new_edid;
 	painter->is_connected = true;
+	painter->needs_full_modeset = true;
 
 	painter_unlock(painter);
 
+	EVDI_DEBUG("(dev=%d) Connected with %p\n", evdi->dev_index,
+		   painter->drm_filp);
+
 	drm_helper_hpd_irq_event(evdi->ddev);
-	drm_helper_resume_force_mode(evdi->ddev);
+
 
 	return 0;
 }
 
-void evdi_painter_disconnect(struct evdi_device *evdi, struct drm_file *file)
+static void evdi_painter_disconnect(struct evdi_device *evdi,
+	struct drm_file *file)
 {
 	struct evdi_painter *painter = evdi->painter;
 
@@ -459,7 +482,6 @@ void evdi_painter_disconnect(struct evdi_device *evdi, struct drm_file *file)
 	EVDI_DEBUG("(dev=%d) Disconnected from %p\n", evdi->dev_index,
 		   painter->drm_filp);
 	painter->drm_filp = NULL;
-	evdi->dev_index = -1;
 
 	painter->was_update_requested = false;
 
@@ -504,7 +526,7 @@ int evdi_painter_connect_ioctl(struct drm_device *drm_dev, void *data,
 }
 
 int evdi_painter_grabpix_ioctl(struct drm_device *drm_dev, void *data,
-			       struct drm_file *file)
+			       __always_unused struct drm_file *file)
 {
 	struct evdi_device *evdi = drm_dev->dev_private;
 	struct evdi_painter *painter = evdi->painter;
@@ -548,7 +570,7 @@ int evdi_painter_grabpix_ioctl(struct drm_device *drm_dev, void *data,
 			goto unlock;
 		}
 		if (!efb->obj->vmapping) {
-			EVDI_ERROR("Failed to map scanout buffer\n");
+			EVDI_ERROR("Inexistent vmapping\n");
 			err = -EFAULT;
 			goto unlock;
 		}
@@ -603,8 +625,9 @@ unlock:
 	return err;
 }
 
-int evdi_painter_request_update_ioctl(struct drm_device *drm_dev, void *data,
-				      struct drm_file *file)
+int evdi_painter_request_update_ioctl(struct drm_device *drm_dev,
+				      __always_unused void *data,
+				      __always_unused struct drm_file *file)
 {
 	struct evdi_device *evdi = drm_dev->dev_private;
 	struct evdi_painter *painter = evdi->painter;
@@ -641,6 +664,7 @@ int evdi_painter_init(struct evdi_device *dev)
 		mutex_init(&dev->painter->new_scanout_fb_lock);
 		dev->painter->edid = NULL;
 		dev->painter->edid_length = 0;
+		dev->painter->needs_full_modeset = true;
 		return 0;
 	}
 	return -ENOMEM;
@@ -710,4 +734,13 @@ void evdi_painter_commit_scanout_buffer(struct evdi_device *evdi)
 
 	if (oldfb)
 		drm_framebuffer_unreference(&oldfb->base);
+}
+
+bool evdi_painter_needs_full_modeset(struct evdi_device *evdi)
+{
+	struct evdi_painter *painter = evdi->painter;
+
+	if (painter)
+		return painter->needs_full_modeset;
+	return false;
 }

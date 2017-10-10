@@ -352,7 +352,7 @@ atmel_hlcdc_plane_update_general_settings(struct atmel_hlcdc_plane *plane,
 		cfg |= ATMEL_HLCDC_LAYER_OVR | ATMEL_HLCDC_LAYER_ITER2BL |
 		       ATMEL_HLCDC_LAYER_ITER;
 
-		if (atmel_hlcdc_format_embeds_alpha(state->base.fb->pixel_format))
+		if (atmel_hlcdc_format_embeds_alpha(state->base.fb->format->format))
 			cfg |= ATMEL_HLCDC_LAYER_LAEN;
 		else
 			cfg |= ATMEL_HLCDC_LAYER_GAEN |
@@ -380,14 +380,14 @@ static void atmel_hlcdc_plane_update_format(struct atmel_hlcdc_plane *plane,
 	u32 cfg;
 	int ret;
 
-	ret = atmel_hlcdc_format_to_plane_mode(state->base.fb->pixel_format,
+	ret = atmel_hlcdc_format_to_plane_mode(state->base.fb->format->format,
 					       &cfg);
 	if (ret)
 		return;
 
-	if ((state->base.fb->pixel_format == DRM_FORMAT_YUV422 ||
-	     state->base.fb->pixel_format == DRM_FORMAT_NV61) &&
-	    (state->base.rotation & (BIT(DRM_ROTATE_90) | BIT(DRM_ROTATE_270))))
+	if ((state->base.fb->format->format == DRM_FORMAT_YUV422 ||
+	     state->base.fb->format->format == DRM_FORMAT_NV61) &&
+	    drm_rotation_90_or_270(state->base.rotation))
 		cfg |= ATMEL_HLCDC_YUV422ROT;
 
 	atmel_hlcdc_layer_update_cfg(&plane->layer,
@@ -399,7 +399,7 @@ static void atmel_hlcdc_plane_update_format(struct atmel_hlcdc_plane *plane,
 	 * Rotation optimization is not working on RGB888 (rotation is still
 	 * working but without any optimization).
 	 */
-	if (state->base.fb->pixel_format == DRM_FORMAT_RGB888)
+	if (state->base.fb->format->format == DRM_FORMAT_RGB888)
 		cfg = ATMEL_HLCDC_LAYER_DMA_ROTDIS;
 	else
 		cfg = 0;
@@ -473,7 +473,7 @@ atmel_hlcdc_plane_prepare_disc_area(struct drm_crtc_state *c_state)
 		ovl_state = drm_plane_state_to_atmel_hlcdc_plane_state(ovl_s);
 
 		if (!ovl_s->fb ||
-		    atmel_hlcdc_format_embeds_alpha(ovl_s->fb->pixel_format) ||
+		    atmel_hlcdc_format_embeds_alpha(ovl_s->fb->format->format) ||
 		    ovl_state->alpha != 255)
 			continue;
 
@@ -580,14 +580,14 @@ static int atmel_hlcdc_plane_atomic_check(struct drm_plane *p,
 	state->src_w >>= 16;
 	state->src_h >>= 16;
 
-	state->nplanes = drm_format_num_planes(fb->pixel_format);
+	state->nplanes = fb->format->num_planes;
 	if (state->nplanes > ATMEL_HLCDC_MAX_PLANES)
 		return -EINVAL;
 
 	/*
 	 * Swap width and size in case of 90 or 270 degrees rotation
 	 */
-	if (state->base.rotation & (BIT(DRM_ROTATE_90) | BIT(DRM_ROTATE_270))) {
+	if (drm_rotation_90_or_270(state->base.rotation)) {
 		tmp = state->crtc_w;
 		state->crtc_w = state->crtc_h;
 		state->crtc_h = tmp;
@@ -623,20 +623,20 @@ static int atmel_hlcdc_plane_atomic_check(struct drm_plane *p,
 	patched_src_h = DIV_ROUND_CLOSEST(patched_crtc_h * state->src_h,
 					  state->crtc_h);
 
-	hsub = drm_format_horz_chroma_subsampling(fb->pixel_format);
-	vsub = drm_format_vert_chroma_subsampling(fb->pixel_format);
+	hsub = drm_format_horz_chroma_subsampling(fb->format->format);
+	vsub = drm_format_vert_chroma_subsampling(fb->format->format);
 
 	for (i = 0; i < state->nplanes; i++) {
 		unsigned int offset = 0;
 		int xdiv = i ? hsub : 1;
 		int ydiv = i ? vsub : 1;
 
-		state->bpp[i] = drm_format_plane_cpp(fb->pixel_format, i);
+		state->bpp[i] = fb->format->cpp[i];
 		if (!state->bpp[i])
 			return -EINVAL;
 
 		switch (state->base.rotation & DRM_ROTATE_MASK) {
-		case BIT(DRM_ROTATE_90):
+		case DRM_ROTATE_90:
 			offset = ((y_offset + state->src_y + patched_src_w - 1) /
 				  ydiv) * fb->pitches[i];
 			offset += ((x_offset + state->src_x) / xdiv) *
@@ -645,7 +645,7 @@ static int atmel_hlcdc_plane_atomic_check(struct drm_plane *p,
 					  fb->pitches[i];
 			state->pstride[i] = -fb->pitches[i] - state->bpp[i];
 			break;
-		case BIT(DRM_ROTATE_180):
+		case DRM_ROTATE_180:
 			offset = ((y_offset + state->src_y + patched_src_h - 1) /
 				  ydiv) * fb->pitches[i];
 			offset += ((x_offset + state->src_x + patched_src_w - 1) /
@@ -654,7 +654,7 @@ static int atmel_hlcdc_plane_atomic_check(struct drm_plane *p,
 					   state->bpp[i]) - fb->pitches[i];
 			state->pstride[i] = -2 * state->bpp[i];
 			break;
-		case BIT(DRM_ROTATE_270):
+		case DRM_ROTATE_270:
 			offset = ((y_offset + state->src_y) / ydiv) *
 				 fb->pitches[i];
 			offset += ((x_offset + state->src_x + patched_src_h - 1) /
@@ -664,7 +664,7 @@ static int atmel_hlcdc_plane_atomic_check(struct drm_plane *p,
 					  (2 * state->bpp[i]);
 			state->pstride[i] = fb->pitches[i] - state->bpp[i];
 			break;
-		case BIT(DRM_ROTATE_0):
+		case DRM_ROTATE_0:
 		default:
 			offset = ((y_offset + state->src_y) / ydiv) *
 				 fb->pitches[i];
@@ -700,7 +700,7 @@ static int atmel_hlcdc_plane_atomic_check(struct drm_plane *p,
 
 	if ((state->crtc_h != state->src_h || state->crtc_w != state->src_w) &&
 	    (!layout->memsize ||
-	     atmel_hlcdc_format_embeds_alpha(state->base.fb->pixel_format)))
+	     atmel_hlcdc_format_embeds_alpha(state->base.fb->format->format)))
 		return -EINVAL;
 
 	if (state->crtc_x < 0 || state->crtc_y < 0)
@@ -822,7 +822,7 @@ static void atmel_hlcdc_plane_init_properties(struct atmel_hlcdc_plane *plane,
 	if (desc->layout.xstride && desc->layout.pstride)
 		drm_object_attach_property(&plane->base.base,
 				plane->base.dev->mode_config.rotation_property,
-				BIT(DRM_ROTATE_0));
+				DRM_ROTATE_0);
 
 	if (desc->layout.csc) {
 		/*
@@ -973,10 +973,10 @@ atmel_hlcdc_plane_create_properties(struct drm_device *dev)
 
 	dev->mode_config.rotation_property =
 			drm_mode_create_rotation_property(dev,
-							  BIT(DRM_ROTATE_0) |
-							  BIT(DRM_ROTATE_90) |
-							  BIT(DRM_ROTATE_180) |
-							  BIT(DRM_ROTATE_270));
+							  DRM_ROTATE_0 |
+							  DRM_ROTATE_90 |
+							  DRM_ROTATE_180 |
+							  DRM_ROTATE_270);
 	if (!dev->mode_config.rotation_property)
 		return ERR_PTR(-ENOMEM);
 

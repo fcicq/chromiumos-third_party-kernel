@@ -296,15 +296,15 @@ static int ktd2692_parse_dt(struct ktd2692_context *led, struct device *dev,
 		return -ENXIO;
 
 	led->ctrl_gpio = devm_gpiod_get(dev, "ctrl", GPIOD_ASIS);
-	if (IS_ERR(led->ctrl_gpio)) {
-		ret = PTR_ERR(led->ctrl_gpio);
+	ret = PTR_ERR_OR_ZERO(led->ctrl_gpio);
+	if (ret) {
 		dev_err(dev, "cannot get ctrl-gpios %d\n", ret);
 		return ret;
 	}
 
 	led->aux_gpio = devm_gpiod_get(dev, "aux", GPIOD_ASIS);
-	if (IS_ERR(led->aux_gpio)) {
-		ret = PTR_ERR(led->aux_gpio);
+	ret = PTR_ERR_OR_ZERO(led->aux_gpio);
+	if (ret) {
 		dev_err(dev, "cannot get aux-gpios %d\n", ret);
 		return ret;
 	}
@@ -382,7 +382,7 @@ static int ktd2692_probe(struct platform_device *pdev)
 
 	led_cdev->max_brightness = led_cfg.max_brightness;
 	led_cdev->brightness_set = ktd2692_led_brightness_set;
-	led_cdev->brightness_set_sync = ktd2692_led_brightness_set_sync;
+	led_cdev->brightness_set_blocking = ktd2692_led_brightness_set_sync;
 	led_cdev->flags |= LED_CORE_SUSPENDRESUME | LED_DEV_CAP_FLASH;
 
 	mutex_init(&led->lock);

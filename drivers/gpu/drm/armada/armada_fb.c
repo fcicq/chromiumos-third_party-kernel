@@ -81,7 +81,7 @@ struct armada_framebuffer *armada_framebuffer_create(struct drm_device *dev,
 	dfb->mod = config;
 	dfb->obj = obj;
 
-	drm_helper_mode_fill_fb_struct(&dfb->fb, mode);
+	drm_helper_mode_fill_fb_struct(dev, &dfb->fb, mode);
 
 	ret = drm_framebuffer_init(dev, &dfb->fb, &armada_fb_funcs);
 	if (ret) {
@@ -120,7 +120,7 @@ static struct drm_framebuffer *armada_fb_create(struct drm_device *dev,
 		goto err;
 	}
 
-	obj = armada_gem_object_lookup(dev, dfile, mode->handles[0]);
+	obj = armada_gem_object_lookup(dfile, mode->handles[0]);
 	if (!obj) {
 		ret = -ENOENT;
 		goto err;

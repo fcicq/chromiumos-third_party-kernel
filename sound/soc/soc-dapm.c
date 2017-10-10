@@ -1627,6 +1627,15 @@ static void dapm_widget_update(struct snd_soc_card *card)
 		dev_err(w->dapm->dev, "ASoC: %s DAPM update failed: %d\n",
 			w->name, ret);
 
+	if (update->has_second_set) {
+		ret = soc_dapm_update_bits(w->dapm, update->reg2,
+					   update->mask2, update->val2);
+		if (ret < 0)
+			dev_err(w->dapm->dev,
+				"ASoC: %s DAPM update failed: %d\n",
+				w->name, ret);
+	}
+
 	for (wi = 0; wi < wlist->num_widgets; wi++) {
 		w = wlist->widgets[wi];
 
@@ -3085,7 +3094,7 @@ int snd_soc_dapm_put_volsw(struct snd_kcontrol *kcontrol,
 	unsigned int invert = mc->invert;
 	unsigned int val;
 	int connect, change, reg_change = 0;
-	struct snd_soc_dapm_update update;
+	struct snd_soc_dapm_update update = { NULL };
 	int ret = 0;
 
 	if (snd_soc_volsw_is_stereo(mc))
@@ -3193,7 +3202,7 @@ int snd_soc_dapm_put_enum_double(struct snd_kcontrol *kcontrol,
 	unsigned int *item = ucontrol->value.enumerated.item;
 	unsigned int val, change, reg_change = 0;
 	unsigned int mask;
-	struct snd_soc_dapm_update update;
+	struct snd_soc_dapm_update update = { NULL };
 	int ret = 0;
 
 	if (item[0] >= e->items)
@@ -3320,6 +3329,7 @@ snd_soc_dapm_new_control(struct snd_soc_dapm_context *dapm,
 	mutex_unlock(&dapm->card->dapm_mutex);
 	return w;
 }
+EXPORT_SYMBOL_GPL(snd_soc_dapm_new_control);
 
 struct snd_soc_dapm_widget *
 snd_soc_dapm_new_control_unlocked(struct snd_soc_dapm_context *dapm,
@@ -3496,6 +3506,7 @@ static int snd_soc_dai_link_event(struct snd_soc_dapm_widget *w,
 	const struct snd_soc_pcm_stream *config = w->params + w->params_select;
 	struct snd_pcm_substream substream;
 	struct snd_pcm_hw_params *params = NULL;
+	struct snd_pcm_runtime *runtime = NULL;
 	u64 fmt;
 	int ret;
 
@@ -3543,6 +3554,14 @@ static int snd_soc_dai_link_event(struct snd_soc_dapm_widget *w,
 		= config->channels_max;
 
 	memset(&substream, 0, sizeof(substream));
+
+	/* Allocate a dummy snd_pcm_runtime for startup() and other ops() */
+	runtime = kzalloc(sizeof(*runtime), GFP_KERNEL);
+	if (!runtime) {
+		ret = -ENOMEM;
+		goto out;
+	}
+	substream.runtime = runtime;
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
@@ -3609,6 +3628,7 @@ static int snd_soc_dai_link_event(struct snd_soc_dapm_widget *w,
 	}
 
 out:
+	kfree(runtime);
 	kfree(params);
 	return ret;
 }

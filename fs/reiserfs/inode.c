@@ -524,7 +524,7 @@ static int reiserfs_get_blocks_direct_io(struct inode *inode,
 	 * referenced in convert_tail_for_hole() that may be called from
 	 * reiserfs_get_block()
 	 */
-	bh_result->b_size = (1 << inode->i_blkbits);
+	bh_result->b_size = i_blocksize(inode);
 
 	ret = reiserfs_get_block(inode, iblock, bh_result,
 				 create | GET_BLOCK_NO_DANGLE);
@@ -1361,6 +1361,7 @@ static void init_inode(struct inode *inode, struct treepath *path)
 		inode->i_fop = &reiserfs_dir_operations;
 	} else if (S_ISLNK(inode->i_mode)) {
 		inode->i_op = &reiserfs_symlink_inode_operations;
+		inode_nohighmem(inode);
 		inode->i_mapping->a_ops = &reiserfs_address_space_operations;
 	} else {
 		inode->i_blocks = 0;

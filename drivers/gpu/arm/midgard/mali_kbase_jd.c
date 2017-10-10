@@ -132,23 +132,20 @@ static void kbase_jd_kds_waiters_remove(struct kbase_jd_atom *katom)
 	list_del(&katom->node);
 }
 
-static void resource_dep_clear(void *callback_parameter, void *callback_extra_parameter)
+static void resource_dep_clear_nolock(struct kbase_jd_atom *katom)
 {
-	struct kbase_jd_atom *katom;
 	struct kbase_jd_context *ctx;
 	struct kbase_device *kbdev;
 
-	katom = (struct kbase_jd_atom *)callback_parameter;
-	KBASE_DEBUG_ASSERT(katom);
 	ctx = &katom->kctx->jctx;
 	kbdev = katom->kctx->kbdev;
-	KBASE_DEBUG_ASSERT(kbdev);
 
-	mutex_lock(&ctx->lock);
+	//lockdep_assert_held(&ctx->lock);
+	BUG_ON(!mutex_is_locked(&ctx->lock));
 
 	/* resource dependency has already been satisfied (e.g. due to zapping) */
 	if (katom->dep_satisfied)
-		goto out;
+		return;
 
 	/* This atom's resource dependency has now been met */
 	katom->dep_satisfied = true;
@@ -173,7 +170,30 @@ static void resource_dep_clear(void *callback_parameter, void *callback_extra_pa
 		if (resched)
 			kbase_js_sched_all(kbdev);
 	}
- out:
+
+}
+
+static void resource_dep_clear(void *callback_parameter, void *callback_extra_parameter)
+{
+	struct kbase_jd_atom *katom;
+	struct kbase_jd_context *ctx;
+	struct kbase_device *kbdev;
+
+	katom = (struct kbase_jd_atom *)callback_parameter;
+	KBASE_DEBUG_ASSERT(katom);
+	ctx = &katom->kctx->jctx;
+	kbdev = katom->kctx->kbdev;
+	KBASE_DEBUG_ASSERT(kbdev);
+
+	while (!mutex_trylock(&ctx->lock)) {
+		if (atomic_read(&katom->dep_clear_tail) == 1)
+			return;
+		schedule();
+	}
+
+	if (atomic_cmpxchg(&katom->dep_clear_tail, 0, 1) == 0)
+		resource_dep_clear_nolock(katom);
+
 	mutex_unlock(&ctx->lock);
 }
 
@@ -217,6 +237,18 @@ static void kbase_atom_release_sync(struct kbase_jd_atom *katom)
 #ifdef CONFIG_KDS
 	kds_resource_set_release_sync(&katom->kds_rset);
 #elif defined(CONFIG_DRM_DMA_SYNC)
+	/* Run resource_dep_clear_nolock() from this context to prevent lockdep rcb->work vs ctx->lock
+	 * the only way we can get here is
+	 * jd_done_nolock() ->
+	 * kbase_jd_post_external_resources() ->
+	 * kbase_atom_release_sync()
+	 * ctx->lock should be held when we reach here, it is checked in
+	 * resource_dep_clear_nolock()
+	 */
+
+	if (atomic_cmpxchg(&katom->dep_clear_tail, 0, 1) == 0)
+		resource_dep_clear_nolock(katom);
+
 	/* clean up rcb in case context was zapped and callback wasn't called */
 	drm_reservation_cb_fini(&katom->rcb);
 	drm_fence_signal_and_put(&katom->rendered_fence);
@@ -276,7 +308,7 @@ static int reservation_sync(struct kbase_jd_atom *katom,
 	struct ww_acquire_ctx ww_ctx;
 	int ret = 0;
 	unsigned int r;
-	struct fence *fence;
+	struct dma_fence *fence;
 
 	katom->dep_satisfied = false;
 	fence = drm_sw_fence_new(katom->kctx->jctx.fence_context,
@@ -308,6 +340,7 @@ static int reservation_sync(struct kbase_jd_atom *katom,
 		}
 	}
 
+	atomic_set(&katom->dep_clear_tail, 0);
 	drm_reservation_cb_init(&katom->rcb, resv_resource_dep_clear, katom);
 	for (r = 0; r < num_resvs; r++) {
 		ret = drm_reservation_cb_add(&katom->rcb, resvs[r],
@@ -459,7 +492,7 @@ static int kbase_jd_pre_external_resources(struct kbase_jd_atom *katom, const st
 #endif
 #if defined(CONFIG_KDS) || defined(CONFIG_DRM_DMA_SYNC)
 				, exclusive
-#ifdef CONFIG_SYNC
+#ifdef CONFIG_SW_SYNC
 				, katom->kctx->jctx.implicit_sync
 #endif
 #endif
@@ -1730,10 +1763,10 @@ int kbase_jd_init(struct kbase_context *kctx)
 	}
 #endif				/* CONFIG_KDS */
 #ifdef CONFIG_DRM_DMA_SYNC
-	kctx->jctx.fence_context = fence_context_alloc(1);
+	kctx->jctx.fence_context = dma_fence_context_alloc(1);
 	atomic_set(&kctx->jctx.fence_seqno, 0);
 #endif
-#if (defined(CONFIG_KDS) || defined(CONFIG_DRM_DMA_SYNC)) && defined(CONFIG_SYNC)
+#if (defined(CONFIG_KDS) || defined(CONFIG_DRM_DMA_SYNC)) && defined(CONFIG_SW_SYNC)
 	kctx->jctx.implicit_sync = true;
 #endif				/* CONFIG_KDS or CONFIG_DRM_DMA_SYNC */
 	kctx->jctx.job_nr = 0;

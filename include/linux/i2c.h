@@ -130,7 +130,8 @@ i2c_smbus_read_i2c_block_data_or_emulated(const struct i2c_client *client,
  * struct i2c_driver - represent an I2C device driver
  * @class: What kind of i2c device we instantiate (for detect)
  * @attach_adapter: Callback for bus addition (deprecated)
- * @probe: Callback for device binding
+ * @probe: Callback for device binding - soon to be deprecated
+ * @probe_new: New callback for device binding
  * @remove: Callback for device unbinding
  * @shutdown: Callback for device shutdown
  * @alert: Alert callback, for example for the SMBus alert protocol
@@ -172,6 +173,11 @@ struct i2c_driver {
 	/* Standard driver model interfaces */
 	int (*probe)(struct i2c_client *, const struct i2c_device_id *);
 	int (*remove)(struct i2c_client *);
+
+	/* New driver model interface to aid the seamless removal of the
+	 * current probe()'s, more commonly unused than used second parameter.
+	 */
+	int (*probe_new)(struct i2c_client *);
 
 	/* driver model interfaces that don't relate to enumeration  */
 	void (*shutdown)(struct i2c_client *);
@@ -536,6 +542,10 @@ struct i2c_adapter {
 
 	struct i2c_bus_recovery_info *bus_recovery_info;
 	const struct i2c_adapter_quirks *quirks;
+
+	void (*lock_bus)(struct i2c_adapter *, unsigned int flags);
+	int (*trylock_bus)(struct i2c_adapter *, unsigned int flags);
+	void (*unlock_bus)(struct i2c_adapter *, unsigned int flags);
 };
 #define to_i2c_adapter(d) container_of(d, struct i2c_adapter, dev)
 
@@ -565,8 +575,44 @@ i2c_parent_is_i2c_adapter(const struct i2c_adapter *adapter)
 int i2c_for_each_dev(void *data, int (*fn)(struct device *, void *));
 
 /* Adapter locking functions, exported for shared pin cases */
-void i2c_lock_adapter(struct i2c_adapter *);
-void i2c_unlock_adapter(struct i2c_adapter *);
+#define I2C_LOCK_ROOT_ADAPTER BIT(0)
+#define I2C_LOCK_SEGMENT      BIT(1)
+
+/**
+ * i2c_lock_bus - Get exclusive access to an I2C bus segment
+ * @adapter: Target I2C bus segment
+ * @flags: I2C_LOCK_ROOT_ADAPTER locks the root i2c adapter, I2C_LOCK_SEGMENT
+ *	locks only this branch in the adapter tree
+ */
+static inline void
+i2c_lock_bus(struct i2c_adapter *adapter, unsigned int flags)
+{
+	adapter->lock_bus(adapter, flags);
+}
+
+/**
+ * i2c_unlock_bus - Release exclusive access to an I2C bus segment
+ * @adapter: Target I2C bus segment
+ * @flags: I2C_LOCK_ROOT_ADAPTER unlocks the root i2c adapter, I2C_LOCK_SEGMENT
+ *	unlocks only this branch in the adapter tree
+ */
+static inline void
+i2c_unlock_bus(struct i2c_adapter *adapter, unsigned int flags)
+{
+	adapter->unlock_bus(adapter, flags);
+}
+
+static inline void
+i2c_lock_adapter(struct i2c_adapter *adapter)
+{
+	i2c_lock_bus(adapter, I2C_LOCK_ROOT_ADAPTER);
+}
+
+static inline void
+i2c_unlock_adapter(struct i2c_adapter *adapter)
+{
+	i2c_unlock_bus(adapter, I2C_LOCK_ROOT_ADAPTER);
+}
 
 /*flags for the client struct: */
 #define I2C_CLIENT_PEC		0x04	/* Use Packet Error Checking */
@@ -617,6 +663,7 @@ extern void i2c_clients_command(struct i2c_adapter *adap,
 
 extern struct i2c_adapter *i2c_get_adapter(int nr);
 extern void i2c_put_adapter(struct i2c_adapter *adap);
+extern unsigned int i2c_adapter_depth(struct i2c_adapter *adapter);
 
 void i2c_parse_fw_timings(struct device *dev, struct i2c_timings *t, bool use_defaults);
 

@@ -127,8 +127,10 @@ struct mtk_mipi_tx {
 	struct device *dev;
 	void __iomem *regs;
 	unsigned int data_rate;
+	void __iomem *regs_tx1;
 	struct clk_hw pll_hw;
 	struct clk *pll;
+	bool dual_dsi_mode;
 };
 
 static inline struct mtk_mipi_tx *mtk_mipi_tx_from_clk_hw(struct clk_hw *hw)
@@ -136,12 +138,19 @@ static inline struct mtk_mipi_tx *mtk_mipi_tx_from_clk_hw(struct clk_hw *hw)
 	return container_of(hw, struct mtk_mipi_tx, pll_hw);
 }
 
+static void mtk_mipi_write(struct mtk_mipi_tx *mipi_tx, u32 data, u32 offset)
+{
+	writel(data, mipi_tx->regs + offset);
+	if (mipi_tx->dual_dsi_mode)
+		writel(data, mipi_tx->regs_tx1 + offset);
+}
+
 static void mtk_mipi_tx_clear_bits(struct mtk_mipi_tx *mipi_tx, u32 offset,
 				   u32 bits)
 {
 	u32 temp = readl(mipi_tx->regs + offset);
 
-	writel(temp & ~bits, mipi_tx->regs + offset);
+	mtk_mipi_write(mipi_tx, temp & ~bits, offset);
 }
 
 static void mtk_mipi_tx_set_bits(struct mtk_mipi_tx *mipi_tx, u32 offset,
@@ -149,7 +158,7 @@ static void mtk_mipi_tx_set_bits(struct mtk_mipi_tx *mipi_tx, u32 offset,
 {
 	u32 temp = readl(mipi_tx->regs + offset);
 
-	writel(temp | bits, mipi_tx->regs + offset);
+	mtk_mipi_write(mipi_tx, temp | bits, offset);
 }
 
 static void mtk_mipi_tx_update_bits(struct mtk_mipi_tx *mipi_tx, u32 offset,
@@ -157,7 +166,7 @@ static void mtk_mipi_tx_update_bits(struct mtk_mipi_tx *mipi_tx, u32 offset,
 {
 	u32 temp = readl(mipi_tx->regs + offset);
 
-	writel((temp & ~mask) | (data & mask), mipi_tx->regs + offset);
+	mtk_mipi_write(mipi_tx, (temp & ~mask) | (data & mask), offset);
 }
 
 static int mtk_mipi_tx_pll_prepare(struct clk_hw *hw)
@@ -231,7 +240,7 @@ static int mtk_mipi_tx_pll_prepare(struct clk_hw *hw)
 	 */
 	pcw = div_u64(((u64)mipi_tx->data_rate * 2 * txdiv) << 24,
 		      26000000);
-	writel(pcw, mipi_tx->regs + MIPITX_DSI_PLL_CON2);
+	mtk_mipi_write(mipi_tx, pcw, MIPITX_DSI_PLL_CON2);
 
 	mtk_mipi_tx_set_bits(mipi_tx, MIPITX_DSI_PLL_CON1,
 			     RG_DSI_MPPLL_SDM_FRA_EN);
@@ -397,6 +406,18 @@ static int mtk_mipi_tx_probe(struct platform_device *pdev)
 		ret = PTR_ERR(mipi_tx->regs);
 		dev_err(dev, "Failed to get memory resource: %d\n", ret);
 		return ret;
+	}
+
+	mipi_tx->dual_dsi_mode = of_property_read_bool(dev->of_node,
+			"mediatek,dual-dsi-mode");
+	if (mipi_tx->dual_dsi_mode) {
+		mem = platform_get_resource(pdev, IORESOURCE_MEM, 1);
+		mipi_tx->regs_tx1 = devm_ioremap_resource(dev, mem);
+		if (IS_ERR(mipi_tx->regs_tx1)) {
+			ret = PTR_ERR(mipi_tx->regs_tx1);
+			dev_err(dev, "Failed to get memory resource: %d\n", ret);
+			return ret;
+		}
 	}
 
 	ref_clk = devm_clk_get(dev, NULL);

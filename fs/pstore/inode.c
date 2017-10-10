@@ -52,7 +52,7 @@ struct pstore_private {
 	u64	id;
 	int	count;
 	ssize_t	size;
-	char	data[];
+	char    *buf;
 };
 
 struct pstore_ftrace_seq_data {
@@ -62,6 +62,14 @@ struct pstore_ftrace_seq_data {
 };
 
 #define REC_SIZE sizeof(struct pstore_ftrace_record)
+
+static void free_pstore_private(struct pstore_private *private)
+{
+	if (!private)
+		return;
+	kfree(private->buf);
+	kfree(private);
+}
 
 static void *pstore_ftrace_seq_start(struct seq_file *s, loff_t *pos)
 {
@@ -105,7 +113,7 @@ static int pstore_ftrace_seq_show(struct seq_file *s, void *v)
 {
 	struct pstore_private *ps = s->private;
 	struct pstore_ftrace_seq_data *data = v;
-	struct pstore_ftrace_record *rec = (void *)(ps->data + data->off);
+	struct pstore_ftrace_record *rec = (void *)(ps->buf + data->off);
 
 	seq_printf(s, "CPU:%d ts:%llu %08lx  %08lx  %pf <- %pF\n",
 		   pstore_ftrace_decode_cpu(rec),
@@ -143,7 +151,7 @@ static ssize_t pstore_file_read(struct file *file, char __user *userbuf,
 
 	if (ps->type == PSTORE_TYPE_FTRACE)
 		return seq_read(file, userbuf, count, ppos);
-	return simple_read_from_buffer(userbuf, count, ppos, ps->data, ps->size);
+	return simple_read_from_buffer(userbuf, count, ppos, ps->buf, ps->size);
 }
 
 static int pstore_file_open(struct inode *inode, struct file *file)
@@ -221,7 +229,7 @@ static void pstore_evict_inode(struct inode *inode)
 		spin_lock_irqsave(&allpstore_lock, flags);
 		list_del(&p->list);
 		spin_unlock_irqrestore(&allpstore_lock, flags);
-		kfree(p);
+		free_pstore_private(p);
 	}
 }
 
@@ -302,23 +310,23 @@ bool pstore_is_mounted(void)
  * Load it up with "size" bytes of data from "buf".
  * Set the mtime & ctime to the date that this record was originally stored.
  */
-int pstore_mkfile(enum pstore_type_id type, char *psname, u64 id, int count,
-		  char *data, bool compressed, size_t size,
-		  struct timespec time, struct pstore_info *psi)
+int pstore_mkfile(struct dentry *root, struct pstore_record *record)
 {
-	struct dentry		*root = pstore_sb->s_root;
 	struct dentry		*dentry;
 	struct inode		*inode;
 	int			rc = 0;
 	char			name[PSTORE_NAMELEN];
 	struct pstore_private	*private, *pos;
 	unsigned long		flags;
+	size_t			size = record->size + record->ecc_notice_size;
+
+	WARN_ON(!inode_is_locked(d_inode(root)));
 
 	spin_lock_irqsave(&allpstore_lock, flags);
 	list_for_each_entry(pos, &allpstore, list) {
-		if (pos->type == type &&
-		    pos->id == id &&
-		    pos->psi == psi) {
+		if (pos->type == record->type &&
+		    pos->id == record->id &&
+		    pos->psi == record->psi) {
 			rc = -EEXIST;
 			break;
 		}
@@ -328,72 +336,77 @@ int pstore_mkfile(enum pstore_type_id type, char *psname, u64 id, int count,
 		return rc;
 
 	rc = -ENOMEM;
-	inode = pstore_get_inode(pstore_sb);
+	inode = pstore_get_inode(root->d_sb);
 	if (!inode)
 		goto fail;
 	inode->i_mode = S_IFREG | 0444;
 	inode->i_fop = &pstore_file_operations;
-	private = kmalloc(sizeof *private + size, GFP_KERNEL);
+	private = kzalloc(sizeof(*private), GFP_KERNEL);
 	if (!private)
 		goto fail_alloc;
-	private->type = type;
-	private->id = id;
-	private->count = count;
-	private->psi = psi;
+	private->type = record->type;
+	private->id = record->id;
+	private->count = record->count;
+	private->psi = record->psi;
 
-	switch (type) {
+	switch (record->type) {
 	case PSTORE_TYPE_DMESG:
 		scnprintf(name, sizeof(name), "dmesg-%s-%lld%s",
-			  psname, id, compressed ? ".enc.z" : "");
+			  record->psi->name, record->id,
+			  record->compressed ? ".enc.z" : "");
 		break;
 	case PSTORE_TYPE_CONSOLE:
-		scnprintf(name, sizeof(name), "console-%s", psname);
+		scnprintf(name, sizeof(name), "console-%s", record->psi->name);
 		break;
 	case PSTORE_TYPE_FTRACE:
-		scnprintf(name, sizeof(name), "ftrace-%s-%lld", psname, id);
+		scnprintf(name, sizeof(name), "ftrace-%s-%lld",
+			  record->psi->name, record->id);
 		break;
 	case PSTORE_TYPE_MCE:
-		scnprintf(name, sizeof(name), "mce-%s-%lld", psname, id);
+		scnprintf(name, sizeof(name), "mce-%s-%lld",
+			  record->psi->name, record->id);
 		break;
 	case PSTORE_TYPE_PPC_RTAS:
-		scnprintf(name, sizeof(name), "rtas-%s-%lld", psname, id);
+		scnprintf(name, sizeof(name), "rtas-%s-%lld",
+			  record->psi->name, record->id);
 		break;
 	case PSTORE_TYPE_PPC_OF:
 		scnprintf(name, sizeof(name), "powerpc-ofw-%s-%lld",
-			  psname, id);
+			  record->psi->name, record->id);
 		break;
 	case PSTORE_TYPE_PPC_COMMON:
 		scnprintf(name, sizeof(name), "powerpc-common-%s-%lld",
-			  psname, id);
+			  record->psi->name, record->id);
 		break;
 	case PSTORE_TYPE_PMSG:
-		scnprintf(name, sizeof(name), "pmsg-%s-%lld", psname, id);
+		scnprintf(name, sizeof(name), "pmsg-%s-%lld",
+			  record->psi->name, record->id);
 		break;
 	case PSTORE_TYPE_PPC_OPAL:
-		sprintf(name, "powerpc-opal-%s-%lld", psname, id);
+		scnprintf(name, sizeof(name), "powerpc-opal-%s-%lld",
+			  record->psi->name, record->id);
 		break;
 	case PSTORE_TYPE_UNKNOWN:
-		scnprintf(name, sizeof(name), "unknown-%s-%lld", psname, id);
+		scnprintf(name, sizeof(name), "unknown-%s-%lld",
+			  record->psi->name, record->id);
 		break;
 	default:
 		scnprintf(name, sizeof(name), "type%d-%s-%lld",
-			  type, psname, id);
+			  record->type, record->psi->name, record->id);
 		break;
 	}
 
-	mutex_lock(&d_inode(root)->i_mutex);
-
 	dentry = d_alloc_name(root, name);
 	if (!dentry)
-		goto fail_lockedalloc;
+		goto fail_private;
 
-	memcpy(private->data, data, size);
+	private->buf = record->buf;
 	inode->i_size = private->size = size;
 
 	inode->i_private = private;
 
-	if (time.tv_sec)
-		inode->i_mtime = inode->i_ctime = time;
+	if (record->time.tv_sec)
+		inode->i_mtime = inode->i_ctime = record->time;
 
 	d_add(dentry, inode);
 
@@ -401,18 +414,36 @@ int pstore_mkfile(enum pstore_type_id type, char *psname, u64 id, int count,
 	list_add(&private->list, &allpstore);
 	spin_unlock_irqrestore(&allpstore_lock, flags);
 
-	mutex_unlock(&d_inode(root)->i_mutex);
-
 	return 0;
 
-fail_lockedalloc:
-	mutex_unlock(&d_inode(root)->i_mutex);
-	kfree(private);
+fail_private:
+	free_pstore_private(private);
 fail_alloc:
 	iput(inode);
 
 fail:
 	return rc;
+}
+
+/*
+ * Read all the records from the persistent store. Create
+ * files in our filesystem.  Don't warn about -EEXIST errors
+ * when we are re-scanning the backing store looking to add new
+ * error records.
+ */
+void pstore_get_records(int quiet)
+{
+	struct pstore_info *psi = psinfo;
+	struct dentry *root;
+
+	if (!psi || !pstore_sb)
+		return;
+
+	root = pstore_sb->s_root;
+
+	inode_lock(d_inode(root));
+	pstore_get_backend_records(psi, root, quiet);
+	inode_unlock(d_inode(root));
 }
 
 static int pstore_fill_super(struct super_block *sb, void *data, int silent)

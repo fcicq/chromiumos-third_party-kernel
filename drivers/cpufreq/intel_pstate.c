@@ -282,7 +282,8 @@ static inline void update_turbo_state(void)
 
 static void intel_pstate_hwp_set(void)
 {
-	int min, hw_min, max, hw_max, cpu, range, adj_range;
+	int min, hw_min, max, hw_max, cpu;
+	struct perf_limits *perf_limits = limits;
 	u64 value, cap;
 
 	get_online_cpus();
@@ -290,23 +291,19 @@ static void intel_pstate_hwp_set(void)
 	for_each_online_cpu(cpu) {
 		rdmsrl_on_cpu(cpu, MSR_HWP_CAPABILITIES, &cap);
 		hw_min = HWP_LOWEST_PERF(cap);
-		hw_max = HWP_HIGHEST_PERF(cap);
-		range = hw_max - hw_min;
+		if (limits->no_turbo)
+			hw_max = HWP_GUARANTEED_PERF(cap);
+		else
+			hw_max = HWP_HIGHEST_PERF(cap);
+
+		min = hw_max * perf_limits->min_perf_pct / 100;
 
 		rdmsrl_on_cpu(cpu, MSR_HWP_REQUEST, &value);
-		adj_range = limits->min_perf_pct * range / 100;
-		min = hw_min + adj_range;
+
 		value &= ~HWP_MIN_PERF(~0L);
 		value |= HWP_MIN_PERF(min);
 
-		adj_range = limits->max_perf_pct * range / 100;
-		max = hw_min + adj_range;
-		if (limits->no_turbo) {
-			hw_max = HWP_GUARANTEED_PERF(cap);
-			if (hw_max < max)
-				max = hw_max;
-		}
-
+		max = hw_max * perf_limits->max_perf_pct / 100;
 		value &= ~HWP_MAX_PERF(~0L);
 		value |= HWP_MAX_PERF(max);
 		wrmsrl_on_cpu(cpu, MSR_HWP_REQUEST, value);
@@ -525,6 +522,10 @@ static void __init intel_pstate_sysfs_expose_params(void)
 
 static void intel_pstate_hwp_enable(struct cpudata *cpudata)
 {
+	/* First disable HWP notification interrupt as we don't process them */
+	if (static_cpu_has(X86_FEATURE_HWP_NOTIFY))
+		wrmsrl_on_cpu(cpudata->cpu, MSR_HWP_INTERRUPT, 0x00);
+
 	wrmsrl_on_cpu(cpudata->cpu, MSR_PM_ENABLE, 0x1);
 }
 
@@ -640,48 +641,71 @@ static int core_get_max_pstate_physical(void)
 	return (value >> 8) & 0xFF;
 }
 
+static int core_get_tdp_ratio(u64 plat_info)
+{
+	/* Check how many TDP levels present */
+	if (plat_info & 0x600000000) {
+		u64 tdp_ctrl;
+		u64 tdp_ratio;
+		int tdp_msr;
+		int err;
+
+		/* Get the TDP level (0, 1, 2) to get ratios */
+		err = rdmsrl_safe(MSR_CONFIG_TDP_CONTROL, &tdp_ctrl);
+		if (err)
+			return err;
+
+		/* TDP MSR are continuous starting at 0x648 */
+		tdp_msr = MSR_CONFIG_TDP_NOMINAL + (tdp_ctrl & 0x03);
+		err = rdmsrl_safe(tdp_msr, &tdp_ratio);
+		if (err)
+			return err;
+
+		/* For level 1 and 2, bits[23:16] contain the ratio */
+		if (tdp_ctrl & 0x03)
+			tdp_ratio >>= 16;
+
+		tdp_ratio &= 0xff; /* ratios are only 8 bits long */
+		pr_debug("tdp_ratio %x\n", (int)tdp_ratio);
+
+		return (int)tdp_ratio;
+	}
+
+	return -ENXIO;
+}
+
 static int core_get_max_pstate(void)
 {
 	u64 tar;
 	u64 plat_info;
 	int max_pstate;
+	int tdp_ratio;
 	int err;
 
 	rdmsrl(MSR_PLATFORM_INFO, plat_info);
 	max_pstate = (plat_info >> 8) & 0xFF;
 
+	tdp_ratio = core_get_tdp_ratio(plat_info);
+	if (tdp_ratio <= 0)
+		return max_pstate;
+
+	if (hwp_active) {
+		/* Turbo activation ratio is not used on HWP platforms */
+		return tdp_ratio;
+	}
+
 	err = rdmsrl_safe(MSR_TURBO_ACTIVATION_RATIO, &tar);
 	if (!err) {
+		int tar_levels;
+
 		/* Do some sanity checking for safety */
-		if (plat_info & 0x600000000) {
-			u64 tdp_ctrl;
-			u64 tdp_ratio;
-			int tdp_msr;
-
-			err = rdmsrl_safe(MSR_CONFIG_TDP_CONTROL, &tdp_ctrl);
-			if (err)
-				goto skip_tar;
-
-			tdp_msr = MSR_CONFIG_TDP_NOMINAL + (tdp_ctrl & 0x3);
-			err = rdmsrl_safe(tdp_msr, &tdp_ratio);
-			if (err)
-				goto skip_tar;
-
-			/* For level 1 and 2, bits[23:16] contain the ratio */
-			if (tdp_ctrl)
-				tdp_ratio >>= 16;
-
-			tdp_ratio &= 0xff; /* ratios are only 8 bits long */
-			if (tdp_ratio - 1 == tar) {
-				max_pstate = tar;
-				pr_debug("max_pstate=TAC %x\n", max_pstate);
-			} else {
-				goto skip_tar;
-			}
+		tar_levels = tar & 0xff;
+		if (tdp_ratio - 1 == tar_levels) {
+			max_pstate = tar_levels;
+			pr_debug("max_pstate=TAC %x\n", max_pstate);
 		}
 	}
 
-skip_tar:
 	return max_pstate;
 }
 
@@ -1361,6 +1385,11 @@ static inline bool intel_pstate_platform_pwr_mgmt_exists(void) { return false; }
 static inline bool intel_pstate_has_acpi_ppc(void) { return false; }
 #endif /* CONFIG_ACPI */
 
+static const struct x86_cpu_id hwp_support_ids[] __initconst = {
+	{ X86_VENDOR_INTEL, 6, X86_MODEL_ANY, X86_FEATURE_HWP },
+	{}
+};
+
 static int __init intel_pstate_init(void)
 {
 	int cpu, rc = 0;
@@ -1370,15 +1399,14 @@ static int __init intel_pstate_init(void)
 	if (no_load)
 		return -ENODEV;
 
+	if (x86_match_cpu(hwp_support_ids) && !no_hwp) {
+		copy_cpu_funcs(&core_params.funcs);
+		hwp_active++;
+		goto hwp_cpu_matched;
+	}
+
 	id = x86_match_cpu(intel_pstate_cpu_ids);
 	if (!id)
-		return -ENODEV;
-
-	/*
-	 * The Intel pstate driver will be ignored if the platform
-	 * firmware has its own power management modes.
-	 */
-	if (intel_pstate_platform_pwr_mgmt_exists())
 		return -ENODEV;
 
 	cpu_def = (struct cpu_defaults *)id->driver_data;
@@ -1389,16 +1417,19 @@ static int __init intel_pstate_init(void)
 	if (intel_pstate_msrs_not_valid())
 		return -ENODEV;
 
+hwp_cpu_matched:
+	/*
+	 * The Intel pstate driver will be ignored if the platform
+	 * firmware has its own power management modes.
+	 */
+	if (intel_pstate_platform_pwr_mgmt_exists())
+		return -ENODEV;
+
 	pr_info("Intel P-state driver initializing.\n");
 
 	all_cpu_data = vzalloc(sizeof(void *) * num_possible_cpus());
 	if (!all_cpu_data)
 		return -ENOMEM;
-
-	if (static_cpu_has_safe(X86_FEATURE_HWP) && !no_hwp) {
-		pr_info("intel_pstate: HWP enabled\n");
-		hwp_active++;
-	}
 
 	if (!hwp_active && hwp_only)
 		goto out;
@@ -1409,6 +1440,9 @@ static int __init intel_pstate_init(void)
 
 	intel_pstate_debug_expose_params();
 	intel_pstate_sysfs_expose_params();
+
+	if (hwp_active)
+		pr_info("intel_pstate: HWP enabled\n");
 
 	return rc;
 out:

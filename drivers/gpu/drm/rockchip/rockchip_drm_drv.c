@@ -200,6 +200,7 @@ static int rockchip_drm_init_iommu(struct drm_device *drm_dev)
 	DRM_DEBUG("IOMMU context initialized (aperture: %#llx-%#llx)\n",
 		  start, end);
 	drm_mm_init(&private->mm, start, end - start + 1);
+	mutex_init(&private->mm_lock);
 
 	return 0;
 }
@@ -366,7 +367,7 @@ static void rockchip_drm_preclose(struct drm_device *dev,
 		rockchip_drm_crtc_cancel_pending_vblank(crtc, file_priv);
 }
 
-void rockchip_drm_lastclose(struct drm_device *dev)
+static void rockchip_drm_lastclose(struct drm_device *dev)
 {
 #ifdef CONFIG_DRM_FBDEV_EMULATION
 	struct rockchip_drm_private *priv = dev->dev_private;
@@ -390,9 +391,7 @@ static const struct file_operations rockchip_drm_driver_fops = {
 	.poll = drm_poll,
 	.read = drm_read,
 	.unlocked_ioctl = drm_ioctl,
-#ifdef CONFIG_COMPAT
 	.compat_ioctl = drm_compat_ioctl,
-#endif
 	.release = drm_release,
 };
 
@@ -461,11 +460,15 @@ void rockchip_drm_fb_resume(struct drm_device *drm)
 static int rockchip_drm_sys_suspend(struct device *dev)
 {
 	struct drm_device *drm = dev_get_drvdata(dev);
-	struct rockchip_drm_private *priv = drm->dev_private;
+	struct rockchip_drm_private *priv;
+
+	if (!drm)
+		return 0;
 
 	drm_kms_helper_poll_disable(drm);
 	rockchip_drm_fb_suspend(drm);
 
+	priv = drm->dev_private;
 	priv->state = drm_atomic_helper_suspend(drm);
 	if (IS_ERR(priv->state)) {
 		rockchip_drm_fb_resume(drm);
@@ -479,8 +482,12 @@ static int rockchip_drm_sys_suspend(struct device *dev)
 static int rockchip_drm_sys_resume(struct device *dev)
 {
 	struct drm_device *drm = dev_get_drvdata(dev);
-	struct rockchip_drm_private *priv = drm->dev_private;
+	struct rockchip_drm_private *priv;
 
+	if (!drm)
+		return 0;
+
+	priv = drm->dev_private;
 	drm_atomic_helper_resume(drm, priv->state);
 	rockchip_drm_fb_resume(drm);
 	drm_kms_helper_poll_enable(drm);
@@ -611,6 +618,10 @@ static int rockchip_drm_platform_probe(struct platform_device *pdev)
 		dev_err(dev, "No available vop found for display-subsystem.\n");
 		return -ENODEV;
 	}
+
+	if (is_support_iommu && !iommu_present(&platform_bus_type))
+		return -EPROBE_DEFER;
+
 	/*
 	 * For each bound crtc, bind the encoders attached to its
 	 * remote endpoint.

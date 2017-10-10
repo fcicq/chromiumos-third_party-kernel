@@ -41,7 +41,7 @@ static int msm_framebuffer_create_handle(struct drm_framebuffer *fb,
 static void msm_framebuffer_destroy(struct drm_framebuffer *fb)
 {
 	struct msm_framebuffer *msm_fb = to_msm_framebuffer(fb);
-	int i, n = drm_format_num_planes(fb->pixel_format);
+	int i, n = fb->format->num_planes;
 
 	DBG("destroy: FB ID: %d (%p)", fb->base.id, fb);
 
@@ -73,11 +73,11 @@ static const struct drm_framebuffer_funcs msm_framebuffer_funcs = {
 void msm_framebuffer_describe(struct drm_framebuffer *fb, struct seq_file *m)
 {
 	struct msm_framebuffer *msm_fb = to_msm_framebuffer(fb);
-	int i, n = drm_format_num_planes(fb->pixel_format);
+	int i, n = fb->format->num_planes;
 
 	seq_printf(m, "fb: %dx%d@%4.4s (%2d, ID:%d)\n",
-			fb->width, fb->height, (char *)&fb->pixel_format,
-			fb->refcount.refcount.counter, fb->base.id);
+			fb->width, fb->height, (char *)&fb->format->format,
+			drm_framebuffer_read_refcount(fb), fb->base.id);
 
 	for (i = 0; i < n; i++) {
 		seq_printf(m, "   %d: offset=%d pitch=%d, obj: ",
@@ -95,7 +95,7 @@ void msm_framebuffer_describe(struct drm_framebuffer *fb, struct seq_file *m)
 int msm_framebuffer_prepare(struct drm_framebuffer *fb, int id)
 {
 	struct msm_framebuffer *msm_fb = to_msm_framebuffer(fb);
-	int ret, i, n = drm_format_num_planes(fb->pixel_format);
+	int ret, i, n = fb->format->num_planes;
 	uint32_t iova;
 
 	for (i = 0; i < n; i++) {
@@ -111,7 +111,7 @@ int msm_framebuffer_prepare(struct drm_framebuffer *fb, int id)
 void msm_framebuffer_cleanup(struct drm_framebuffer *fb, int id)
 {
 	struct msm_framebuffer *msm_fb = to_msm_framebuffer(fb);
-	int i, n = drm_format_num_planes(fb->pixel_format);
+	int i, n = fb->format->num_planes;
 
 	for (i = 0; i < n; i++)
 		msm_gem_put_iova(msm_fb->planes[i], id);
@@ -145,8 +145,7 @@ struct drm_framebuffer *msm_framebuffer_create(struct drm_device *dev,
 	int ret, i, n = drm_format_num_planes(mode_cmd->pixel_format);
 
 	for (i = 0; i < n; i++) {
-		bos[i] = drm_gem_object_lookup(dev, file,
-				mode_cmd->handles[i]);
+		bos[i] = drm_gem_object_lookup(file, mode_cmd->handles[i]);
 		if (!bos[i]) {
 			ret = -ENXIO;
 			goto out_unref;
@@ -226,7 +225,7 @@ struct drm_framebuffer *msm_framebuffer_init(struct drm_device *dev,
 		msm_fb->planes[i] = bos[i];
 	}
 
-	drm_helper_mode_fill_fb_struct(fb, mode_cmd);
+	drm_helper_mode_fill_fb_struct(dev, fb, mode_cmd);
 
 	ret = drm_framebuffer_init(dev, fb, &msm_framebuffer_funcs);
 	if (ret) {

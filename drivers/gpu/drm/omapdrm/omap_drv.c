@@ -105,7 +105,7 @@ static void omap_atomic_complete(struct omap_atomic_state_commit *commit)
 
 	dispc_runtime_put();
 
-	drm_atomic_state_free(old_state);
+	drm_atomic_state_put(old_state);
 
 	/* Complete the commit, wake up any waiter. */
 	spin_lock(&priv->commit.lock);
@@ -187,7 +187,7 @@ static int omap_atomic_commit(struct drm_device *dev,
 	spin_unlock_irqrestore(&dev->event_lock, flags);
 
 	/* Swap the state, this is the point of no return. */
-	drm_atomic_helper_swap_state(dev, state);
+	drm_atomic_helper_swap_state(state, true);
 
 	if (async)
 		schedule_work(&commit->work);
@@ -306,9 +306,9 @@ static int omap_modeset_init_properties(struct drm_device *dev)
 	if (priv->has_dmm) {
 		dev->mode_config.rotation_property =
 			drm_mode_create_rotation_property(dev,
-				BIT(DRM_ROTATE_0) | BIT(DRM_ROTATE_90) |
-				BIT(DRM_ROTATE_180) | BIT(DRM_ROTATE_270) |
-				BIT(DRM_REFLECT_X) | BIT(DRM_REFLECT_Y));
+				DRM_ROTATE_0 | DRM_ROTATE_90 |
+				DRM_ROTATE_180 | DRM_ROTATE_270 |
+				DRM_REFLECT_X | DRM_REFLECT_Y);
 		if (!dev->mode_config.rotation_property)
 			return -ENOMEM;
 	}
@@ -566,7 +566,7 @@ static int ioctl_gem_cpu_prep(struct drm_device *dev, void *data,
 
 	VERB("%p:%p: handle=%d, op=%x", dev, file_priv, args->handle, args->op);
 
-	obj = drm_gem_object_lookup(dev, file_priv, args->handle);
+	obj = drm_gem_object_lookup(file_priv, args->handle);
 	if (!obj)
 		return -ENOENT;
 
@@ -589,7 +589,7 @@ static int ioctl_gem_cpu_fini(struct drm_device *dev, void *data,
 
 	VERB("%p:%p: handle=%d", dev, file_priv, args->handle);
 
-	obj = drm_gem_object_lookup(dev, file_priv, args->handle);
+	obj = drm_gem_object_lookup(file_priv, args->handle);
 	if (!obj)
 		return -ENOENT;
 
@@ -613,7 +613,7 @@ static int ioctl_gem_info(struct drm_device *dev, void *data,
 
 	VERB("%p:%p: handle=%d", dev, file_priv, args->handle);
 
-	obj = drm_gem_object_lookup(dev, file_priv, args->handle);
+	obj = drm_gem_object_lookup(file_priv, args->handle);
 	if (!obj)
 		return -ENOENT;
 

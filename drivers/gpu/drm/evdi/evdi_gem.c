@@ -26,6 +26,9 @@ struct evdi_gem_object *evdi_gem_alloc_object(struct drm_device *dev,
 		return NULL;
 	}
 
+	reservation_object_init(&obj->_resv);
+	obj->resv = &obj->_resv;
+
 	return obj;
 }
 
@@ -102,6 +105,7 @@ int evdi_gem_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 	default:
 		return VM_FAULT_SIGBUS;
 	}
+	return VM_FAULT_SIGBUS;
 }
 
 static int evdi_gem_get_pages(struct evdi_gem_object *obj)
@@ -191,11 +195,15 @@ void evdi_gem_free_object(struct drm_gem_object *gem_obj)
 
 	if (gem_obj->dev->vma_offset_manager)
 		drm_gem_free_mmap_offset(gem_obj);
+
+	reservation_object_fini(&obj->_resv);
+	obj->resv = NULL;
 }
 
-/* the dumb interface doesn't work with the GEM straight MMAP
-*  interface, it expects to do MMAP on the drm fd, like normal
-*/
+/*
+ * the dumb interface doesn't work with the GEM straight MMAP
+ * interface, it expects to do MMAP on the drm fd, like normal
+ */
 int evdi_gem_mmap(struct drm_file *file,
 		  struct drm_device *dev, uint32_t handle, uint64_t *offset)
 {
@@ -204,7 +212,7 @@ int evdi_gem_mmap(struct drm_file *file,
 	int ret = 0;
 
 	mutex_lock(&dev->struct_mutex);
-	obj = drm_gem_object_lookup(dev, file, handle);
+	obj = drm_gem_object_lookup(file, handle);
 	if (obj == NULL) {
 		ret = -ENOENT;
 		goto unlock;
@@ -256,55 +264,14 @@ static int evdi_prime_create(struct drm_device *dev,
 	return 0;
 }
 
-struct drm_gem_object *evdi_gem_prime_import(struct drm_device *dev,
-					     struct dma_buf *dma_buf)
-{
-	struct dma_buf_attachment *attach;
-	struct sg_table *sg;
-	struct evdi_gem_object *uobj;
-	int ret;
-
-	/* need to attach */
-	get_device(dev->dev);
-	attach = dma_buf_attach(dma_buf, dev->dev);
-	if (IS_ERR(attach)) {
-		put_device(dev->dev);
-		return ERR_CAST(attach);
-	}
-
-	get_dma_buf(dma_buf);
-
-	sg = dma_buf_map_attachment(attach, DMA_BIDIRECTIONAL);
-	if (IS_ERR(sg)) {
-		ret = PTR_ERR(sg);
-		goto fail_detach;
-	}
-
-	ret = evdi_prime_create(dev, dma_buf->size, sg, &uobj);
-	if (ret)
-		goto fail_unmap;
-
-	uobj->base.import_attach = attach;
-
-	return &uobj->base;
-
- fail_unmap:
-	dma_buf_unmap_attachment(attach, sg, DMA_BIDIRECTIONAL);
- fail_detach:
-	dma_buf_detach(dma_buf, attach);
-	dma_buf_put(dma_buf);
-	put_device(dev->dev);
-	return ERR_PTR(ret);
-}
-
 struct evdi_drm_dmabuf_attachment {
 	struct sg_table sgt;
 	enum dma_data_direction dir;
 	bool is_mapped;
 };
 
-static int evdi_attach_dma_buf(struct dma_buf *dmabuf,
-			       struct device *dev,
+static int evdi_attach_dma_buf(__always_unused struct dma_buf *dmabuf,
+			       __always_unused struct device *dev,
 			       struct dma_buf_attachment *attach)
 {
 	struct evdi_drm_dmabuf_attachment *evdi_attach;
@@ -319,7 +286,7 @@ static int evdi_attach_dma_buf(struct dma_buf *dmabuf,
 	return 0;
 }
 
-static void evdi_detach_dma_buf(struct dma_buf *dmabuf,
+static void evdi_detach_dma_buf(__always_unused struct dma_buf *dmabuf,
 				struct dma_buf_attachment *attach)
 {
 	struct evdi_drm_dmabuf_attachment *evdi_attach = attach->priv;
@@ -410,34 +377,41 @@ static struct sg_table *evdi_map_dma_buf(struct dma_buf_attachment *attach,
 	return sgt;
 }
 
-static void evdi_unmap_dma_buf(struct dma_buf_attachment *attach,
-			       struct sg_table *sgt,
-			       enum dma_data_direction dir)
+static void evdi_unmap_dma_buf(
+			__always_unused struct dma_buf_attachment *attach,
+			__always_unused struct sg_table *sgt,
+			__always_unused enum dma_data_direction dir)
 {
 }
 
-static void *evdi_dmabuf_kmap(struct dma_buf *dma_buf, unsigned long page_num)
-{
-	return NULL;
-}
-
-static void *evdi_dmabuf_kmap_atomic(struct dma_buf *dma_buf,
-				     unsigned long page_num)
+static void *evdi_dmabuf_kmap(__always_unused struct dma_buf *dma_buf,
+			__always_unused unsigned long page_num)
 {
 	return NULL;
 }
 
-static void evdi_dmabuf_kunmap(struct dma_buf *dma_buf,
-			       unsigned long page_num, void *addr)
+static void *evdi_dmabuf_kmap_atomic(__always_unused struct dma_buf *dma_buf,
+				     __always_unused unsigned long page_num)
+{
+	return NULL;
+}
+
+static void evdi_dmabuf_kunmap(
+			__always_unused struct dma_buf *dma_buf,
+			__always_unused unsigned long page_num,
+			__always_unused void *addr)
 {
 }
 
-static void evdi_dmabuf_kunmap_atomic(struct dma_buf *dma_buf,
-				      unsigned long page_num, void *addr)
+static void evdi_dmabuf_kunmap_atomic(
+			__always_unused struct dma_buf *dma_buf,
+			__always_unused unsigned long page_num,
+			__always_unused void *addr)
 {
 }
 
-static int evdi_dmabuf_mmap(struct dma_buf *dma_buf, struct vm_area_struct *vma)
+static int evdi_dmabuf_mmap(__always_unused struct dma_buf *dma_buf,
+			__always_unused struct vm_area_struct *vma)
 {
 	return -EINVAL;
 }
@@ -456,16 +430,68 @@ static struct dma_buf_ops evdi_dmabuf_ops = {
 	.release = drm_gem_dmabuf_release,
 };
 
+struct drm_gem_object *evdi_gem_prime_import(struct drm_device *dev,
+					     struct dma_buf *dma_buf)
+{
+	struct dma_buf_attachment *attach;
+	struct sg_table *sg;
+	struct evdi_gem_object *uobj;
+	int ret;
+
+	/* check if our object */
+	if (dma_buf->ops == &evdi_dmabuf_ops) {
+		uobj = to_evdi_bo(dma_buf->priv);
+		if (uobj->base.dev == dev) {
+			drm_gem_object_reference(&uobj->base);
+			return &uobj->base;
+		}
+	}
+
+	/* need to attach */
+	get_device(dev->dev);
+	attach = dma_buf_attach(dma_buf, dev->dev);
+	if (IS_ERR(attach)) {
+		put_device(dev->dev);
+		return ERR_CAST(attach);
+	}
+
+	get_dma_buf(dma_buf);
+
+	sg = dma_buf_map_attachment(attach, DMA_BIDIRECTIONAL);
+	if (IS_ERR(sg)) {
+		ret = PTR_ERR(sg);
+		goto fail_detach;
+	}
+
+	ret = evdi_prime_create(dev, dma_buf->size, sg, &uobj);
+	if (ret)
+		goto fail_unmap;
+
+	uobj->base.import_attach = attach;
+	uobj->resv = attach->dmabuf->resv;
+
+	return &uobj->base;
+
+ fail_unmap:
+	dma_buf_unmap_attachment(attach, sg, DMA_BIDIRECTIONAL);
+ fail_detach:
+	dma_buf_detach(dma_buf, attach);
+	dma_buf_put(dma_buf);
+	put_device(dev->dev);
+	return ERR_PTR(ret);
+}
+
 struct dma_buf *evdi_gem_prime_export(struct drm_device *dev,
 				      struct drm_gem_object *obj, int flags)
 {
+	struct evdi_gem_object *evdi_obj = to_evdi_bo(obj);
 	struct dma_buf_export_info exp_info = {
 		.exp_name = "evdi",
 		.ops = &evdi_dmabuf_ops,
 		.size = obj->size,
 		.flags = flags,
-		.resv = NULL,
+		.resv = evdi_obj->resv,
 		.priv = obj
 	};
-	return dma_buf_export(&exp_info);
+	return drm_gem_dmabuf_export(dev, &exp_info);
 }

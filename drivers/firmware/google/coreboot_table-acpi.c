@@ -3,7 +3,7 @@
  *
  * Using ACPI to locate Coreboot table and provide coreboot table access.
  *
- * Copyright 2016 Google Inc.
+ * Copyright 2017 Google Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License v2.0 as published by
@@ -26,12 +26,6 @@
 
 #include "coreboot_table.h"
 
-static const struct acpi_device_id cros_coreboot_acpi_match[] = {
-	{ "GOOGCB00", 0 },
-	{ }
-};
-MODULE_DEVICE_TABLE(acpi, cros_coreboot_acpi_match);
-
 static int coreboot_table_acpi_probe(struct platform_device *pdev)
 {
 	phys_addr_t phyaddr;
@@ -52,6 +46,7 @@ static int coreboot_table_acpi_probe(struct platform_device *pdev)
 	header = ioremap_cache(phyaddr, sizeof(*header));
 	if (header == NULL)
 		return -ENOMEM;
+
 	ptr = ioremap_cache(phyaddr,
 			    header->header_bytes + header->table_bytes);
 	iounmap(header);
@@ -65,6 +60,13 @@ static int coreboot_table_acpi_remove(struct platform_device *pdev)
 {
 	return coreboot_table_exit();
 }
+
+static const struct acpi_device_id cros_coreboot_acpi_match[] = {
+	{ "GOOGCB00", 0 },
+	{ "BOOT0000", 0 },
+	{ }
+};
+MODULE_DEVICE_TABLE(acpi, cros_coreboot_acpi_match);
 
 static struct platform_driver coreboot_table_acpi_driver = {
 	.probe = coreboot_table_acpi_probe,

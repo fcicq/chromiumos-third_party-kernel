@@ -92,7 +92,8 @@ int mwifiex_init_priv(struct mwifiex_private *priv)
 	for (i = 0; i < ARRAY_SIZE(priv->wep_key); i++)
 		memset(&priv->wep_key[i], 0, sizeof(struct mwifiex_wep_key));
 	priv->wep_key_curr_index = 0;
-	priv->curr_pkt_filter = HostCmd_ACT_MAC_RX_ON | HostCmd_ACT_MAC_TX_ON |
+	priv->curr_pkt_filter = HostCmd_ACT_MAC_DYNAMIC_BW_ENABLE |
+				HostCmd_ACT_MAC_RX_ON | HostCmd_ACT_MAC_TX_ON |
 				HostCmd_ACT_MAC_ETHERNETII_ENABLE;
 
 	priv->beacon_period = 100; /* beacon interval */
@@ -110,6 +111,8 @@ int mwifiex_init_priv(struct mwifiex_private *priv)
 	priv->tx_power_level = 0;
 	priv->max_tx_power_level = 0;
 	priv->min_tx_power_level = 0;
+	priv->tx_ant = 0;
+	priv->rx_ant = 0;
 	priv->tx_rate = 0;
 	priv->rxpd_htinfo = 0;
 	priv->rxpd_rate = 0;
@@ -297,6 +300,7 @@ static void mwifiex_init_adapter(struct mwifiex_adapter *adapter)
 	memset(&adapter->arp_filter, 0, sizeof(adapter->arp_filter));
 	adapter->arp_filter_size = 0;
 	adapter->max_mgmt_ie_index = MAX_MGMT_IE_INDEX;
+	adapter->mfg_mode = mfg_mode;
 	adapter->key_api_major_ver = 0;
 	adapter->key_api_minor_ver = 0;
 	eth_broadcast_addr(adapter->perm_addr);
@@ -328,17 +332,9 @@ void mwifiex_wake_up_net_dev_queue(struct net_device *netdev,
 					struct mwifiex_adapter *adapter)
 {
 	unsigned long dev_queue_flags;
-	unsigned int i;
 
 	spin_lock_irqsave(&adapter->queue_lock, dev_queue_flags);
-
-	for (i = 0; i < netdev->num_tx_queues; i++) {
-		struct netdev_queue *txq = netdev_get_tx_queue(netdev, i);
-
-		if (netif_tx_queue_stopped(txq))
-			netif_tx_wake_queue(txq);
-	}
-
+	netif_tx_wake_all_queues(netdev);
 	spin_unlock_irqrestore(&adapter->queue_lock, dev_queue_flags);
 }
 
@@ -349,30 +345,20 @@ void mwifiex_stop_net_dev_queue(struct net_device *netdev,
 					struct mwifiex_adapter *adapter)
 {
 	unsigned long dev_queue_flags;
-	unsigned int i;
 
 	spin_lock_irqsave(&adapter->queue_lock, dev_queue_flags);
-
-	for (i = 0; i < netdev->num_tx_queues; i++) {
-		struct netdev_queue *txq = netdev_get_tx_queue(netdev, i);
-
-		if (!netif_tx_queue_stopped(txq))
-			netif_tx_stop_queue(txq);
-	}
-
+	netif_tx_stop_all_queues(netdev);
 	spin_unlock_irqrestore(&adapter->queue_lock, dev_queue_flags);
 }
 
 /*
- *  This function releases the lock variables and frees the locks and
- *  associated locks.
+ * This function invalidates the list heads.
  */
-static void mwifiex_free_lock_list(struct mwifiex_adapter *adapter)
+static void mwifiex_invalidate_lists(struct mwifiex_adapter *adapter)
 {
 	struct mwifiex_private *priv;
 	s32 i, j;
 
-	/* Free lists */
 	list_del(&adapter->cmd_free_q);
 	list_del(&adapter->cmd_pending_q);
 	list_del(&adapter->scan_pending_q);
@@ -405,18 +391,15 @@ static void mwifiex_free_lock_list(struct mwifiex_adapter *adapter)
 static void
 mwifiex_adapter_cleanup(struct mwifiex_adapter *adapter)
 {
-	if (!adapter) {
-		pr_err("%s: adapter is NULL\n", __func__);
-		return;
-	}
-
 	del_timer(&adapter->wakeup_timer);
 	mwifiex_cancel_all_pending_cmd(adapter);
 	wake_up_interruptible(&adapter->cmd_wait_q.wait);
 	wake_up_interruptible(&adapter->hs_activate_wait_q);
+}
 
-	/* Free lock variables */
-	mwifiex_free_lock_list(adapter);
+void mwifiex_free_cmd_buffers(struct mwifiex_adapter *adapter)
+{
+	mwifiex_invalidate_lists(adapter);
 
 	/* Free command buffer */
 	mwifiex_dbg(adapter, INFO, "info: free cmd buffer\n");
@@ -435,7 +418,6 @@ int mwifiex_init_lock_list(struct mwifiex_adapter *adapter)
 	struct mwifiex_private *priv;
 	s32 i, j;
 
-	spin_lock_init(&adapter->mwifiex_lock);
 	spin_lock_init(&adapter->int_lock);
 	spin_lock_init(&adapter->main_proc_lock);
 	spin_lock_init(&adapter->mwifiex_cmd_lock);
@@ -533,15 +515,22 @@ int mwifiex_init_fw(struct mwifiex_adapter *adapter)
 				return -1;
 		}
 	}
+	if (adapter->mfg_mode) {
+		adapter->hw_status = MWIFIEX_HW_STATUS_READY;
+		ret = -EINPROGRESS;
+	} else {
+		for (i = 0; i < adapter->priv_num; i++) {
+			if (adapter->priv[i]) {
+				ret = mwifiex_sta_init_cmd(adapter->priv[i],
+							   first_sta, true);
+				if (ret == -1)
+					return -1;
 
-	for (i = 0; i < adapter->priv_num; i++) {
-		if (adapter->priv[i]) {
-			ret = mwifiex_sta_init_cmd(adapter->priv[i], first_sta,
-						   true);
-			if (ret == -1)
-				return -1;
+				first_sta = false;
+			}
 
-			first_sta = false;
+
+
 		}
 	}
 
@@ -659,8 +648,7 @@ mwifiex_shutdown_drv(struct mwifiex_adapter *adapter)
 
 			mwifiex_clean_auto_tdls(priv);
 			mwifiex_abort_cac(priv);
-			mwifiex_clean_txrx(priv);
-			mwifiex_delete_bss_prio_tbl(priv);
+			mwifiex_free_priv(priv);
 		}
 	}
 
@@ -683,11 +671,8 @@ mwifiex_shutdown_drv(struct mwifiex_adapter *adapter)
 
 	spin_unlock_irqrestore(&adapter->rx_proc_lock, flags);
 
-	spin_lock(&adapter->mwifiex_lock);
-
 	mwifiex_adapter_cleanup(adapter);
 
-	spin_unlock(&adapter->mwifiex_lock);
 	adapter->hw_status = MWIFIEX_HW_STATUS_NOT_READY;
 }
 
@@ -757,3 +742,4 @@ poll_fw:
 
 	return ret;
 }
+EXPORT_SYMBOL_GPL(mwifiex_dnld_fw);

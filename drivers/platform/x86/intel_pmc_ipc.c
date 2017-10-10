@@ -32,6 +32,9 @@
 #include <linux/notifier.h>
 #include <linux/suspend.h>
 #include <linux/acpi.h>
+#include <linux/io-64-nonatomic-lo-hi.h>
+
+#include <asm/processor.h>
 #include <asm/intel_pmc_ipc.h>
 #include <linux/platform_data/itco_wdt.h>
 
@@ -53,6 +56,20 @@
 #define IPC_DPTR		0x0C
 #define IPC_WRITE_BUFFER	0x80
 #define IPC_READ_BUFFER		0x90
+
+/* PMC Global Control Registers */
+#define GCR_TELEM_DEEP_S0IX_OFFSET	0x1078
+#define GCR_TELEM_SHLW_S0IX_OFFSET	0x1080
+
+#define INTEL_FAM6_ATOM_GOLDMONT 0x5C
+
+/* Convert S0ix residency to usecs based on XTAL frequency */
+#define S0IX_RESIDENCY_IN_USECS(d, s, x)	\
+({						\
+	u64 result = 1000ull * ((d) + (s));	\
+	do_div(result, (x));			\
+	result;					\
+})
 
 /*
  * 16-byte buffer for sending data associated with IPC command.
@@ -112,6 +129,8 @@ static struct intel_pmc_ipc_dev {
 	/* gcr */
 	resource_size_t gcr_base;
 	int gcr_size;
+	bool has_gcr_regs;
+	u32 xtal_khz;
 
 	/* punit */
 	struct platform_device *punit_dev;
@@ -167,7 +186,7 @@ static inline void ipc_data_writel(u32 data, u32 offset)
 	writel(data, ipcdev.ipc_base + IPC_WRITE_BUFFER + offset);
 }
 
-static inline u8 ipc_data_readb(u32 offset)
+static inline u8 __maybe_unused ipc_data_readb(u32 offset)
 {
 	return readb(ipcdev.ipc_base + IPC_READ_BUFFER + offset);
 }
@@ -175,6 +194,23 @@ static inline u8 ipc_data_readb(u32 offset)
 static inline u32 ipc_data_readl(u32 offset)
 {
 	return readl(ipcdev.ipc_base + IPC_READ_BUFFER + offset);
+}
+
+static inline u64 gcr_data_readq(u32 offset)
+{
+	return readq(ipcdev.ipc_base + offset);
+}
+
+static int get_xtal_clock_freq(void)
+{
+	switch (boot_cpu_data.x86_model) {
+	case INTEL_FAM6_ATOM_GOLDMONT:
+		ipcdev.xtal_khz = 19200;
+		break;
+	default:
+		return -EINVAL;
+	}
+	return 0;
 }
 
 static int intel_pmc_ipc_check_status(void)
@@ -749,7 +785,8 @@ static int ipc_plat_get_res(struct platform_device *pdev)
 		dev_err(&pdev->dev, "Failed to get ipc resource\n");
 		return -ENXIO;
 	}
-	size = PLAT_RESOURCE_IPC_SIZE;
+	size = PLAT_RESOURCE_IPC_SIZE + PLAT_RESOURCE_GCR_SIZE;
+
 	if (!request_mem_region(res->start, size, pdev->name)) {
 		dev_err(&pdev->dev, "Failed to request ipc resource\n");
 		return -EBUSY;
@@ -762,7 +799,7 @@ static int ipc_plat_get_res(struct platform_device *pdev)
 	}
 	ipcdev.ipc_base = addr;
 
-	ipcdev.gcr_base = res->start + size;
+	ipcdev.gcr_base = res->start + PLAT_RESOURCE_IPC_SIZE;
 	ipcdev.gcr_size = PLAT_RESOURCE_GCR_SIZE;
 	dev_info(&pdev->dev, "ipc res: %pR\n", res);
 
@@ -784,6 +821,31 @@ static int ipc_plat_get_res(struct platform_device *pdev)
 
 	return 0;
 }
+
+/**
+ * intel_pmc_s0ix_counter_read() - Read S0ix residency.
+ * @data: Out param that contains current S0ix residency count.
+ *
+ * Return: an error code or 0 on success.
+ */
+int intel_pmc_s0ix_counter_read(u64 *data)
+{
+	u64 deep, shlw;
+
+	if (!ipcdev.has_gcr_regs)
+		return -EACCES;
+
+	/* Broxton SoC supports deep and shallow S0ix states, hence the total
+	 * S0ix residency is a sum of both deep and shallow S0ix states.
+	 */
+	deep = gcr_data_readq(GCR_TELEM_DEEP_S0IX_OFFSET);
+	shlw = gcr_data_readq(GCR_TELEM_SHLW_S0IX_OFFSET);
+
+	*data = S0IX_RESIDENCY_IN_USECS(deep, shlw, ipcdev.xtal_khz);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(intel_pmc_s0ix_counter_read);
 
 #ifdef CONFIG_ACPI
 static const struct acpi_device_id ipc_acpi_ids[] = {
@@ -826,12 +888,20 @@ static int ipc_plat_probe(struct platform_device *pdev)
 		goto err_irq;
 	}
 
+	ret = get_xtal_clock_freq();
+	if (ret) {
+		dev_err(&pdev->dev, "Failed to get XTAL freq\n");
+		goto err_sys;
+	}
+
 	ret = sysfs_create_group(&pdev->dev.kobj, &intel_ipc_group);
 	if (ret) {
 		dev_err(&pdev->dev, "Failed to create sysfs group %d\n",
 			ret);
 		goto err_sys;
 	}
+
+	ipcdev.has_gcr_regs = true;
 
 	return 0;
 err_sys:
@@ -844,8 +914,11 @@ err_device:
 	iounmap(ipcdev.ipc_base);
 	res = platform_get_resource(pdev, IORESOURCE_MEM,
 				    PLAT_RESOURCE_IPC_INDEX);
-	if (res)
-		release_mem_region(res->start, PLAT_RESOURCE_IPC_SIZE);
+	if (res) {
+		release_mem_region(res->start,
+				   PLAT_RESOURCE_IPC_SIZE +
+				   PLAT_RESOURCE_GCR_SIZE);
+	}
 	return ret;
 }
 
@@ -861,8 +934,11 @@ static int ipc_plat_remove(struct platform_device *pdev)
 	iounmap(ipcdev.ipc_base);
 	res = platform_get_resource(pdev, IORESOURCE_MEM,
 				    PLAT_RESOURCE_IPC_INDEX);
-	if (res)
-		release_mem_region(res->start, PLAT_RESOURCE_IPC_SIZE);
+	if (res) {
+		release_mem_region(res->start,
+				   PLAT_RESOURCE_IPC_SIZE +
+				   PLAT_RESOURCE_GCR_SIZE);
+	}
 	ipcdev.dev = NULL;
 	return 0;
 }

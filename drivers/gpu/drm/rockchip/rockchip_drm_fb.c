@@ -83,7 +83,7 @@ static int rockchip_drm_get_reservations(struct drm_framebuffer *fb,
 					  struct reservation_object **resvs,
 					  unsigned int *num_resvs)
 {
-	int num_planes = drm_format_num_planes(fb->pixel_format);
+	int num_planes = drm_format_num_planes(fb->format->format);
 	int i;
 
 	if (num_planes <= 0) {
@@ -132,7 +132,7 @@ rockchip_fb_alloc(struct drm_device *dev, const struct drm_mode_fb_cmd2 *mode_cm
 	if (!rockchip_fb)
 		return ERR_PTR(-ENOMEM);
 
-	drm_helper_mode_fill_fb_struct(&rockchip_fb->fb, mode_cmd);
+	drm_helper_mode_fill_fb_struct(dev, &rockchip_fb->fb, mode_cmd);
 
 	for (i = 0; i < num_planes; i++)
 		rockchip_fb->obj[i] = obj[i];
@@ -172,8 +172,7 @@ rockchip_user_fb_create(struct drm_device *dev, struct drm_file *file_priv,
 		unsigned int height = mode_cmd->height / (i ? vsub : 1);
 		unsigned int min_size;
 
-		obj = drm_gem_object_lookup(dev, file_priv,
-					    mode_cmd->handles[i]);
+		obj = drm_gem_object_lookup(file_priv, mode_cmd->handles[i]);
 		if (!obj) {
 			dev_err(dev->dev, "Failed to lookup GEM object\n");
 			ret = -ENXIO;
@@ -228,8 +227,8 @@ static void wait_for_fences(struct drm_device *dev,
 
 		WARN_ON(!plane->state->fb);
 
-		fence_wait(plane->state->fence, false);
-		fence_put(plane->state->fence);
+		dma_fence_wait(plane->state->fence, false);
+		dma_fence_put(plane->state->fence);
 		plane->state->fence = NULL;
 	}
 }
@@ -378,7 +377,7 @@ rockchip_atomic_commit_complete(struct rockchip_atomic_commit *commit)
 	/* If enabling dmc, enable it after mode set changes take effect. */
 	rockchip_drm_check_and_unblock_dmcfreq(commit);
 
-	drm_atomic_state_free(state);
+	drm_atomic_state_put(state);
 }
 
 void rockchip_drm_atomic_work(struct kthread_work *work)
@@ -389,9 +388,9 @@ void rockchip_drm_atomic_work(struct kthread_work *work)
 	rockchip_atomic_commit_complete(commit);
 }
 
-int rockchip_drm_atomic_commit(struct drm_device *dev,
-			       struct drm_atomic_state *state,
-			       bool nonblock)
+static int rockchip_drm_atomic_commit(struct drm_device *dev,
+				      struct drm_atomic_state *state,
+				      bool nonblock)
 {
 	struct rockchip_drm_private *private = dev->dev_private;
 	struct rockchip_atomic_commit *commit = &private->commit;
@@ -426,11 +425,12 @@ int rockchip_drm_atomic_commit(struct drm_device *dev,
 		}
 	}
 
-	drm_atomic_helper_swap_state(dev, state);
+	drm_atomic_helper_swap_state(state, true);
 
 	commit->dev = dev;
 	commit->state = state;
 
+	drm_atomic_state_get(state);
 	if (nonblock)
 		queue_kthread_work(&commit->worker, &commit->work);
 	else
@@ -464,6 +464,8 @@ rockchip_drm_framebuffer_init(struct drm_device *dev,
 
 void rockchip_drm_mode_config_init(struct drm_device *dev)
 {
+	unsigned long rotation_flags = DRM_ROTATE_0 | DRM_REFLECT_Y;
+
 	dev->mode_config.min_width = 0;
 	dev->mode_config.min_height = 0;
 
@@ -476,6 +478,8 @@ void rockchip_drm_mode_config_init(struct drm_device *dev)
 	dev->mode_config.max_height = 4096;
 
 	dev->mode_config.allow_fb_modifiers = true;
+	dev->mode_config.rotation_property =
+		drm_mode_create_rotation_property(dev, rotation_flags);
 
 	dev->mode_config.funcs = &rockchip_drm_mode_config_funcs;
 }

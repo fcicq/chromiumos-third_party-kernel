@@ -201,6 +201,7 @@ static struct skl_dsp_loader_ops bxt_get_loader_ops(void)
 static const struct skl_dsp_ops dsp_ops[] = {
 	{
 		.id = 0x9d70,
+		.num_cores = 2,
 		.loader_ops = skl_get_loader_ops,
 		.init = skl_sst_dsp_init,
 		.init_fw = skl_sst_init_fw,
@@ -208,13 +209,23 @@ static const struct skl_dsp_ops dsp_ops[] = {
 	},
 	{
 		.id = 0x9d71,
+		.num_cores = 2,
 		.loader_ops = skl_get_loader_ops,
-		.init = skl_sst_dsp_init,
+		.init = kbl_sst_dsp_init,
 		.init_fw = skl_sst_init_fw,
 		.cleanup = skl_sst_dsp_cleanup
 	},
 	{
 		.id = 0x5a98,
+		.num_cores = 2,
+		.loader_ops = bxt_get_loader_ops,
+		.init = bxt_sst_dsp_init,
+		.init_fw = bxt_sst_init_fw,
+		.cleanup = bxt_sst_dsp_cleanup
+	},
+	{
+		.id = 0x3198,
+		.num_cores = 2,
 		.loader_ops = bxt_get_loader_ops,
 		.init = bxt_sst_dsp_init,
 		.init_fw = bxt_sst_init_fw,
@@ -242,6 +253,7 @@ int skl_init_dsp(struct skl *skl)
 	struct skl_dsp_loader_ops loader_ops;
 	int irq = bus->irq;
 	const struct skl_dsp_ops *ops;
+	struct skl_dsp_cores *cores;
 	int ret;
 
 	/* enable ppcap interrupt */
@@ -256,8 +268,10 @@ int skl_init_dsp(struct skl *skl)
 	}
 
 	ops = skl_get_dsp_ops(skl->pci->device);
-	if (!ops)
-		return -EIO;
+	if (!ops) {
+		ret = -EIO;
+		goto unmap_mmio;
+	}
 
 	loader_ops = ops->loader_ops();
 	ret = ops->init(bus->dev, mmio_base, irq,
@@ -265,9 +279,46 @@ int skl_init_dsp(struct skl *skl)
 				&skl->skl_sst);
 
 	if (ret < 0)
-		return ret;
+		goto unmap_mmio;
 
+	skl->skl_sst->dsp_ops = ops;
+	cores = &skl->skl_sst->cores;
+	cores->count = ops->num_cores;
+
+	cores->state = kcalloc(cores->count, sizeof(*cores->state), GFP_KERNEL);
+	if (!cores->state) {
+		ret = -ENOMEM;
+		goto unmap_mmio;
+	}
+
+	cores->usage_count = kcalloc(cores->count, sizeof(*cores->usage_count),
+				     GFP_KERNEL);
+	if (!cores->usage_count) {
+		ret = -ENOMEM;
+		goto free_core_state;
+	}
+
+	cores->state = kcalloc(cores->count, sizeof(*cores->state), GFP_KERNEL);
+	if (!cores->state)
+		return -ENOMEM;
+
+	cores->usage_count = kcalloc(cores->count, sizeof(*cores->usage_count),
+				     GFP_KERNEL);
+	if (!cores->usage_count) {
+		kfree(cores->state);
+		return -ENOMEM;
+	}
+
+	skl->skl_sst->dsp_ops = ops;
 	dev_dbg(bus->dev, "dsp registration status=%d\n", ret);
+
+	return 0;
+
+free_core_state:
+	kfree(cores->state);
+
+unmap_mmio:
+	iounmap(mmio_base);
 
 	return ret;
 }
@@ -277,16 +328,14 @@ int skl_free_dsp(struct skl *skl)
 	struct hdac_ext_bus *ebus = &skl->ebus;
 	struct hdac_bus *bus = ebus_to_hbus(ebus);
 	struct skl_sst *ctx = skl->skl_sst;
-	const struct skl_dsp_ops *ops;
 
 	/* disable  ppcap interrupt */
 	snd_hdac_ext_bus_ppcap_int_enable(&skl->ebus, false);
 
-	ops = skl_get_dsp_ops(skl->pci->device);
-	if (!ops)
-		return -EIO;
+	ctx->dsp_ops->cleanup(bus->dev, ctx);
 
-	ops->cleanup(bus->dev, ctx);
+	kfree(ctx->cores.state);
+	kfree(ctx->cores.usage_count);
 
 	if (ctx->dsp->addr.lpe)
 		iounmap(ctx->dsp->addr.lpe);
@@ -523,8 +572,10 @@ static void skl_setup_cpr_gateway_cfg(struct skl_sst *ctx,
 }
 
 #define DMA_CONTROL_ID 5
+#define DMA_I2S_BLOB_SIZE 21
 
-int skl_dsp_set_dma_control(struct skl_sst *ctx, struct skl_module_cfg *mconfig)
+int skl_dsp_set_dma_control(struct skl_sst *ctx, u32 *caps,
+				u32 caps_size, u32 node_id)
 {
 	struct skl_dma_control *dma_ctrl;
 	struct skl_ipc_large_config_msg msg = {0};
@@ -534,24 +585,27 @@ int skl_dsp_set_dma_control(struct skl_sst *ctx, struct skl_module_cfg *mconfig)
 	/*
 	 * if blob size zero, then return
 	 */
-	if (mconfig->formats_config.caps_size == 0)
+	if (caps_size == 0)
 		return 0;
 
 	msg.large_param_id = DMA_CONTROL_ID;
-	msg.param_data_size = sizeof(struct skl_dma_control) +
-				mconfig->formats_config.caps_size;
+	msg.param_data_size = sizeof(struct skl_dma_control) + caps_size;
 
 	dma_ctrl = kzalloc(msg.param_data_size, GFP_KERNEL);
 	if (dma_ctrl == NULL)
 		return -ENOMEM;
 
-	dma_ctrl->node_id = skl_get_node_id(ctx, mconfig);
+	dma_ctrl->node_id = node_id;
 
-	/* size in dwords */
-	dma_ctrl->config_length = mconfig->formats_config.caps_size / 4;
+	/*
+	 * NHLT blob may contain additional configs along with i2s blob.
+	 * firmware expects only the i2s blob size as the config_length.
+	 * So fix to i2s blob size.
+	 * size in dwords.
+	 */
+	dma_ctrl->config_length = DMA_I2S_BLOB_SIZE;
 
-	memcpy(dma_ctrl->config_data, mconfig->formats_config.caps,
-				mconfig->formats_config.caps_size);
+	memcpy(dma_ctrl->config_data, caps, caps_size);
 
 	err = skl_ipc_set_large_config(&ctx->ipc, &msg, (u32 *)dma_ctrl);
 
@@ -855,7 +909,7 @@ static void skl_clear_module_state(struct skl_module_pin *mpin, int max,
 	}
 
 	if (!found)
-		mcfg->m_state = SKL_MODULE_UNINIT;
+		mcfg->m_state = SKL_MODULE_INIT_DONE;
 	return;
 }
 
@@ -1220,4 +1274,90 @@ int skl_get_module_params(struct skl_sst *ctx, u32 *params, int size,
 	msg.large_param_id = param_id;
 
 	return skl_ipc_get_large_config(&ctx->ipc, &msg, params);
+}
+
+void skl_fill_clk_ipc(struct skl_clk_rate_cfg_table *rcfg, u8 clk_type)
+{
+	struct nhlt_fmt_cfg *fmt_cfg;
+	struct wav_fmt *wfmt;
+	union skl_clk_ctrl_ipc *ipc;
+
+	if (!rcfg)
+		return;
+
+	ipc = &rcfg->dma_ctl_ipc;
+	if (clk_type == SKL_SCLK_FS) {
+		fmt_cfg = (struct nhlt_fmt_cfg *)rcfg->config;
+		wfmt = &fmt_cfg->fmt_ext.fmt;
+
+		/* Remove TLV Header size */
+		ipc->sclk_fs.hdr.size = sizeof(struct skl_dmactrl_sclkfs_cfg) -
+						sizeof(struct skl_tlv_hdr);
+		ipc->sclk_fs.sampling_frequency = wfmt->samples_per_sec;
+		ipc->sclk_fs.bit_depth = wfmt->bits_per_sample;
+		ipc->sclk_fs.valid_bit_depth =
+			fmt_cfg->fmt_ext.sample.valid_bits_per_sample;
+		ipc->sclk_fs.number_of_channels = wfmt->channels;
+	} else {
+		ipc->mclk.hdr.type = DMA_CLK_CONTROLS;
+		/* Remove TLV Header size */
+		ipc->mclk.hdr.size = sizeof(struct skl_dmactrl_mclk_cfg) -
+						sizeof(struct skl_tlv_hdr);
+	}
+}
+
+/* Sends dma control IPC to turn the clock ON/OFF */
+int skl_send_clk_dma_control(struct skl *skl, struct skl_clk_rate_cfg_table
+				*rcfg, u32 vbus_id, u8 clk_type, bool enable)
+{
+	struct nhlt_fmt_cfg *fmt_cfg;
+	struct nhlt_specific_cfg *sp_cfg;
+	union skl_clk_ctrl_ipc *ipc;
+	void *i2s_config = NULL;
+	u8 *data, size;
+	u32 i2s_config_size, node_id = 0;
+	int ret;
+
+	if (!rcfg)
+		return -EIO;
+
+	ipc = &rcfg->dma_ctl_ipc;
+	fmt_cfg = (struct nhlt_fmt_cfg *)rcfg->config;
+	sp_cfg = &fmt_cfg->config;
+	if (clk_type == SKL_SCLK_FS) {
+		ipc->sclk_fs.hdr.type =
+			enable ? DMA_TRANSMITION_START : DMA_TRANSMITION_STOP;
+		data = (u8 *)&ipc->sclk_fs;
+		size = sizeof(struct skl_dmactrl_sclkfs_cfg);
+	} else {
+		/* 1 to enable mclk, 0 to enable sclk */
+		if (clk_type == SKL_SCLK)
+			ipc->mclk.mclk = 0;
+		else
+			ipc->mclk.mclk = 1;
+
+		ipc->mclk.keep_running = enable;
+		ipc->mclk.warm_up_over = enable;
+		ipc->mclk.clk_stop_over = !enable;
+		data = (u8 *)&ipc->mclk;
+		size = sizeof(struct skl_dmactrl_mclk_cfg);
+	}
+
+	i2s_config_size = sp_cfg->size + size;
+	i2s_config = kzalloc(i2s_config_size, GFP_KERNEL);
+	if (!i2s_config)
+		return -ENOMEM;
+
+	/* copy blob */
+	memcpy(i2s_config, sp_cfg->caps, sp_cfg->size);
+
+	/* copy additional dma controls information */
+	memcpy(i2s_config + sp_cfg->size, data, size);
+
+	node_id = ((SKL_DMA_I2S_LINK_INPUT_CLASS << 8) | (vbus_id << 4));
+	ret = skl_dsp_set_dma_control(skl->skl_sst, (u32 *)i2s_config,
+					i2s_config_size, node_id);
+	kfree(i2s_config);
+
+	return ret;
 }

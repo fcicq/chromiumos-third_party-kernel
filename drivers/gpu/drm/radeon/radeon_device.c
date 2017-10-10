@@ -127,6 +127,10 @@ static struct radeon_px_quirk radeon_px_quirk_list[] = {
 	 * https://bugzilla.kernel.org/show_bug.cgi?id=51381
 	 */
 	{ PCI_VENDOR_ID_ATI, 0x6840, 0x1043, 0x2122, RADEON_PX_QUIRK_DISABLE_PX },
+	/* Asus K53TK laptop with AMD A6-3420M APU and Radeon 7670m GPU
+	 * https://bugs.freedesktop.org/show_bug.cgi?id=101491
+	 */
+	{ PCI_VENDOR_ID_ATI, 0x6741, 0x1043, 0x2122, RADEON_PX_QUIRK_DISABLE_PX },
 	/* macbook pro 8.2 */
 	{ PCI_VENDOR_ID_ATI, 0x6741, PCI_VENDOR_ID_APPLE, 0x00e2, RADEON_PX_QUIRK_LONG_WAKEUP },
 	{ 0, 0, 0, 0, 0 },
@@ -1319,7 +1323,7 @@ int radeon_device_init(struct radeon_device *rdev,
 	for (i = 0; i < RADEON_NUM_RINGS; i++) {
 		rdev->ring[i].idx = i;
 	}
-	rdev->fence_context = fence_context_alloc(RADEON_NUM_RINGS);
+	rdev->fence_context = dma_fence_context_alloc(RADEON_NUM_RINGS);
 
 	DRM_INFO("initializing kernel modesetting (%s 0x%04X:0x%04X 0x%04X:0x%04X).\n",
 		radeon_family_name[rdev->family], pdev->vendor, pdev->device,

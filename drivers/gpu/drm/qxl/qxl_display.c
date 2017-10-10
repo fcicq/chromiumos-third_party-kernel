@@ -318,7 +318,7 @@ static int qxl_crtc_cursor_set2(struct drm_crtc *crtc,
 	if (!handle)
 		return qxl_hide_cursor(qdev);
 
-	obj = drm_gem_object_lookup(crtc->dev, file_priv, handle);
+	obj = drm_gem_object_lookup(file_priv, handle);
 	if (!obj) {
 		DRM_ERROR("cannot find cursor object\n");
 		return -ENOENT;
@@ -537,7 +537,7 @@ qxl_framebuffer_init(struct drm_device *dev,
 		qfb->obj = NULL;
 		return ret;
 	}
-	drm_helper_mode_fill_fb_struct(&qfb->base, mode_cmd);
+	drm_helper_mode_fill_fb_struct(dev, &qfb->base, mode_cmd);
 	return 0;
 }
 
@@ -881,16 +881,6 @@ static const struct drm_connector_helper_funcs qxl_connector_helper_funcs = {
 	.best_encoder = qxl_best_encoder,
 };
 
-static void qxl_conn_save(struct drm_connector *connector)
-{
-	DRM_DEBUG("\n");
-}
-
-static void qxl_conn_restore(struct drm_connector *connector)
-{
-	DRM_DEBUG("\n");
-}
-
 static enum drm_connector_status qxl_conn_detect(
 			struct drm_connector *connector,
 			bool force)
@@ -937,8 +927,6 @@ static void qxl_conn_destroy(struct drm_connector *connector)
 
 static const struct drm_connector_funcs qxl_connector_funcs = {
 	.dpms = drm_helper_connector_dpms,
-	.save = qxl_conn_save,
-	.restore = qxl_conn_restore,
 	.detect = qxl_conn_detect,
 	.fill_modes = drm_helper_probe_single_connector_modes_nomerge,
 	.set_property = qxl_conn_set_property,
@@ -1014,7 +1002,9 @@ qxl_user_framebuffer_create(struct drm_device *dev,
 	struct qxl_framebuffer *qxl_fb;
 	int ret;
 
-	obj = drm_gem_object_lookup(dev, file_priv, mode_cmd->handles[0]);
+	obj = drm_gem_object_lookup(file_priv, mode_cmd->handles[0]);
+	if (!obj)
+		return NULL;
 
 	qxl_fb = kzalloc(sizeof(*qxl_fb), GFP_KERNEL);
 	if (qxl_fb == NULL)

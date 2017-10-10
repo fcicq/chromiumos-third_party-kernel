@@ -42,6 +42,11 @@
 
 #include <linux/i2c/i2c-hid.h>
 
+#include "../hid-ids.h"
+
+/* quirks to control the device */
+#define I2C_HID_QUIRK_SET_PWR_WAKEUP_DEV	BIT(0)
+
 /* flags */
 #define I2C_HID_STARTED		0
 #define I2C_HID_RESET_PENDING	1
@@ -144,6 +149,7 @@ struct i2c_hid {
 	char			*argsbuf;	/* Command arguments buffer */
 
 	unsigned long		flags;		/* device flags */
+	unsigned long		quirks;		/* Various quirks */
 
 	wait_queue_head_t	wait;		/* For waiting the interrupt */
 	struct gpio_desc	*desc;
@@ -154,6 +160,39 @@ struct i2c_hid {
 	bool			irq_wake_enabled;
 	struct regulator	*supply;
 };
+
+static const struct i2c_hid_quirks {
+	__u16 idVendor;
+	__u16 idProduct;
+	__u32 quirks;
+} i2c_hid_quirks[] = {
+	{ USB_VENDOR_ID_WEIDA, USB_DEVICE_ID_WEIDA_8752,
+		I2C_HID_QUIRK_SET_PWR_WAKEUP_DEV },
+	{ USB_VENDOR_ID_WEIDA, USB_DEVICE_ID_WEIDA_8755,
+		I2C_HID_QUIRK_SET_PWR_WAKEUP_DEV },
+	{ 0, 0 }
+};
+
+/*
+ * i2c_hid_lookup_quirk: return any quirks associated with a I2C HID device
+ * @idVendor: the 16-bit vendor ID
+ * @idProduct: the 16-bit product ID
+ *
+ * Returns: a u32 quirks value.
+ */
+static u32 i2c_hid_lookup_quirk(const u16 idVendor, const u16 idProduct)
+{
+	u32 quirks = 0;
+	int n;
+
+	for (n = 0; i2c_hid_quirks[n].idVendor; n++)
+		if (i2c_hid_quirks[n].idVendor == idVendor &&
+		    (i2c_hid_quirks[n].idProduct == (__u16)HID_ANY_ID ||
+		     i2c_hid_quirks[n].idProduct == idProduct))
+			quirks = i2c_hid_quirks[n].quirks;
+
+	return quirks;
+}
 
 static int __i2c_hid_command(struct i2c_client *client,
 		const struct i2c_hid_cmd *command, u8 reportID,
@@ -347,11 +386,27 @@ static int i2c_hid_set_power(struct i2c_client *client, int power_state)
 
 	i2c_hid_dbg(ihid, "%s\n", __func__);
 
+	/*
+	 * Some devices require to send a command to wakeup before power on.
+	 * The call will get a return value (EREMOTEIO) but device will be
+	 * triggered and activated. After that, it goes like a normal device.
+	 */
+	if (power_state == I2C_HID_PWR_ON &&
+	    ihid->quirks & I2C_HID_QUIRK_SET_PWR_WAKEUP_DEV) {
+		ret = i2c_hid_command(client, &hid_set_power_cmd, NULL, 0);
+
+		/* Device was already activated */
+		if (!ret)
+			goto set_pwr_exit;
+	}
+
 	ret = __i2c_hid_command(client, &hid_set_power_cmd, power_state,
 		0, NULL, 0, NULL, 0);
+
 	if (ret)
 		dev_err(&client->dev, "failed to change power setting.\n");
 
+set_pwr_exit:
 	return ret;
 }
 
@@ -365,6 +420,15 @@ static int i2c_hid_hwreset(struct i2c_client *client)
 	ret = i2c_hid_set_power(client, I2C_HID_PWR_ON);
 	if (ret)
 		return ret;
+
+	/*
+	 * The HID over I2C specification states that if a DEVICE needs time
+	 * after the PWR_ON request, it should utilise CLOCK stretching.
+	 * However, it has been observered that the Windows driver provides a
+	 * 1ms sleep between the PWR_ON and RESET requests and that some devices
+	 * rely on this.
+	 */
+	usleep_range(1000, 5000);
 
 	i2c_hid_dbg(ihid, "resetting...\n");
 
@@ -438,66 +502,6 @@ static int i2c_hid_get_report_length(struct hid_report *report)
 		report->device->report_enum[report->type].numbered + 2;
 }
 
-static void i2c_hid_init_report(struct hid_report *report, u8 *buffer,
-	size_t bufsize)
-{
-	struct hid_device *hid = report->device;
-	struct i2c_client *client = hid->driver_data;
-	struct i2c_hid *ihid = i2c_get_clientdata(client);
-	unsigned int size, ret_size;
-
-	size = i2c_hid_get_report_length(report);
-	if (i2c_hid_get_report(client,
-			report->type == HID_FEATURE_REPORT ? 0x03 : 0x01,
-			report->id, buffer, size))
-		return;
-
-	i2c_hid_dbg(ihid, "report (len=%d): %*ph\n", size, size, buffer);
-
-	ret_size = buffer[0] | (buffer[1] << 8);
-
-	if (ret_size != size) {
-		dev_err(&client->dev, "error in %s size:%d / ret_size:%d\n",
-			__func__, size, ret_size);
-		return;
-	}
-
-	/* hid->driver_lock is held as we are in probe function,
-	 * we just need to setup the input fields, so using
-	 * hid_report_raw_event is safe. */
-	hid_report_raw_event(hid, report->type, buffer + 2, size - 2, 1);
-}
-
-/*
- * Initialize all reports
- */
-static void i2c_hid_init_reports(struct hid_device *hid)
-{
-	struct hid_report *report;
-	struct i2c_client *client = hid->driver_data;
-	struct i2c_hid *ihid = i2c_get_clientdata(client);
-	u8 *inbuf = kzalloc(ihid->bufsize, GFP_KERNEL);
-
-	if (!inbuf) {
-		dev_err(&client->dev, "can not retrieve initial reports\n");
-		return;
-	}
-
-	/*
-	 * The device must be powered on while we fetch initial reports
-	 * from it.
-	 */
-	pm_runtime_get_sync(&client->dev);
-
-	list_for_each_entry(report,
-		&hid->report_enum[HID_FEATURE_REPORT].report_list, list)
-		i2c_hid_init_report(report, inbuf, ihid->bufsize);
-
-	pm_runtime_put(&client->dev);
-
-	kfree(inbuf);
-}
-
 /*
  * Traverse the supplied list of reports and find the longest
  */
@@ -533,7 +537,8 @@ static int i2c_hid_alloc_buffers(struct i2c_hid *ihid, size_t report_size)
 {
 	/* the worst case is computed from the set_report command with a
 	 * reportID > 15 and the maximum report length */
-	int args_len = sizeof(__u8) + /* optional ReportID byte */
+	int args_len = sizeof(__u8) + /* ReportID */
+		       sizeof(__u8) + /* optional ReportID byte */
 		       sizeof(__u16) + /* data register */
 		       sizeof(__u16) + /* size of the report */
 		       report_size; /* report */
@@ -713,9 +718,6 @@ static int i2c_hid_start(struct hid_device *hid)
 		if (ret)
 			return ret;
 	}
-
-	if (!(hid->quirks & HID_QUIRK_NO_INIT_REPORTS))
-		i2c_hid_init_reports(hid);
 
 	return 0;
 }
@@ -1072,6 +1074,8 @@ static int i2c_hid_probe(struct i2c_client *client,
 	snprintf(hid->name, sizeof(hid->name), "%s %04hX:%04hX",
 		 client->name, hid->vendor, hid->product);
 	strlcpy(hid->phys, dev_name(&client->dev), sizeof(hid->phys));
+
+	ihid->quirks = i2c_hid_lookup_quirk(hid->vendor, hid->product);
 
 	ret = hid_add_device(hid);
 	if (ret) {
