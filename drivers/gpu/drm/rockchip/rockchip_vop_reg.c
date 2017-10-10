@@ -153,6 +153,7 @@ static const struct vop_ctrl rk3036_ctrl_data = {
 	.standby = VOP_REG(RK3036_SYS_CTRL, 0x1, 30),
 	.out_mode = VOP_REG(RK3036_DSP_CTRL0, 0xf, 0),
 	.pin_pol = VOP_REG(RK3036_DSP_CTRL0, 0xf, 4),
+	.dsp_blank = VOP_REG(RK3036_DSP_CTRL1, 0x1, 24),
 	.htotal_pw = VOP_REG(RK3036_DSP_HTOTAL_HS_END, 0x1fff1fff, 0),
 	.hact_st_end = VOP_REG(RK3036_DSP_HACT_ST_END, 0x1fff1fff, 0),
 	.vtotal_pw = VOP_REG(RK3036_DSP_VTOTAL_VS_END, 0x1fff1fff, 0),
@@ -161,14 +162,8 @@ static const struct vop_ctrl rk3036_ctrl_data = {
 	.cfg_done = VOP_REG(RK3036_REG_CFG_DONE, 0x1, 0),
 };
 
-static const struct vop_reg_data rk3036_vop_init_reg_table[] = {
-	{RK3036_DSP_CTRL1, 0x00000000},
-};
-
 static const struct vop_data rk3036_vop = {
 	.id = RK3036_VOP,
-	.init_table = rk3036_vop_init_reg_table,
-	.table_size = ARRAY_SIZE(rk3036_vop_init_reg_table),
 	.ctrl = &rk3036_ctrl_data,
 	.intr = &rk3036_intr,
 	.win = rk3036_vop_win_data,
@@ -234,7 +229,8 @@ static const struct vop_win_phy rk3288_win23_data = {
 	.nformats = ARRAY_SIZE(formats_win_lite),
 	.format_modifiers = format_modifiers_win_lite,
 	.nformat_modifiers = ARRAY_SIZE(format_modifiers_win_lite),
-	.enable = VOP_REG(RK3288_WIN2_CTRL0, 0x1, 0),
+	.enable = VOP_REG(RK3288_WIN2_CTRL0, 0x1, 4),
+	.gate = VOP_REG(RK3288_WIN2_CTRL0, 0x1, 0),
 	.format = VOP_REG(RK3288_WIN2_CTRL0, 0x3, 5),
 	.rb_swap = VOP_REG(RK3288_WIN2_CTRL0, 0x1, 20),
 	.y_mir_en = VOP_REG(RK3288_WIN2_CTRL1, 0x1, 15),
@@ -258,6 +254,7 @@ static const struct vop_ctrl rk3288_ctrl_data = {
 	.dither_down = VOP_REG(RK3288_DSP_CTRL1, 0x7, 2),
 	.dither_up = VOP_REG(RK3288_DSP_CTRL1, 0x1, 6),
 	.data_blank = VOP_REG(RK3288_DSP_CTRL0, 0x1, 19),
+	.dsp_blank = VOP_REG(RK3288_DSP_CTRL0, 0x3, 18),
 	.out_mode = VOP_REG(RK3288_DSP_CTRL0, 0xf, 0),
 	.pin_pol = VOP_REG(RK3288_DSP_CTRL0, 0xf, 4),
 	.htotal_pw = VOP_REG(RK3288_DSP_HTOTAL_HS_END, 0x1fff1fff, 0),
@@ -267,20 +264,8 @@ static const struct vop_ctrl rk3288_ctrl_data = {
 	.hpost_st_end = VOP_REG(RK3288_POST_DSP_HACT_INFO, 0x1fff1fff, 0),
 	.vpost_st_end = VOP_REG(RK3288_POST_DSP_VACT_INFO, 0x1fff1fff, 0),
 	.line_flag_num[0] = VOP_REG(RK3288_INTR_CTRL0, 0x1fff, 12),
+	.global_regdone_en = VOP_REG(RK3288_SYS_CTRL, 0x1, 11),
 	.cfg_done = VOP_REG(RK3288_REG_CFG_DONE, 0x1, 0),
-};
-
-static const struct vop_reg_data rk3288_init_reg_table[] = {
-	{RK3288_SYS_CTRL, 0x00c00000},
-	{RK3288_DSP_CTRL0, 0x00000000},
-	{RK3288_WIN0_CTRL0, 0x00000080},
-	{RK3288_WIN1_CTRL0, 0x00000080},
-	/* TODO: Win2/3 support multiple area function, but we haven't found
-	 * a suitable way to use it yet, so let's just use them as other windows
-	 * with only area 0 enabled.
-	 */
-	{RK3288_WIN2_CTRL0, 0x00000010},
-	{RK3288_WIN3_CTRL0, 0x00000010},
 };
 
 /*
@@ -317,8 +302,6 @@ static const struct vop_intr rk3288_vop_intr = {
 
 static const struct vop_data rk3288_vop = {
 	.id = RK3288_VOP,
-	.init_table = rk3288_init_reg_table,
-	.table_size = ARRAY_SIZE(rk3288_init_reg_table),
 	.feature = VOP_FEATURE_OUTPUT_RGB10,
 	.intr = &rk3288_vop_intr,
 	.ctrl = &rk3288_ctrl_data,
@@ -417,19 +400,6 @@ static const struct vop_yuv2yuv rk3399_vop_yuv2yuv = {
 	},
 };
 
-static const struct vop_reg_data rk3399_init_reg_table[] = {
-	{RK3399_SYS_CTRL, 0x2080f800},
-	{RK3399_DSP_CTRL0, 0x00000000},
-	{RK3399_WIN0_CTRL0, 0x00000080},
-	{RK3399_WIN1_CTRL0, 0x00000080},
-	/* TODO: Win2/3 support multiple area function, but we haven't found
-	 * a suitable way to use it yet, so let's just use them as other windows
-	 * with only area 0 enabled.
-	 */
-	{RK3399_WIN2_CTRL0, 0x00000010},
-	{RK3399_WIN3_CTRL0, 0x00000010},
-};
-
 static const struct vop_win_phy rk3399_win01_data = {
 	.scl = &rk3288_win_full_scl,
 	.data_formats = formats_win_full,
@@ -469,8 +439,6 @@ static const struct vop_win_data rk3399_vop_win_data[] = {
 
 static const struct vop_data rk3399_vop_big = {
 	.id = RK3399_VOP_BIG,
-	.init_table = rk3399_init_reg_table,
-	.table_size = ARRAY_SIZE(rk3399_init_reg_table),
 	.feature = VOP_FEATURE_OUTPUT_RGB10,
 	.intr = &rk3399_vop_intr,
 	.ctrl = &rk3399_ctrl_data,
@@ -489,8 +457,6 @@ static const struct vop_win_data rk3399_vop_lit_win_data[] = {
 
 static const struct vop_data rk3399_vop_lit = {
 	.id = RK3399_VOP_LIT,
-	.init_table = rk3399_init_reg_table,
-	.table_size = ARRAY_SIZE(rk3399_init_reg_table),
 	.intr = &rk3399_vop_intr,
 	.ctrl = &rk3399_ctrl_data,
 	/*

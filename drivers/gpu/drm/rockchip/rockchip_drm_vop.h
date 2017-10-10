@@ -28,11 +28,6 @@ enum vop_data_format {
 	VOP_FMT_YUV444SP,
 };
 
-struct vop_reg_data {
-	uint32_t offset;
-	uint32_t value;
-};
-
 struct vop_reg {
 	uint32_t offset;
 	uint32_t shift;
@@ -50,6 +45,7 @@ struct vop_ctrl {
 	struct vop_reg hdmi_en;
 	struct vop_reg mipi_en;
 	struct vop_reg dp_en;
+	struct vop_reg dsp_blank;
 	struct vop_reg out_mode;
 	struct vop_reg pre_dither_down;
 	struct vop_reg dither_down;
@@ -70,6 +66,7 @@ struct vop_ctrl {
 
 	struct vop_reg line_flag_num[2];
 
+	struct vop_reg global_regdone_en;
 	struct vop_reg cfg_done;
 };
 
@@ -142,6 +139,7 @@ struct vop_win_phy {
 	uint32_t nformat_modifiers;
 
 	struct vop_reg enable;
+	struct vop_reg gate;
 	struct vop_reg format;
 	struct vop_reg rb_swap;
 	struct vop_reg y_mir_en;
@@ -171,9 +169,7 @@ enum vop_id {
 };
 
 struct vop_data {
-	const struct vop_reg_data *init_table;
 	uint32_t id;
-	unsigned int table_size;
 	const struct vop_ctrl *ctrl;
 	const struct vop_intr *intr;
 	const struct vop_afbdc *afbdc;
