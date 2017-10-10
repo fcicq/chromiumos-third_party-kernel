@@ -128,8 +128,8 @@ void get_derived_permission_new(struct dentry *parent, struct dentry *dentry,
 	case PERM_ANDROID_DATA:
 	case PERM_ANDROID_MEDIA:
 		info->data->perm = PERM_ANDROID_PACKAGE;
-		appid = get_appid(name->name);
-		if (appid != 0 && !is_excluded(name->name, parent_data->userid))
+		appid = pkglist_get_allowed_appid(name->name, parent_data->userid).val;
+		if (appid != 0)
 			info->data->d_uid =
 				multiuser_get_uid(parent_data->userid, appid);
 		set_top(info, info->data);
@@ -155,7 +155,7 @@ static appid_t get_type(const char *name)
 
 	if (ext && ext[0]) {
 		ext = &ext[1];
-		id = get_ext_gid(ext);
+		id = pkglist_get_ext_gid(ext).val;
 		return id?:AID_MEDIA_RW;
 	}
 	return AID_MEDIA_RW;
