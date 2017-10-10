@@ -148,12 +148,14 @@ static int copy_pixels(struct evdi_framebuffer *ufb,
 		}
 	}
 
-	if (evdi_cursor_composing_and_copy(cursor,
+	if (evdi_enable_cursor_blending) {
+		if (evdi_cursor_composing_and_copy(cursor,
 				       ufb,
 				       buffer,
 				       buf_byte_stride,
 				       max_x, max_y))
-		EVDI_ERROR("Failed to blend cursor.\n");
+			EVDI_ERROR("Failed to blend cursor\n");
+	}
 	return 0;
 }
 
