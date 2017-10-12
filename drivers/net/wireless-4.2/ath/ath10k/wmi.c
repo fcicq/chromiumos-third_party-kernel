@@ -4848,7 +4848,9 @@ void ath10k_wmi_event_chan_survey_update(struct ath10k *ar,
 				survey->noise = noise_floor;
 				survey->filled |= SURVEY_INFO_NOISE_DBM;
 			} else {
+#ifdef ENABLE_INVALID_NOISE_LOG
 				ath10k_warn(ar, "Ignoring invalid noise floor on bss chan noise %d\n", (int) ((signed char)noise_floor));
+#endif
 			}
 		}
 	}
