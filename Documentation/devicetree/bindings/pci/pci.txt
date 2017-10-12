@@ -24,3 +24,14 @@ driver implementation may support the following properties:
    unsupported link speed, for instance, trying to do training for
    unsupported link speed, etc.  Must be '4' for gen4, '3' for gen3, '2'
    for gen2, and '1' for gen1. Any other values are invalid.
+- pcie-reset-suspend:
+   If present this property defines whether the PCIe Reset signal (referred to
+   as PERST#) should be asserted when the system enters low-power suspend modes
+   (e.g., S3). Depending on the form factor, the associated PCIe
+   electromechanical specification may specify a particular behavior (e.g.,
+   "PERST# is asserted in advance of the power being switched off in a
+   power-managed state like S3") or it may be less clear. The net result is
+   that some endpoints perform better (e.g., lower power consumption) with
+   PERST# asserted, and others prefer PERST# deasserted. The value must be '0'
+   or '1', where '0' means do not assert PERST# and '1' means assert PERST#.
+   When absent, behavior may be platform-specific.
