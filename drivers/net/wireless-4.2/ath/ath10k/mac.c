@@ -3871,6 +3871,9 @@ u32 ath10k_atf_update_airtime(struct ath10k *ar, struct ieee80211_txq *txq,
 	atf->airtime_inflight += airtime;
 	trace_ath10k_atf_upd(ar, airtime, skb, txq);
 
+	if (ar->htt.num_pending_tx > ar->atf_max_num_pending_tx)
+		ar->atf_max_num_pending_tx = ar->htt.num_pending_tx;
+
 	spin_unlock_bh(&ar->htt.tx_lock);
 	return airtime;
 }
