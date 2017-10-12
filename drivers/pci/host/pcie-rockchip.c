@@ -233,6 +233,7 @@ struct rockchip_pcie {
 	struct	regulator *vpcie1v8; /* 1.8V power supply */
 	struct	regulator *vpcie0v9; /* 0.9V power supply */
 	struct	gpio_desc *ep_gpio;
+	bool	suspend_reset;
 	u32	lanes;
 	u8      lanes_map;
 	u8	root_bus_nr;
@@ -1154,6 +1155,9 @@ static int rockchip_pcie_parse_dt(struct rockchip_pcie *rockchip)
 		dev_info(dev, "no vpcie0v9 regulator found\n");
 	}
 
+	/* Default not-asserted, to retain backward compatibility. */
+	rockchip->suspend_reset = of_pci_get_pcie_reset_suspend(node) > 0;
+
 	return 0;
 }
 
@@ -1461,6 +1465,9 @@ static int __maybe_unused rockchip_pcie_suspend_noirq(struct device *dev)
 		rockchip_pcie_enable_interrupts(rockchip);
 		return ret;
 	}
+
+	if (rockchip->suspend_reset)
+		gpiod_set_value(rockchip->ep_gpio, 0);
 
 	rockchip_pcie_deinit_phys(rockchip);
 
