@@ -140,6 +140,31 @@ int of_pci_get_max_link_speed(struct device_node *node)
 EXPORT_SYMBOL_GPL(of_pci_get_max_link_speed);
 
 /**
+ * This function returns true if the PCIe controller should assert PCIe Reset
+ * (PERST#) when entering system suspend (e.g., S3).
+ *
+ * @node: device tree node with the reset property
+ *
+ * Returns 1 (meaning "assert reset") or 0 ("don't assert reset"), if the DT
+ * defined a valid behavior. Otherwise, returns a negative error code.
+ */
+int of_pci_get_pcie_reset_suspend(struct device_node *node)
+{
+	int ret;
+	u32 val;
+
+	ret = of_property_read_u32(node, "pcie-reset-suspend", &val);
+	if (ret)
+		return ret;
+
+	if (val > 1)
+		return -EINVAL;
+
+	return val;
+}
+EXPORT_SYMBOL_GPL(of_pci_get_pcie_reset_suspend);
+
+/**
  * of_pci_check_probe_only - Setup probe only mode if linux,pci-probe-only
  *                           is present and valid
  */
