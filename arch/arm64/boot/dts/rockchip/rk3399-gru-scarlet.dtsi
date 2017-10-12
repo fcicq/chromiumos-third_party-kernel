@@ -314,6 +314,9 @@ pp1800_pcie: &pp1800_s0 {
 &pcie0 {
 	ep-gpios = <&gpio0 3 GPIO_ACTIVE_HIGH>;
 
+	/* PERST# asserted in S3 */
+	pcie-reset-suspend = <1>;
+
 	vpcie3v3-supply = <&wlan_3v3>;
 	vpcie1v8-supply = <&pp1800_pcie>;
 };
