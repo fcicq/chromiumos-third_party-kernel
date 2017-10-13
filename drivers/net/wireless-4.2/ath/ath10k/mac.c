@@ -3778,8 +3778,9 @@ void ath10k_atf_refill_deficit(struct ath10k *ar)
 		txq = container_of((void *)artxq, struct ieee80211_txq,
 				   drv_priv);
 		atf = &artxq->atf;
-		if ((atf->airtime_inflight < release_limit) ||
-		    ((reset_deficit) && (atf->bytes_send == 0)))
+		if ((atf->airtime_inflight < release_limit) || reset_deficit ||
+		    ((atf->frames_inflight == ar->htt.num_pending_tx) &&
+		    (atf->airtime_inflight < ar->atf_release_limit)))
 			atf->deficit += atf->quantum;
 		if (reset_deficit) {
 			if (atf->deficit < 0)
@@ -3787,6 +3788,10 @@ void ath10k_atf_refill_deficit(struct ath10k *ar)
 			atf->bytes_send_last_interval = atf->bytes_send;
 			atf->bytes_send = 0;
 		}
+
+		/* To prvent station with very low phy rate from straving */
+		if ((atf->deficit < 0) && (atf->frames_inflight == 0))
+			atf->deficit = 0;
 
 		if (atf->deficit > atf->deficit_max)
 			atf->deficit = atf->deficit_max;
@@ -4281,7 +4286,9 @@ static void ath10k_mac_op_wake_tx_queue(struct ieee80211_hw *hw,
 	if (ath10k_atf_scheduler_enabled(ar)) {
 		rcu_read_lock();
 		if ((f_artxq->atf.deficit < 0) &&
-		    (f_artxq->atf.frames_inflight <= 1)) {
+		    ((f_artxq->atf.airtime_inflight < ar->atf_txq_limit_max) ||
+		     codel_time_after(codel_get_time(),
+				      f_artxq->atf.next_epoch))) {
 			ath10k_atf_refill_deficit(ar);
 		}
 		while ((f_artxq->atf.deficit < 0)) {
