@@ -27,6 +27,7 @@ static u8 OSC_UUID[16] = {0x6E, 0x88, 0x9F, 0xA6, 0xEB, 0x6C, 0x94, 0x45,
 
 #define DSDT_NHLT_PATH "\\_SB.PCI0.HDAS"
 
+
 struct nhlt_acpi_table *skl_nhlt_init(struct device *dev)
 {
 	acpi_handle handle;
@@ -268,6 +269,7 @@ void skl_nhlt_remove_sysfs(struct skl *skl)
 void skl_get_ssp_clks(struct skl *skl, struct skl_ssp_clk *ssp_clks,
 				struct nhlt_fmt *fmt, u8 id)
 {
+	struct skl_i2s_config_blob_ext *i2s_config_ext;
 	struct skl_i2s_config_blob_legacy *i2s_config;
 	struct skl_clk_parent_src *parent;
 	struct skl_ssp_clk *sclk, *sclkfs;
@@ -328,12 +330,18 @@ void skl_get_ssp_clks(struct skl *skl, struct skl_ssp_clk *ssp_clks,
 
 		/* Fill rate and parent for sclk/sclkfs */
 		if (!present) {
-			/* MCLK Divider Source Select */
-			i2s_config = (struct skl_i2s_config_blob_legacy *)
+			i2s_config_ext = (struct skl_i2s_config_blob_ext *)
 						fmt->fmt_config[0].config.caps;
-			clk_src = ((i2s_config->mclk.mdivctrl)
-					& SKL_MNDSS_DIV_CLK_SRC_MASK) >>
-					SKL_SHIFT(SKL_MNDSS_DIV_CLK_SRC_MASK);
+
+			/* MCLK Divider Source Select */
+			if (is_legacy_blob(i2s_config_ext->hdr.sig)) {
+				i2s_config = ext_to_legacy_blob(i2s_config_ext);
+				clk_src = get_clk_src(i2s_config->mclk,
+						SKL_MNDSS_DIV_CLK_SRC_MASK);
+			} else {
+				clk_src = get_clk_src(i2s_config_ext->mclk,
+						SKL_MNDSS_DIV_CLK_SRC_MASK);
+			}
 
 			parent = skl_get_parent_clk(clk_src);
 
@@ -359,6 +367,7 @@ void skl_get_ssp_clks(struct skl *skl, struct skl_ssp_clk *ssp_clks,
 void skl_get_mclk(struct skl *skl, struct skl_ssp_clk *mclk,
 				struct nhlt_fmt *fmt, u8 id)
 {
+	struct skl_i2s_config_blob_ext *i2s_config_ext;
 	struct skl_i2s_config_blob_legacy *i2s_config;
 	struct nhlt_specific_cfg *fmt_cfg;
 	struct skl_clk_parent_src *parent;
@@ -366,13 +375,21 @@ void skl_get_mclk(struct skl *skl, struct skl_ssp_clk *mclk,
 	u8 clk_src;
 
 	fmt_cfg = &fmt->fmt_config[0].config;
-	i2s_config = (struct skl_i2s_config_blob_legacy *)fmt_cfg->caps;
+	i2s_config_ext = (struct skl_i2s_config_blob_ext *)fmt_cfg->caps;
 
-	/* MCLK Divider Source Select */
-	clk_src = ((i2s_config->mclk.mdivctrl) & SKL_MCLK_DIV_CLK_SRC_MASK) >>
-					SKL_SHIFT(SKL_MCLK_DIV_CLK_SRC_MASK);
-
-	clkdiv = i2s_config->mclk.mdivr & SKL_MCLK_DIV_RATIO_MASK;
+	/* MCLK Divider Source Select and divider */
+	if (is_legacy_blob(i2s_config_ext->hdr.sig)) {
+		i2s_config = ext_to_legacy_blob(i2s_config_ext);
+		clk_src = get_clk_src(i2s_config->mclk,
+				SKL_MCLK_DIV_CLK_SRC_MASK);
+		clkdiv = i2s_config->mclk.mdivr &
+				SKL_MCLK_DIV_RATIO_MASK;
+	} else {
+		clk_src = get_clk_src(i2s_config_ext->mclk,
+				SKL_MCLK_DIV_CLK_SRC_MASK);
+		clkdiv = i2s_config_ext->mclk.mdivr[0] &
+				SKL_MCLK_DIV_RATIO_MASK;
+	}
 
 	/* bypass divider */
 	div_ratio = 1;
