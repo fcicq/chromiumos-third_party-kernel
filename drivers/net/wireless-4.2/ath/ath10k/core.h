@@ -1096,6 +1096,8 @@ struct ath10k {
 	u32	atf_bytes_send;
 	u32	atf_bytes_send_last_interval;
 	u32	atf_max_num_pending_tx;
+	u32	atf_txq_limit_min;
+	u32	atf_txq_limit_max;
 	/* must be last */
 	u8 drv_priv[0] __aligned(sizeof(void *));
 };

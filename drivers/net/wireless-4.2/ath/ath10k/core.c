@@ -2305,6 +2305,8 @@ struct ath10k *ath10k_core_create(size_t priv_size, struct device *dev,
 		goto err_free_aux_wq;
 	ar->airtime_inflight_max = IEEE80211_ATF_AIRTIME_MAX;
 	ar->atf_release_limit = IEEE80211_ATF_AIRTIME_TARGET;
+	ar->atf_txq_limit_max = IEEE80211_ATF_TXQ_AIRTIME_MAX;
+	ar->atf_txq_limit_min = IEEE80211_ATF_TXQ_AIRTIME_MIN;
 	ar->atf_enabled = false;
 	ar->atf_sch_interval = 500000; /* in us */
 	ar->atf_next_interval = codel_get_time() + ar->atf_sch_interval;

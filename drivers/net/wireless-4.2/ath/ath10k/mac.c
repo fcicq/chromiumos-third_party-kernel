@@ -3767,9 +3767,9 @@ void ath10k_atf_refill_deficit(struct ath10k *ar)
 		ar->airtime_inflight = 0;
 
 	if (ar->airtime_inflight < ar->atf_release_limit)
-		release_limit = IEEE80211_ATF_TXQ_AIRTIME_MAX;
+		release_limit = ar->atf_txq_limit_max;
 	else
-		release_limit = IEEE80211_ATF_TXQ_AIRTIME_MIN;
+		release_limit = ar->atf_txq_limit_min;
 
 	/* Replenish deficit for all active queues if the frames it released
 	 * to firmware has estimated airtime less than release_limit.
