@@ -1408,8 +1408,10 @@ static int iwl_mvm_sar_get_wgds_table(struct iwl_mvm *mvm)
 
 			entry = &wifi_pkg->package.elements[idx++];
 			if ((entry->type != ACPI_TYPE_INTEGER) ||
-			    (entry->integer.value > U8_MAX))
-				return -EINVAL;
+			    (entry->integer.value > U8_MAX)) {
+				ret = -EINVAL;
+				goto out_free;
+			}
 
 			mvm->geo_profiles[i].values[j] = entry->integer.value;
 		}
@@ -1588,7 +1590,7 @@ static int iwl_mvm_sar_init(struct iwl_mvm *mvm)
 				"EWRD SAR BIOS table invalid or unavailable. (%d)\n",
 				ret);
 
-#ifdef CPTCFG_IWLMVM_VENDOR_CMDS
+#if defined(CPTCFG_IWLMVM_VENDOR_CMDS) && defined(CONFIG_ACPI)
 	/*
 	 * if no profile was chosen by the user yet, choose profile 1 (WRDS) as
 	 * default for both chains
