@@ -112,9 +112,7 @@ static int evdi_crtc_cursor_set(struct drm_crtc *crtc,
 			EVDI_ERROR("Failed to lookup gem object.\n");
 		mutex_unlock(&dev->struct_mutex);
 	}
-
-	if (eobj)
-		evdi_cursor_download(evdi->cursor, eobj);
+	evdi_cursor_download(evdi->cursor, eobj);
 
 	evdi_cursor_enable(evdi->cursor, eobj != NULL);
 	drm_gem_object_unreference_unlocked(obj);

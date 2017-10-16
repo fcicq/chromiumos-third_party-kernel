@@ -39,7 +39,6 @@ void evdi_cursor_download(struct evdi_cursor *cursor,
 			  struct evdi_gem_object *evdi_gem_obj);
 int evdi_cursor_alloc(struct evdi_cursor **cursor);
 void evdi_cursor_free(struct evdi_cursor *cursor);
-void evdi_cursor_copy(struct evdi_cursor *dst, struct evdi_cursor *src);
 bool evdi_cursor_enabled(struct evdi_cursor *cursor);
 void evdi_cursor_get_hline(struct evdi_cursor *cursor, int x, int y,
 			   struct evdi_cursor_hline *hline);

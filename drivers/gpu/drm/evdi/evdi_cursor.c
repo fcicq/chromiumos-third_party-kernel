@@ -33,8 +33,8 @@
  * EVDI drm cursor private structure.
  */
 struct evdi_cursor {
-	uint32_t buffer[EVDI_CURSOR_BUF];
 	bool enabled;
+	struct evdi_gem_object *gem;
 	int x;
 	int y;
 };
@@ -56,11 +56,6 @@ void evdi_cursor_free(struct evdi_cursor *cursor)
 	kfree(cursor);
 }
 
-void evdi_cursor_copy(struct evdi_cursor *dst, struct evdi_cursor *src)
-{
-	memcpy(dst, src, sizeof(struct evdi_cursor));
-}
-
 bool evdi_cursor_enabled(struct evdi_cursor *cursor)
 {
 	return cursor->enabled;
@@ -72,29 +67,13 @@ void evdi_cursor_enable(struct evdi_cursor *cursor, bool enabled)
 }
 
 void evdi_cursor_download(struct evdi_cursor *cursor,
-			  struct evdi_gem_object *evdi_gem_obj)
+			  struct evdi_gem_object *gem)
 {
-	uint32_t *src_ptr, *dst_ptr;
-	size_t i;
-	int ret;
-
-	if (evdi_gem_obj == NULL) {
-		EVDI_ERROR("evdi gem object is NULL");
-		return;
-	}
-
-	ret = evdi_gem_vmap(evdi_gem_obj);
-
-	if (ret != 0) {
-		EVDI_ERROR("failed to vmap cursor");
-		return;
-	}
-
-	src_ptr = evdi_gem_obj->vmapping;
-	dst_ptr = cursor->buffer;
-	for (i = 0; i < EVDI_CURSOR_BUF; ++i)
-		dst_ptr[i] = le32_to_cpu(src_ptr[i]);
-
+	if (gem)
+		drm_gem_object_reference(&gem->base);
+	if (cursor->gem)
+		drm_gem_object_unreference_unlocked(&cursor->gem->base);
+	cursor->gem = gem;
 }
 
 void evdi_cursor_move(int x, int y, struct evdi_cursor *cursor)
@@ -143,9 +122,25 @@ int evdi_cursor_composing_and_copy(struct evdi_cursor *cursor,
 				   __always_unused int const max_y)
 {
 	int x, y;
+	uint32_t *src_ptr;
 	struct drm_framebuffer *fb = &ufb->base;
 	int h_cursor_w = EVDI_CURSOR_W >> 1;
 	int h_cursor_h = EVDI_CURSOR_H >> 1;
+
+
+	if (!cursor->gem)
+		return 0;
+
+	if (!cursor->enabled)
+		return 0;
+
+	if (!cursor->gem->vmapping)
+		evdi_gem_vmap(cursor->gem);
+
+	src_ptr = cursor->gem->vmapping;
+
+	if (!src_ptr)
+		return -EFAULT;
 
 	for (y = -EVDI_CURSOR_H/2; y < EVDI_CURSOR_H/2; ++y) {
 		for (x = -EVDI_CURSOR_W/2; x < EVDI_CURSOR_W/2; ++x) {
@@ -160,9 +155,7 @@ int evdi_cursor_composing_and_copy(struct evdi_cursor *cursor,
 				mouse_pix_x >= 0 &&
 				mouse_pix_y >= 0 &&
 				mouse_pix_x < fb->width &&
-				mouse_pix_y < fb->height  &&
-				cursor &&
-				cursor->enabled;
+				mouse_pix_y < fb->height;
 
 			if (!is_pix_sane)
 				continue;
@@ -174,7 +167,7 @@ int evdi_cursor_composing_and_copy(struct evdi_cursor *cursor,
 				EVDI_WARN("cursor %d,%d\n", x, y);
 				continue;
 			}
-			curs_val = cursor->buffer[cursor_pix];
+			curs_val = le32_to_cpu(src_ptr[cursor_pix]);
 			fbsrc = (int *)ufb->obj->vmapping;
 			fb_value = *(fbsrc + ((fb->pitches[0]>>2) *
 						  mouse_pix_y + mouse_pix_x));
