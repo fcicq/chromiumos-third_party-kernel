@@ -101,6 +101,20 @@ static int evdi_crtc_cursor_set(struct drm_crtc *crtc,
 	struct evdi_device *evdi = dev->dev_private;
 	struct drm_gem_object *obj = NULL;
 	struct evdi_gem_object *eobj = NULL;
+	/*
+	 * evdi_crtc_cursor_set is callback function using
+	 * deprecated cursor entry point.
+	 * There is no info about underlaying pixel format.
+	 * Hence we are assuming that it is in ARGB 32bpp format.
+	 * This format it the only one supported in cursor composition
+	 * function.
+	 * This format is also enforced during framebuffer creation.
+	 *
+	 * Proper format will be available when driver start support
+	 * universal planes for cursor.
+	 */
+	uint32_t format = DRM_FORMAT_ARGB8888;
+	uint32_t stride = 4 * width;
 
 	EVDI_CHECKPT();
 	if (handle) {
@@ -112,12 +126,16 @@ static int evdi_crtc_cursor_set(struct drm_crtc *crtc,
 			EVDI_ERROR("Failed to lookup gem object.\n");
 		mutex_unlock(&dev->struct_mutex);
 	}
-	evdi_cursor_download(evdi->cursor, eobj);
 
-	evdi_cursor_enable(evdi->cursor, eobj != NULL);
+	evdi_cursor_set(evdi->cursor,
+			eobj, width, height, hot_x, hot_y,
+			format, stride);
 	drm_gem_object_unreference_unlocked(obj);
-	evdi_crtc_mark_full_screen_dirty(evdi, crtc);
 
+	if (evdi_enable_cursor_blending)
+		evdi_crtc_mark_full_screen_dirty(evdi, crtc);
+	else
+		evdi_painter_send_cursor_set(evdi->painter, evdi->cursor);
 	return 0;
 }
 
@@ -126,9 +144,12 @@ static int evdi_crtc_cursor_move(struct drm_crtc *crtc, int x, int y)
 	struct drm_device *dev = crtc->dev;
 	struct evdi_device *evdi = dev->dev_private;
 
-	evdi_cursor_move(x, y, evdi->cursor);
+	evdi_cursor_move(crtc, x, y, evdi->cursor);
 
-	evdi_crtc_mark_full_screen_dirty(evdi, crtc);
+	if (evdi_enable_cursor_blending)
+		evdi_crtc_mark_full_screen_dirty(evdi, crtc);
+	else
+		evdi_painter_send_cursor_move(evdi->painter, evdi->cursor);
 	return 0;
 }
 
@@ -190,45 +211,8 @@ void evdi_cursor_atomic_get_rect(struct drm_clip_rect *rect,
 	rect->y2 = state->crtc_y + (EVDI_CURSOR_H/2);
 }
 
-static void evdi_cursor_atomic_update(struct drm_plane *plane,
-				      struct drm_plane_state *old_state)
-{
-	if (plane && plane->state && plane->dev && plane->dev->dev_private) {
-		struct drm_plane_state *state = plane->state;
-		struct evdi_device *evdi = plane->dev->dev_private;
-		struct evdi_framebuffer *cursor_efb = to_evdi_fb(state->fb);
-
-		struct drm_clip_rect old_rect;
-		struct drm_clip_rect rect;
-
-		mutex_lock(&plane->dev->struct_mutex);
-
-		evdi_cursor_move(state->crtc_x, state->crtc_y, evdi->cursor);
-
-		if (state->fb != old_state->fb) {
-			if (cursor_efb != NULL)
-				evdi_cursor_download(evdi->cursor,
-						     cursor_efb->obj);
-
-			evdi_cursor_enable(evdi->cursor, cursor_efb != NULL);
-		}
-
-		mutex_unlock(&plane->dev->struct_mutex);
-
-		evdi_cursor_atomic_get_rect(&old_rect, old_state);
-		evdi_cursor_atomic_get_rect(&rect, state);
-
-		evdi_painter_mark_dirty(evdi, &old_rect);
-		evdi_painter_mark_dirty(evdi, &rect);
-	}
-}
-
 static const struct drm_plane_helper_funcs evdi_plane_helper_funcs = {
 	.atomic_update = evdi_plane_atomic_update
-};
-
-static const struct drm_plane_helper_funcs evdi_cursor_helper_funcs = {
-	.atomic_update = evdi_cursor_atomic_update
 };
 
 static const struct drm_plane_funcs evdi_plane_funcs = {

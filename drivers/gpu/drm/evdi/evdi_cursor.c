@@ -34,10 +34,32 @@
  */
 struct evdi_cursor {
 	bool enabled;
-	struct evdi_gem_object *gem;
-	int x;
-	int y;
+	int32_t x;
+	int32_t y;
+	uint32_t width;
+	uint32_t height;
+	int32_t hot_x;
+	int32_t hot_y;
+	uint32_t pixel_format;
+	uint32_t stride;
+	struct evdi_gem_object *obj;
 };
+
+static void evdi_cursor_set_gem(struct evdi_cursor *cursor,
+				struct evdi_gem_object *obj)
+{
+	if (obj)
+		drm_gem_object_reference(&obj->base);
+	if (cursor->obj)
+		drm_gem_object_unreference_unlocked(&cursor->obj->base);
+
+	cursor->obj = obj;
+}
+
+struct evdi_gem_object *evdi_cursor_gem(struct evdi_cursor *cursor)
+{
+	return cursor->obj;
+}
 
 int evdi_cursor_alloc(struct evdi_cursor **cursor)
 {
@@ -53,6 +75,7 @@ void evdi_cursor_free(struct evdi_cursor *cursor)
 {
 	if (WARN_ON(!cursor))
 		return;
+	evdi_cursor_set_gem(cursor, NULL);
 	kfree(cursor);
 }
 
@@ -61,22 +84,51 @@ bool evdi_cursor_enabled(struct evdi_cursor *cursor)
 	return cursor->enabled;
 }
 
-void evdi_cursor_enable(struct evdi_cursor *cursor, bool enabled)
+void evdi_cursor_enable(struct evdi_cursor *cursor, bool enable)
 {
-	cursor->enabled = enabled;
+	cursor->enabled = enable;
+	if (!enable)
+		evdi_cursor_set_gem(cursor, NULL);
 }
 
-void evdi_cursor_download(struct evdi_cursor *cursor,
-			  struct evdi_gem_object *gem)
+void evdi_cursor_set(struct evdi_cursor *cursor,
+		     struct evdi_gem_object *obj,
+		     uint32_t width, uint32_t height,
+		     int32_t hot_x, int32_t hot_y,
+		     uint32_t pixel_format, uint32_t stride)
 {
-	if (gem)
-		drm_gem_object_reference(&gem->base);
-	if (cursor->gem)
-		drm_gem_object_unreference_unlocked(&cursor->gem->base);
-	cursor->gem = gem;
+	int err = 0;
+
+	/* Currently we only support 64x64 cursors */
+	if (width != EVDI_CURSOR_W || height != EVDI_CURSOR_H) {
+		EVDI_ERROR("We currently only support %dx%d cursors\n",
+				EVDI_CURSOR_W, EVDI_CURSOR_H);
+		cursor->enabled = false;
+		evdi_cursor_set_gem(cursor, NULL);
+		return;
+	}
+
+	if (obj && !obj->vmapping)
+		err = evdi_gem_vmap(obj);
+
+	if (err != 0) {
+		EVDI_ERROR("Failed to map cursor.\n");
+		obj = NULL;
+	}
+
+	cursor->enabled = obj != NULL;
+	cursor->width = width;
+	cursor->height = height;
+	cursor->hot_x = hot_x;
+	cursor->hot_y = hot_y;
+	cursor->pixel_format = pixel_format;
+	cursor->stride = stride;
+	evdi_cursor_set_gem(cursor, obj);
 }
 
-void evdi_cursor_move(int x, int y, struct evdi_cursor *cursor)
+void evdi_cursor_move(__maybe_unused struct drm_crtc *crtc,
+		     int32_t x, int32_t y,
+		     struct evdi_cursor *cursor)
 {
 	cursor->x = x;
 	cursor->y = y;
@@ -127,17 +179,16 @@ int evdi_cursor_composing_and_copy(struct evdi_cursor *cursor,
 	int h_cursor_w = EVDI_CURSOR_W >> 1;
 	int h_cursor_h = EVDI_CURSOR_H >> 1;
 
-
-	if (!cursor->gem)
+	if (!cursor->obj)
 		return 0;
 
 	if (!cursor->enabled)
 		return 0;
 
-	if (!cursor->gem->vmapping)
-		evdi_gem_vmap(cursor->gem);
+	if (!cursor->obj->vmapping)
+		evdi_gem_vmap(cursor->obj);
 
-	src_ptr = cursor->gem->vmapping;
+	src_ptr = cursor->obj->vmapping;
 
 	if (!src_ptr)
 		return -EFAULT;
@@ -186,8 +237,34 @@ int evdi_cursor_composing_and_copy(struct evdi_cursor *cursor,
 	return 0;
 }
 
-void evdi_get_cursor_position(int *x, int *y, struct evdi_cursor *cursor)
+void evdi_get_cursor_position(int32_t *x, int32_t *y,
+			      struct evdi_cursor *cursor)
 {
 	*x = cursor->x;
 	*y = cursor->y;
 }
+
+void evdi_cursor_hotpoint(struct evdi_cursor *cursor,
+			  int32_t *hot_x, int32_t *hot_y)
+{
+	*hot_x = cursor->hot_x;
+	*hot_y = cursor->hot_y;
+}
+
+void evdi_cursor_size(struct evdi_cursor *cursor,
+		      uint32_t *width, uint32_t *height)
+{
+	*width = cursor->width;
+	*height = cursor->height;
+}
+
+void evdi_cursor_format(struct evdi_cursor *cursor, uint32_t *format)
+{
+	*format = cursor->pixel_format;
+}
+
+void evdi_cursor_stride(struct evdi_cursor *cursor, uint32_t *stride)
+{
+	*stride = cursor->stride;
+}
+
