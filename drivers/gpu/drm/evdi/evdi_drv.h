@@ -155,5 +155,6 @@ void evdi_painter_send_cursor_move(struct evdi_painter *painter,
 				   struct evdi_cursor *cursor);
 bool evdi_painter_needs_full_modeset(struct evdi_device *evdi);
 
+int evdi_fb_get_bpp(uint32_t format);
 #endif
 

@@ -26,10 +26,6 @@
 #include "evdi_cursor.h"
 #include "evdi_drv.h"
 
-#define EVDI_CURSOR_W 64
-#define EVDI_CURSOR_H 64
-#define EVDI_CURSOR_BUF (EVDI_CURSOR_W * EVDI_CURSOR_H)
-
 /*
  * EVDI drm cursor private structure.
  */
@@ -118,15 +114,6 @@ void evdi_cursor_set(struct evdi_cursor *cursor,
 	int err = 0;
 
 	evdi_cursor_lock(cursor);
-	/* Currently we only support 64x64 cursors */
-	if (width != EVDI_CURSOR_W || height != EVDI_CURSOR_H) {
-		EVDI_ERROR("We currently only support %dx%d cursors\n",
-				EVDI_CURSOR_W, EVDI_CURSOR_H);
-		cursor->enabled = false;
-		evdi_cursor_set_gem(cursor, NULL);
-		goto unlock;
-	}
-
 	if (obj && !obj->vmapping)
 		err = evdi_gem_vmap(obj);
 
@@ -144,7 +131,6 @@ void evdi_cursor_set(struct evdi_cursor *cursor,
 	cursor->stride = stride;
 	evdi_cursor_set_gem(cursor, obj);
 
-unlock:
 	evdi_cursor_unlock(cursor);
 }
 
@@ -194,27 +180,38 @@ int evdi_cursor_compose_and_copy(struct evdi_cursor *cursor,
 				 int buf_byte_stride)
 {
 	int x, y;
-	uint32_t *src_ptr;
 	struct drm_framebuffer *fb = &ufb->base;
-	int h_cursor_w = EVDI_CURSOR_W >> 1;
-	int h_cursor_h = EVDI_CURSOR_H >> 1;
-
-	if (!cursor->obj)
-		return 0;
+	const int h_cursor_w = cursor->width >> 1;
+	const int h_cursor_h = cursor->height >> 1;
+	uint32_t *cursor_buffer = NULL;
+	uint32_t bytespp = 0;
 
 	if (!cursor->enabled)
 		return 0;
 
+	if (!cursor->obj)
+		return -EINVAL;
+
 	if (!cursor->obj->vmapping)
-		evdi_gem_vmap(cursor->obj);
+		return -EINVAL;
 
-	src_ptr = cursor->obj->vmapping;
+	bytespp = evdi_fb_get_bpp(cursor->pixel_format);
+	bytespp = DIV_ROUND_UP(bytespp, 8);
+	if (bytespp != 4) {
+		EVDI_ERROR("Unsupported cursor format bpp=%u\n", bytespp);
+		return -EINVAL;
+	}
 
-	if (!src_ptr)
-		return -EFAULT;
+	if (cursor->width * cursor->height * bytespp >
+	    cursor->obj->base.size){
+		EVDI_ERROR("Wrong cursor size\n");
+		return -EINVAL;
+	}
 
-	for (y = -EVDI_CURSOR_H/2; y < EVDI_CURSOR_H/2; ++y) {
-		for (x = -EVDI_CURSOR_W/2; x < EVDI_CURSOR_W/2; ++x) {
+	cursor_buffer = (uint32_t *)cursor->obj->vmapping;
+
+	for (y = -h_cursor_h; y < h_cursor_h; ++y) {
+		for (x = -h_cursor_w; x < h_cursor_w; ++x) {
 			uint32_t curs_val;
 			int *fbsrc;
 			int fb_value;
@@ -232,18 +229,13 @@ int evdi_cursor_compose_and_copy(struct evdi_cursor *cursor,
 				continue;
 
 			cursor_pix = h_cursor_w+x +
-				    (h_cursor_h+y)*EVDI_CURSOR_W;
-			if (cursor_pix < 0  ||
-			    cursor_pix > EVDI_CURSOR_BUF-1) {
-				EVDI_WARN("cursor %d,%d\n", x, y);
-				continue;
-			}
-			curs_val = le32_to_cpu(src_ptr[cursor_pix]);
+				    (h_cursor_h+y)*cursor->width;
+			curs_val = le32_to_cpu(cursor_buffer[cursor_pix]);
 			fbsrc = (int *)ufb->obj->vmapping;
 			fb_value = *(fbsrc + ((fb->pitches[0]>>2) *
 						  mouse_pix_y + mouse_pix_x));
 			cmd_offset = (buf_byte_stride * mouse_pix_y) +
-						       (mouse_pix_x * 4);
+						       (mouse_pix_x * bytespp);
 			if (evdi_cursor_compose_pixel(buffer,
 						      curs_val,
 						      fb_value,
