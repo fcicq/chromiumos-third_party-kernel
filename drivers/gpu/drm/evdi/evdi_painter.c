@@ -118,13 +118,12 @@ static void collapse_dirty_rects(struct drm_clip_rect *rects, int *count)
 	*count = 1;
 }
 
-static int copy_pixels(struct evdi_framebuffer *ufb,
-			char __user *buffer,
-			int buf_byte_stride,
-			int num_rects, struct drm_clip_rect *rects,
-			int const max_x,
-			int const max_y,
-			struct evdi_cursor *cursor)
+static int copy_primary_pixels(struct evdi_framebuffer *ufb,
+			       char __user *buffer,
+			       int buf_byte_stride,
+			       int num_rects, struct drm_clip_rect *rects,
+			       int const max_x,
+			       int const max_y)
 {
 	struct drm_framebuffer *fb = &ufb->base;
 	struct drm_clip_rect *r;
@@ -158,15 +157,24 @@ static int copy_pixels(struct evdi_framebuffer *ufb,
 		}
 	}
 
-	if (evdi_enable_cursor_blending) {
-		if (evdi_cursor_composing_and_copy(cursor,
-				       ufb,
-				       buffer,
-				       buf_byte_stride,
-				       max_x, max_y))
-			EVDI_ERROR("Failed to blend cursor\n");
-	}
 	return 0;
+}
+
+static void copy_cursor_pixels(struct evdi_framebuffer *efb,
+			      char __user *buffer,
+			      int buf_byte_stride,
+			      struct evdi_cursor *cursor)
+{
+	if (evdi_enable_cursor_blending) {
+		evdi_cursor_lock(cursor);
+		if (evdi_cursor_compose_and_copy(cursor,
+						   efb,
+						   buffer,
+						   buf_byte_stride))
+			EVDI_ERROR("Failed to blend cursor\n");
+
+		evdi_cursor_unlock(cursor);
+	}
 }
 
 #define painter_lock(painter)                           \
@@ -268,9 +276,9 @@ void evdi_painter_send_cursor_set(struct evdi_painter *painter,
 		event->cursor_set.base.length =
 			sizeof(event->cursor_set);
 
+		evdi_cursor_lock(cursor);
 		event->cursor_set.enabled = evdi_cursor_enabled(cursor);
-		evdi_cursor_hotpoint(
-			cursor,
+		evdi_cursor_hotpoint(cursor,
 			&event->cursor_set.hot_x,
 			&event->cursor_set.hot_y);
 		evdi_cursor_size(cursor,
@@ -289,6 +297,7 @@ void evdi_painter_send_cursor_set(struct evdi_painter *painter,
 			event->cursor_set.enabled = false;
 			event->cursor_set.buffer_length = 0;
 		}
+		evdi_cursor_unlock(cursor);
 
 		event->base.event = &event->cursor_set.base;
 		event->base.file_priv = painter->drm_filp;
@@ -307,10 +316,13 @@ void evdi_painter_send_cursor_move(struct evdi_painter *painter,
 		event = kzalloc(sizeof(*event), GFP_KERNEL);
 		event->cursor_move.base.type = DRM_EVDI_EVENT_CURSOR_MOVE;
 		event->cursor_move.base.length = sizeof(event->cursor_move);
-		evdi_get_cursor_position(
+
+		evdi_cursor_lock(cursor);
+		evdi_cursor_position(
+			cursor,
 			&event->cursor_move.x,
-			&event->cursor_move.y,
-			cursor);
+			&event->cursor_move.y);
+		evdi_cursor_unlock(cursor);
 
 		event->base.event = &event->cursor_move.base;
 		event->base.file_priv = painter->drm_filp;
@@ -702,15 +714,19 @@ int evdi_painter_grabpix_ioctl(struct drm_device *drm_dev, void *data,
 		if (copy_to_user(cmd->rects, painter->dirty_rects,
 			cmd->num_rects * sizeof(cmd->rects[0])))
 			err = -EFAULT;
-		else
-			err = copy_pixels(efb,
-					  cmd->buffer,
-					  cmd->buf_byte_stride,
-					  painter->num_dirts,
-					  painter->dirty_rects,
-					  cmd->buf_width,
-					  cmd->buf_height,
-					  evdi->cursor);
+		if (err == 0)
+			err = copy_primary_pixels(efb,
+						  cmd->buffer,
+						  cmd->buf_byte_stride,
+						  painter->num_dirts,
+						  painter->dirty_rects,
+						  cmd->buf_width,
+						  cmd->buf_height);
+		if (err == 0)
+			copy_cursor_pixels(efb,
+					   cmd->buffer,
+					   cmd->buf_byte_stride,
+					   evdi->cursor);
 
 		painter->num_dirts = 0;
 	}

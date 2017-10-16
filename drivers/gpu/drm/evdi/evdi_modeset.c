@@ -22,7 +22,6 @@
 
 #define EVDI_CURSOR_W 64
 #define EVDI_CURSOR_H 64
-#define EVDI_CURSOR_BUF (EVDI_CURSOR_W * EVDI_CURSOR_H)
 
 static void evdi_crtc_dpms(struct drm_crtc *crtc, int mode)
 {
@@ -144,7 +143,7 @@ static int evdi_crtc_cursor_move(struct drm_crtc *crtc, int x, int y)
 	struct drm_device *dev = crtc->dev;
 	struct evdi_device *evdi = dev->dev_private;
 
-	evdi_cursor_move(crtc, x, y, evdi->cursor);
+	evdi_cursor_move(evdi->cursor, x, y);
 
 	if (evdi_enable_cursor_blending)
 		evdi_crtc_mark_full_screen_dirty(evdi, crtc);
@@ -211,8 +210,55 @@ void evdi_cursor_atomic_get_rect(struct drm_clip_rect *rect,
 	rect->y2 = state->crtc_y + (EVDI_CURSOR_H/2);
 }
 
+static void evdi_cursor_atomic_update(struct drm_plane *plane,
+				      struct drm_plane_state *old_state)
+{
+	if (plane && plane->state && plane->dev && plane->dev->dev_private) {
+		struct drm_plane_state *state = plane->state;
+		struct evdi_device *evdi = plane->dev->dev_private;
+		struct drm_framebuffer *fb = state->fb;
+		struct evdi_framebuffer *efb = to_evdi_fb(fb);
+
+		struct drm_clip_rect old_rect;
+		struct drm_clip_rect rect;
+
+		mutex_lock(&plane->dev->struct_mutex);
+
+		evdi_cursor_move(evdi->cursor, state->crtc_x, state->crtc_y);
+
+		if (fb != old_state->fb) {
+			if (fb != NULL) {
+				uint32_t stride = 4 * fb->width;
+
+				evdi_cursor_set(evdi->cursor,
+						efb->obj,
+						fb->width,
+						fb->height,
+						0,
+						0,
+						fb->format->format,
+						stride);
+			}
+
+			evdi_cursor_enable(evdi->cursor, fb != NULL);
+		}
+
+		mutex_unlock(&plane->dev->struct_mutex);
+
+		evdi_cursor_atomic_get_rect(&old_rect, old_state);
+		evdi_cursor_atomic_get_rect(&rect, state);
+
+		evdi_painter_mark_dirty(evdi, &old_rect);
+		evdi_painter_mark_dirty(evdi, &rect);
+	}
+}
+
 static const struct drm_plane_helper_funcs evdi_plane_helper_funcs = {
 	.atomic_update = evdi_plane_atomic_update
+};
+
+static const struct drm_plane_helper_funcs evdi_cursor_helper_funcs = {
+	.atomic_update = evdi_cursor_atomic_update
 };
 
 static const struct drm_plane_funcs evdi_plane_funcs = {

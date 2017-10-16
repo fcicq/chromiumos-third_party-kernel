@@ -21,6 +21,7 @@
 #include <drm/drmP.h>
 #include <drm/drm_crtc_helper.h>
 #include <linux/compiler.h>
+#include <linux/mutex.h>
 
 #include "evdi_cursor.h"
 #include "evdi_drv.h"
@@ -43,6 +44,7 @@ struct evdi_cursor {
 	uint32_t pixel_format;
 	uint32_t stride;
 	struct evdi_gem_object *obj;
+	struct mutex lock;
 };
 
 static void evdi_cursor_set_gem(struct evdi_cursor *cursor,
@@ -61,14 +63,28 @@ struct evdi_gem_object *evdi_cursor_gem(struct evdi_cursor *cursor)
 	return cursor->obj;
 }
 
-int evdi_cursor_alloc(struct evdi_cursor **cursor)
+int evdi_cursor_init(struct evdi_cursor **cursor)
 {
-	struct evdi_cursor *new_cursor = kzalloc(sizeof(struct evdi_cursor),
-		GFP_KERNEL);
-	if (!new_cursor)
+	if (WARN_ON(*cursor))
+		return -EINVAL;
+
+	*cursor = kzalloc(sizeof(struct evdi_cursor), GFP_KERNEL);
+	if (*cursor) {
+		mutex_init(&(*cursor)->lock);
+		return 0;
+	} else {
 		return -ENOMEM;
-	*cursor = new_cursor;
-	return 0;
+	}
+}
+
+void evdi_cursor_lock(struct evdi_cursor *cursor)
+{
+	mutex_lock(&cursor->lock);
+}
+
+void evdi_cursor_unlock(struct evdi_cursor *cursor)
+{
+	mutex_unlock(&cursor->lock);
 }
 
 void evdi_cursor_free(struct evdi_cursor *cursor)
@@ -86,9 +102,11 @@ bool evdi_cursor_enabled(struct evdi_cursor *cursor)
 
 void evdi_cursor_enable(struct evdi_cursor *cursor, bool enable)
 {
+	evdi_cursor_lock(cursor);
 	cursor->enabled = enable;
 	if (!enable)
 		evdi_cursor_set_gem(cursor, NULL);
+	evdi_cursor_unlock(cursor);
 }
 
 void evdi_cursor_set(struct evdi_cursor *cursor,
@@ -99,13 +117,14 @@ void evdi_cursor_set(struct evdi_cursor *cursor,
 {
 	int err = 0;
 
+	evdi_cursor_lock(cursor);
 	/* Currently we only support 64x64 cursors */
 	if (width != EVDI_CURSOR_W || height != EVDI_CURSOR_H) {
 		EVDI_ERROR("We currently only support %dx%d cursors\n",
 				EVDI_CURSOR_W, EVDI_CURSOR_H);
 		cursor->enabled = false;
 		evdi_cursor_set_gem(cursor, NULL);
-		return;
+		goto unlock;
 	}
 
 	if (obj && !obj->vmapping)
@@ -124,14 +143,17 @@ void evdi_cursor_set(struct evdi_cursor *cursor,
 	cursor->pixel_format = pixel_format;
 	cursor->stride = stride;
 	evdi_cursor_set_gem(cursor, obj);
+
+unlock:
+	evdi_cursor_unlock(cursor);
 }
 
-void evdi_cursor_move(__maybe_unused struct drm_crtc *crtc,
-		     int32_t x, int32_t y,
-		     struct evdi_cursor *cursor)
+void evdi_cursor_move(struct evdi_cursor *cursor, int32_t x, int32_t y)
 {
+	evdi_cursor_lock(cursor);
 	cursor->x = x;
 	cursor->y = y;
+	evdi_cursor_unlock(cursor);
 }
 
 static inline uint32_t blend_component(uint32_t pixel,
@@ -156,22 +178,20 @@ static inline uint32_t blend_alpha(const uint32_t pixel_val32,
 				(blend_val32 & 0xff0000) >> 16, alpha) << 16;
 }
 
-int evdi_cursor_composing_pixel(char __user *buffer,
-				int const cursor_value,
-				int const fb_value,
-				int cmd_offset)
+static int evdi_cursor_compose_pixel(char __user *buffer,
+				     int const cursor_value,
+				     int const fb_value,
+				     int cmd_offset)
 {
 	int const composed_value = blend_alpha(fb_value, cursor_value);
 
 	return copy_to_user(buffer + cmd_offset, &composed_value, 4);
 }
 
-int evdi_cursor_composing_and_copy(struct evdi_cursor *cursor,
-				   struct evdi_framebuffer *ufb,
-				   char __user *buffer,
-				   int buf_byte_stride,
-				   __always_unused int const max_x,
-				   __always_unused int const max_y)
+int evdi_cursor_compose_and_copy(struct evdi_cursor *cursor,
+				 struct evdi_framebuffer *ufb,
+				 char __user *buffer,
+				 int buf_byte_stride)
 {
 	int x, y;
 	uint32_t *src_ptr;
@@ -224,10 +244,10 @@ int evdi_cursor_composing_and_copy(struct evdi_cursor *cursor,
 						  mouse_pix_y + mouse_pix_x));
 			cmd_offset = (buf_byte_stride * mouse_pix_y) +
 						       (mouse_pix_x * 4);
-			if (evdi_cursor_composing_pixel(buffer,
-						    curs_val,
-						    fb_value,
-						    cmd_offset)) {
+			if (evdi_cursor_compose_pixel(buffer,
+						      curs_val,
+						      fb_value,
+						      cmd_offset)) {
 				EVDI_ERROR("Failed to compose cursor pixel\n");
 				return -EFAULT;
 			}
@@ -237,8 +257,7 @@ int evdi_cursor_composing_and_copy(struct evdi_cursor *cursor,
 	return 0;
 }
 
-void evdi_get_cursor_position(int32_t *x, int32_t *y,
-			      struct evdi_cursor *cursor)
+void evdi_cursor_position(struct evdi_cursor *cursor, int32_t *x, int32_t *y)
 {
 	*x = cursor->x;
 	*y = cursor->y;
