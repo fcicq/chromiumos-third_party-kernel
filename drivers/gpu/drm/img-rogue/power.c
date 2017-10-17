@@ -548,7 +548,7 @@ ErrorExit:
 	}
 	else if(eError != PVRSRV_OK)
 	{
-		PVR_DPF((PVR_DBG_WARNING,
+		PVR_DPF((PVR_DBG_ERROR,
 				 "%s: Transition to %d FAILED (%s)",
 				 __func__, eNewPowerState, PVRSRVGetErrorStringKM(eError)));
 	}

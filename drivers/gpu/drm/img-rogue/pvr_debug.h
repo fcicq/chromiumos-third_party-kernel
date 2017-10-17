@@ -215,12 +215,12 @@ PVRSRVDebugAssertFail(const IMG_CHAR *pszFile,
 
 
 /* PVR_DPF() handling */
+#define PVR_DBG_ERROR		DBGPRIV_ERROR		/*!< Debug level passed to PVRSRVDebugPrintf() for non-fatal errors. */
 
 #if defined(PVRSRV_NEED_PVR_DPF) || defined(DOXYGEN)
 
 	/* New logging mechanism */
 	#define PVR_DBG_FATAL		DBGPRIV_FATAL		/*!< Debug level passed to PVRSRVDebugPrintf() for fatal errors. */
-	#define PVR_DBG_ERROR		DBGPRIV_ERROR		/*!< Debug level passed to PVRSRVDebugPrintf() for non-fatal errors. */
 	#define PVR_DBG_WARNING		DBGPRIV_WARNING		/*!< Debug level passed to PVRSRVDebugPrintf() for warnings. */
 	#define PVR_DBG_MESSAGE		DBGPRIV_MESSAGE		/*!< Debug level passed to PVRSRVDebugPrintf() for information only. */
 	#define PVR_DBG_VERBOSE		DBGPRIV_VERBOSE		/*!< Debug level passed to PVRSRVDebugPrintf() for very low-priority debug. */

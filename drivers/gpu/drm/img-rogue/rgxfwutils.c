@@ -492,6 +492,7 @@ struct _RGX_SERVER_COMMON_CONTEXT_ {
 	PVRSRV_RGXDEV_INFO *psDevInfo;
 	DEVMEM_MEMDESC *psFWCommonContextMemDesc;
 	PRGXFWIF_FWCOMMONCONTEXT sFWCommonContextFWAddr;
+	RGXFWIF_FWCOMMONCONTEXT *psFWComCtx;
 	DEVMEM_MEMDESC *psFWMemContextMemDesc;
 	DEVMEM_MEMDESC *psFWFrameworkMemDesc;
 	DEVMEM_MEMDESC *psContextStateMemDesc;
@@ -689,7 +690,8 @@ PVRSRV_ERROR FWCommonContextAllocate(CONNECTION_DATA *psConnection,
 					   PDUMP_FLAGS_CONTINUOUS);
 
 	/* We've finished the setup so release the CPU mapping */
-	DevmemReleaseCpuVirtAddr(psServerCommonContext->psFWCommonContextMemDesc);
+	//DevmemReleaseCpuVirtAddr(psServerCommonContext->psFWCommonContextMemDesc);
+	psServerCommonContext->psFWComCtx = psFWCommonContext;
 
 	/* Map this allocation into the FW */
 	RGXSetFirmwareAddress(&psServerCommonContext->sFWCommonContextFWAddr,
@@ -746,6 +748,9 @@ void FWCommonContextFree(RGX_SERVER_COMMON_CONTEXT *psServerCommonContext)
 	/*
 		Unmap the context itself and then all it's resources
 	*/
+
+	/* Free CPU mapping */
+	DevmemReleaseCpuVirtAddr(psServerCommonContext->psFWCommonContextMemDesc);
 
 	/* Unmap the FW common context */
 	RGXUnsetFirmwareAddress(psServerCommonContext->psFWCommonContextMemDesc);
@@ -3119,7 +3124,7 @@ static PVRSRV_ERROR RGXSendCommandRaw(PVRSRV_RGXDEV_INFO 	*psDevInfo,
 			/* wait for firmware to catch up */
 			PVR_DPF((PVR_DBG_MESSAGE, "RGXSendCommandRaw: waiting on fw to catch-up, roff: %d, woff: %d",
 						psKCCBCtl->ui32ReadOffset, ui32OldWriteOffset));
-			PVRSRVPollForValueKM(&psKCCBCtl->ui32ReadOffset, ui32OldWriteOffset, 0xFFFFFFFF);
+			PVRSRVPollForValueKM(&psKCCBCtl->ui32ReadOffset, ui32OldWriteOffset, 0x06FFFFFF);
 
 			/* Dump Init state of Kernel CCB control (read and write offset) */
 			PDUMPCOMMENTWITHFLAGS(PDUMP_FLAGS_CONTINUOUS, "Initial state of kernel CCB Control, roff: %d, woff: %d",
@@ -4888,7 +4893,8 @@ void DumpStalledFWCommonContext(RGX_SERVER_COMMON_CONTEXT *psCurrentServerCommon
 	DumpCCB(psCurrentServerCommonContext->psDevInfo, sFWCommonContext,
 			psCurrentClientCCB, pfnDumpDebugPrintf, pvDumpDebugFile);
 #else
-	DumpStalledCCBCommand(sFWCommonContext, psCurrentClientCCB, pfnDumpDebugPrintf, pvDumpDebugFile);
+	DumpStalledCCBCommand(sFWCommonContext, psCurrentServerCommonContext->psFWComCtx,
+						  psCurrentClientCCB, pfnDumpDebugPrintf, pvDumpDebugFile);
 #endif
 }
 

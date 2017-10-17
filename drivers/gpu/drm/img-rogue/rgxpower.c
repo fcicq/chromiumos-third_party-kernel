@@ -186,12 +186,12 @@ PVRSRV_ERROR RGXPrePowerState (IMG_HANDLE				hDevHandle,
 			return eError;
 		}
 
-		/* Wait for the firmware to complete processing. It cannot use PVRSRVWaitForValueKM as it relies 
+		/* Wait for the firmware to complete processing. It cannot use PVRSRVWaitForValueKM as it relies
 		   on the EventObject which is signalled in this MISR */
-		eError = PVRSRVPollForValueKM(psDevInfo->psPowSyncPrim->pui32LinAddr, 0x1, 0xFFFFFFFF);
+		eError = PVRSRVPollForValueKM(psDevInfo->psPowSyncPrim->pui32LinAddr, 0x1, 0x01FFFFFF);
 
 		/* Check the Power state after the answer */
-		if (eError == PVRSRV_OK)	
+		if (eError == PVRSRV_OK)
 		{
 			/* Finally, de-initialise some registers. */
 			if (psFWTraceBuf->ePowState == RGXFWIF_POW_OFF)
@@ -203,7 +203,7 @@ PVRSRV_ERROR RGXPrePowerState (IMG_HANDLE				hDevHandle,
 					/* Wait for the pending META/MIPS to host interrupts to come back. */
 					eError = PVRSRVPollForValueKM(&psDevInfo->aui32SampleIRQCount[ui32TID],
 										          psFWTraceBuf->aui32InterruptCount[ui32TID],
-										          0xffffffff);
+										          0x7fffffff);
 
 					if (eError != PVRSRV_OK)
 					{
@@ -348,7 +348,7 @@ PVRSRV_ERROR RGXPostPowerState (IMG_HANDLE				hDevHandle,
 			 */
 			if (PVRSRVPollForValueKM((IMG_UINT32 *)&psRGXFWInit->bFirmwareStarted,
 			                         IMG_TRUE,
-			                         0xFFFFFFFF) != PVRSRV_OK)
+			                         0x02FFFFFF) != PVRSRV_OK)
 			{
 				PVR_DPF((PVR_DBG_ERROR, "RGXPostPowerState: Polling for 'FW started' flag failed."));
 				eError = PVRSRV_ERROR_TIMEOUT;
@@ -609,7 +609,7 @@ PVRSRV_ERROR RGXDustCountChange(IMG_HANDLE				hDevHandle,
 	}
 
 	/* Wait for the firmware to answer. */
-	eError = PVRSRVPollForValueKM(psDevInfo->psPowSyncPrim->pui32LinAddr, 0x1, 0xFFFFFFFF);
+	eError = PVRSRVPollForValueKM(psDevInfo->psPowSyncPrim->pui32LinAddr, 0x1, 0x03FFFFFF);
 
 	if (eError != PVRSRV_OK)
 	{
@@ -809,13 +809,14 @@ PVRSRV_ERROR RGXForcedIdleRequest(IMG_HANDLE hDevHandle, IMG_BOOL bDeviceOffPerm
 
 	/* Wait for GPU to finish current workload */
 	do {
-		eError = PVRSRVPollForValueKM(psDevInfo->psPowSyncPrim->pui32LinAddr, 0x1, 0xFFFFFFFF);
+		eError = PVRSRVPollForValueKM(psDevInfo->psPowSyncPrim->pui32LinAddr, 0x1, 0x04FFFFFF);
 		if ((eError == PVRSRV_OK) || (ui32RetryCount == RGX_FORCED_IDLE_RETRY_COUNT))
 		{
 			break;
 		}
 		ui32RetryCount++;
 		PVR_DPF((PVR_DBG_WARNING,"RGXForcedIdleRequest: Request timeout. Retry %d of %d", ui32RetryCount, RGX_FORCED_IDLE_RETRY_COUNT));
+		break;
 	} while (IMG_TRUE);
 
 	if (eError != PVRSRV_OK)
@@ -885,7 +886,7 @@ PVRSRV_ERROR RGXCancelForcedIdleRequest(IMG_HANDLE hDevHandle)
 	}
 
 	/* Wait for the firmware to answer. */
-	eError = PVRSRVPollForValueKM(psDevInfo->psPowSyncPrim->pui32LinAddr, 1, 0xFFFFFFFF);
+	eError = PVRSRVPollForValueKM(psDevInfo->psPowSyncPrim->pui32LinAddr, 1, 0x05FFFFFF);
 
 	if (eError != PVRSRV_OK)
 	{

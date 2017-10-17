@@ -12,6 +12,9 @@ override SUPPORT_GPUTRACE_EVENTS := 1
 override SUPPORT_KERNEL_SRVINIT := 1
 override SUPPORT_SERVER_SYNC := 1
 override SUPPORT_TLA := 1
+override PVRSRV_ENABLE_FULL_SYNC_TRACKING := 1
+override PVRSRV_ENABLE_FULL_CCB_DUMP := 1
+override PVRSRV_NEED_PVR_DPF := 1
 ifeq ($(CONFIG_DRM_POWERVR_ROGUE_DEBUG),y)
 override BUILD := debug
 override PVR_BUILD_TYPE := debug

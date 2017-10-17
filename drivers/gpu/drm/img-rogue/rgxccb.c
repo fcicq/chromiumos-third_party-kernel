@@ -1865,6 +1865,7 @@ void DumpCCB(PVRSRV_RGXDEV_INFO *psDevInfo,
 #endif /* defined(PVRSRV_ENABLE_FULL_SYNC_TRACKING) || defined(PVRSRV_ENABLE_FULL_CCB_DUMP) */
 
 void DumpStalledCCBCommand(PRGXFWIF_FWCOMMONCONTEXT sFWCommonContext,
+				RGXFWIF_FWCOMMONCONTEXT *psFWComCtx,
 				RGX_CLIENT_CCB *psCurrentClientCCB,
 				DUMPDEBUG_PRINTF_FUNC *pfnDumpDebugPrintf,
 				void *pvDumpDebugFile)
@@ -1875,6 +1876,14 @@ void DumpStalledCCBCommand(PRGXFWIF_FWCOMMONCONTEXT sFWCommonContext,
 	IMG_UINT32 					  ui32SampledRdOff = psClientCCBCtrl->ui32ReadOffset;
 	IMG_UINT32 					  ui32SampledDepOff = psClientCCBCtrl->ui32DepOffset;
 	IMG_UINT32 					  ui32SampledWrOff = psCurrentClientCCB->ui32HostWriteOffset;
+
+	PVR_DUMPDEBUG_LOG("FWCtx 0x%08X, w/d/r: %d/%d/%d, wait:%d, run:%d",
+					  sFWCommonContext.ui32Addr,
+					  ui32SampledWrOff,
+					  ui32SampledDepOff,
+					  ui32SampledRdOff,
+					  (psFWComCtx->sWaitingNode.p.ui32Addr != 0x0),
+					  (psFWComCtx->sRunNode.p.ui32Addr != 0x0));
 
 	pui8Ptr = pui8ClientCCBBuff + ui32SampledRdOff;
 
