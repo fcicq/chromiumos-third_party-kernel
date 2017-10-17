@@ -109,6 +109,28 @@
 	pp3300_s3: pp3300 {
 	};
 
+	/*
+	 * See b/66922012
+	 *
+	 * This is a hack to make sure the Bluetooth part of the QCA6174A
+	 * is reset at boot by toggling BT_EN. At boot BT_EN is first set
+	 * to low through pinctrl (see bt_en_1v8_l). The fake bt_3v3
+	 * regulator is configured as a supply of the wlan_3v3 regulator
+	 * below. When wlan_3v3 is enabled early in the boot process it
+	 * also enables its supply regulator bt_3v3, which changes BT_EN
+	 * to high.
+	 */
+	bt_3v3: bt-3v3 {
+		compatible = "regulator-fixed";
+		regulator-name = "bt_3v3";
+
+		/* Note the bt_en_1v8_l pinctrl */
+		enable-active-high;
+		gpio = <&gpio0 8 GPIO_ACTIVE_HIGH>;
+
+		vin-supply = <&pp3300_s3>;
+	};
+
 	wlan_3v3: wlan-3v3 {
 		compatible = "regulator-fixed";
 		regulator-name = "wlan_3v3";
@@ -121,7 +143,8 @@
 		 * TODO (b/64444991): how long to assert PD#?
 		 */
 		regulator-enable-ramp-delay = <10000>;
-		vin-supply = <&pp3300_s3>;
+		/* See bt_3v3 hack above */
+		vin-supply = <&bt_3v3>;
 	};
 
 	/* END REGULATORS */
@@ -469,7 +492,7 @@ ap_i2c_dig: &i2c2 {
 &pinctrl {
 	pinctrl-0 = <
 		&ap_pwroff	/* AP will auto-assert this when in S3 */
-		&bt_rf_kill_1v8_l
+		&bt_en_1v8_l
 		&clk_32k	/* This pin is always 32k on gru boards */
 		&wlan_pd_1v8_l	/* Drive this low ASAP */
 		&wlan_rf_kill_1v8_l
@@ -509,9 +532,8 @@ ap_i2c_dig: &i2c2 {
 };
 
 &wifi {
-	/* Default pull-up, but just to be clear */
-	bt_rf_kill_1v8_l: bt-rf-kill-1v8-l {
-		rockchip,pins = <0 8 RK_FUNC_GPIO &pcfg_pull_up>;
+	bt_en_1v8_l: bt-en-1v8-l {
+		rockchip,pins = <0 8 RK_FUNC_GPIO &pcfg_output_low>;
 	};
 
 	wlan_pd_1v8_l: wlan-pd-1v8-l {
