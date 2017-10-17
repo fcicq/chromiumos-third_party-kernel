@@ -430,6 +430,7 @@ struct ath10k_sta {
 #endif
 
 	u8 tpc;
+	u8 ampdu_subframe_count;
 	u32 peer_ps_state;
 
 	struct ath10k_smart_ant_sta *smart_ant_sta;
