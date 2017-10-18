@@ -154,7 +154,7 @@ static int evdi_platform_remove(struct platform_device *pdev)
 	    (struct drm_device *)platform_get_drvdata(pdev);
 	EVDI_CHECKPT();
 
-	drm_unplug_dev(drm_dev);
+	drm_dev_unplug(drm_dev);
 
 	return 0;
 }
