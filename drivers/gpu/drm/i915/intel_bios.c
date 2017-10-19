@@ -710,6 +710,10 @@ parse_psr(struct drm_i915_private *dev_priv, const struct bdb_header *bdb)
 
 	dev_priv->vbt.psr.tp1_wakeup_time = psr_table->tp1_wakeup_time;
 	dev_priv->vbt.psr.tp2_tp3_wakeup_time = psr_table->tp2_tp3_wakeup_time;
+
+	/* TODO(b/67599437) Kaby Lake TP2 time is broken. */
+	if (IS_KABYLAKE(dev_priv))
+		dev_priv->vbt.psr.tp2_tp3_wakeup_time = 3;
 }
 
 static void
