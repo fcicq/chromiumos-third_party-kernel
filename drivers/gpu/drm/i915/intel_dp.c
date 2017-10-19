@@ -3611,6 +3611,9 @@ intel_edp_init_dpcd(struct intel_dp *intel_dp)
 		DRM_DEBUG_KMS("PSR2 %s on sink",
 			      dev_priv->psr.psr2_support ? "supported" : "not supported");
 
+		/* TODO(b/67599437) PSR2 is broken */
+		dev_priv->psr.psr2_support = false;
+
 		if (dev_priv->psr.psr2_support) {
 			dev_priv->psr.y_cord_support =
 				intel_dp_get_y_cord_status(intel_dp);
