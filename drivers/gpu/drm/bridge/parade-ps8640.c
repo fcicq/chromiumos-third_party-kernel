@@ -413,7 +413,6 @@ static enum drm_connector_status ps8640_detect(struct drm_connector *connector,
 }
 
 static const struct drm_connector_funcs ps8640_connector_funcs = {
-	.dpms = drm_atomic_helper_connector_dpms,
 	.fill_modes = drm_helper_probe_single_connector_modes,
 	.detect = ps8640_detect,
 	.destroy = drm_connector_cleanup,
