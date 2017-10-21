@@ -159,6 +159,8 @@ struct i2c_hid {
 
 	bool			irq_wake_enabled;
 	struct regulator	*supply;
+	struct gpio_desc 	*reset_gpio;
+	int			reset_delay_us;
 };
 
 static const struct i2c_hid_quirks {
@@ -795,6 +797,32 @@ static struct hid_ll_driver i2c_hid_ll_driver = {
 	.raw_request = i2c_hid_raw_request,
 };
 
+static int i2c_hid_hw_power_on(struct i2c_hid *ihid)
+{
+	int ret;
+
+	ret = regulator_enable(ihid->supply);
+	if (ret < 0)
+		return ret;
+
+	if (ihid->reset_gpio) {
+		gpiod_set_value_cansleep(ihid->reset_gpio, 1);
+		udelay(ihid->reset_delay_us);
+		gpiod_set_value_cansleep(ihid->reset_gpio, 0);
+		udelay(ihid->reset_delay_us);
+	}
+
+	return ret;
+}
+
+static void i2c_hid_hw_power_off(struct i2c_hid *ihid)
+{
+	if (ihid->reset_gpio)
+		gpiod_set_value_cansleep(ihid->reset_gpio, 1);
+
+	regulator_disable(ihid->supply);
+}
+
 static int i2c_hid_init_irq(struct i2c_client *client)
 {
 	struct i2c_hid *ihid = i2c_get_clientdata(client);
@@ -987,10 +1015,19 @@ static int i2c_hid_probe(struct i2c_client *client,
 		return ret;
 	}
 
-	ret = regulator_enable(ihid->supply);
-	if (ret < 0) {
-		dev_err(&client->dev, "Failed to enable power regulator: %d\n",
+	ihid->reset_gpio = devm_gpiod_get(&client->dev, "reset", GPIOD_OUT_LOW);
+	if (IS_ERR(ihid->reset_gpio)) {
+		ihid->reset_gpio = NULL;
+		dev_warn(&client->dev, "Failed to get reset gpio: %d\n",
 			ret);
+	}
+
+	of_property_read_u32(client->dev.of_node, "reset-delay-us",
+			     &ihid->reset_delay_us);
+
+	ret = i2c_hid_hw_power_on(ihid);
+	if (ret < 0) {
+		dev_err(&client->dev, "Failed to power on: %d\n", ret);
 		return ret;
 	}
 
@@ -1127,7 +1164,7 @@ static int i2c_hid_remove(struct i2c_client *client)
 	if (ihid->desc)
 		gpiod_put(ihid->desc);
 
-	regulator_disable(ihid->supply);
+	i2c_hid_hw_power_off(ihid);
 
 	kfree(ihid);
 
@@ -1182,10 +1219,7 @@ static int i2c_hid_suspend(struct device *dev)
 			hid_warn(hid, "Failed to enable irq wake: %d\n",
 				wake_status);
 	} else {
-		ret = regulator_disable(ihid->supply);
-		if (ret < 0)
-			hid_warn(hid, "Failed to disable power supply: %d\n",
-				 ret);
+		i2c_hid_hw_power_off(ihid);
 	}
 
 	return 0;
@@ -1200,10 +1234,9 @@ static int i2c_hid_resume(struct device *dev)
 	int wake_status;
 
 	if (!device_may_wakeup(&client->dev)) {
-		ret = regulator_enable(ihid->supply);
+		ret = i2c_hid_hw_power_on(ihid);
 		if (ret < 0)
-			hid_warn(hid, "Failed to enable power supply: %d\n",
-				 ret);
+			hid_warn(hid, "Failed to enable power: %d\n", ret);
 	} else if (ihid->irq_wake_enabled) {
 		wake_status = disable_irq_wake(ihid->irq);
 		if (!wake_status)
