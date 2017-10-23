@@ -53,7 +53,10 @@ enum ov5695_state {
 struct ov5695_priv {
 	struct i2c_client	*client;
 	struct clk		*mclk;
-	struct regulator	*supply;
+	struct regulator        *avdd_regulator;
+	struct regulator        *dovdd_regulator;
+	struct regulator        *dvdd_regulator;
+
 	struct gpio_desc	*reset_gpio;
 
 	struct v4l2_subdev	subdev;
@@ -372,11 +375,26 @@ static int __ov5695_s_power(struct ov5695_priv *priv, int on)
 			return ret;
 		}
 
-		ret = regulator_enable(priv->supply);
+		/* AVDD and DOVDD may rise in any order */
+		ret = regulator_enable(priv->avdd_regulator);
 		if (ret < 0) {
 			dev_err(dev, "Failed to enable regulator\n");
 			return ret;
+			dev_err(dev, "Failed to enable AVDD regulator\n");
+			goto exit;
 		}
+		ret = regulator_enable(priv->dovdd_regulator);
+		if (ret < 0) {
+			dev_err(dev, "Failed to enable DOVDD regulator\n");
+			goto disable_avdd;
+		}
+		/* DVDD must rise after AVDD and DOVDD */
+		ret = regulator_enable(priv->dvdd_regulator);
+		if (ret < 0) {
+			dev_err(dev, "Failed to enable DVDD regulator\n");
+			goto disable_dovdd;
+		}
+
 		mdelay(1);
 		gpiod_set_value_cansleep(priv->reset_gpio, 1);
 		mdelay(1);
@@ -389,12 +407,22 @@ static int __ov5695_s_power(struct ov5695_priv *priv, int on)
 		ov5695_dbg_frame_count(priv); //TODO remove
 
 		//clk_disable_unprepare(priv->mclk); TODO debug
-		ret = regulator_disable(priv->supply);
+		regulator_disable(priv->dvdd_regulator);
+		regulator_disable(priv->dovdd_regulator);
+		regulator_disable(priv->avdd_regulator);
+
 		priv->state = MODULE_POWER_OFF;
 		dev_info(dev, "Camera in POWER OFF MODE\n");
 	}
 
 	return 0;
+
+disable_dovdd:
+		regulator_disable(priv->dovdd_regulator);
+disable_avdd:
+		regulator_disable(priv->avdd_regulator);
+exit:
+		return ret;
 }
 
 static int ov5695_s_power(struct v4l2_subdev *sd, int on)
@@ -638,9 +666,19 @@ static int ov5695_probe(struct i2c_client *client,
 		return -EINVAL;
 	}
 
-	priv->supply = devm_regulator_get(dev, "power");
-	if (IS_ERR(priv->supply)) {
-		dev_err(dev, "Failed to get power-supply\n");
+	priv->avdd_regulator = devm_regulator_get(dev, "avdd");
+	if (IS_ERR(priv->avdd_regulator)) {
+		dev_err(dev, "Failed to get avdd-supply\n");
+		return -EINVAL;
+	}
+	priv->dovdd_regulator = devm_regulator_get(dev, "dovdd");
+	if (IS_ERR(priv->dovdd_regulator)) {
+		dev_err(dev, "Failed to get dovdd-supply\n");
+		return -EINVAL;
+	}
+	priv->dvdd_regulator = devm_regulator_get(dev, "dvdd");
+	if (IS_ERR(priv->dvdd_regulator)) {
+		dev_err(dev, "Failed to get dvdd-supply\n");
 		return -EINVAL;
 	}
 
