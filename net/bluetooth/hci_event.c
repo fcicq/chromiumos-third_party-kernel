@@ -4475,10 +4475,12 @@ static void hci_le_conn_complete_evt(struct hci_dev *hdev, struct sk_buff *skb)
 
 	hci_dev_lock(hdev);
 
+#ifndef CONFIG_BT_EVE_HACKS
 	/* All controllers implicitly stop advertising in the event of a
 	 * connection, so ensure that the state bit is cleared.
 	 */
 	hci_dev_clear_flag(hdev, HCI_LE_ADV);
+#endif
 
 	conn = hci_lookup_le_connect(hdev);
 	if (!conn) {
