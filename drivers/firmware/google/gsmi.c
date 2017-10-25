@@ -872,7 +872,6 @@ static int gsmi_platform_driver_probe(struct platform_device *dev)
 static struct platform_driver gsmi_driver_info = {
 	.driver = {
 		.name = "gsmi",
-		.owner = THIS_MODULE,
 		.pm = &gsmi_pm_ops,
 	},
 	.probe = gsmi_platform_driver_probe,
