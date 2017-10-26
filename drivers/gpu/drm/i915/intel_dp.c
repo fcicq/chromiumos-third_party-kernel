@@ -3558,11 +3558,11 @@ intel_edp_init_dpcd(struct intel_dp *intel_dp)
 	if (drm_dp_dpcd_read(&intel_dp->aux, DP_EDP_DPCD_REV,
 			     intel_dp->edp_dpcd, sizeof(intel_dp->edp_dpcd)) ==
 			     sizeof(intel_dp->edp_dpcd))
-		DRM_DEBUG_KMS("EDP DPCD : %*ph\n", (int) sizeof(intel_dp->edp_dpcd),
+		DRM_DEBUG_KMS("eDP DPCD: %*ph\n", (int) sizeof(intel_dp->edp_dpcd),
 			      intel_dp->edp_dpcd);
 
-	/* Intermediate frequency support */
-	if (intel_dp->edp_dpcd[0] >= 0x03) { /* eDp v1.4 or higher */
+	/* Read the eDP 1.4+ supported link rates. */
+	if (intel_dp->edp_dpcd[0] >= DP_EDP_14) {
 		__le16 sink_rates[DP_MAX_SUPPORTED_RATES];
 		int i;
 
@@ -3586,6 +3586,10 @@ intel_edp_init_dpcd(struct intel_dp *intel_dp)
 		intel_dp->num_sink_rates = i;
 	}
 
+	/*
+	 * Use DP_LINK_RATE_SET if DP_SUPPORTED_LINK_RATES are available,
+	 * default to DP_MAX_LINK_RATE and DP_LINK_BW_SET otherwise.
+	 */
 	if (intel_dp->num_sink_rates)
 		intel_dp->use_rate_select = true;
 	else
