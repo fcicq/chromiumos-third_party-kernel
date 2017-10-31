@@ -1010,15 +1010,13 @@ static void dw_mipi_dsi_encoder_enable(struct drm_encoder *encoder)
 
 	clk_disable_unprepare(dsi->pclk);
 
-	switch (vop_get_crtc_vop_id(encoder->crtc)) {
-	case RK3399_VOP_LIT:
+	ret = drm_of_encoder_active_endpoint_id(dsi->dev->of_node, encoder);
+	if (ret) {
 		dev_dbg(dsi->dev, "vop LIT output to dsi0\n");
 		val = pdata->dsi0_en_bit | (pdata->dsi0_en_bit << 16);
-		break;
-	default:
+	} else {
 		dev_dbg(dsi->dev, "vop BIG output to dsi0\n");
 		val = pdata->dsi0_en_bit << 16;
-		break;
 	}
 
 	regmap_write(dsi->grf_regmap, pdata->grf_switch_reg, val);

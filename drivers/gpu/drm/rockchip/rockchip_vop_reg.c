@@ -169,7 +169,6 @@ static const struct vop_ctrl rk3036_ctrl_data = {
 };
 
 static const struct vop_data rk3036_vop = {
-	.id = RK3036_VOP,
 	.ctrl = &rk3036_ctrl_data,
 	.intr = &rk3036_intr,
 	.win = rk3036_vop_win_data,
@@ -307,7 +306,6 @@ static const struct vop_intr rk3288_vop_intr = {
 };
 
 static const struct vop_data rk3288_vop = {
-	.id = RK3288_VOP,
 	.feature = VOP_FEATURE_OUTPUT_RGB10,
 	.intr = &rk3288_vop_intr,
 	.ctrl = &rk3288_ctrl_data,
@@ -444,7 +442,6 @@ static const struct vop_win_data rk3399_vop_win_data[] = {
 };
 
 static const struct vop_data rk3399_vop_big = {
-	.id = RK3399_VOP_BIG,
 	.feature = VOP_FEATURE_OUTPUT_RGB10,
 	.intr = &rk3399_vop_intr,
 	.ctrl = &rk3399_ctrl_data,
@@ -462,7 +459,6 @@ static const struct vop_win_data rk3399_vop_lit_win_data[] = {
 };
 
 static const struct vop_data rk3399_vop_lit = {
-	.id = RK3399_VOP_LIT,
 	.intr = &rk3399_vop_intr,
 	.ctrl = &rk3399_ctrl_data,
 	/*

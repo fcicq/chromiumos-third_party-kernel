@@ -809,17 +809,13 @@ static void cdn_dp_encoder_enable(struct drm_encoder *encoder)
 	struct cdn_dp_device *dp = encoder_to_dp(encoder);
 	int ret, val;
 
-	switch (vop_get_crtc_vop_id(encoder->crtc)) {
-	case RK3399_VOP_LIT:
+	ret = drm_of_encoder_active_endpoint_id(dp->dev->of_node, encoder);
+	if (ret) {
 		DRM_DEV_DEBUG_KMS(dp->dev, "vop LIT output to cdn-dp\n");
 		val = DP_SEL_VOP_LIT | (DP_SEL_VOP_LIT << 16);
-		break;
-	case RK3399_VOP_BIG:
+	} else {
 		DRM_DEV_DEBUG_KMS(dp->dev, "vop BIG output to cdn-dp\n");
 		val = DP_SEL_VOP_LIT << 16;
-		break;
-	default:
-		break;
 	}
 
 	ret = cdn_dp_grf_write(dp, GRF_SOC_CON9, val);
