@@ -899,12 +899,19 @@ struct mwifiex_adapter {
 	struct sk_buff_head rx_data_q;
 	struct semaphore *card_sem;
 	bool mfg_mode;
+	u8 coex_scan;
+	u8 coex_min_scan_time;
+	u8 coex_max_scan_time;
+	u8 coex_win_size;
+	u8 coex_tx_win_size;
+	u8 coex_rx_win_size;
 	u8 active_scan_triggered;
 };
 
 void mwifiex_process_tx_queue(struct mwifiex_adapter *adapter);
 
 int mwifiex_init_lock_list(struct mwifiex_adapter *adapter);
+void mwifiex_free_lock_list(struct mwifiex_adapter *adapter);
 
 void mwifiex_set_trans_start(struct net_device *dev);
 
@@ -949,9 +956,9 @@ int mwifiex_alloc_cmd_buffer(struct mwifiex_adapter *adapter);
 int mwifiex_free_cmd_buffer(struct mwifiex_adapter *adapter);
 void mwifiex_cancel_all_pending_cmd(struct mwifiex_adapter *adapter);
 void mwifiex_cancel_pending_ioctl(struct mwifiex_adapter *adapter);
+void mwifiex_cancel_pending_scan_cmd(struct mwifiex_adapter *adapter);
+void mwifiex_cancel_scan(struct mwifiex_adapter *adapter);
 
-void mwifiex_insert_cmd_to_free_q(struct mwifiex_adapter *adapter,
-				  struct cmd_ctrl_node *cmd_node);
 void mwifiex_recycle_cmd_node(struct mwifiex_adapter *adapter,
 			      struct cmd_ctrl_node *cmd_node);
 
@@ -1023,7 +1030,8 @@ int mwifiex_cmd_802_11_associate(struct mwifiex_private *priv,
 				 struct mwifiex_bssdescriptor *bss_desc);
 int mwifiex_ret_802_11_associate(struct mwifiex_private *priv,
 				 struct host_cmd_ds_command *resp);
-void mwifiex_reset_connect_state(struct mwifiex_private *priv, u16 reason);
+void mwifiex_reset_connect_state(struct mwifiex_private *priv, u16 reason,
+				 bool from_ap);
 u8 mwifiex_band_to_radio_type(u8 band);
 int mwifiex_deauthenticate(struct mwifiex_private *priv, u8 *mac);
 int mwifiex_adhoc_start(struct mwifiex_private *priv,
@@ -1081,6 +1089,11 @@ mwifiex_set_wmm_params(struct mwifiex_private *priv,
 		       struct mwifiex_uap_bss_param *bss_cfg,
 		       struct cfg80211_ap_settings *params);
 void mwifiex_set_ba_params(struct mwifiex_private *priv);
+
+void mwifiex_update_ampdu_txwinsize(struct mwifiex_adapter *pmadapter);
+void mwifiex_bt_coex_wlan_param_update_event(struct mwifiex_private *priv,
+					     struct sk_buff *event_skb);
+
 void mwifiex_set_11ac_ba_params(struct mwifiex_private *priv);
 int mwifiex_cmd_802_11_scan_ext(struct mwifiex_private *priv,
 				struct host_cmd_ds_command *cmd,
@@ -1356,6 +1369,9 @@ int mwifiex_process_host_command(struct mwifiex_private *priv,
 
 int mwifiex_sysfs_register(struct mwifiex_private *priv);
 void mwifiex_sysfs_unregister(struct mwifiex_private *priv);
+
+void mwifiex_coex_ampdu_rxwinsize(struct mwifiex_adapter *adapter);
+void mwifiex_11n_delba(struct mwifiex_private *priv, int tid);
 
 #ifdef CONFIG_DEBUG_FS
 void mwifiex_debugfs_init(void);

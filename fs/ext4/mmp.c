@@ -18,19 +18,17 @@ static __le32 ext4_mmp_csum(struct super_block *sb, struct mmp_struct *mmp)
 	return cpu_to_le32(csum);
 }
 
-int ext4_mmp_csum_verify(struct super_block *sb, struct mmp_struct *mmp)
+static int ext4_mmp_csum_verify(struct super_block *sb, struct mmp_struct *mmp)
 {
-	if (!EXT4_HAS_RO_COMPAT_FEATURE(sb,
-				       EXT4_FEATURE_RO_COMPAT_METADATA_CSUM))
+	if (!ext4_has_metadata_csum(sb))
 		return 1;
 
 	return mmp->mmp_checksum == ext4_mmp_csum(sb, mmp);
 }
 
-void ext4_mmp_csum_set(struct super_block *sb, struct mmp_struct *mmp)
+static void ext4_mmp_csum_set(struct super_block *sb, struct mmp_struct *mmp)
 {
-	if (!EXT4_HAS_RO_COMPAT_FEATURE(sb,
-				       EXT4_FEATURE_RO_COMPAT_METADATA_CSUM))
+	if (!ext4_has_metadata_csum(sb))
 		return;
 
 	mmp->mmp_checksum = ext4_mmp_csum(sb, mmp);
@@ -100,11 +98,12 @@ static int read_mmp_block(struct super_block *sb, struct buffer_head **bh,
 	}
 
 	mmp = (struct mmp_struct *)((*bh)->b_data);
-	if (le32_to_cpu(mmp->mmp_magic) != EXT4_MMP_MAGIC ||
-	    !ext4_mmp_csum_verify(sb, mmp))
-		return -EINVAL;
-
-	return 0;
+	if (le32_to_cpu(mmp->mmp_magic) != EXT4_MMP_MAGIC)
+		return -EFSCORRUPTED;
+	else if (!ext4_mmp_csum_verify(sb, mmp))
+		return -EFSBADCRC;
+	else
+		return 0;
 }
 
 /*

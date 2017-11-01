@@ -48,6 +48,9 @@
 
 #define AR8XXX_MIB_WORK_DELAY	2000 /* msecs */
 
+#define AR8XXX_AUTO_SWITCH_RECOVERY
+#define AR8XXX_QM_WORK_DELAY    100
+
 struct ar8xxx_priv;
 
 #define AR8XXX_CAP_GIGE			BIT(0)
@@ -150,6 +153,10 @@ struct ar8xxx_priv {
 	struct delayed_work mib_work;
 	int mib_next_port;
 	u64 *mib_stats;
+	/*qm_err_check*/
+	struct mutex qm_lock;
+	struct delayed_work qm_dwork;
+	/*qm_err_check end*/
 
 	struct list_head list;
 	unsigned int use_count;
@@ -261,6 +268,29 @@ static const struct ar8xxx_mib_desc ar8236_mibs[] = {
 
 static DEFINE_MUTEX(ar8xxx_dev_list_lock);
 static LIST_HEAD(ar8xxx_dev_list);
+
+#define AR8216_PORT_LINK_UP 1
+#define AR8216_PORT_LINK_DOWN 0
+
+#define AR8216_QM_NOT_EMPTY  1
+#define AR8216_QM_EMPTY  0
+
+static u32 port_link_down[AR8327_NUM_PORTS] = {0, 0, 0, 0, 0, 0, 0};
+
+static u32 port_link_up[AR8327_NUM_PORTS] = {0, 0, 0, 0, 0, 0, 0};
+
+static u32 ar8216_port_old_link[AR8327_NUM_PORTS] = {0, 0, 0, 0, 0, 0, 0};
+static u32 ar8216_port_old_speed[AR8327_NUM_PORTS] = {AR8216_PORT_SPEED_10M,
+							AR8216_PORT_SPEED_10M,
+							AR8216_PORT_SPEED_10M,
+							AR8216_PORT_SPEED_10M,
+							AR8216_PORT_SPEED_10M,
+							AR8216_PORT_SPEED_10M,
+							AR8216_PORT_SPEED_10M
+						     };
+static u32 ar8216_port_old_duplex[AR8327_NUM_PORTS] = {0, 0, 0, 0, 0, 0, 0};
+static u32 ar8216_port_old_phy_status[AR8327_NUM_PORTS] = {0, 0, 0, 0, 0, 0, 0};
+static u32 ar8216_port_qm_buf[AR8327_NUM_PORTS] = {0, 0, 0, 0, 0, 0, 0};
 
 static inline struct ar8xxx_priv *
 swdev_to_ar8xxx(struct switch_dev *swdev)
@@ -559,7 +589,8 @@ ar8216_read_port_link(struct ar8xxx_priv *priv, int port,
 	status = priv->chip->read_port_status(priv, port);
 
 	link->aneg = !!(status & AR8216_PORT_STATUS_LINK_AUTO);
-	if (link->aneg) {
+	if (link->aneg || (port != AR8216_PORT_CPU &&
+				port != AR8216_PORT_CPU_DUAL)) {
 		link->link = !!(status & AR8216_PORT_STATUS_LINK_UP);
 	} else {
 		link->link = true;
@@ -1731,6 +1762,9 @@ ar8327_init_globals(struct ar8xxx_priv *priv)
 	/* Enable MIB counters */
 	ar8xxx_reg_set(priv, AR8327_REG_MODULE_EN,
 		       AR8327_MODULE_EN_MIB);
+
+	/* Disable AZ */
+	priv->write(priv, AR8327_REG_EEE_CTRL, AR8327_EEE_CTRL_DISABLE);
 }
 
 static void
@@ -1745,6 +1779,11 @@ ar8327_init_port(struct ar8xxx_priv *priv, int port)
 	else
 		t = AR8216_PORT_STATUS_LINK_AUTO;
 
+	if (port == AR8216_PORT_CPU || port == 6) {
+		priv->write(priv, AR8327_REG_PORT_STATUS(port),
+				t&(~(AR8327_PORT_TX_EN|AR8327_PORT_RX_EN)));
+		udelay(800);
+	}
 	priv->write(priv, AR8327_REG_PORT_STATUS(port), t);
 	priv->write(priv, AR8327_REG_PORT_HEADER(port), 0);
 
@@ -2195,7 +2234,7 @@ static int
 ar8xxx_sw_reset_switch(struct switch_dev *dev)
 {
 	struct ar8xxx_priv *priv = swdev_to_ar8xxx(dev);
-	int i;
+	int i, rv;
 
 	mutex_lock(&priv->reg_mutex);
 	memset(&priv->vlan, 0, sizeof(struct ar8xxx_priv) -
@@ -2219,7 +2258,12 @@ ar8xxx_sw_reset_switch(struct switch_dev *dev)
 
 	mutex_unlock(&priv->reg_mutex);
 
-	return ar8xxx_sw_hw_apply(dev);
+	rv = ar8xxx_sw_hw_apply(dev);
+	if (chip_is_ar8327(priv) || chip_is_ar8337(priv)) {
+		/* Disable AZ */
+		priv->write(priv, AR8327_REG_EEE_CTRL, AR8327_EEE_CTRL_DISABLE);
+	}
+	return rv;
 }
 
 static int
@@ -2705,6 +2749,275 @@ ar8xxx_mib_init(struct ar8xxx_priv *priv)
 	return 0;
 }
 
+static
+int ar8216_get_qm_status(struct ar8xxx_priv *priv,
+			 u32 port_id, u32 *qm_buffer_err)
+{
+	u32 reg;
+	u32 qm_val;
+
+	if (port_id < 0 || port_id > 6) {
+		*qm_buffer_err = 0;
+		return -1;
+	}
+
+	if (port_id < 4) {
+		reg = AR8327_REG_QM_PORT0_3_QNUM;
+		priv->write(priv, AR8327_REG_QM_DEBUG_ADDR, reg);
+		qm_val = priv->read(priv, AR8327_REG_QM_DEBUG_VALUE);
+		/*every 8 bits for each port*/
+		*qm_buffer_err = (qm_val >> (port_id * 8)) & 0xFF;
+	} else {
+		reg = AR8327_REG_QM_PORT4_6_QNUM;
+		priv->write(priv, AR8327_REG_QM_DEBUG_ADDR, reg);
+		qm_val = priv->read(priv, AR8327_REG_QM_DEBUG_VALUE);
+		/*every 8 bits for each port*/
+		*qm_buffer_err = (qm_val >> ((port_id-4) * 8)) & 0xFF;
+	}
+
+	return 0;
+}
+
+static void ar8xxx_phy_powerdown(struct ar8xxx_priv *priv)
+{
+	int i;
+	ushort phy_val;
+	struct mii_bus *bus;
+
+	bus = priv->mii_bus;
+
+	for (i = 0; i < AR8327_NUM_PHYS; i++) {
+		mdiobus_write(bus, i, MII_BMCR, BMCR_PDOWN);
+
+		ar8xxx_phy_dbg_read(priv, i, AR8337_PHY_DEBUG_GREEN, &phy_val);
+		phy_val &= (~(AR8337_PHY_GATE_CLK_IN1000));
+		ar8xxx_phy_dbg_write(priv, i, AR8337_PHY_DEBUG_GREEN, phy_val);
+
+		/* PHY will stop the tx clock for a while when link is down
+		* 1. bit13 = 0,speed up link down tx_clk
+		* 2. bit10 = 0,speed up speed mode change to 2'b10 tx_clk
+		*/
+		ar8xxx_phy_dbg_read(priv, i,
+				    AR8337_PHY_DEBUG_HIB_CTRL, &phy_val);
+		phy_val &= ~(AR8337_PHY_HIB_CTRL_SEL_RST_80U |
+				AR8337_PHY_HIB_CTRL_EN_ANY_CHANGE);
+		ar8xxx_phy_dbg_write(priv, i,
+				     AR8337_PHY_DEBUG_HIB_CTRL, phy_val);
+	}
+}
+
+static void ar8xxx_phy_enable(struct ar8xxx_priv *priv)
+{
+	int phyid = 0;
+	ushort phy_val;
+	struct mii_bus *bus;
+
+	bus = priv->mii_bus;
+
+	for (phyid = 0; phyid < AR8327_NUM_PHYS; phyid++) {
+		/*enable phy prefer multi-port mode*/
+		phy_val = mdiobus_read(bus, phyid, MII_CTRL1000);
+		phy_val |= (ADVERTISE_MULTI_PORT_PREFER | ADVERTISE_1000FULL);
+		mdiobus_write(bus, phyid, MII_CTRL1000, phy_val);
+
+		/*enable extended next page. 0:enable, 1:disable*/
+		phy_val = mdiobus_read(bus, phyid, MII_ADVERTISE);
+		phy_val &= (~(ADVERTISE_RESV));
+		mdiobus_write(bus, phyid, MII_ADVERTISE, phy_val);
+
+		/*Phy power up*/
+		mdiobus_write(bus, phyid,
+			      MII_BMCR, (BMCR_RESET | BMCR_ANENABLE));
+		mdelay(100);
+	}
+}
+
+static
+int ar8216_force_1g_full(struct ar8xxx_priv *priv, u32 port_id)
+{
+	u32 reg, value;
+
+	if (port_id < 0 || port_id > 6)
+		return -1;
+
+	reg = AR8327_REG_PORT_STATUS(port_id);
+	value = priv->read(priv, reg);
+	value &= ~(AR8327_PORT_DUPLEX | AR8327_PORT_SPEED);
+	value |= (AR8216_PORT_SPEED_1000M | AR8327_PORT_DUPLEX);
+	priv->write(priv, reg, value);
+
+	return 0;
+}
+
+static void
+ar8xxx_sw_mac_polling_task(struct ar8xxx_priv *priv)
+{
+	static int task_count;
+	u32 i;
+	u32 reg, value;
+	u32 link, speed, duplex;
+	u32 qm_buffer_err;
+	u16 port_phy_status[AR8327_NUM_PORTS];
+	static u32 qm_err_cnt[AR8327_NUM_PORTS] = {0, 0, 0, 0, 0, 0, 0};
+	static u32 link_cnt[AR8327_NUM_PORTS] = {0, 0, 0, 0, 0, 0, 0};
+	struct mii_bus *bus = NULL;
+
+	if (priv != NULL) {
+		bus = priv->phy->bus;
+		if (bus == NULL)
+			return;
+	} else {
+		return;
+	}
+
+	/*Only valid for AR8337 chip*/
+	if (priv->chip_ver != AR8XXX_VER_AR8337)
+		return;
+
+	++task_count;
+
+	for (i = 1; i < AR8327_NUM_PORTS-1; ++i) {
+		port_phy_status[i] =
+			mdiobus_read(bus, i-1, AR8337_PHY_SPEC_STATUS);
+		speed =	(u32)((port_phy_status[i] &
+				AR8337_PHY_SPEC_STATUS_SPEED) >> 14);
+		link = (u32)((port_phy_status[i] &
+				AR8337_PHY_SPEC_STATUS_LINK) >> 10);
+		duplex = (u32)((port_phy_status[i] &
+				AR8337_PHY_SPEC_STATUS_DUPLEX) >> 13);
+
+		if (link != ar8216_port_old_link[i]) {
+			++link_cnt[i];
+			/* Up --> Down */
+			if ((ar8216_port_old_link[i] == AR8216_PORT_LINK_UP) &&
+			    (link == AR8216_PORT_LINK_DOWN)) {
+				/* LINK_EN disable(MAC force mode)*/
+				reg = AR8327_REG_PORT_STATUS(i);
+				value = priv->read(priv, reg);
+				value &= (~(AR8327_PORT_AUTO_LINK_EN));
+				priv->write(priv, reg, value);
+				port_link_down[i] = 0;
+
+				/* Check queue buffer */
+				qm_err_cnt[i] = 0;
+				ar8216_get_qm_status(priv, i, &qm_buffer_err);
+				if (qm_buffer_err) {
+					ar8216_port_qm_buf[i] = AR8216_QM_NOT_EMPTY;
+				} else {
+					u16 phy_val = 0;
+					ar8216_port_qm_buf[i] =	AR8216_QM_EMPTY;
+					ar8216_force_1g_full(priv, i);
+					/* Ref:QCA8337 Datasheet,Clearing MENU_CTRL_EN prevents
+					 * phy to stuck in 100BT mode when bringing up the link*/
+					ar8xxx_phy_dbg_read(priv, i-1, AR8337_PHY_DEBUG_0, &phy_val);
+					phy_val &= (~(AR8337_PHY_MANU_CTRL_EN));
+					ar8xxx_phy_dbg_write(priv, i-1, AR8337_PHY_DEBUG_0, phy_val);
+				}
+			} else if ((ar8216_port_old_link[i] ==
+						AR8216_PORT_LINK_DOWN) &&
+					(link == AR8216_PORT_LINK_UP)) {
+				/* Down --> Up */
+				if (port_link_up[i] < 1) {
+					++port_link_up[i];
+				} else {
+					/* Change port status */
+					reg = AR8327_REG_PORT_STATUS(i);
+					value = priv->read(priv, reg);
+					port_link_up[i] = 0;
+
+					value &= ~(AR8327_PORT_DUPLEX | AR8327_PORT_SPEED);
+					value |= speed | (duplex?BIT(6):0);
+					priv->write(priv, reg, value);
+					/* clock switch need such time to avoid glitch */
+					udelay(100);
+
+					value |= AR8216_PORT_STATUS_LINK_AUTO;
+					priv->write(priv, reg, value);
+					/* HW need such time to make sure link stable before
+					 * enable MAC */
+					udelay(100);
+
+					if(speed == 0x01) {
+						u16 phy_val = 0;
+						/* Enable @100M, if down to 10M clock will
+						 * change smoothly*/
+						ar8xxx_phy_dbg_read(priv, i-1, AR8337_PHY_DEBUG_0,
+										&phy_val);
+						phy_val |= AR8337_PHY_MANU_CTRL_EN;
+						ar8xxx_phy_dbg_write(priv, i-1, AR8337_PHY_DEBUG_0,
+										 phy_val);
+					}
+				}
+			}
+
+			if ((port_link_down[i] == 0) &&
+			    (port_link_up[i] == 0)) {
+				/* Save the current status */
+				ar8216_port_old_speed[i] = speed;
+				ar8216_port_old_link[i] = link;
+				ar8216_port_old_duplex[i] = duplex;
+				ar8216_port_old_phy_status[i] =	port_phy_status[i];
+			}
+		}
+
+		if (ar8216_port_qm_buf[i] == AR8216_QM_NOT_EMPTY) {
+			/* Check QM */
+			ar8216_get_qm_status(priv, i, &qm_buffer_err);
+			if (qm_buffer_err) {
+				ar8216_port_qm_buf[i] = AR8216_QM_NOT_EMPTY;
+				++qm_err_cnt[i];
+			} else {
+				ar8216_port_qm_buf[i] = AR8216_QM_EMPTY;
+				qm_err_cnt[i] = 0;
+				ar8216_force_1g_full(priv, i);
+			}
+		}
+	}
+}
+
+static void
+ar8xxx_qm_err_check_work_task(struct work_struct *work)
+{
+	struct ar8xxx_priv *priv = container_of(work, struct ar8xxx_priv,
+					qm_dwork.work);
+
+	mutex_lock(&priv->qm_lock);
+
+	ar8xxx_sw_mac_polling_task(priv);
+
+	mutex_unlock(&priv->qm_lock);
+
+	schedule_delayed_work(&priv->qm_dwork,
+			      msecs_to_jiffies(AR8XXX_QM_WORK_DELAY));
+}
+
+static int
+ar8xxx_qm_err_check_work_start(struct ar8xxx_priv *priv)
+{
+	/*Only valid for AR8337 chip*/
+	if (priv->chip_ver != AR8XXX_VER_AR8337)
+		return -1;
+
+	mutex_init(&priv->qm_lock);
+
+	INIT_DELAYED_WORK(&priv->qm_dwork, ar8xxx_qm_err_check_work_task);
+
+	schedule_delayed_work(&priv->qm_dwork,
+			      msecs_to_jiffies(AR8XXX_QM_WORK_DELAY));
+
+	return 0;
+}
+
+static void
+ar8xxx_qm_err_check_work_stop(struct ar8xxx_priv *priv)
+{
+	/*Only valid for AR8337 chip*/
+	if (priv->chip_ver != AR8XXX_VER_AR8337)
+		return;
+
+	cancel_delayed_work_sync(&priv->qm_dwork);
+}
+
 static void
 ar8xxx_mib_start(struct ar8xxx_priv *priv)
 {
@@ -2818,6 +3131,9 @@ ar8xxx_start(struct ar8xxx_priv *priv)
 
 	priv->initializing = true;
 
+	ar8xxx_phy_powerdown(priv);
+	msleep(1000);
+
 	ret = priv->chip->hw_init(priv);
 	if (ret)
 		return ret;
@@ -2826,9 +3142,15 @@ ar8xxx_start(struct ar8xxx_priv *priv)
 	if (ret)
 		return ret;
 
+	ar8xxx_phy_enable(priv);
+
 	priv->initializing = false;
 
 	ar8xxx_mib_start(priv);
+
+#ifdef AR8XXX_AUTO_SWITCH_RECOVERY
+	ar8xxx_qm_err_check_work_start(priv);
+#endif
 
 	return 0;
 }
@@ -3068,7 +3390,6 @@ found:
 
 		if (chip_is_ar8327(priv) || chip_is_ar8337(priv)) {
 			priv->phy = phydev;
-
 			ret = ar8xxx_start(priv);
 			if (ret)
 				goto err_unregister_switch;
@@ -3134,6 +3455,9 @@ ar8xxx_phy_remove(struct phy_device *phydev)
 	regmap_exit(priv->regmap);
 	unregister_switch(&priv->dev);
 	ar8xxx_mib_stop(priv);
+#ifdef AR8XXX_AUTO_SWITCH_RECOVERY
+	ar8xxx_qm_err_check_work_stop(priv);
+#endif
 	ar8xxx_free(priv);
 }
 

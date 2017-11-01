@@ -245,6 +245,13 @@ struct sta_ampdu_mlme {
 
 #define IEEE80211_FAST_XMIT_MAX_IV	18
 
+#define IEEE80211_HT_MCS_NUM		32
+#define IEEE80211_VHT_MCS_NUM		10
+#define IEEE80211_BW_NUM		4
+#define IEEE80211_NSS_NUM		4
+#define IEEE80211_GI_NUM		2
+#define IEEE80211_RATE_TABLE_NUM	320
+#define IEEE80211_LEGACY_RATE_NUM	12
 /**
  * struct ieee80211_fast_tx - TX fastpath information
  * @key: key to use for hw crypto
@@ -272,6 +279,61 @@ struct ieee80211_fast_tx {
 };
 
 /**
+ * struct mesh_sta - mesh STA information
+ * @plink_lock: serialize access to plink fields
+ * @llid: Local link ID
+ * @plid: Peer link ID
+ * @aid: local aid supplied by peer
+ * @reason: Cancel reason on PLINK_HOLDING state
+ * @plink_retries: Retries in establishment
+ * @plink_state: peer link state
+ * @plink_timeout: timeout of peer link
+ * @plink_timer: peer link watch timer
+ * @t_offset: timing offset relative to this host
+ * @t_offset_setpoint: reference timing offset of this sta to be used when
+ * 	calculating clockdrift
+ * @avg_beacon_signal: moving average of signal of received mesh Beacon frames
+ *	from this peer
+ * @local_pm: local link-specific power save mode
+ * @peer_pm: peer-specific power save mode towards local STA
+ * @nonpeer_pm: STA power save mode towards non-peer neighbors
+ * @processed_beacon: set to true after peer rates and capabilities are
+ *	processed
+ * @fail_avg: moving percentage of failed MSDUs
+ */
+struct mesh_sta {
+	struct timer_list plink_timer;
+
+	s64 t_offset;
+	s64 t_offset_setpoint;
+
+	spinlock_t plink_lock;
+	u16 llid;
+	u16 plid;
+	u16 aid;
+	u16 reason;
+	u8 plink_retries;
+
+	bool processed_beacon;
+
+	enum nl80211_plink_state plink_state;
+	u32 plink_timeout;
+
+	struct ewma avg_beacon_signal;
+
+	/* mesh power save */
+	enum nl80211_mesh_power_mode local_pm;
+	enum nl80211_mesh_power_mode peer_pm;
+	enum nl80211_mesh_power_mode nonpeer_pm;
+
+	/* moving percentage of failed MSDUs */
+	unsigned int fail_avg;
+
+	/* moving avg of bitrate in 1kbps */
+	u32 bitrate_avg;
+};
+
+/**
  * struct sta_info - STA information
  *
  * This structure collects information about a station that
@@ -280,6 +342,8 @@ struct ieee80211_fast_tx {
  * @list: global linked list entry
  * @free_list: list entry for keeping track of stations to free
  * @hash_node: hash node for rhashtable
+ * @addr: station's MAC address - duplicated from public part to
+ *	let the hash table work with just a single cacheline
  * @local: pointer to the global information
  * @sdata: virtual interface this station belongs to
  * @ptk: peer keys negotiated with this station, if any
@@ -324,26 +388,12 @@ struct ieee80211_fast_tx {
  * @tx_filtered_count: number of frames the hardware filtered for this STA
  * @tx_retry_failed: number of frames that failed retry
  * @tx_retry_count: total number of retries for frames to this STA
- * @fail_avg: moving percentage of failed MSDUs
  * @tx_packets: number of RX/TX MSDUs
  * @tx_bytes: number of bytes transmitted to this STA
  * @tid_seq: per-TID sequence numbers for sending to this STA
  * @ampdu_mlme: A-MPDU state machine state
  * @timer_to_tid: identity mapping to ID timers
- * @plink_lock: serialize access to plink fields
- * @llid: Local link ID
- * @plid: Peer link ID
- * @reason: Cancel reason on PLINK_HOLDING state
- * @plink_retries: Retries in establishment
- * @plink_state: peer link state
- * @plink_timeout: timeout of peer link
- * @plink_timer: peer link watch timer
- * @t_offset: timing offset relative to this host
- * @t_offset_setpoint: reference timing offset of this sta to be used when
- * 	calculating clockdrift
- * @local_pm: local link-specific power save mode
- * @peer_pm: peer-specific power save mode towards local STA
- * @nonpeer_pm: STA power save mode towards non-peer neighbors
+ * @mesh: mesh STA information
  * @debugfs: debug filesystem info
  * @dead: set to true when sta is unlinked
  * @uploaded: set to true when sta is uploaded to the driver
@@ -371,14 +421,13 @@ struct ieee80211_fast_tx {
  * @rx_msdu: MSDUs received from this station, using IEEE80211_NUM_TID
  *	entry for non-QoS frames
  * @fast_tx: TX fastpath information
- * @processed_beacon: set to true after peer rates and capabilities are
- *	processed
  */
 struct sta_info {
 	/* General information, mostly static */
 	struct list_head list, free_list;
 	struct rcu_head rcu_head;
 	struct rhash_head hash_node;
+	u8 addr[ETH_ALEN];
 	struct ieee80211_local *local;
 	struct ieee80211_sub_if_data *sdata;
 	struct ieee80211_key __rcu *gtk[NUM_DEFAULT_KEYS + NUM_DEFAULT_MGMT_KEYS];
@@ -391,6 +440,13 @@ struct sta_info {
 	spinlock_t lock;
 
 	struct ieee80211_fast_tx __rcu *fast_tx;
+
+#ifdef CONFIG_MAC80211_MESH
+	struct mesh_sta *mesh;
+	unsigned long mesh_last_tx;
+	u32 mesh_tx_bitrate;
+	u16 mesh_sample_cnt;
+#endif
 
 	struct work_struct drv_deliver_wk;
 
@@ -434,8 +490,6 @@ struct sta_info {
 	/* Updated from TX status path only, no locking requirements */
 	unsigned long tx_filtered_count;
 	unsigned long tx_retry_failed, tx_retry_count;
-	/* moving percentage of failed MSDUs */
-	unsigned int fail_avg;
 
 	/* Updated from TX path only, no locking requirements */
 	u64 tx_packets[IEEE80211_NUM_ACS];
@@ -457,34 +511,28 @@ struct sta_info {
 	struct sta_ampdu_mlme ampdu_mlme;
 	u8 timer_to_tid[IEEE80211_NUM_TIDS];
 
-#ifdef CONFIG_MAC80211_MESH
-	/*
-	 * Mesh peer link attributes, protected by plink_lock.
-	 * TODO: move to a sub-structure that is referenced with pointer?
-	 */
-	spinlock_t plink_lock;
-	u16 llid;
-	u16 plid;
-	u16 reason;
-	u8 plink_retries;
-	enum nl80211_plink_state plink_state;
-	u32 plink_timeout;
-	struct timer_list plink_timer;
-
-	s64 t_offset;
-	s64 t_offset_setpoint;
-	/* mesh power save */
-	enum nl80211_mesh_power_mode local_pm;
-	enum nl80211_mesh_power_mode peer_pm;
-	enum nl80211_mesh_power_mode nonpeer_pm;
-	bool processed_beacon;
-#endif
-
 #ifdef CONFIG_MAC80211_DEBUGFS
+	/* force link degradation by this db */
+	u32 link_degrade_db;
 	struct sta_info_debugfsdentries {
 		struct dentry *dir;
 		bool add_has_run;
 	} debugfs;
+
+	u64 rx_legacy_pkt[IEEE80211_LEGACY_RATE_NUM];
+	u64 rx_ht_pkt[IEEE80211_HT_MCS_NUM];
+	u64 rx_vht_pkt[IEEE80211_VHT_MCS_NUM];
+	u64 rx_bw_pkt[IEEE80211_BW_NUM];
+	u64 rx_nss_pkt[IEEE80211_NSS_NUM];
+	u64 rx_gi_pkt[IEEE80211_GI_NUM];
+	u64 rx_rate_pkt[IEEE80211_RATE_TABLE_NUM];
+	u64 rx_legacy_byte[IEEE80211_LEGACY_RATE_NUM];
+	u64 rx_ht_byte[IEEE80211_HT_MCS_NUM];
+	u64 rx_vht_byte[IEEE80211_VHT_MCS_NUM];
+	u64 rx_bw_byte[IEEE80211_BW_NUM];
+	u64 rx_nss_byte[IEEE80211_NSS_NUM];
+	u64 rx_gi_byte[IEEE80211_GI_NUM];
+	u64 rx_rate_byte[IEEE80211_RATE_TABLE_NUM];
 #endif
 
 	enum ieee80211_sta_rx_bandwidth cur_max_bandwidth;
@@ -500,6 +548,8 @@ struct sta_info {
 
 	u8 reserved_tid;
 
+	struct cfg80211_chan_def tdls_chandef;
+
 	/* keep last! */
 	struct ieee80211_sta sta;
 };
@@ -507,7 +557,7 @@ struct sta_info {
 static inline enum nl80211_plink_state sta_plink_state(struct sta_info *sta)
 {
 #ifdef CONFIG_MAC80211_MESH
-	return sta->plink_state;
+	return sta->mesh->plink_state;
 #endif
 	return NL80211_PLINK_LISTEN;
 }
@@ -610,7 +660,7 @@ u32 sta_addr_hash(const void *key, u32 length, u32 seed);
 			       _sta_bucket_idx(tbl, _addr),		\
 			       hash_node)				\
 	/* compare address and run code only if it matches */		\
-	if (ether_addr_equal(_sta->sta.addr, (_addr)))
+	if (ether_addr_equal(_sta->addr, (_addr)))
 
 /*
  * Get STA info by index, BROKEN!

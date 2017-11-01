@@ -99,6 +99,9 @@ intel_dp_max_link_bw(struct intel_dp *intel_dp)
 	int max_link_bw = intel_dp->dpcd[DP_MAX_LINK_RATE];
 	struct drm_device *dev = intel_dp->attached_connector->base.dev;
 
+	if (intel_dp->is_dellda200)
+		max_link_bw = DP_LINK_BW_2_7;
+
 	switch (max_link_bw) {
 	case DP_LINK_BW_1_62:
 	case DP_LINK_BW_2_7:
@@ -2945,6 +2948,7 @@ intel_dp_probe_oui(struct intel_dp *intel_dp)
 	}
 
 	intel_dp->is_ps8617 = drm_dp_branch_is_ps8617(buf);
+	intel_dp->is_dellda200 = drm_dp_branch_is_dellda200(buf);
 
 	ironlake_edp_panel_vdd_off(intel_dp, false);
 }
@@ -3110,20 +3114,11 @@ ironlake_dp_detect(struct intel_dp *intel_dp)
 	struct drm_device *dev = intel_dp_to_dev(intel_dp);
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	struct intel_digital_port *intel_dig_port = dp_to_dig_port(intel_dp);
-	enum drm_connector_status status;
-
-	/* Can't disconnect eDP, but you can close the lid... */
-	if (is_edp(intel_dp)) {
-		status = intel_panel_detect(dev);
-		if (status == connector_status_unknown)
-			status = connector_status_connected;
-		return status;
-	}
 
 	if (!ibx_digital_port_connected(dev_priv, intel_dig_port))
 		return connector_status_disconnected;
 
-	return intel_dp_detect_dpcd(intel_dp);
+	return connector_status_connected;
 }
 
 static enum drm_connector_status
@@ -3133,16 +3128,6 @@ g4x_dp_detect(struct intel_dp *intel_dp)
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	struct intel_digital_port *intel_dig_port = dp_to_dig_port(intel_dp);
 	uint32_t bit;
-
-	/* Can't disconnect eDP, but you can close the lid... */
-	if (is_edp(intel_dp)) {
-		enum drm_connector_status status;
-
-		status = intel_panel_detect(dev);
-		if (status == connector_status_unknown)
-			status = connector_status_connected;
-		return status;
-	}
 
 	if (IS_VALLEYVIEW(dev)) {
 		switch (intel_dig_port->port) {
@@ -3177,7 +3162,7 @@ g4x_dp_detect(struct intel_dp *intel_dp)
 	if ((I915_READ(PORT_HOTPLUG_STAT) & bit) == 0)
 		return connector_status_disconnected;
 
-	return intel_dp_detect_dpcd(intel_dp);
+	return connector_status_connected;
 }
 
 static struct edid *
@@ -3233,10 +3218,13 @@ intel_dp_detect(struct drm_connector *connector, bool force)
 
 	intel_dp->has_audio = false;
 
-	/* Ensure the sink is awake for DPCD/EDID reads. */
-	if (!is_edp(intel_dp) && connector->dpms != DRM_MODE_DPMS_ON) {
-		/* Bypass DPCD check, since we obtain it during detection. */
-		intel_dp_do_sink_dpms(intel_dp, DRM_MODE_DPMS_ON);
+	/* Can't disconnect eDP, but you can close the lid... */
+	if (is_edp(intel_dp)) {
+		status = intel_panel_detect(dev);
+		if (status == connector_status_unknown)
+			status = connector_status_connected;
+		if (status == connector_status_disconnected)
+			goto out;
 	}
 
 	if (HAS_PCH_SPLIT(dev))
@@ -3246,6 +3234,18 @@ intel_dp_detect(struct drm_connector *connector, bool force)
 
 	if (status != connector_status_connected)
 		goto out;
+
+	/* Ensure the sink is awake for DPCD/EDID reads. */
+	if (!is_edp(intel_dp) && connector->dpms != DRM_MODE_DPMS_ON) {
+		/* Bypass DPCD check, since we obtain it during detection. */
+		intel_dp_do_sink_dpms(intel_dp, DRM_MODE_DPMS_ON);
+	}
+
+	if (!is_edp(intel_dp)) {
+		status = intel_dp_detect_dpcd(intel_dp);
+		if (status != connector_status_connected)
+			goto out;
+	}
 
 	if (intel_dp->force_audio != HDMI_AUDIO_AUTO) {
 		intel_dp->has_audio = (intel_dp->force_audio == HDMI_AUDIO_ON);
@@ -3275,11 +3275,13 @@ intel_dp_detect(struct drm_connector *connector, bool force)
 		intel_encoder->type = INTEL_OUTPUT_DISPLAYPORT;
 	status = connector_status_connected;
 
-out:
 	/* Restore the sink state */
 	if (!is_edp(intel_dp) && connector->dpms != DRM_MODE_DPMS_ON)
 		intel_dp_do_sink_dpms(intel_dp, connector->dpms);
 
+out:
+	intel_dp->has_hdmi_sink = false;
+	intel_dp->has_dvi_sink = false;
 	intel_runtime_pm_put(dev_priv);
 	return status;
 }

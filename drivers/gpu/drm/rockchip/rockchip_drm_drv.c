@@ -70,7 +70,6 @@ static int rockchip_drm_load(struct drm_device *drm_dev, unsigned long flags)
 	struct rockchip_drm_private *private;
 	struct dma_iommu_mapping *mapping;
 	struct device *dev = drm_dev->dev;
-	struct drm_connector *connector;
 	int ret;
 
 	private = devm_kzalloc(drm_dev->dev, sizeof(*private), GFP_KERNEL);
@@ -118,23 +117,6 @@ static int rockchip_drm_load(struct drm_device *drm_dev, unsigned long flags)
 	if (ret)
 		goto err_detach_device;
 
-	/*
-	 * All components are now added, we can publish the connector sysfs
-	 * entries to userspace.  This will generate hotplug events and so
-	 * userspace will expect to be able to access DRM at this point.
-	 */
-	list_for_each_entry(connector, &drm_dev->mode_config.connector_list,
-			head) {
-		ret = drm_connector_register(connector);
-		if (ret) {
-			dev_err(drm_dev->dev,
-				"[CONNECTOR:%d:%s] drm_connector_register failed: %d\n",
-				connector->base.id,
-				drm_get_connector_name(connector), ret);
-			goto err_unbind;
-		}
-	}
-
 	/* init kms poll for handling hpd */
 	drm_kms_helper_poll_init(drm_dev);
 
@@ -164,7 +146,6 @@ err_vblank_cleanup:
 	drm_vblank_cleanup(drm_dev);
 err_kms_helper_poll_fini:
 	drm_kms_helper_poll_fini(drm_dev);
-err_unbind:
 	component_unbind_all(dev, drm_dev);
 err_detach_device:
 	arm_iommu_detach_device(dev);
@@ -191,49 +172,6 @@ static int rockchip_drm_unload(struct drm_device *drm_dev)
 	return 0;
 }
 
-static int rockchip_drm_open(struct drm_device *dev, struct drm_file *file)
-{
-	struct rockchip_drm_file_private *file_priv;
-
-	file_priv = kzalloc(sizeof(*file_priv), GFP_KERNEL);
-	if (!file_priv)
-		return -ENOMEM;
-	INIT_LIST_HEAD(&file_priv->gem_cpu_acquire_list);
-
-	file->driver_priv = file_priv;
-
-	return 0;
-}
-
-static void rockchip_drm_preclose(struct drm_device *dev,
-				  struct drm_file *file)
-{
-	struct rockchip_drm_file_private *file_private = file->driver_priv;
-	struct rockchip_gem_object_node *cur, *d;
-
-	mutex_lock(&dev->struct_mutex);
-	list_for_each_entry_safe(cur, d,
-			&file_private->gem_cpu_acquire_list, list) {
-#ifdef CONFIG_DRM_DMA_SYNC
-		BUG_ON(!cur->rockchip_gem_obj->acquire_fence);
-		drm_fence_signal_and_put(&cur->rockchip_gem_obj->acquire_fence);
-#endif
-		drm_gem_object_unreference(&cur->rockchip_gem_obj->base);
-		kfree(cur);
-	}
-	/* since we are deleting the whole list, just initialize the header
-	 * instead of calling list_del for every element
-	 */
-	INIT_LIST_HEAD(&file_private->gem_cpu_acquire_list);
-	mutex_unlock(&dev->struct_mutex);
-}
-
-static void rockchip_drm_postclose(struct drm_device *dev, struct drm_file *file)
-{
-	kfree(file->driver_priv);
-	file->driver_priv = NULL;
-}
-
 void rockchip_drm_lastclose(struct drm_device *dev)
 {
 	struct rockchip_drm_private *priv = dev->dev_private;
@@ -247,12 +185,6 @@ static const struct drm_ioctl_desc rockchip_ioctls[] = {
 	DRM_IOCTL_DEF_DRV(ROCKCHIP_GEM_MAP_OFFSET,
 			  rockchip_gem_map_offset_ioctl,
 			  DRM_UNLOCKED | DRM_AUTH | DRM_RENDER_ALLOW),
-	DRM_IOCTL_DEF_DRV(ROCKCHIP_GEM_CPU_ACQUIRE,
-			  rockchip_gem_cpu_acquire_ioctl,
-			  DRM_UNLOCKED | DRM_AUTH),
-	DRM_IOCTL_DEF_DRV(ROCKCHIP_GEM_CPU_RELEASE,
-			  rockchip_gem_cpu_release_ioctl,
-			  DRM_UNLOCKED | DRM_AUTH),
 };
 
 static const struct file_operations rockchip_drm_driver_fops = {
@@ -278,10 +210,7 @@ static struct drm_driver rockchip_drm_driver = {
 					| DRIVER_RENDER,
 	.load			= rockchip_drm_load,
 	.unload			= rockchip_drm_unload,
-	.open			= rockchip_drm_open,
-	.preclose		= rockchip_drm_preclose,
 	.lastclose		= rockchip_drm_lastclose,
-	.postclose		= rockchip_drm_postclose,
 	.get_vblank_counter	= drm_vblank_count,
 	.enable_vblank		= rockchip_drm_crtc_enable_vblank,
 	.disable_vblank		= rockchip_drm_crtc_disable_vblank,
@@ -295,6 +224,7 @@ static struct drm_driver rockchip_drm_driver = {
 	.gem_prime_import	= drm_gem_prime_import,
 	.gem_prime_export	= drm_gem_prime_export,
 	.gem_prime_get_sg_table	= rockchip_gem_prime_get_sg_table,
+	.gem_prime_import_sg_table	= rockchip_gem_prime_import_sg_table,
 	.gem_prime_vmap		= rockchip_gem_prime_vmap,
 	.gem_prime_vunmap	= rockchip_gem_prime_vunmap,
 	.gem_prime_mmap		= rockchip_gem_mmap_buf,

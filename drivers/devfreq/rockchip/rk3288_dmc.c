@@ -524,7 +524,7 @@ static int rk3288_dmcfreq_probe(struct platform_device *pdev)
 		dmcfreq.freq_table =
 			devm_kzalloc(dmcfreq.clk_dev,
 				     length * sizeof(*dmcfreq.freq_table),
-				     GFP_KERNEL);
+				     GFP_ATOMIC);
 		if (!dmcfreq.freq_table) {
 			dev_err(dmcfreq.clk_dev, "No memory for freq table\n");
 			length = 0;

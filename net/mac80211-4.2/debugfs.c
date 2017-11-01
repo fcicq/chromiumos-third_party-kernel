@@ -122,6 +122,7 @@ static const char *hw_flag_names[NUM_IEEE80211_HW_FLAGS + 1] = {
 	FLAG(CHANCTX_STA_CSA),
 	FLAG(SUPPORTS_CLONED_SKBS),
 	FLAG(SINGLE_SCAN_ON_ALL_BANDS),
+	FLAG(REPORTS_LOW_ACK),
 
 	/* keep last for the build bug below */
 	(void *)0x1
@@ -251,6 +252,10 @@ void debugfs_hw_add(struct ieee80211_local *local)
 	DEBUGFS_ADD(hwflags);
 	DEBUGFS_ADD(user_power);
 	DEBUGFS_ADD(power);
+	/* enable rx stats by default */
+	local->rx_stats_enabled = 1;
+	debugfs_create_bool("rx_stats_enabled", S_IWUSR | S_IRUSR, phyd,
+			    &local->rx_stats_enabled);
 
 	statsd = debugfs_create_dir("statistics", phyd);
 

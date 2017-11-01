@@ -14,7 +14,6 @@
 
 #include <drm/drm.h>
 #include <drm/drmP.h>
-#include <drm/drm_sync_helper.h>
 #include <drm/drm_vma_manager.h>
 #include <drm/rockchip_drm.h>
 
@@ -105,18 +104,22 @@ int rockchip_gem_mmap(struct file *filp, struct vm_area_struct *vma)
 	if (ret)
 		return ret;
 
+	/*
+	 * Set vm_pgoff (used as a fake buffer offset by DRM) to 0 and map the
+	 * whole buffer from the start.
+	 */
+	vma->vm_pgoff = 0;
+
 	obj = vma->vm_private_data;
 
 	return rockchip_drm_gem_object_mmap(obj, vma);
 }
 
-struct rockchip_gem_object *
-	rockchip_gem_create_object(struct drm_device *drm, unsigned int size,
-				   bool alloc_kmap)
+static struct rockchip_gem_object *
+rockchip_gem_alloc_object(struct drm_device *drm, unsigned int size)
 {
 	struct rockchip_gem_object *rk_obj;
 	struct drm_gem_object *obj;
-	int ret;
 
 	size = round_up(size, PAGE_SIZE);
 
@@ -127,6 +130,20 @@ struct rockchip_gem_object *
 	obj = &rk_obj->base;
 
 	drm_gem_private_object_init(drm, obj, size);
+
+	return rk_obj;
+}
+
+struct rockchip_gem_object *
+	rockchip_gem_create_object(struct drm_device *drm, unsigned int size,
+				   bool alloc_kmap)
+{
+	struct rockchip_gem_object *rk_obj;
+	int ret;
+
+	rk_obj = rockchip_gem_alloc_object(drm, size);
+	if (IS_ERR(rk_obj))
+		return rk_obj;
 
 	ret = rockchip_gem_alloc_buf(rk_obj, alloc_kmap);
 	if (ret)
@@ -145,17 +162,15 @@ err_free_rk_obj:
  */
 void rockchip_gem_free_object(struct drm_gem_object *obj)
 {
-	struct rockchip_gem_object *rk_obj;
+	struct drm_device *drm = obj->dev;
+	struct rockchip_gem_object *rk_obj = to_rockchip_obj(obj);
 
 	drm_gem_free_mmap_offset(obj);
 
-	rk_obj = to_rockchip_obj(obj);
-
-	rockchip_gem_free_buf(rk_obj);
-
-#ifdef CONFIG_DRM_DMA_SYNC
-	drm_fence_signal_and_put(&rk_obj->acquire_fence);
-#endif
+	if (rk_obj->sg)
+		drm_prime_gem_destroy(obj, rk_obj->sg);
+	else
+		rockchip_gem_free_buf(rk_obj);
 
 	kfree(rk_obj);
 }
@@ -282,225 +297,6 @@ int rockchip_gem_create_ioctl(struct drm_device *dev, void *data,
 	return PTR_ERR_OR_ZERO(rk_obj);
 }
 
-static struct reservation_object *drm_gem_get_resv(struct drm_gem_object *gem)
-{
-	struct dma_buf *dma_buf = gem->dma_buf;
-	return dma_buf ? dma_buf->resv : NULL;
-}
-
-#ifdef CONFIG_DRM_DMA_SYNC
-static void rockchip_gem_acquire_complete(struct drm_reservation_cb *rcb,
-					void *context)
-{
-	struct completion *compl = context;
-	complete(compl);
-}
-
-static int rockchip_gem_acquire(struct drm_device *dev,
-				struct rockchip_gem_object *rockchip_gem_obj,
-				bool exclusive)
-{
-	struct fence *fence;
-	struct rockchip_drm_private *dev_priv = dev->dev_private;
-	struct reservation_object *resv =
-		drm_gem_get_resv(&rockchip_gem_obj->base);
-	int ret = 0;
-	struct drm_reservation_cb rcb;
-	DECLARE_COMPLETION_ONSTACK(compl);
-
-	if (!resv)
-		return ret;
-
-	if (!exclusive &&
-	    !rockchip_gem_obj->acquire_exclusive &&
-	    rockchip_gem_obj->acquire_fence) {
-		atomic_inc(&rockchip_gem_obj->acquire_shared_count);
-		return ret;
-	}
-
-	fence = drm_sw_fence_new(dev_priv->cpu_fence_context,
-			atomic_add_return(1, &dev_priv->cpu_fence_seqno));
-	if (IS_ERR(fence)) {
-		ret = PTR_ERR(fence);
-		DRM_ERROR("Failed to create acquire fence %d.\n", ret);
-		return ret;
-	}
-	ww_mutex_lock(&resv->lock, NULL);
-	if (!exclusive) {
-		ret = reservation_object_reserve_shared(resv);
-		if (ret < 0) {
-			DRM_ERROR("Failed to reserve space for shared fence %d.\n",
-				  ret);
-			goto resv_unlock;
-		}
-	}
-	drm_reservation_cb_init(&rcb, rockchip_gem_acquire_complete, &compl);
-	ret = drm_reservation_cb_add(&rcb, resv, exclusive);
-	if (ret < 0) {
-		DRM_ERROR("Failed to add reservation to callback %d.\n", ret);
-		goto resv_unlock;
-	}
-	drm_reservation_cb_done(&rcb);
-	if (exclusive)
-		reservation_object_add_excl_fence(resv, fence);
-	else
-		reservation_object_add_shared_fence(resv, fence);
-
-	ww_mutex_unlock(&resv->lock);
-	mutex_unlock(&dev->struct_mutex);
-	ret = wait_for_completion_interruptible(&compl);
-	mutex_lock(&dev->struct_mutex);
-	if (ret < 0) {
-		DRM_ERROR("Failed wait for reservation callback %d.\n", ret);
-		drm_reservation_cb_fini(&rcb);
-		/* somebody else may be already waiting on it */
-		drm_fence_signal_and_put(&fence);
-		return ret;
-	}
-	rockchip_gem_obj->acquire_fence = fence;
-	rockchip_gem_obj->acquire_exclusive = exclusive;
-	atomic_set(&rockchip_gem_obj->acquire_shared_count, 1);
-	return ret;
-
-resv_unlock:
-	ww_mutex_unlock(&resv->lock);
-	fence_put(fence);
-	return ret;
-}
-
-static void rockchip_gem_release(struct rockchip_gem_object *rockchip_gem_obj)
-{
-	BUG_ON(!rockchip_gem_obj->acquire_fence);
-	if (atomic_sub_and_test(1,
-			&rockchip_gem_obj->acquire_shared_count))
-		drm_fence_signal_and_put(&rockchip_gem_obj->acquire_fence);
-}
-#endif
-
-int rockchip_gem_cpu_acquire_ioctl(struct drm_device *dev, void *data,
-				   struct drm_file *file)
-{
-	struct drm_rockchip_gem_cpu_acquire *args = data;
-	struct rockchip_drm_file_private *file_priv = file->driver_priv;
-	struct drm_gem_object *obj;
-	struct rockchip_gem_object *rockchip_gem_obj;
-	struct rockchip_gem_object_node *gem_node;
-	int ret = 0;
-
-	DRM_DEBUG_KMS("[BO:%u] flags: 0x%x\n", args->handle, args->flags);
-
-	mutex_lock(&dev->struct_mutex);
-
-	obj = drm_gem_object_lookup(dev, file, args->handle);
-	if (!obj) {
-		DRM_ERROR("failed to lookup gem object.\n");
-		ret = -EINVAL;
-		goto unlock;
-	}
-
-	rockchip_gem_obj = to_rockchip_obj(obj);
-
-	if (!drm_gem_get_resv(&rockchip_gem_obj->base)) {
-		/* If there is no reservation object present, there is no
-		 * cross-process/cross-device sharing and sync is unnecessary.
-		 */
-		ret = 0;
-		goto unref_obj;
-	}
-
-#ifdef CONFIG_DRM_DMA_SYNC
-	ret = rockchip_gem_acquire(dev, rockchip_gem_obj,
-			args->flags & DRM_ROCKCHIP_GEM_CPU_ACQUIRE_EXCLUSIVE);
-	if (ret < 0)
-		goto unref_obj;
-#endif
-
-	gem_node = kzalloc(sizeof(*gem_node), GFP_KERNEL);
-	if (!gem_node) {
-		DRM_ERROR("Failed to allocate rockchip_drm_gem_obj_node.\n");
-		ret = -ENOMEM;
-		goto release_sync;
-	}
-
-	gem_node->rockchip_gem_obj = rockchip_gem_obj;
-	list_add(&gem_node->list, &file_priv->gem_cpu_acquire_list);
-	mutex_unlock(&dev->struct_mutex);
-	return 0;
-
-release_sync:
-#ifdef CONFIG_DRM_DMA_SYNC
-	rockchip_gem_release(rockchip_gem_obj);
-#endif
-unref_obj:
-	drm_gem_object_unreference(obj);
-
-unlock:
-	mutex_unlock(&dev->struct_mutex);
-	return ret;
-}
-
-int rockchip_gem_cpu_release_ioctl(struct drm_device *dev, void *data,
-				   struct drm_file *file)
-{
-	struct drm_rockchip_gem_cpu_release *args = data;
-	struct rockchip_drm_file_private *file_priv = file->driver_priv;
-	struct drm_gem_object *obj;
-	struct rockchip_gem_object *rockchip_gem_obj;
-	struct list_head *cur;
-	int ret = 0;
-
-	DRM_DEBUG_KMS("[BO:%u]\n", args->handle);
-
-	mutex_lock(&dev->struct_mutex);
-
-	obj = drm_gem_object_lookup(dev, file, args->handle);
-	if (!obj) {
-		DRM_ERROR("failed to lookup gem object.\n");
-		ret = -EINVAL;
-		goto unlock;
-	}
-
-	rockchip_gem_obj = to_rockchip_obj(obj);
-
-	if (!drm_gem_get_resv(&rockchip_gem_obj->base)) {
-		/* If there is no reservation object present, there is no
-		 * cross-process/cross-device sharing and sync is unnecessary.
-		 */
-		ret = 0;
-		goto unref_obj;
-	}
-
-	list_for_each(cur, &file_priv->gem_cpu_acquire_list) {
-		struct rockchip_gem_object_node *node = list_entry(
-				cur, struct rockchip_gem_object_node, list);
-		if (node->rockchip_gem_obj == rockchip_gem_obj)
-			break;
-	}
-	if (cur == &file_priv->gem_cpu_acquire_list) {
-		DRM_ERROR("gem object not acquired for current process.\n");
-		ret = -EINVAL;
-		goto unref_obj;
-	}
-
-#ifdef CONFIG_DRM_DMA_SYNC
-	rockchip_gem_release(rockchip_gem_obj);
-#endif
-
-	list_del(cur);
-	kfree(list_entry(cur, struct rockchip_gem_object_node, list));
-	/* unreference for the reference held since cpu_acquire_ioctl */
-	drm_gem_object_unreference(obj);
-	ret = 0;
-
-unref_obj:
-	/* unreference for the reference from drm_gem_object_lookup() */
-	drm_gem_object_unreference(obj);
-
-unlock:
-	mutex_unlock(&dev->struct_mutex);
-	return ret;
-}
-
 /*
  * Allocate a sg_table for this GEM object.
  * Note: Both the table's contents, and the sg_table itself must be freed by
@@ -528,6 +324,58 @@ struct sg_table *rockchip_gem_prime_get_sg_table(struct drm_gem_object *obj)
 	}
 
 	return sgt;
+}
+
+static unsigned long rockchip_sg_get_contiguous_size(struct sg_table *sgt,
+						     int count)
+{
+	struct scatterlist *s;
+	dma_addr_t expected = sg_dma_address(sgt->sgl);
+	unsigned int i;
+	unsigned long size = 0;
+
+	for_each_sg(sgt->sgl, s, count, i) {
+		if (sg_dma_address(s) != expected)
+			break;
+		expected = sg_dma_address(s) + sg_dma_len(s);
+		size += sg_dma_len(s);
+	}
+	return size;
+}
+
+
+struct drm_gem_object *
+rockchip_gem_prime_import_sg_table(struct drm_device *drm, size_t size,
+				   struct sg_table *sg)
+{
+	struct rockchip_gem_object *rk_obj;
+	int count;
+	int ret;
+
+	rk_obj = rockchip_gem_alloc_object(drm, size);
+	if (IS_ERR(rk_obj))
+		return ERR_CAST(rk_obj);
+
+	count = sg->nents;
+	if (!count) {
+		ret = -EINVAL;
+		goto err_free_rk_obj;
+	}
+
+	if (rockchip_sg_get_contiguous_size(sg, count) < size) {
+		DRM_ERROR("failed to map sg_table to contiguous linear address.\n");
+		ret = -EINVAL;
+		goto err_free_rk_obj;
+	}
+
+	rk_obj->dma_addr = sg_dma_address(sg->sgl);
+	rk_obj->sg = sg;
+
+	return &rk_obj->base;
+
+err_free_rk_obj:
+	kfree(rk_obj);
+	return ERR_PTR(ret);
 }
 
 void *rockchip_gem_prime_vmap(struct drm_gem_object *obj)

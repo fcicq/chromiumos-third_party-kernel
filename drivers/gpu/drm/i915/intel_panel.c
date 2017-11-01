@@ -568,7 +568,7 @@ static void intel_panel_set_backlight(struct intel_connector *connector,
 	u32 hw_level;
 	unsigned long flags;
 
-	if (!panel->backlight.present || pipe == INVALID_PIPE)
+	if (!panel->backlight.present)
 		return;
 
 	spin_lock_irqsave(&dev_priv->backlight_lock, flags);
@@ -578,7 +578,7 @@ static void intel_panel_set_backlight(struct intel_connector *connector,
 	hw_level = scale_user_to_hw(connector, user_level, user_max);
 	panel->backlight.level = hw_level;
 
-	if (panel->backlight.enabled)
+	if (panel->backlight.enabled && pipe != INVALID_PIPE)
 		intel_panel_actually_set_backlight(connector, hw_level);
 
 	spin_unlock_irqrestore(&dev_priv->backlight_lock, flags);

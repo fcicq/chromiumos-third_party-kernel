@@ -29,12 +29,16 @@
 #include "htt.h"
 #include "testmode.h"
 #include "wmi-ops.h"
+#include "decode64.h"
+#include "fwlog.h"
 
 unsigned int ath10k_debug_mask;
 static unsigned int ath10k_cryptmode_param;
 static bool uart_print;
 static bool skip_otp;
 static bool rawmode;
+static bool hw_csum = true;
+bool ath10k_enable_tx_stats = true;
 #ifdef CONFIG_ATH10K_SMART_ANTENNA
 bool ath10k_enable_smart_antenna = 1;
 #endif
@@ -46,6 +50,8 @@ module_param_named(cryptmode, ath10k_cryptmode_param, uint, 0644);
 module_param(uart_print, bool, 0644);
 module_param(skip_otp, bool, 0644);
 module_param(rawmode, bool, 0644);
+module_param(hw_csum, bool, 0644);
+module_param_named(enable_tx_stats, ath10k_enable_tx_stats, bool, 0644);
 #ifdef CONFIG_ATH10K_SMART_ANTENNA
 module_param_named(enable_smart_antenna, ath10k_enable_smart_antenna,
 		   bool, 0644);
@@ -58,6 +64,8 @@ MODULE_PARM_DESC(uart_print, "Uart target debugging");
 MODULE_PARM_DESC(skip_otp, "Skip otp failure for calibration in testmode");
 MODULE_PARM_DESC(cryptmode, "Crypto mode: 0-hardware, 1-software");
 MODULE_PARM_DESC(rawmode, "Use raw 802.11 frame datapath");
+MODULE_PARM_DESC(hw_csum, "Enable HW checksum offload (default: on)");
+MODULE_PARM_DESC(enable_tx_stats, "Enable tx stats support");
 #ifdef CONFIG_ATH10K_SMART_ANTENNA
 MODULE_PARM_DESC(enable_smart_antenna, "Enable smart antenna supprot in fw");
 #endif
@@ -167,6 +175,8 @@ static const char *const ath10k_core_fw_feature_str[] = {
 	[ATH10K_FW_FEATURE_NO_NWIFI_DECAP_4ADDR_PADDING] = "no-4addr-pad",
 	[ATH10K_FW_FEATURE_SUPPORTS_SKIP_CLOCK_INIT] = "skip-clock-init",
 	[ATH10K_FW_FEATURE_RAW_MODE_SUPPORT] = "raw-mode",
+	[ATH10K_FW_FEATURE_SUPPORTS_ADAPTIVE_CCA] = "adaptive-cca",
+	[ATH10K_FW_FEATURE_MFP_SUPPORT] = "mfp",
 };
 
 static unsigned int ath10k_core_get_fw_feature_str(char *buf,
@@ -405,6 +415,73 @@ static int ath10k_download_cal_file(struct ath10k *ar)
 	ath10k_dbg(ar, ATH10K_DBG_BOOT, "boot cal file downloaded\n");
 
 	return 0;
+}
+
+static int ath10k_download_cal_dt_base64(struct ath10k *ar)
+{
+	struct device_node *node;
+	int data_len;
+	void *data;
+	int ret;
+
+	node = ar->dev->of_node;
+	if (!node)
+		/* Device Tree is optional, don't print any warnings if
+		 * there's no node for ath10k.
+		 */
+		return -ENOENT;
+
+	if (!of_get_property(node, "qcom,ath10k-calibration-data-base64",
+			     &data_len)) {
+		/* The calibration data node is optional */
+		return -ENOENT;
+	}
+
+	data = kmalloc(data_len, GFP_KERNEL);
+	if (!data) {
+		ret = -ENOMEM;
+		goto out;
+	}
+
+	ret = of_property_read_u8_array(node,
+					"qcom,ath10k-calibration-data-base64",
+					data, data_len);
+	if (ret) {
+		ath10k_warn(ar,
+		    "failed to read calibration data (base64) from DT: %d\n",
+			    ret);
+		goto out_free;
+	}
+
+	data_len = strip_nl(data, data + data_len, data);
+	data_len = decode64(data, data + data_len, data);
+	if (data_len < 0) {
+		ath10k_warn(ar,
+			    "base64 decoder found invalid input\n");
+		ret = -EINVAL;
+		goto out_free;
+	}
+
+	if (data_len != QCA988X_CAL_DATA_LEN) {
+		ath10k_warn(ar, "invalid calibration data length in DT: %d\n",
+			    data_len);
+		ret = -EMSGSIZE;
+		goto out_free;
+	}
+
+	ret = ath10k_download_board_data(ar, data, data_len);
+	if (ret) {
+		ath10k_warn(ar, "failed to download calibration data: %d\n",
+			    ret);
+		goto out_free;
+	}
+
+	ret = 0;
+out_free:
+	kfree(data);
+
+out:
+	return ret;
 }
 
 static int ath10k_download_cal_dt(struct ath10k *ar)
@@ -1201,6 +1278,12 @@ static int ath10k_download_cal_data(struct ath10k *ar)
 		   "boot did not find DT entry, try OTP next: %d\n",
 		   ret);
 
+	ret = ath10k_download_cal_dt_base64(ar);
+	if (ret == 0) {
+		ar->cal_mode = ATH10K_CAL_MODE_DT;
+		goto done;
+	}
+
 	ret = ath10k_download_and_run_otp(ar);
 	if (ret) {
 		ath10k_err(ar, "failed to run otp: %d\n", ret);
@@ -1410,6 +1493,9 @@ static int ath10k_core_init_firmware_features(struct ath10k *ar)
 		ar->htt.max_num_amsdu = 1;
 	}
 
+	if (!hw_csum)
+		set_bit(ATH10K_FLAG_HW_CSUM_DISABLED, &ar->dev_flags);
+
 	/* Backwards compatibility for firmwares without
 	 * ATH10K_FW_IE_WMI_OP_VERSION.
 	 */
@@ -1451,10 +1537,17 @@ static int ath10k_core_init_firmware_features(struct ath10k *ar)
 		ar->max_num_peers = TARGET_10X_NUM_PEERS;
 		ar->max_num_stations = TARGET_10X_NUM_STATIONS;
 #endif
+		if (ath10k_enable_tx_stats) {
+			ar->max_num_peers -=
+					TARGET_10_2_TX_STATS_PEERS_OVERHEAD;
+			ar->max_num_stations -=
+					TARGET_10_2_TX_STATS_PEERS_OVERHEAD;
+		}
 		ar->max_num_vdevs = TARGET_10X_NUM_VDEVS;
 		ar->htt.max_num_pending_tx = TARGET_10X_NUM_MSDU_DESC;
 		ar->fw_stats_req_mask = WMI_STAT_PEER;
 		ar->max_spatial_stream = WMI_MAX_SPATIAL_STREAM;
+		ar->fwlog_max_moduleid = ATH10K_FWLOG_MODULE_ID_MAX_10_2_4;
 		break;
 	case ATH10K_FW_WMI_OP_VERSION_TLV:
 		ar->max_num_peers = TARGET_TLV_NUM_PEERS;
@@ -1857,6 +1950,7 @@ static void ath10k_core_register_work(struct work_struct *work)
 			   status);
 		goto err_spectral_destroy;
 	}
+	ath10k_fwlog_register(ar);
 
 	set_bit(ATH10K_FLAG_CORE_REGISTERED, &ar->dev_flags);
 	return;
@@ -1911,6 +2005,7 @@ void ath10k_core_unregister(struct ath10k *ar)
 	ath10k_core_free_board_files(ar);
 
 	ath10k_debug_unregister(ar);
+	ath10k_fwlog_unregister(ar);
 }
 EXPORT_SYMBOL(ath10k_core_unregister);
 

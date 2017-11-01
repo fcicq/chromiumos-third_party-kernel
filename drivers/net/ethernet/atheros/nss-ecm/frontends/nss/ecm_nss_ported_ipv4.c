@@ -1662,6 +1662,10 @@ unsigned int ecm_nss_ported_ipv4_process(struct net_device *out_dev, struct net_
 		}
 		DEBUG_TRACE("UDP src: " ECM_IP_ADDR_DOT_FMT ":%d, dest: " ECM_IP_ADDR_DOT_FMT ":%d, dir %d\n",
 				ECM_IP_ADDR_TO_DOT(ip_src_addr), src_port, ECM_IP_ADDR_TO_DOT(ip_dest_addr), dest_port, ecm_dir);
+		/* Skip creating a flow for DHCP frames */
+		if (((src_port == 67) || (src_port == 68)) && ((dest_port == 67) || (dest_port == 68))) {
+			return NF_ACCEPT;
+		}
 	} else {
 		DEBUG_WARN("Wrong protocol: %d\n", protocol);
 		return NF_ACCEPT;

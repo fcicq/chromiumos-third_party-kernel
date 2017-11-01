@@ -29,6 +29,23 @@
 #include "rx_desc.h"
 #include "hw.h"
 
+#define ATH10K_TX_STATS_OFFSET		128
+#define ATH10K_TX_STATS_OFFSET_V2	136
+#define ATH10K_TX_STATS_NO_OF_COMB_FB	4
+
+struct ath10k_per_peer_tx_stats {
+	u8 ratecode[ATH10K_TX_STATS_NO_OF_COMB_FB];
+	u8 success_pkts[ATH10K_TX_STATS_NO_OF_COMB_FB];
+	__le16 success_bytes[ATH10K_TX_STATS_NO_OF_COMB_FB];
+	u8 retry_pkts[ATH10K_TX_STATS_NO_OF_COMB_FB];
+	__le16 retry_bytes[ATH10K_TX_STATS_NO_OF_COMB_FB];
+	u8 failed_pkts[ATH10K_TX_STATS_NO_OF_COMB_FB];
+	__le16 failed_bytes[ATH10K_TX_STATS_NO_OF_COMB_FB];
+	u8 flags[ATH10K_TX_STATS_NO_OF_COMB_FB];
+	__le32 tx_duration;
+	u8 tx_ppdu_cnt;
+} __packed;
+
 enum htt_dbg_stats_type {
 	HTT_DBG_STATS_WAL_PDEV_TXRX = 1 << 0,
 	HTT_DBG_STATS_RX_REORDER    = 1 << 1,
@@ -1313,6 +1330,14 @@ struct htt_frag_desc_bank_cfg {
 	struct htt_frag_desc_bank_id bank_id[HTT_FRAG_DESC_BANK_MAX];
 } __packed;
 
+struct htt_channel_change {
+	u8 pad[3];
+	__le32 freq;
+	__le32 center_freq1;
+	__le32 center_freq2;
+	__le32 phymode;
+} __packed;
+
 union htt_rx_pn_t {
 	/* WEP: 24-bit PN */
 	u32 pn24;
@@ -1359,6 +1384,7 @@ struct htt_resp {
 		struct htt_rx_pn_ind rx_pn_ind;
 		struct htt_rx_offload_ind rx_offload_ind;
 		struct htt_rx_in_ord_ind rx_in_ord_ind;
+		struct htt_channel_change chan_change;
 	};
 } __packed;
 
@@ -1401,6 +1427,11 @@ struct ath10k_htt {
 
 	const enum htt_t2h_msg_type *t2h_msg_types;
 	u32 t2h_msg_types_max;
+
+	/* tx status rate reporting */
+	struct ieee80211_tx_rate tx_rate;
+	enum tx_ppdu_bw tx_bw;
+	u32 tx_series;
 
 	struct {
 		/*

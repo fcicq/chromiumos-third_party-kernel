@@ -1380,6 +1380,7 @@ static void smart_ant_tx_stats_update(struct ath10k *ar,
 
 static void smart_ant_tx_fb_fill(struct ath10k *ar,
 					u32 *tx_ctrl_desc,
+					u16 flags,
 					struct ath10k_smart_ant_tx_fb *fb)
 {
 	struct ath10k_smart_ant_info *info = &ar->smart_ant_info;
@@ -1422,12 +1423,22 @@ static void smart_ant_tx_fb_fill(struct ath10k *ar,
 	fb->rate_maxphy = __le32_to_cpu(
 				tx_status_desc[ATH10K_SMART_ANT_FEEDBACK_2]);
 	fb->gput = __le32_to_cpu(tx_status_desc[ATH10K_SMART_ANT_GPUT]);
-	memcpy((u8 *)&fb->comb_fb[0],
-		(u8 *)&tx_status_desc[ATH10K_TXS_LRETRY],
-		sizeof(fb->comb_fb[0]));
-	memcpy((u8 *)&fb->comb_fb[1],
-		(u8 *)&tx_status_desc[ATH10K_TXS_SRETRY],
-		sizeof(fb->comb_fb[1]));
+
+	if (flags & PKTLOG_INFO_FLAG_HW_STATUS_V2) {
+		memcpy((u8 *)&fb->comb_fb[0],
+		       (u8 *)&tx_status_desc[ATH10K_TXS_LRETRY_V2],
+		       sizeof(fb->comb_fb[0]));
+		memcpy((u8 *)&fb->comb_fb[1],
+		       (u8 *)&tx_status_desc[ATH10K_TXS_SRETRY_V2],
+		       sizeof(fb->comb_fb[1]));
+	} else {
+		memcpy((u8 *)&fb->comb_fb[0],
+		       (u8 *)&tx_status_desc[ATH10K_TXS_LRETRY],
+		       sizeof(fb->comb_fb[0]));
+		memcpy((u8 *)&fb->comb_fb[1],
+		       (u8 *)&tx_status_desc[ATH10K_TXS_SRETRY],
+		       sizeof(fb->comb_fb[1]));
+	}
 
 	smart_ant_dbg_feedback(ar, fb);
 }
@@ -1516,6 +1527,7 @@ void ath10k_smart_ant_proc_tx_feedback(struct ath10k *ar, u8 *data)
 {
 	struct ath10k_pktlog_hdr *pl_hdr = (struct ath10k_pktlog_hdr *)data;
 	u16 log_type = __le16_to_cpu(pl_hdr->log_type);
+	u16 log_flags = __le16_to_cpu(pl_hdr->flags);
 	struct ath10k_peer *peer;
 	struct ath10k_smart_ant_info *info = &ar->smart_ant_info;
 
@@ -1530,8 +1542,12 @@ void ath10k_smart_ant_proc_tx_feedback(struct ath10k *ar, u8 *data)
 		return;
 
 	if (log_type == ATH10K_SMART_ANT_PKTLOG_TYPE_TXSTATS) {
-		memcpy((u8 *)info->tx_ppdu_end, pl_hdr->payload,
-			sizeof(info->tx_ppdu_end));
+		if (log_flags & PKTLOG_INFO_FLAG_HW_STATUS_V2)
+			memcpy((u8 *)info->tx_ppdu_end, pl_hdr->payload,
+			       sizeof(info->tx_ppdu_end));
+		else
+			memcpy((u8 *)info->tx_ppdu_end, pl_hdr->payload,
+			       ATH10K_PPDU_SIZE_MAX * sizeof(u32));
 	} else {
 		struct ieee80211_sta *sta;
 		struct ath10k_smart_ant_tx_fb feed_back;
@@ -1587,7 +1603,7 @@ void ath10k_smart_ant_proc_tx_feedback(struct ath10k *ar, u8 *data)
 			ath10k_dbg(ar, ATH10K_DBG_SMART_ANT, "Tx feedback from sta: %pM\n",
 				peer_mac);
 		}
-		smart_ant_tx_fb_fill(ar, tx_ctrl_desc, &feed_back);
+		smart_ant_tx_fb_fill(ar, tx_ctrl_desc, log_flags, &feed_back);
 
 		smart_ant_tx_stats_update(ar, arsta->smart_ant_sta,
 					&feed_back, &action);
@@ -1908,5 +1924,6 @@ int ath10k_smart_ant_enable(struct ath10k *ar, struct ath10k_vif *arvif)
 	info->enabled = true;
 
 	/* Enable tx feedback through packetlog */
-	return ath10k_wmi_pdev_pktlog_enable(ar, ATH10K_PKTLOG_SMART_ANT);
+	return ath10k_wmi_pdev_pktlog_enable(ar, (ar->debug.pktlog_filter |
+						  ATH10K_PKTLOG_SMART_ANT));
 }

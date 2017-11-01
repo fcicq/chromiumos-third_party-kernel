@@ -177,7 +177,7 @@ force_sig_info_fault(int si_signo, int si_code, unsigned long address,
 	info.si_code	= si_code;
 	info.si_addr	= (void __user *)address;
 	if (fault & VM_FAULT_HWPOISON_LARGE)
-		lsb = hstate_index_to_shift(VM_FAULT_GET_HINDEX(fault)); 
+		lsb = hstate_index_to_shift(VM_FAULT_GET_HINDEX(fault));
 	if (fault & VM_FAULT_HWPOISON)
 		lsb = PAGE_SHIFT;
 	info.si_addr_lsb = lsb;
@@ -428,7 +428,7 @@ static noinline __kprobes int vmalloc_fault(unsigned long address)
 
 #ifdef CONFIG_CPU_SUP_AMD
 static const char errata93_warning[] =
-KERN_ERR 
+KERN_ERR
 "******* Your BIOS seems to not contain a fix for K8 errata #93\n"
 "******* Working around it, but it may cause SEGVs or burn power.\n"
 "******* Please consider a BIOS update.\n"
@@ -894,6 +894,8 @@ mm_fault_error(struct pt_regs *regs, unsigned long error_code,
 		if (fault & (VM_FAULT_SIGBUS|VM_FAULT_HWPOISON|
 			     VM_FAULT_HWPOISON_LARGE))
 			do_sigbus(regs, error_code, address, fault);
+		else if (fault & VM_FAULT_SIGSEGV)
+			bad_area_nosemaphore(regs, error_code, address);
 		else
 			BUG();
 	}
@@ -1179,8 +1181,14 @@ retry:
 		 * The large cushion allows instructions like enter
 		 * and pusha to work. ("enter $65535, $31" pushes
 		 * 32 pointers and then decrements %sp by 65535.)
+		 *
+		 * However accesses within one page of the lowest
+		 * stack address are exempt from this check, since
+		 * historically userspace has been able to expand
+		 * the stack by touching the stack guard page.
 		 */
-		if (unlikely(address + 65536 + 32 * sizeof(unsigned long) < regs->sp)) {
+		if (unlikely(address + 65536 + 32 * sizeof(unsigned long) < regs->sp) &&
+				address < vma->vm_start - PAGE_SIZE) {
 			bad_area(regs, error_code, address);
 			return;
 		}

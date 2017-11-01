@@ -866,6 +866,8 @@ static bool ath10k_htt_rx_h_channel(struct ath10k *ar,
 		ch = ath10k_htt_rx_h_vdev_channel(ar, vdev_id);
 	if (!ch)
 		ch = ath10k_htt_rx_h_any_channel(ar);
+	if (!ch)
+		ch = ar->tgt_oper_chan;
 	spin_unlock_bh(&ar->data_lock);
 
 	if (!ch)
@@ -1787,6 +1789,156 @@ static void ath10k_htt_rx_delba(struct ath10k *ar, struct htt_resp *resp)
 	spin_unlock_bh(&ar->data_lock);
 }
 
+static const u32 tx_rate_ofdm_map[] = {
+	[TX_PPDU_RATE_OFDM_48_MBPS] = 10,
+	[TX_PPDU_RATE_OFDM_24_MBPS] = 8,
+	[TX_PPDU_RATE_OFDM_12_MBPS] = 6,
+	[TX_PPDU_RATE_OFDM_6_MBPS] = 4,
+	[TX_PPDU_RATE_OFDM_54_MBPS] = 11,
+	[TX_PPDU_RATE_OFDM_36_MBPS] = 9,
+	[TX_PPDU_RATE_OFDM_18_MBPS] = 7,
+	[TX_PPDU_RATE_OFDM_9_MBPS] = 5,
+};
+
+static const u32 tx_rate_cck_map[] = {
+	[TX_PPDU_RATE_CCK_11_MBPS] = 3,
+	[TX_PPDU_RATE_CCK_5_5_MBPS] = 2,
+	[TX_PPDU_RATE_CCK_2_MBPS] = 1,
+	[TX_PPDU_RATE_CCK_1_MBPS] = 0,
+	[TX_PPDU_RATE_CCK_11_MBPS_SHORT] = 3,
+	[TX_PPDU_RATE_CCK_5_5_MBPS_SHORT] = 2,
+	[TX_PPDU_RATE_CCK_2_MBPS_SHORT] = 1,
+};
+
+static void ath10k_htt_rx_tx_stat_part_1(struct ath10k *ar,
+					 struct tx_ppdu_end *tx_ppdu_end)
+{
+	struct tx_ppdu_try *tx_ppdu_try;
+	u32 tries;
+
+	tries = MS(__le32_to_cpu(tx_ppdu_end->status.info),
+		   TX_PPDU_STATUS_INFO_TOTAL_TRIES);
+
+	if (tries == 0)
+		return;
+
+	tx_ppdu_try = &tx_ppdu_end->tries[tries - 1];
+
+	ar->htt.tx_bw = MS(__le32_to_cpu(tx_ppdu_try->info),
+			   TX_PPDU_TRY_INFO_PACKET_BW);
+	ar->htt.tx_series = MS(__le32_to_cpu(tx_ppdu_try->info),
+			       TX_PPDU_TRY_INFO_SERIES);
+}
+
+static void ath10k_htt_rx_tx_stat_part_2(struct ath10k *ar,
+					 struct tx_ppdu_start *tx_ppdu_start)
+{
+	bool no_cck;
+	struct tx_ppdu_series *tx_ppdu_series;
+	enum tx_ppdu_preamble_type preamble;
+	u32 sgi, rate, nss;
+
+	/* FIXME: Hacky but sufficient? */
+	no_cck = (ar->htt.rx_status.band == IEEE80211_BAND_5GHZ);
+
+	tx_ppdu_series = &tx_ppdu_start->series[
+				ar->htt.tx_series * TX_PPDU_NUM_BW +
+				ar->htt.tx_bw];
+	sgi = MS(__le32_to_cpu(tx_ppdu_series->info[0]),
+		 TX_PPDU_SERIES_INFO_0_SHORT_GI);
+	rate = MS(__le32_to_cpu(tx_ppdu_series->info[1]),
+		  TX_PPDU_SERIES_INFO_1_RATE);
+	nss = MS(__le32_to_cpu(tx_ppdu_series->info[1]),
+		 TX_PPDU_SERIES_INFO_1_NSS);
+	preamble = MS(__le32_to_cpu(tx_ppdu_series->info[1]),
+		      TX_PPDU_SERIES_INFO_1_PREAMBLE_TYPE);
+
+	memset(&ar->htt.tx_rate, 0, sizeof(ar->htt.tx_rate));
+
+	/* FIXME: RTS/CTS info? */
+
+	if (sgi)
+		ar->htt.tx_rate.flags |= IEEE80211_TX_RC_SHORT_GI;
+
+	switch (preamble) {
+	case TX_PPDU_PREAMBLE_TYPE_OFDM:
+		ar->htt.tx_rate.idx = tx_rate_ofdm_map[rate];
+
+		/* FIXME: CCK rates aren't valid on 5GHz so indexing
+		 * (reported to mac80211) has an offset. Perhaps CCK
+		 * should be put at the end instead? Needs other places
+		 * with the offset assumption to fix too.
+		 */
+		if (no_cck)
+			ar->htt.tx_rate.idx -= 4;
+		break;
+	case TX_PPDU_PREAMBLE_TYPE_CCK:
+		ar->htt.tx_rate.idx = tx_rate_cck_map[rate];
+		if (rate >= TX_PPDU_RATE_CCK_11_MBPS_SHORT)
+			ar->htt.tx_rate.flags |=
+					IEEE80211_TX_RC_USE_SHORT_PREAMBLE;
+		break;
+	case TX_PPDU_PREAMBLE_TYPE_HT:
+		ar->htt.tx_rate.idx = rate + (nss * 8);
+		ar->htt.tx_rate.flags |= IEEE80211_TX_RC_MCS;
+		break;
+	case TX_PPDU_PREAMBLE_TYPE_VHT:
+		ieee80211_rate_set_vht(&ar->htt.tx_rate, rate, nss + 1);
+		ar->htt.tx_rate.flags |= IEEE80211_TX_RC_VHT_MCS;
+		break;
+	}
+
+	switch (ar->htt.tx_bw) {
+	case TX_PPDU_BW_20_MHZ:
+		break;
+	case TX_PPDU_BW_40_MHZ:
+		ar->htt.tx_rate.flags |= IEEE80211_TX_RC_40_MHZ_WIDTH;
+		break;
+	case TX_PPDU_BW_80_MHZ:
+		ar->htt.tx_rate.flags |= IEEE80211_TX_RC_80_MHZ_WIDTH;
+		break;
+	case TX_PPDU_BW_160_MHZ:
+		ar->htt.tx_rate.flags |= IEEE80211_TX_RC_160_MHZ_WIDTH;
+		break;
+	}
+}
+
+static void ath10k_htt_rx_pktlog(struct ath10k *ar, struct htt_pktlog_msg *ev,
+				 size_t len)
+{
+	struct ath10k_pktlog_hdr *hdr = (void *)ev->payload;
+
+	/* Tx status rate reporting: TX_STAT is followed by TX_CTRL. Both are
+	 * necessary to compute tx rate.
+	 */
+
+	/* FIXME: verify len vs hdr->size */
+
+	switch (__le16_to_cpu(hdr->log_type)) {
+	case ATH10K_PKTLOG_TYPE_TX_CTRL: {
+		struct tx_ppdu_start *tx_ppdu_start = (void *)hdr->payload;
+
+		ath10k_htt_rx_tx_stat_part_2(ar, tx_ppdu_start);
+		break;
+	}
+	case ATH10K_PKTLOG_TYPE_TX_STAT: {
+		struct tx_ppdu_end *tx_ppdu_end = (void *)hdr->payload;
+
+		ath10k_htt_rx_tx_stat_part_1(ar, tx_ppdu_end);
+		break;
+	}
+	case ATH10K_PKTLOG_TYPE_TX_MSDU_ID:
+	case ATH10K_PKTLOG_TYPE_TX_FRM_HDR:
+	case ATH10K_PKTLOG_TYPE_RX_STAT:
+	case ATH10K_PKTLOG_TYPE_RC_FIND:
+	case ATH10K_PKTLOG_TYPE_RC_UPDATE:
+	case ATH10K_PKTLOG_TYPE_TX_VIRT_ADDR:
+	case ATH10K_PKTLOG_TYPE_DBG_PRINT:
+		/* ignore */
+		break;
+	}
+}
+
 static int ath10k_htt_rx_extract_amsdu(struct sk_buff_head *list,
 				       struct sk_buff_head *amsdu)
 {
@@ -1975,6 +2127,94 @@ static void ath10k_htt_rx_in_ord_ind(struct ath10k *ar, struct sk_buff *skb)
 	tasklet_schedule(&htt->rx_replenish_task);
 }
 
+void ath10k_process_tx_stats(struct ath10k *ar, u8 *data)
+{
+	struct ath10k_pktlog_hdr *pl_hdr = (struct ath10k_pktlog_hdr *)data;
+	u16 log_type = __le16_to_cpu(pl_hdr->log_type);
+	u16 log_flags = __le16_to_cpu(pl_hdr->flags);
+	struct ath10k_peer *peer;
+	struct ath10k_per_peer_tx_stats *p_tx_stats = &ar->peer_tx_stats;
+
+	if (log_type != ATH10K_SMART_ANT_PKTLOG_TYPE_TXCTL &&
+	    log_type != ATH10K_SMART_ANT_PKTLOG_TYPE_TXSTATS)
+		return;
+
+	if (log_type == ATH10K_SMART_ANT_PKTLOG_TYPE_TXSTATS) {
+		if (log_flags & PKTLOG_INFO_FLAG_HW_STATUS_V2)
+			memcpy(p_tx_stats, (pl_hdr->payload) +
+					ATH10K_TX_STATS_OFFSET_V2,
+					sizeof(*p_tx_stats));
+		else
+			memcpy(p_tx_stats, (pl_hdr->payload) +
+					ATH10K_TX_STATS_OFFSET,
+					sizeof(*p_tx_stats));
+	} else {
+		struct ieee80211_sta *sta;
+		struct ath10k_sta *arsta;
+		u32 *tx_ctrl_desc;
+		u32 peer_id;
+		u32 ftype;
+		u8 peer_mac[ETH_ALEN];
+
+		tx_ctrl_desc = (u32 *)pl_hdr->payload;
+
+		peer_id = __le32_to_cpu(tx_ctrl_desc[ATH10K_TXC_PEERID]);
+		ftype = TXCS_MS(tx_ctrl_desc, ATH10K_TXC_FTYPE);
+
+		if (ftype != ATH10K_FTYPE_DATA)
+			return;
+
+		spin_lock_bh(&ar->data_lock);
+		peer = ath10k_peer_find_by_id(ar, peer_id);
+		if (!peer) {
+			spin_unlock_bh(&ar->data_lock);
+			return;
+		}
+		ether_addr_copy(peer_mac, peer->addr);
+		spin_unlock_bh(&ar->data_lock);
+
+		rcu_read_lock();
+		sta = ieee80211_find_sta_by_ifaddr(ar->hw, peer_mac, NULL);
+		if (!sta) {
+			rcu_read_unlock();
+			ath10k_dbg(ar, ATH10K_DBG_HTT,
+				   "Sta entry for %pM not found\n", peer_mac);
+			return;
+		}
+		arsta = (struct ath10k_sta *)sta->drv_priv;
+		ath10k_update_peer_tx_stats(ar, arsta, p_tx_stats);
+		rcu_read_unlock();
+	}
+}
+
+static inline enum ieee80211_band phy_mode_to_band(u32 phy_mode)
+{
+	enum ieee80211_band band;
+
+	switch (phy_mode) {
+	case MODE_11A:
+	case MODE_11NA_HT20:
+	case MODE_11NA_HT40:
+	case MODE_11AC_VHT20:
+	case MODE_11AC_VHT40:
+	case MODE_11AC_VHT80:
+		band = IEEE80211_BAND_5GHZ;
+		break;
+	case MODE_11G:
+	case MODE_11B:
+	case MODE_11GONLY:
+	case MODE_11NG_HT20:
+	case MODE_11NG_HT40:
+	case MODE_11AC_VHT20_2G:
+	case MODE_11AC_VHT40_2G:
+	case MODE_11AC_VHT80_2G:
+	default:
+		band = IEEE80211_BAND_2GHZ;
+	}
+
+	return band;
+}
+
 void ath10k_htt_t2h_msg_handler(struct ath10k *ar, struct sk_buff *skb)
 {
 	struct ath10k_htt *htt = &ar->htt;
@@ -2095,9 +2335,14 @@ void ath10k_htt_t2h_msg_handler(struct ath10k *ar, struct sk_buff *skb)
 		trace_ath10k_htt_pktlog(ar, resp->pktlog_msg.payload,
 					sizeof(*hdr) +
 					__le16_to_cpu(hdr->size));
+
+		ath10k_htt_rx_pktlog(ar, &resp->pktlog_msg,
+				     skb->len - sizeof(resp->pktlog_msg));
 #ifdef CONFIG_ATH10K_SMART_ANTENNA
 		ath10k_smart_ant_proc_tx_feedback(ar, resp->pktlog_msg.payload);
 #endif
+		if (ath10k_tx_stats_enabled(ar))
+			ath10k_process_tx_stats(ar, resp->pktlog_msg.payload);
 		break;
 	}
 	case HTT_T2H_MSG_TYPE_RX_FLUSH: {
@@ -2115,8 +2360,17 @@ void ath10k_htt_t2h_msg_handler(struct ath10k *ar, struct sk_buff *skb)
 	}
 	case HTT_T2H_MSG_TYPE_TX_CREDIT_UPDATE_IND:
 		break;
-	case HTT_T2H_MSG_TYPE_CHAN_CHANGE:
+	case HTT_T2H_MSG_TYPE_CHAN_CHANGE: {
+		u32 phymode = __le32_to_cpu(resp->chan_change.phymode);
+		u32 freq = __le32_to_cpu(resp->chan_change.freq);
+
+		ar->tgt_oper_chan =
+			__ieee80211_get_channel(ar->hw->wiphy, freq);
+		ath10k_dbg(ar, ATH10K_DBG_HTT,
+			   "htt chan change freq %u phymode %s\n",
+			   freq, ath10k_wmi_phymode_str(phymode));
 		break;
+	}
 	case HTT_T2H_MSG_TYPE_AGGR_CONF:
 		break;
 	case HTT_T2H_MSG_TYPE_EN_STATS:

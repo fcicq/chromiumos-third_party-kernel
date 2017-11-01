@@ -25,6 +25,7 @@
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
+#include <linux/syscore_ops.h>
 
 #include <asm/cputype.h>
 #include <asm/irq_regs.h>
@@ -161,7 +162,14 @@ static void cpu_pmu_init(struct arm_pmu *cpu_pmu)
 static int cpu_pmu_notify(struct notifier_block *b, unsigned long action,
 			  void *hcpu)
 {
-	if ((action & ~CPU_TASKS_FROZEN) != CPU_STARTING)
+	action &= ~CPU_TASKS_FROZEN;
+
+	/*
+	 * Reset on DYING and on STARTING.  At DYING time we reset in the
+	 * hopes that this will clear any pending interrupts.  Those could
+	 * cause problems once the CPU is dead.
+	 */
+	if ((action != CPU_STARTING) && (action != CPU_DYING))
 		return NOTIFY_DONE;
 
 	if (cpu_pmu && cpu_pmu->reset)
@@ -174,6 +182,24 @@ static int cpu_pmu_notify(struct notifier_block *b, unsigned long action,
 
 static struct notifier_block cpu_pmu_hotplug_notifier = {
 	.notifier_call = cpu_pmu_notify,
+};
+
+static int cpu_pmu_suspend(void)
+{
+	if (cpu_pmu && cpu_pmu->reset)
+		cpu_pmu->reset(cpu_pmu);
+	return 0;
+}
+
+static void cpu_pmu_resume(void)
+{
+	if (cpu_pmu && cpu_pmu->reset)
+		cpu_pmu->reset(cpu_pmu);
+}
+
+static struct syscore_ops cpu_pmu_syscore_ops = {
+	.suspend = cpu_pmu_suspend,
+	.resume = cpu_pmu_resume,
 };
 
 /*
@@ -314,6 +340,8 @@ static int __init register_pmu_driver(void)
 	err = register_cpu_notifier(&cpu_pmu_hotplug_notifier);
 	if (err)
 		return err;
+
+	register_syscore_ops(&cpu_pmu_syscore_ops);
 
 	err = platform_driver_register(&cpu_pmu_driver);
 	if (err)

@@ -906,9 +906,9 @@ static irqreturn_t elants_i2c_irq(int irq, void *_dev)
 
 		case QUEUE_HEADER_NORMAL:
 			report_count = ts->buf[FW_HDR_COUNT];
-			if (report_count > 3) {
+			if (report_count == 0 || report_count > 3) {
 				dev_err(&client->dev,
-					"too large report count: %*ph\n",
+					"bad report count: %*ph\n",
 					HEADER_SIZE, ts->buf);
 				break;
 			}
@@ -1358,7 +1358,13 @@ static int __maybe_unused elants_i2c_suspend(struct device *dev)
 
 	disable_irq(client->irq);
 
-	if (device_may_wakeup(dev) || ts->keep_power_in_suspend) {
+	if (device_may_wakeup(dev)) {
+		/*
+		 * The device will automatically enter idle mode
+		 * that has reduced power consumption.
+		 */
+		ts->wake_irq_enabled = (enable_irq_wake(client->irq) == 0);
+	} else if (ts->keep_power_in_suspend) {
 		for (retry_cnt = 0; retry_cnt < MAX_RETRIES; retry_cnt++) {
 			error = elants_i2c_send(client, set_sleep_cmd,
 						sizeof(set_sleep_cmd));
@@ -1368,10 +1374,6 @@ static int __maybe_unused elants_i2c_suspend(struct device *dev)
 			dev_err(&client->dev,
 				"suspend command failed: %d\n", error);
 		}
-
-		if (device_may_wakeup(dev))
-			ts->wake_irq_enabled =
-					(enable_irq_wake(client->irq) == 0);
 	} else {
 		elants_i2c_power_off(ts);
 	}
@@ -1387,10 +1389,11 @@ static int __maybe_unused elants_i2c_resume(struct device *dev)
 	int retry_cnt;
 	int error;
 
-	if (device_may_wakeup(dev) && ts->wake_irq_enabled)
-		disable_irq_wake(client->irq);
-
-	if (ts->keep_power_in_suspend) {
+	if (device_may_wakeup(dev)) {
+		if (ts->wake_irq_enabled)
+			disable_irq_wake(client->irq);
+		elants_i2c_sw_reset(client);
+	} else if (ts->keep_power_in_suspend) {
 		for (retry_cnt = 0; retry_cnt < MAX_RETRIES; retry_cnt++) {
 			error = elants_i2c_send(client, set_active_cmd,
 						sizeof(set_active_cmd));

@@ -837,6 +837,8 @@ static int mwifiex_prog_fw_w_helper(struct mwifiex_adapter *adapter,
 	if (!fwbuf)
 		return -ENOMEM;
 
+	sdio_claim_host(card->func);
+
 	/* Perform firmware data transfer */
 	do {
 		/* The host polls for the DN_LD_CARD_RDY and CARD_IO_READY
@@ -948,6 +950,7 @@ static int mwifiex_prog_fw_w_helper(struct mwifiex_adapter *adapter,
 
 	ret = 0;
 done:
+	sdio_release_host(card->func);
 	kfree(fwbuf);
 	return ret;
 }

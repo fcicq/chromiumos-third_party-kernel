@@ -115,7 +115,21 @@ static int mwifiex_unregister(struct mwifiex_adapter *adapter)
 {
 	s32 i;
 
-	del_timer(&adapter->cmd_timer);
+	/* Free lock variables */
+	mwifiex_free_lock_list(adapter);
+
+	/* Free command buffer */
+	mwifiex_dbg(adapter, INFO, "info: free cmd buffer\n");
+	mwifiex_free_cmd_buffer(adapter);
+
+	mwifiex_dbg(adapter, INFO, "info: free scan table\n");
+
+	if (adapter->sleep_cfm)
+		dev_kfree_skb_any(adapter->sleep_cfm);
+	if (adapter->if_ops.cleanup_if)
+		adapter->if_ops.cleanup_if(adapter);
+
+	del_timer_sync(&adapter->cmd_timer);
 
 	/* Free private structures */
 	for (i = 0; i < adapter->priv_num; i++) {

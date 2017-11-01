@@ -44,6 +44,9 @@ static const struct of_device_id stmmac_dt_ids[] = {
 #ifdef CONFIG_DWMAC_RK
 	{ .compatible = "rockchip,rk3288-gmac", .data = &rk3288_gmac_data},
 #endif
+#ifdef CONFIG_DWMAC_SOCFPGA
+	{ .compatible = "altr,socfpga-stmmac", .data = &socfpga_gmac_data },
+#endif
 	/* SoC specific glue layers should come before generic bindings */
 	{ .compatible = "st,spear600-gmac"},
 	{ .compatible = "snps,dwmac-3.610"},
@@ -85,6 +88,8 @@ static int stmmac_probe_config_dt(struct platform_device *pdev,
 		plat->free = data->free;
 		plat->init = data->init;
 		plat->exit = data->exit;
+		plat->suspend = data->suspend;
+		plat->resume = data->resume;
 	}
 
 	*mac = of_get_mac_address(np);
@@ -277,13 +282,14 @@ static int stmmac_pltfr_remove(struct platform_device *pdev)
 {
 	struct net_device *ndev = platform_get_drvdata(pdev);
 	struct stmmac_priv *priv = netdev_priv(ndev);
+	struct plat_stmmacenet_data *plat = priv->plat;
 	int ret = stmmac_dvr_remove(ndev);
 
-	if (priv->plat->exit)
-		priv->plat->exit(pdev, priv->plat->bsp_priv);
+	if (plat->exit)
+		plat->exit(pdev, plat->bsp_priv);
 
-	if (priv->plat->free)
-		priv->plat->free(pdev, priv->plat->bsp_priv);
+	if (plat->free)
+		plat->free(pdev, plat->bsp_priv);
 
 	return ret;
 }
@@ -297,7 +303,9 @@ static int stmmac_pltfr_suspend(struct device *dev)
 	struct platform_device *pdev = to_platform_device(dev);
 
 	ret = stmmac_suspend(ndev);
-	if (priv->plat->exit)
+	if (priv->plat->suspend)
+		priv->plat->suspend(pdev, priv->plat->bsp_priv);
+	else if (priv->plat->exit)
 		priv->plat->exit(pdev, priv->plat->bsp_priv);
 
 	return ret;
@@ -309,7 +317,9 @@ static int stmmac_pltfr_resume(struct device *dev)
 	struct stmmac_priv *priv = netdev_priv(ndev);
 	struct platform_device *pdev = to_platform_device(dev);
 
-	if (priv->plat->init)
+	if (priv->plat->resume)
+		priv->plat->resume(pdev, priv->plat->bsp_priv);
+	else if (priv->plat->init)
 		priv->plat->init(pdev, priv->plat->bsp_priv);
 
 	return stmmac_resume(ndev);

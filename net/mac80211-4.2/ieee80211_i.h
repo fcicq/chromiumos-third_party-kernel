@@ -641,6 +641,7 @@ struct ieee80211_if_mesh {
 	struct timer_list housekeeping_timer;
 	struct timer_list mesh_path_timer;
 	struct timer_list mesh_path_root_timer;
+	struct timer_list mpath_stats_timer;
 
 	unsigned long wrkq_flags;
 	unsigned long mbss_changed;
@@ -709,6 +710,14 @@ struct ieee80211_if_mesh {
 
 	/* offset from skb->data while building IE */
 	int meshconf_offset;
+
+	u8 path_switch_threshold;
+
+#if CONFIG_MAC80211_DEBUGFS
+	/* mpath debugfs structures */
+	spinlock_t path_debugfs_lock;
+	struct list_head *path_df_list;
+#endif
 };
 
 #ifdef CONFIG_MAC80211_MESH
@@ -924,6 +933,9 @@ struct ieee80211_sub_if_data {
 		struct dentry *default_unicast_key;
 		struct dentry *default_multicast_key;
 		struct dentry *default_mgmt_key;
+#ifdef CONFIG_MAC80211_MESH
+		struct dentry *subdir_destinations;
+#endif
 	} debugfs;
 #endif
 
@@ -1336,11 +1348,18 @@ struct ieee80211_local {
 
 	struct work_struct restart_work;
 
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+	int wifi_diag_enable;
+	void *wifi_diag_config;
+#endif
+
 #ifdef CONFIG_MAC80211_DEBUGFS
 	struct local_debugfsdentries {
 		struct dentry *rcdir;
 		struct dentry *keys;
 	} debugfs;
+
+	u32 rx_stats_enabled;
 #endif
 
 	/*

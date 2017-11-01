@@ -1,0 +1,7 @@
+Realtek RTL8211E Ethernet phy
+
+Realtek phy driver is matched and probed by phy_id automatically,
+and hence not property required.
+
+Optional properties:
+- enable-phy-ssc : Enable phy spread spectrum clock(SSC)

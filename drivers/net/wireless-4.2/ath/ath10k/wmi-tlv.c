@@ -2427,7 +2427,7 @@ ath10k_wmi_tlv_op_gen_force_fw_hang(struct ath10k *ar,
 }
 
 static struct sk_buff *
-ath10k_wmi_tlv_op_gen_dbglog_cfg(struct ath10k *ar, u32 module_enable,
+ath10k_wmi_tlv_op_gen_dbglog_cfg(struct ath10k *ar, u64 module_enable,
 				 u32 log_level) {
 	struct wmi_tlv_dbglog_cmd *cmd;
 	struct wmi_tlv *tlv;
@@ -3471,6 +3471,24 @@ static const struct wmi_ops wmi_tlv_ops = {
 	.fw_stats_fill = ath10k_wmi_main_op_fw_stats_fill,
 };
 
+static const struct wmi_peer_flags_map wmi_tlv_peer_flags_map = {
+	.auth = WMI_TLV_PEER_AUTH,
+	.qos = WMI_TLV_PEER_QOS,
+	.need_ptk_4_way = WMI_TLV_PEER_NEED_PTK_4_WAY,
+	.need_gtk_2_way = WMI_TLV_PEER_NEED_GTK_2_WAY,
+	.apsd = WMI_TLV_PEER_APSD,
+	.ht = WMI_TLV_PEER_HT,
+	.bw40 = WMI_TLV_PEER_40MHZ,
+	.stbc = WMI_TLV_PEER_STBC,
+	.ldbc = WMI_TLV_PEER_LDPC,
+	.dyn_mimops = WMI_TLV_PEER_DYN_MIMOPS,
+	.static_mimops = WMI_TLV_PEER_STATIC_MIMOPS,
+	.spatial_mux = WMI_TLV_PEER_SPATIAL_MUX,
+	.vht = WMI_TLV_PEER_VHT,
+	.bw80 = WMI_TLV_PEER_80MHZ,
+	.pmf = WMI_TLV_PEER_PMF,
+};
+
 /************/
 /* TLV init */
 /************/
@@ -3481,4 +3499,5 @@ void ath10k_wmi_tlv_attach(struct ath10k *ar)
 	ar->wmi.vdev_param = &wmi_tlv_vdev_param_map;
 	ar->wmi.pdev_param = &wmi_tlv_pdev_param_map;
 	ar->wmi.ops = &wmi_tlv_ops;
+	ar->wmi.peer_flags = &wmi_tlv_peer_flags_map;
 }
