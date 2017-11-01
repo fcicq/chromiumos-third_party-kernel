@@ -24,6 +24,7 @@
 #include <sound/hda_register.h>
 #include <sound/hdaudio_ext.h>
 #include "skl-nhlt.h"
+#include "skl-ssp-clk.h"
 
 #define SKL_SUSPEND_DELAY 2000
 
@@ -55,6 +56,10 @@
 /* D0I3C Register fields */
 #define AZX_REG_VS_D0I3C_CIP      0x1 /* Command in progress */
 #define AZX_REG_VS_D0I3C_I3       0x4 /* D0i3 enable */
+#define SKL_MAX_DMACTRL_CFG	18
+#define DMA_CLK_CONTROLS	1
+#define DMA_TRANSMITION_START	2
+#define DMA_TRANSMITION_STOP	3
 
 struct skl_dsp_resource {
 	u32 max_mcps;
@@ -67,9 +72,10 @@ struct skl {
 	struct hdac_ext_bus ebus;
 	struct pci_dev *pci;
 
-	unsigned int init_failed:1; /* delayed init failed */
+	unsigned int init_done:1; /* delayed init status */
 	struct platform_device *dmic_dev;
 	struct platform_device *i2s_dev;
+	struct platform_device *clk_dev;
 	struct snd_soc_platform *platform;
 
 	struct nhlt_acpi_table *nhlt; /* nhlt ptr */
@@ -77,6 +83,7 @@ struct skl {
 
 	struct skl_dsp_resource resource;
 	struct list_head ppl_list;
+	struct list_head bind_list;
 
 	const char *fw_name;
 	char tplg_name[64];
@@ -84,6 +91,8 @@ struct skl {
 	const struct firmware *tplg;
 
 	int supend_active;
+
+	struct work_struct probe_work;
 };
 
 #define skl_to_ebus(s)	(&(s)->ebus)
@@ -103,6 +112,7 @@ struct skl_machine_pdata {
 
 struct skl_dsp_ops {
 	int id;
+	unsigned int num_cores;
 	struct skl_dsp_loader_ops (*loader_ops)(void);
 	int (*init)(struct device *dev, void __iomem *mmio_base,
 			int irq, const char *fw_name,
@@ -132,5 +142,11 @@ const struct skl_dsp_ops *skl_get_dsp_ops(int pci_id);
 void skl_update_d0i3c(struct device *dev, bool enable);
 int skl_nhlt_create_sysfs(struct skl *skl);
 void skl_nhlt_remove_sysfs(struct skl *skl);
+void skl_fill_clk_ipc(struct skl_clk_rate_cfg_table *rcfg, u8 clk_type);
+int skl_send_clk_dma_control(struct skl *skl,
+		struct skl_clk_rate_cfg_table *rcfg,
+		u32 vbus_id, u8 clk_type, bool enable);
+void skl_get_clks(struct skl *skl, struct skl_ssp_clk *ssp_clks);
+struct skl_clk_parent_src *skl_get_parent_clk(u8 clk_id);
 
 #endif /* __SOUND_SOC_SKL_H */

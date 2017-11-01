@@ -391,36 +391,30 @@ int iommu_group_add_device(struct iommu_group *group, struct device *dev)
 	device->dev = dev;
 
 	ret = sysfs_create_link(&dev->kobj, &group->kobj, "iommu_group");
-	if (ret) {
-		kfree(device);
-		return ret;
-	}
+	if (ret)
+		goto err_free_device;
 
 	device->name = kasprintf(GFP_KERNEL, "%s", kobject_name(&dev->kobj));
 rename:
 	if (!device->name) {
-		sysfs_remove_link(&dev->kobj, "iommu_group");
-		kfree(device);
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto err_remove_link;
 	}
 
 	ret = sysfs_create_link_nowarn(group->devices_kobj,
 				       &dev->kobj, device->name);
 	if (ret) {
-		kfree(device->name);
 		if (ret == -EEXIST && i >= 0) {
 			/*
 			 * Account for the slim chance of collision
 			 * and append an instance to the name.
 			 */
+			kfree(device->name);
 			device->name = kasprintf(GFP_KERNEL, "%s.%d",
 						 kobject_name(&dev->kobj), i++);
 			goto rename;
 		}
-
-		sysfs_remove_link(&dev->kobj, "iommu_group");
-		kfree(device);
-		return ret;
+		goto err_free_name;
 	}
 
 	kobject_get(group->devices_kobj);
@@ -432,8 +426,10 @@ rename:
 	mutex_lock(&group->mutex);
 	list_add_tail(&device->list, &group->devices);
 	if (group->domain)
-		__iommu_attach_device(group->domain, dev);
+		ret = __iommu_attach_device(group->domain, dev);
 	mutex_unlock(&group->mutex);
+	if (ret)
+		goto err_put_group;
 
 	/* Notify any listeners about change to group. */
 	blocking_notifier_call_chain(&group->notifier,
@@ -444,6 +440,21 @@ rename:
 	pr_info("Adding device %s to group %d\n", dev_name(dev), group->id);
 
 	return 0;
+
+err_put_group:
+	mutex_lock(&group->mutex);
+	list_del(&device->list);
+	mutex_unlock(&group->mutex);
+	dev->iommu_group = NULL;
+	kobject_put(group->devices_kobj);
+err_free_name:
+	kfree(device->name);
+err_remove_link:
+	sysfs_remove_link(&dev->kobj, "iommu_group");
+err_free_device:
+	kfree(device);
+	pr_err("Failed to add device %s to group %d: %d\n", dev_name(dev), group->id, ret);
+	return ret;
 }
 EXPORT_SYMBOL_GPL(iommu_group_add_device);
 
@@ -741,6 +752,7 @@ struct iommu_group *generic_device_group(struct device *dev)
 
 	return group;
 }
+EXPORT_SYMBOL_GPL(generic_device_group);
 
 /*
  * Use standard PCI bus topology, isolation features, and DMA alias quirks
@@ -812,6 +824,7 @@ struct iommu_group *pci_device_group(struct device *dev)
 
 	return group;
 }
+EXPORT_SYMBOL_GPL(pci_device_group);
 
 /**
  * iommu_group_get_for_dev - Find or create the IOMMU group for a device
@@ -860,11 +873,13 @@ struct iommu_group *iommu_group_get_for_dev(struct device *dev)
 
 	return group;
 }
+EXPORT_SYMBOL_GPL(iommu_group_get_for_dev);
 
 struct iommu_domain *iommu_group_default_domain(struct iommu_group *group)
 {
 	return group->default_domain;
 }
+EXPORT_SYMBOL_GPL(iommu_group_default_domain);
 
 static int add_iommu_group(struct device *dev, void *data)
 {
@@ -908,16 +923,19 @@ static int iommu_bus_notifier(struct notifier_block *nb,
 	const struct iommu_ops *ops = dev->bus->iommu_ops;
 	struct iommu_group *group;
 	unsigned long group_action = 0;
-	int ret;
 
 	/*
 	 * ADD/DEL call into iommu driver ops if provided, which may
 	 * result in ADD/DEL notifiers to group->notifier
 	 */
-	if (action == BUS_NOTIFY_BIND_DRIVER && ops->add_device) {
-		ret = ops->add_device(dev);
-		if (ret)
-			return ret;
+	if (action == BUS_NOTIFY_ADD_DEVICE) {
+		if (ops->add_device)
+			return ops->add_device(dev);
+	} else if (action == BUS_NOTIFY_REMOVED_DEVICE) {
+		if (ops->remove_device && dev->iommu_group) {
+			ops->remove_device(dev);
+			return 0;
+		}
 	}
 
 	/*
@@ -948,11 +966,6 @@ static int iommu_bus_notifier(struct notifier_block *nb,
 					     group_action, dev);
 
 	iommu_group_put(group);
-
-	if (action == BUS_NOTIFY_UNBOUND_DRIVER
-	    && ops->remove_device && dev->iommu_group)
-		ops->remove_device(dev);
-
 	return 0;
 }
 
@@ -969,7 +982,6 @@ static int iommu_bus_init(struct bus_type *bus, const struct iommu_ops *ops)
 		return -ENOMEM;
 
 	nb->notifier_call = iommu_bus_notifier;
-	nb->priority = 100;
 
 	err = bus_register_notifier(bus, nb);
 	if (err)
@@ -1570,6 +1582,7 @@ void iommu_get_dm_regions(struct device *dev, struct list_head *list)
 	if (ops && ops->get_dm_regions)
 		ops->get_dm_regions(dev, list);
 }
+EXPORT_SYMBOL_GPL(iommu_get_dm_regions);
 
 void iommu_put_dm_regions(struct device *dev, struct list_head *list)
 {
@@ -1578,6 +1591,7 @@ void iommu_put_dm_regions(struct device *dev, struct list_head *list)
 	if (ops && ops->put_dm_regions)
 		ops->put_dm_regions(dev, list);
 }
+EXPORT_SYMBOL_GPL(iommu_put_dm_regions);
 
 /* Request that a device is direct mapped by the IOMMU */
 int iommu_request_dm_for_dev(struct device *dev)
@@ -1631,3 +1645,4 @@ out:
 
 	return ret;
 }
+EXPORT_SYMBOL_GPL(iommu_request_dm_for_dev);

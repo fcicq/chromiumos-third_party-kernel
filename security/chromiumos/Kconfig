@@ -26,7 +26,7 @@ config SECURITY_CHROMIUMOS_DEVICE_JAIL
 	  allowing further sandboxing of USB devices.
 
 config ALT_SYSCALL_CHROMIUMOS
-	tristate "Chromium OS Alt-Syscall Tables"
+	bool "Chromium OS Alt-Syscall Tables"
 	depends on ALT_SYSCALL
 	help
 	  Register restricted, alternate syscall tables used by Chromium OS

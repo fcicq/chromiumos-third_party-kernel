@@ -743,7 +743,10 @@ nouveau_pmops_runtime_resume(struct device *dev)
 	pci_set_master(pdev);
 
 	ret = nouveau_do_resume(drm_dev, true);
-	drm_kms_helper_poll_enable(drm_dev);
+
+	if (!drm_dev->mode_config.poll_enabled)
+		drm_kms_helper_poll_enable(drm_dev);
+
 	/* do magic */
 	nvif_mask(&device->object, 0x088488, (1 << 25), (1 << 25));
 	vga_switcheroo_set_dynamic_switch(pdev, VGA_SWITCHEROO_ON);
@@ -1077,10 +1080,8 @@ nouveau_drm_init(void)
 	nouveau_display_options();
 
 	if (nouveau_modeset == -1) {
-#ifdef CONFIG_VGA_CONSOLE
 		if (vgacon_text_force())
 			nouveau_modeset = 0;
-#endif
 	}
 
 	if (!nouveau_modeset)

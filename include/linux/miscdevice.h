@@ -3,6 +3,7 @@
 #include <linux/major.h>
 #include <linux/list.h>
 #include <linux/types.h>
+#include <linux/device.h>
 
 /*
  *	These allocations are managed by device@lanana.org. If you use an
@@ -50,6 +51,7 @@
 #define VHOST_NET_MINOR		238
 #define UHID_MINOR		239
 #define USERIO_MINOR		240
+#define VHOST_VSOCK_MINOR	241
 #define MISC_DYNAMIC_MINOR	255
 
 struct device;
@@ -69,6 +71,13 @@ struct miscdevice  {
 
 extern int misc_register(struct miscdevice *misc);
 extern void misc_deregister(struct miscdevice *misc);
+
+/*
+ * Helper macro for drivers that don't do anything special in module init / exit
+ * call. This helps in eleminating of boilerplate code.
+ */
+#define module_misc_device(__misc_device) \
+	module_driver(__misc_device, misc_register, misc_deregister)
 
 #define MODULE_ALIAS_MISCDEV(minor)				\
 	MODULE_ALIAS("char-major-" __stringify(MISC_MAJOR)	\

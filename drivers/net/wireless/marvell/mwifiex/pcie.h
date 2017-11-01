@@ -24,7 +24,6 @@
 
 #include    <linux/completion.h>
 #include    <linux/pci.h>
-#include    <linux/pcieport_if.h>
 #include    <linux/interrupt.h>
 
 #include    "decl.h"
@@ -77,8 +76,9 @@
 #define PCIE_SCRATCH_10_REG				0xCE8
 #define PCIE_SCRATCH_11_REG				0xCEC
 #define PCIE_SCRATCH_12_REG				0xCF0
-#define PCIE_SCRATCH_13_REG				0xCF8
-#define PCIE_SCRATCH_14_REG				0xCFC
+#define PCIE_SCRATCH_13_REG				0xCF4
+#define PCIE_SCRATCH_14_REG				0xCF8
+#define PCIE_SCRATCH_15_REG				0xCFC
 #define PCIE_RD_DATA_PTR_Q0_Q1                          0xC08C
 #define PCIE_WR_DATA_PTR_Q0_Q1                          0xC05C
 
@@ -118,6 +118,8 @@
 #define MWIFIEX_DEF_SLEEP_COOKIE			0xBEEFBEEF
 #define MWIFIEX_SLEEP_COOKIE_SIZE			4
 #define MWIFIEX_MAX_DELAY_COUNT				100
+
+#define MWIFIEX_PCIE_FLR_HAPPENS 0xFEDCBABA
 
 struct mwifiex_pcie_card_reg {
 	u16 cmd_addr_lo;
@@ -217,8 +219,8 @@ static const struct mwifiex_pcie_card_reg mwifiex_reg_8897 = {
 	.ring_tx_start_ptr = MWIFIEX_BD_FLAG_TX_START_PTR,
 	.pfu_enabled = 1,
 	.sleep_cookie = 0,
-	.fw_dump_ctrl = 0xcf4,
-	.fw_dump_start = 0xcf8,
+	.fw_dump_ctrl = PCIE_SCRATCH_13_REG,
+	.fw_dump_start = PCIE_SCRATCH_14_REG,
 	.fw_dump_end = 0xcff,
 	.fw_dump_host_ready = 0xee,
 	.fw_dump_read_done = 0xfe,
@@ -254,8 +256,8 @@ static const struct mwifiex_pcie_card_reg mwifiex_reg_8997 = {
 	.ring_tx_start_ptr = MWIFIEX_BD_FLAG_TX_START_PTR,
 	.pfu_enabled = 1,
 	.sleep_cookie = 0,
-	.fw_dump_ctrl = 0xcf4,
-	.fw_dump_start = 0xcf8,
+	.fw_dump_ctrl = PCIE_SCRATCH_13_REG,
+	.fw_dump_start = PCIE_SCRATCH_14_REG,
 	.fw_dump_end = 0xcff,
 	.fw_dump_host_ready = 0xcc,
 	.fw_dump_read_done = 0xdd,
@@ -348,7 +350,6 @@ struct pcie_service_card {
 	struct mwifiex_adapter *adapter;
 	struct mwifiex_pcie_device pcie;
 	struct completion fw_done;
-	struct mwifiex_plt_wake_cfg *plt_wake_cfg;
 
 	u8 txbd_flush;
 	u32 txbd_wrptr;
@@ -388,6 +389,8 @@ struct pcie_service_card {
 #endif
 	struct mwifiex_msix_context msix_ctx[MWIFIEX_NUM_MSIX_VECTORS];
 	struct mwifiex_msix_context share_irq_ctx;
+	struct work_struct work;
+	unsigned long work_flags;
 };
 
 static inline int

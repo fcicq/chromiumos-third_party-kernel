@@ -167,6 +167,12 @@ int xhci_reset(struct xhci_hcd *xhci)
 	int ret, i;
 
 	state = readl(&xhci->op_regs->status);
+
+	if (state == ~(u32)0) {
+		xhci_warn(xhci, "Host not accessible, reset failed.\n");
+		return -ENODEV;
+	}
+
 	if ((state & STS_HALT) == 0) {
 		xhci_warn(xhci, "Host controller not halted, aborting reset.\n");
 		return 0;
@@ -694,7 +700,6 @@ void xhci_stop(struct usb_hcd *hcd)
 		xhci->cmd_ring_state = CMD_RING_STATE_STOPPED;
 		xhci_halt(xhci);
 		xhci_reset(xhci);
-
 		spin_unlock_irq(&xhci->lock);
 	}
 
@@ -745,15 +750,6 @@ void xhci_stop(struct usb_hcd *hcd)
 void xhci_shutdown(struct usb_hcd *hcd)
 {
 	struct xhci_hcd *xhci = hcd_to_xhci(hcd);
-
-	if (!hcd->rh_registered)
-		return;
-
-	/* Don't poll the roothubs on shutdown */
-	clear_bit(HCD_FLAG_POLL_RH, &hcd->flags);
-	del_timer_sync(&hcd->rh_timer);
-	clear_bit(HCD_FLAG_POLL_RH, &xhci->shared_hcd->flags);
-	del_timer_sync(&xhci->shared_hcd->rh_timer);
 
 	if (xhci->quirks & XHCI_SPURIOUS_REBOOT)
 		usb_disable_xhci_ports(to_pci_dev(hcd->self.controller));
@@ -1563,8 +1559,7 @@ int xhci_urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status)
 	if (ret || !urb->hcpriv)
 		goto done;
 	temp = readl(&xhci->op_regs->status);
-	if (temp == 0xffffffff || (xhci->xhc_state & XHCI_STATE_HALTED) ||
-	    (xhci->xhc_state & XHCI_STATE_REMOVING)) {
+	if (temp == 0xffffffff || (xhci->xhc_state & XHCI_STATE_HALTED)) {
 		xhci_dbg_trace(xhci, trace_xhci_dbg_cancel_urb,
 				"HW died, freeing TD.");
 		urb_priv = urb->hcpriv;
@@ -1613,14 +1608,13 @@ int xhci_urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status)
 	/* Queue a stop endpoint command, but only if this is
 	 * the first cancellation to be handled.
 	 */
-	if (!(ep->ep_state & EP_HALT_PENDING)) {
+	if (!(ep->ep_state & EP_STOP_CMD_PENDING)) {
 		command = xhci_alloc_command(xhci, false, false, GFP_ATOMIC);
 		if (!command) {
 			ret = -ENOMEM;
 			goto done;
 		}
-		ep->ep_state |= EP_HALT_PENDING;
-		ep->stop_cmds_pending++;
+		ep->ep_state |= EP_STOP_CMD_PENDING;
 		ep->stop_cmd_timer.expires = jiffies +
 			XHCI_STOP_EP_CMD_TIMEOUT * HZ;
 		add_timer(&ep->stop_cmd_timer);
@@ -3658,7 +3652,7 @@ void xhci_free_dev(struct usb_hcd *hcd, struct usb_device *udev)
 
 	/* Stop any wayward timer functions (which may grab the lock) */
 	for (i = 0; i < 31; ++i) {
-		virt_dev->eps[i].ep_state &= ~EP_HALT_PENDING;
+		virt_dev->eps[i].ep_state &= ~EP_STOP_CMD_PENDING;
 		del_timer_sync(&virt_dev->eps[i].stop_cmd_timer);
 	}
 
@@ -3666,8 +3660,7 @@ void xhci_free_dev(struct usb_hcd *hcd, struct usb_device *udev)
 	/* Don't disable the slot if the host controller is dead. */
 	state = readl(&xhci->op_regs->status);
 	if (state == 0xffffffff || (xhci->xhc_state & XHCI_STATE_DYING) ||
-			(xhci->xhc_state & XHCI_STATE_HALTED) ||
-			(xhci->xhc_state & XHCI_STATE_REMOVING)) {
+			(xhci->xhc_state & XHCI_STATE_HALTED)) {
 		xhci_free_virt_device(xhci, udev->slot_id);
 		spin_unlock_irqrestore(&xhci->lock, flags);
 		kfree(command);

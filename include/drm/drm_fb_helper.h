@@ -139,17 +139,6 @@ struct drm_fb_helper {
 	/* we got a hotplug but fbdev wasn't running the console
 	   delay until next set_par */
 	bool delayed_hotplug;
-
-	/**
-	 * @atomic:
-	 *
-	 * Use atomic updates for restore_fbdev_mode(), etc.  This defaults to
-	 * true if driver has DRIVER_ATOMIC feature flag, but drivers can
-	 * override it to true after drm_fb_helper_init() if they support atomic
-	 * modeset but do not yet advertise DRIVER_ATOMIC (note that fb-helper
-	 * does not require ASYNC commits).
-	 */
-	bool atomic;
 };
 
 #ifdef CONFIG_DRM_FBDEV_EMULATION
@@ -217,6 +206,11 @@ int drm_fb_helper_add_one_connector(struct drm_fb_helper *fb_helper, struct drm_
 int drm_fb_helper_remove_one_connector(struct drm_fb_helper *fb_helper,
 				       struct drm_connector *connector);
 #else
+static inline int drm_fb_helper_modinit(void)
+{
+	return 0;
+}
+
 static inline void drm_fb_helper_prepare(struct drm_device *dev,
 					struct drm_fb_helper *helper,
 					const struct drm_fb_helper_funcs *funcs)

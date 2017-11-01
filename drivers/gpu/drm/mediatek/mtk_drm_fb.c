@@ -82,7 +82,7 @@ static struct mtk_drm_fb *mtk_drm_framebuffer_init(struct drm_device *dev,
 	if (!mtk_fb)
 		return ERR_PTR(-ENOMEM);
 
-	drm_helper_mode_fill_fb_struct(&mtk_fb->base, mode);
+	drm_helper_mode_fill_fb_struct(dev, &mtk_fb->base, mode);
 
 	mtk_fb->gem_obj = obj;
 
@@ -138,7 +138,7 @@ struct drm_framebuffer *mtk_drm_mode_fb_create(struct drm_device *dev,
 	if (drm_format_num_planes(cmd->pixel_format) != 1)
 		return ERR_PTR(-EINVAL);
 
-	gem = drm_gem_object_lookup(dev, file, cmd->handles[0]);
+	gem = drm_gem_object_lookup(file, cmd->handles[0]);
 	if (!gem)
 		return ERR_PTR(-ENOENT);
 

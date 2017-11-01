@@ -61,6 +61,7 @@
 		1183000 1028000
 		1404000 1083000
 	>;
+	sched-energy-costs = <&MT8173_CPU_COST_0 &MT8173_CLUSTER_COST_0>;
 };
 
 &cpu1 {
@@ -72,6 +73,7 @@
 		1183000 1028000
 		1404000 1083000
 	>;
+	sched-energy-costs = <&MT8173_CPU_COST_0 &MT8173_CLUSTER_COST_0>;
 };
 
 &cpu2 {
@@ -84,6 +86,7 @@
 		1612000 1049000
 		1807000 1089000
 	>;
+	sched-energy-costs = <&MT8173_CPU_COST_1 &MT8173_CLUSTER_COST_1>;
 };
 
 &cpu3 {
@@ -96,6 +99,7 @@
 		1612000 1049000
 		1807000 1089000
 	>;
+	sched-energy-costs = <&MT8173_CPU_COST_1 &MT8173_CLUSTER_COST_1>;
 };
 
 &gpio_keys {
@@ -105,6 +109,16 @@
 	/delete-node/tablet_mode;
 	/delete-node/volume_down;
 	/delete-node/volume_up;
+};
+
+&gpu {
+	operating-points = <
+		253500 1000000
+		299000 1000000
+		396500 1000000
+		455000 1000000
+		494000 1130000
+	>;
 };
 
 &i2c0 {
@@ -137,6 +151,10 @@
 	};
 };
 
+&panel {
+	compatible = "innolux,n116bge";
+};
+
 &pio {
 	/delete-node/gpio_keys_node;
 
@@ -146,6 +164,18 @@
 			bias-pull-down;
 		};
 	};
+};
+
+&ps8640_pins {
+	pins1 {
+		pinmux = <MT8173_PIN_92_PCM_CLK__FUNC_GPIO92>,
+			 <MT8173_PIN_115_URTS0__FUNC_GPIO115>,
+			 <MT8173_PIN_116_UCTS0__FUNC_GPIO116>;
+	};
+};
+
+&ps8640 {
+	sleep-gpios = <&pio 116 GPIO_ACTIVE_HIGH>;
 };
 
 /delete-node/&rt5514;

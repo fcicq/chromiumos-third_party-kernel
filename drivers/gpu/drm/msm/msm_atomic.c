@@ -148,7 +148,7 @@ static void complete_commit(struct msm_commit *c)
 
 	kms->funcs->complete_commit(kms, state);
 
-	drm_atomic_state_free(state);
+	drm_atomic_state_put(state);
 
 	commit_destroy(c);
 }
@@ -258,7 +258,7 @@ int msm_atomic_commit(struct drm_device *dev,
 	 * the software side now.
 	 */
 
-	drm_atomic_helper_swap_state(dev, state);
+	drm_atomic_helper_swap_state(state, true);
 
 	/*
 	 * Everything below can be run asynchronously without the need to grab

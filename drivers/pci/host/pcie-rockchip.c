@@ -27,6 +27,7 @@
 #include <linux/irqdomain.h>
 #include <linux/kernel.h>
 #include <linux/mfd/syscon.h>
+#include <linux/module.h>
 #include <linux/of_address.h>
 #include <linux/of_device.h>
 #include <linux/of_pci.h>
@@ -47,6 +48,7 @@
 #define HIWORD_UPDATE_BIT(val)		HIWORD_UPDATE(val, val)
 
 #define ENCODE_LANES(x)			((((x) >> 1) & 3) << 4)
+#define MAX_LANE_NUM			4
 
 #define PCIE_CLIENT_BASE		0x0
 #define PCIE_CLIENT_CONFIG		(PCIE_CLIENT_BASE + 0x00)
@@ -106,14 +108,14 @@
 #define   PCIE_CORE_CTRL_PLC1_FTS_MASK		GENMASK(23, 8)
 #define   PCIE_CORE_CTRL_PLC1_FTS_SHIFT		8
 #define   PCIE_CORE_CTRL_PLC1_FTS_CNT		0xffff
-#define PCIE_CORE_LANE_MAP		(PCIE_CORE_CTRL_MGMT_BASE + 0x200)
-#define   PCIE_CORE_LANE_MAP_MASK		0x0000000f
-#define   PCIE_CORE_LANE_MAP_REVERSE		BIT(16)
 #define PCIE_CORE_TXCREDIT_CFG1		(PCIE_CORE_CTRL_MGMT_BASE + 0x020)
 #define   PCIE_CORE_TXCREDIT_CFG1_MUI_MASK	0xFFFF0000
 #define   PCIE_CORE_TXCREDIT_CFG1_MUI_SHIFT	16
 #define   PCIE_CORE_TXCREDIT_CFG1_MUI_ENCODE(x) \
 		(((x) >> 3) << PCIE_CORE_TXCREDIT_CFG1_MUI_SHIFT)
+#define PCIE_CORE_LANE_MAP             (PCIE_CORE_CTRL_MGMT_BASE + 0x200)
+#define   PCIE_CORE_LANE_MAP_MASK              0x0000000f
+#define   PCIE_CORE_LANE_MAP_REVERSE           BIT(16)
 #define PCIE_CORE_INT_STATUS		(PCIE_CORE_CTRL_MGMT_BASE + 0x20c)
 #define   PCIE_CORE_INT_PRFPE			BIT(0)
 #define   PCIE_CORE_INT_CRFPE			BIT(1)
@@ -129,6 +131,7 @@
 #define   PCIE_CORE_INT_CT			BIT(11)
 #define   PCIE_CORE_INT_UTC			BIT(18)
 #define   PCIE_CORE_INT_MMVC			BIT(19)
+#define PCIE_CORE_CONFIG_VENDOR		(PCIE_CORE_CTRL_MGMT_BASE + 0x44)
 #define PCIE_CORE_INT_MASK		(PCIE_CORE_CTRL_MGMT_BASE + 0x210)
 #define PCIE_RC_BAR_CONF		(PCIE_CORE_CTRL_MGMT_BASE + 0x300)
 
@@ -141,18 +144,20 @@
 		 PCIE_CORE_INT_CT | PCIE_CORE_INT_UTC | \
 		 PCIE_CORE_INT_MMVC)
 
+#define PCIE_RC_CONFIG_NORMAL_BASE	0x800000
 #define PCIE_RC_CONFIG_BASE		0xa00000
-#define PCIE_RC_CONFIG_VENDOR		(PCIE_RC_CONFIG_BASE + 0x00)
 #define PCIE_RC_CONFIG_RID_CCR		(PCIE_RC_CONFIG_BASE + 0x08)
 #define   PCIE_RC_CONFIG_SCC_SHIFT		16
-#define PCIE_RC_CONFIG_LINK_CAP                (PCIE_RC_CONFIG_BASE + 0xcc)
-#define   PCIE_RC_CONFIG_LINK_CAP_L0S          BIT(10)
+#define PCIE_RC_CONFIG_DCR		(PCIE_RC_CONFIG_BASE + 0xc4)
+#define   PCIE_RC_CONFIG_DCR_CSPL_SHIFT		18
+#define   PCIE_RC_CONFIG_DCR_CSPL_LIMIT		0xff
+#define   PCIE_RC_CONFIG_DCR_CPLS_SHIFT		26
+#define PCIE_RC_CONFIG_DCSR		(PCIE_RC_CONFIG_BASE + 0xc8)
+#define   PCIE_RC_CONFIG_DCSR_MPS_MASK		GENMASK(7, 5)
+#define   PCIE_RC_CONFIG_DCSR_MPS_256		(0x1 << 5)
+#define PCIE_RC_CONFIG_LINK_CAP		(PCIE_RC_CONFIG_BASE + 0xcc)
+#define   PCIE_RC_CONFIG_LINK_CAP_L0S		BIT(10)
 #define PCIE_RC_CONFIG_LCS		(PCIE_RC_CONFIG_BASE + 0xd0)
-#define   PCIE_RC_CONFIG_LCS_RETRAIN_LINK	BIT(5)
-#define   PCIE_RC_CONFIG_LCS_LBMIE		BIT(10)
-#define   PCIE_RC_CONFIG_LCS_LABIE		BIT(11)
-#define   PCIE_RC_CONFIG_LCS_LBMS		BIT(30)
-#define   PCIE_RC_CONFIG_LCS_LAMS		BIT(31)
 #define PCIE_RC_CONFIG_L1_SUBSTATE_CTRL2 (PCIE_RC_CONFIG_BASE + 0x90c)
 #define PCIE_RC_CONFIG_THP_CAP		(PCIE_RC_CONFIG_BASE + 0x274)
 #define   PCIE_RC_CONFIG_THP_CAP_NEXT_MASK	GENMASK(31, 20)
@@ -179,6 +184,8 @@
 #define IB_ROOT_PORT_REG_SIZE_SHIFT		3
 #define AXI_WRAPPER_IO_WRITE			0x6
 #define AXI_WRAPPER_MEM_WRITE			0x2
+#define AXI_WRAPPER_TYPE0_CFG			0xa
+#define AXI_WRAPPER_TYPE1_CFG			0xb
 #define AXI_WRAPPER_NOR_MSG			0xc
 
 #define MAX_AXI_IB_ROOTPORT_REGION_NUM		3
@@ -193,18 +200,23 @@
 	  (PCIE_ECAM_BUS(bus) | PCIE_ECAM_DEV(dev) | \
 	   PCIE_ECAM_FUNC(func) | PCIE_ECAM_REG(reg))
 #define PCIE_LINK_IS_L2(x) \
-		(((x) & PCIE_CLIENT_DEBUG_LTSSM_MASK) == \
-		 PCIE_CLIENT_DEBUG_LTSSM_L2)
+	(((x) & PCIE_CLIENT_DEBUG_LTSSM_MASK) == PCIE_CLIENT_DEBUG_LTSSM_L2)
+#define PCIE_LINK_UP(x) \
+	(((x) & PCIE_CLIENT_LINK_STATUS_MASK) == PCIE_CLIENT_LINK_STATUS_UP)
+#define PCIE_LINK_IS_GEN2(x) \
+	(((x) & PCIE_CORE_PL_CONF_SPEED_MASK) == PCIE_CORE_PL_CONF_SPEED_5G)
 
 #define RC_REGION_0_ADDR_TRANS_H		0x00000000
 #define RC_REGION_0_ADDR_TRANS_L		0x00000000
 #define RC_REGION_0_PASS_BITS			(25 - 1)
+#define RC_REGION_0_TYPE_MASK			GENMASK(3, 0)
 #define MAX_AXI_WRAPPER_REGION_NUM		33
 
 struct rockchip_pcie {
 	void	__iomem *reg_base;		/* DT axi-base */
 	void	__iomem *apb_base;		/* DT apb-base */
-	struct	phy *phy;
+	bool    legacy_phy;
+	struct  phy *phys[MAX_LANE_NUM];
 	struct	reset_control *core_rst;
 	struct	reset_control *mgmt_rst;
 	struct	reset_control *mgmt_sticky_rst;
@@ -216,20 +228,26 @@ struct rockchip_pcie {
 	struct	clk *aclk_perf_pcie;
 	struct	clk *hclk_pcie;
 	struct	clk *clk_pcie_pm;
+	struct	regulator *vpcie12v; /* 12V power supply */
 	struct	regulator *vpcie3v3; /* 3.3V power supply */
 	struct	regulator *vpcie1v8; /* 1.8V power supply */
 	struct	regulator *vpcie0v9; /* 0.9V power supply */
 	struct	gpio_desc *ep_gpio;
+	bool	suspend_reset;
 	u32	lanes;
+	u8      lanes_map;
 	u8	root_bus_nr;
-	bool	enable_gen2;
+	int	link_gen;
 	struct	device *dev;
 	struct	irq_domain *irq_domain;
-	u32     io_size;
 	int     offset;
+	struct pci_bus *root_bus;
+	struct resource *io;
 	phys_addr_t io_bus_addr;
-	void	__iomem *msg_region;
+	u32     io_size;
+	void    __iomem *msg_region;
 	u32     mem_size;
+	phys_addr_t msg_bus_addr;
 	phys_addr_t mem_bus_addr;
 };
 
@@ -249,7 +267,7 @@ static void rockchip_pcie_enable_bw_int(struct rockchip_pcie *rockchip)
 	u32 status;
 
 	status = rockchip_pcie_read(rockchip, PCIE_RC_CONFIG_LCS);
-	status |= (PCIE_RC_CONFIG_LCS_LBMIE | PCIE_RC_CONFIG_LCS_LABIE);
+	status |= (PCI_EXP_LNKCTL_LBMIE | PCI_EXP_LNKCTL_LABIE);
 	rockchip_pcie_write(rockchip, status, PCIE_RC_CONFIG_LCS);
 }
 
@@ -258,7 +276,7 @@ static void rockchip_pcie_clr_bw_int(struct rockchip_pcie *rockchip)
 	u32 status;
 
 	status = rockchip_pcie_read(rockchip, PCIE_RC_CONFIG_LCS);
-	status |= (PCIE_RC_CONFIG_LCS_LBMS | PCIE_RC_CONFIG_LCS_LAMS);
+	status |= (PCI_EXP_LNKSTA_LBMS | PCI_EXP_LNKSTA_LABS) << 16;
 	rockchip_pcie_write(rockchip, status, PCIE_RC_CONFIG_LCS);
 }
 
@@ -292,8 +310,14 @@ static int rockchip_pcie_valid_device(struct rockchip_pcie *rockchip,
 
 static u8 rockchip_pcie_lane_map(struct rockchip_pcie *rockchip)
 {
-	u32 val = rockchip_pcie_read(rockchip, PCIE_CORE_LANE_MAP);
-	u8 map = val & PCIE_CORE_LANE_MAP_MASK;
+	u32 val;
+	u8 map;
+
+	if (rockchip->legacy_phy)
+		return GENMASK(MAX_LANE_NUM - 1, 0);
+
+	val = rockchip_pcie_read(rockchip, PCIE_CORE_LANE_MAP);
+	map = val & PCIE_CORE_LANE_MAP_MASK;
 
 	/* The link may be using a reverse-indexed mapping. */
 	if (val & PCIE_CORE_LANE_MAP_REVERSE)
@@ -305,7 +329,9 @@ static u8 rockchip_pcie_lane_map(struct rockchip_pcie *rockchip)
 static int rockchip_pcie_rd_own_conf(struct rockchip_pcie *rockchip,
 				     int where, int size, u32 *val)
 {
-	void __iomem *addr = rockchip->apb_base + PCIE_RC_CONFIG_BASE + where;
+	void __iomem *addr;
+
+	addr = rockchip->apb_base + PCIE_RC_CONFIG_NORMAL_BASE + where;
 
 	if (!IS_ALIGNED((uintptr_t)addr, size)) {
 		*val = 0;
@@ -329,11 +355,13 @@ static int rockchip_pcie_wr_own_conf(struct rockchip_pcie *rockchip,
 				     int where, int size, u32 val)
 {
 	u32 mask, tmp, offset;
+	void __iomem *addr;
 
 	offset = where & ~0x3;
+	addr = rockchip->apb_base + PCIE_RC_CONFIG_NORMAL_BASE + offset;
 
 	if (size == 4) {
-		writel(val, rockchip->apb_base + PCIE_RC_CONFIG_BASE + offset);
+		writel(val, addr);
 		return PCIBIOS_SUCCESSFUL;
 	}
 
@@ -344,11 +372,31 @@ static int rockchip_pcie_wr_own_conf(struct rockchip_pcie *rockchip,
 	 * corrupt RW1C bits in adjacent registers.  But the hardware
 	 * doesn't support smaller writes.
 	 */
-	tmp = readl(rockchip->apb_base + PCIE_RC_CONFIG_BASE + offset) & mask;
+	tmp = readl(addr) & mask;
 	tmp |= val << ((where & 0x3) * 8);
-	writel(tmp, rockchip->apb_base + PCIE_RC_CONFIG_BASE + offset);
+	writel(tmp, addr);
 
 	return PCIBIOS_SUCCESSFUL;
+}
+
+static void rockchip_pcie_cfg_configuration_accesses(
+		struct rockchip_pcie *rockchip, u32 type)
+{
+	u32 ob_desc_0;
+
+	/* Configuration Accesses for region 0 */
+	rockchip_pcie_write(rockchip, 0x0, PCIE_RC_BAR_CONF);
+
+	rockchip_pcie_write(rockchip,
+			    (RC_REGION_0_ADDR_TRANS_L + RC_REGION_0_PASS_BITS),
+			    PCIE_CORE_OB_REGION_ADDR0);
+	rockchip_pcie_write(rockchip, RC_REGION_0_ADDR_TRANS_H,
+			    PCIE_CORE_OB_REGION_ADDR1);
+	ob_desc_0 = rockchip_pcie_read(rockchip, PCIE_CORE_OB_REGION_DESC0);
+	ob_desc_0 &= ~(RC_REGION_0_TYPE_MASK);
+	ob_desc_0 |= (type | (0x1 << 23));
+	rockchip_pcie_write(rockchip, ob_desc_0, PCIE_CORE_OB_REGION_DESC0);
+	rockchip_pcie_write(rockchip, 0x0, PCIE_CORE_OB_REGION_DESC1);
 }
 
 static int rockchip_pcie_rd_other_conf(struct rockchip_pcie *rockchip,
@@ -364,6 +412,13 @@ static int rockchip_pcie_rd_other_conf(struct rockchip_pcie *rockchip,
 		*val = 0;
 		return PCIBIOS_BAD_REGISTER_NUMBER;
 	}
+
+	if (bus->parent->number == rockchip->root_bus_nr)
+		rockchip_pcie_cfg_configuration_accesses(rockchip,
+						AXI_WRAPPER_TYPE0_CFG);
+	else
+		rockchip_pcie_cfg_configuration_accesses(rockchip,
+						AXI_WRAPPER_TYPE1_CFG);
 
 	if (size == 4) {
 		*val = readl(rockchip->reg_base + busdev);
@@ -388,6 +443,13 @@ static int rockchip_pcie_wr_other_conf(struct rockchip_pcie *rockchip,
 				PCI_FUNC(devfn), where);
 	if (!IS_ALIGNED(busdev, size))
 		return PCIBIOS_BAD_REGISTER_NUMBER;
+
+	if (bus->parent->number == rockchip->root_bus_nr)
+		rockchip_pcie_cfg_configuration_accesses(rockchip,
+						AXI_WRAPPER_TYPE0_CFG);
+	else
+		rockchip_pcie_cfg_configuration_accesses(rockchip,
+						AXI_WRAPPER_TYPE1_CFG);
 
 	if (size == 4)
 		writel(val, rockchip->reg_base + busdev);
@@ -436,7 +498,41 @@ static struct pci_ops rockchip_pcie_ops = {
 	.write = rockchip_pcie_wr_conf,
 };
 
-extern void rockchip_pcie_phy_laneoff(struct phy *phy, u8 map);
+static void rockchip_pcie_set_power_limit(struct rockchip_pcie *rockchip)
+{
+	int curr;
+	u32 status, scale, power;
+
+	if (IS_ERR(rockchip->vpcie3v3))
+		return;
+
+	/*
+	 * Set RC's captured slot power limit and scale if
+	 * vpcie3v3 available. The default values are both zero
+	 * which means the software should set these two according
+	 * to the actual power supply.
+	 */
+	curr = regulator_get_current_limit(rockchip->vpcie3v3);
+	if (curr <= 0)
+		return;
+
+	scale = 3; /* 0.001x */
+	curr = curr / 1000; /* convert to mA */
+	power = (curr * 3300) / 1000; /* milliwatt */
+	while (power > PCIE_RC_CONFIG_DCR_CSPL_LIMIT) {
+		if (!scale) {
+			dev_warn(rockchip->dev, "invalid power supply\n");
+			return;
+		}
+		scale--;
+		power = power / 10;
+	}
+
+	status = rockchip_pcie_read(rockchip, PCIE_RC_CONFIG_DCR);
+	status |= (power << PCIE_RC_CONFIG_DCR_CSPL_SHIFT) |
+		  (scale << PCIE_RC_CONFIG_DCR_CPLS_SHIFT);
+	rockchip_pcie_write(rockchip, status, PCIE_RC_CONFIG_DCR);
+}
 
 /**
  * rockchip_pcie_init_port - Initialize hardware
@@ -445,11 +541,10 @@ extern void rockchip_pcie_phy_laneoff(struct phy *phy, u8 map);
 static int rockchip_pcie_init_port(struct rockchip_pcie *rockchip)
 {
 	struct device *dev = rockchip->dev;
-	int err;
+	int err, i;
 	u32 status;
-	unsigned long timeout;
 
-	gpiod_set_value(rockchip->ep_gpio, 0);
+	gpiod_set_value_cansleep(rockchip->ep_gpio, 0);
 
 	err = reset_control_assert(rockchip->aclk_rst);
 	if (err) {
@@ -469,34 +564,36 @@ static int rockchip_pcie_init_port(struct rockchip_pcie *rockchip)
 		return err;
 	}
 
-	err = phy_init(rockchip->phy);
-	if (err < 0) {
-		dev_err(dev, "fail to init phy, err %d\n", err);
-		return err;
+	for (i = 0; i < MAX_LANE_NUM; i++) {
+		err = phy_init(rockchip->phys[i]);
+		if (err) {
+			dev_err(dev, "init phy%d err %d\n", i, err);
+			goto err_exit_phy;
+		}
 	}
 
 	err = reset_control_assert(rockchip->core_rst);
 	if (err) {
 		dev_err(dev, "assert core_rst err %d\n", err);
-		return err;
+		goto err_exit_phy;
 	}
 
 	err = reset_control_assert(rockchip->mgmt_rst);
 	if (err) {
 		dev_err(dev, "assert mgmt_rst err %d\n", err);
-		return err;
+		goto err_exit_phy;
 	}
 
 	err = reset_control_assert(rockchip->mgmt_sticky_rst);
 	if (err) {
 		dev_err(dev, "assert mgmt_sticky_rst err %d\n", err);
-		return err;
+		goto err_exit_phy;
 	}
 
 	err = reset_control_assert(rockchip->pipe_rst);
 	if (err) {
 		dev_err(dev, "assert pipe_rst err %d\n", err);
-		return err;
+		goto err_exit_phy;
 	}
 
 	udelay(10);
@@ -504,22 +601,22 @@ static int rockchip_pcie_init_port(struct rockchip_pcie *rockchip)
 	err = reset_control_deassert(rockchip->pm_rst);
 	if (err) {
 		dev_err(dev, "deassert pm_rst err %d\n", err);
-		return err;
+		goto err_exit_phy;
 	}
 
 	err = reset_control_deassert(rockchip->aclk_rst);
 	if (err) {
 		dev_err(dev, "deassert aclk_rst err %d\n", err);
-		return err;
+		goto err_exit_phy;
 	}
 
 	err = reset_control_deassert(rockchip->pclk_rst);
 	if (err) {
 		dev_err(dev, "deassert pclk_rst err %d\n", err);
-		return err;
+		goto err_exit_phy;
 	}
 
-	if (rockchip->enable_gen2)
+	if (rockchip->link_gen == 2)
 		rockchip_pcie_write(rockchip, PCIE_CLIENT_GEN_SEL_2,
 				    PCIE_CLIENT_CONFIG);
 	else
@@ -532,12 +629,14 @@ static int rockchip_pcie_init_port(struct rockchip_pcie *rockchip)
 			    PCIE_CLIENT_ARI_ENABLE |
 			    PCIE_CLIENT_CONF_LANE_NUM(rockchip->lanes) |
 			    PCIE_CLIENT_MODE_RC,
-				PCIE_CLIENT_CONFIG);
+			    PCIE_CLIENT_CONFIG);
 
-	err = phy_power_on(rockchip->phy);
-	if (err) {
-		dev_err(dev, "fail to power on phy, err %d\n", err);
-		return err;
+	for (i = 0; i < MAX_LANE_NUM; i++) {
+		err = phy_power_on(rockchip->phys[i]);
+		if (err) {
+			dev_err(dev, "power on phy%d err %d\n", i, err);
+			goto err_power_off_phy;
+		}
 	}
 
 	/*
@@ -547,35 +646,26 @@ static int rockchip_pcie_init_port(struct rockchip_pcie *rockchip)
 	err = reset_control_deassert(rockchip->mgmt_sticky_rst);
 	if (err) {
 		dev_err(dev, "deassert mgmt_sticky_rst err %d\n", err);
-		return err;
+		goto err_power_off_phy;
 	}
 
 	err = reset_control_deassert(rockchip->core_rst);
 	if (err) {
 		dev_err(dev, "deassert core_rst err %d\n", err);
-		return err;
+		goto err_power_off_phy;
 	}
 
 	err = reset_control_deassert(rockchip->mgmt_rst);
 	if (err) {
 		dev_err(dev, "deassert mgmt_rst err %d\n", err);
-		return err;
+		goto err_power_off_phy;
 	}
 
 	err = reset_control_deassert(rockchip->pipe_rst);
 	if (err) {
 		dev_err(dev, "deassert pipe_rst err %d\n", err);
-		return err;
+		goto err_power_off_phy;
 	}
-
-	/*
-	 * We need to read/write PCIE_RC_CONFIG_L1_SUBSTATE_CTRL2 before
-	 * enabling ASPM.  Otherwise L1PwrOnSc and L1PwrOnVal isn't
-	 * reliable and enabling ASPM doesn't work.  This is a controller
-	 * bug we need to work around.
-	 */
-	status = rockchip_pcie_read(rockchip, PCIE_RC_CONFIG_L1_SUBSTATE_CTRL2);
-	rockchip_pcie_write(rockchip, status, PCIE_RC_CONFIG_L1_SUBSTATE_CTRL2);
 
 	/* Fix the transmitted FTS count desired to exit from L0s. */
 	status = rockchip_pcie_read(rockchip, PCIE_CORE_CTRL_PLC1);
@@ -583,70 +673,66 @@ static int rockchip_pcie_init_port(struct rockchip_pcie *rockchip)
 		 (PCIE_CORE_CTRL_PLC1_FTS_CNT << PCIE_CORE_CTRL_PLC1_FTS_SHIFT);
 	rockchip_pcie_write(rockchip, status, PCIE_CORE_CTRL_PLC1);
 
+	rockchip_pcie_set_power_limit(rockchip);
+
+	/* Set RC's clock architecture as common clock */
+	status = rockchip_pcie_read(rockchip, PCIE_RC_CONFIG_LCS);
+	status |= PCI_EXP_LNKSTA_SLC << 16;
+	rockchip_pcie_write(rockchip, status, PCIE_RC_CONFIG_LCS);
+
+	/* Set RC's RCB to 128 */
+	status = rockchip_pcie_read(rockchip, PCIE_RC_CONFIG_LCS);
+	status |= PCI_EXP_LNKCTL_RCB;
+	rockchip_pcie_write(rockchip, status, PCIE_RC_CONFIG_LCS);
+
 	/* Enable Gen1 training */
 	rockchip_pcie_write(rockchip, PCIE_CLIENT_LINK_TRAIN_ENABLE,
 			    PCIE_CLIENT_CONFIG);
 
-	gpiod_set_value(rockchip->ep_gpio, 1);
+	gpiod_set_value_cansleep(rockchip->ep_gpio, 1);
 
 	/* 500ms timeout value should be enough for Gen1/2 training */
-	timeout = jiffies + msecs_to_jiffies(500);
-
-	for (;;) {
-		status = rockchip_pcie_read(rockchip,
-					    PCIE_CLIENT_BASIC_STATUS1);
-		if ((status & PCIE_CLIENT_LINK_STATUS_MASK) ==
-		    PCIE_CLIENT_LINK_STATUS_UP) {
-			dev_dbg(dev, "PCIe link training gen1 pass!\n");
-			break;
-		}
-
-		if (time_after(jiffies, timeout)) {
-			dev_err(dev, "PCIe link training gen1 timeout!\n");
-			return -ETIMEDOUT;
-		}
-
-		msleep(20);
+	err = readl_poll_timeout(rockchip->apb_base + PCIE_CLIENT_BASIC_STATUS1,
+				 status, PCIE_LINK_UP(status), 20,
+				 500 * USEC_PER_MSEC);
+	if (err) {
+		dev_err(dev, "PCIe link training gen1 timeout!\n");
+		goto err_power_off_phy;
 	}
 
-	if (rockchip->enable_gen2) {
+	if (rockchip->link_gen == 2) {
 		/*
 		 * Enable retrain for gen2. This should be configured only after
 		 * gen1 finished.
 		 */
 		status = rockchip_pcie_read(rockchip, PCIE_RC_CONFIG_LCS);
-		status |= PCIE_RC_CONFIG_LCS_RETRAIN_LINK;
+		status |= PCI_EXP_LNKCTL_RL;
 		rockchip_pcie_write(rockchip, status, PCIE_RC_CONFIG_LCS);
 
-		timeout = jiffies + msecs_to_jiffies(500);
-		for (;;) {
-			status = rockchip_pcie_read(rockchip, PCIE_CORE_CTRL);
-			if ((status & PCIE_CORE_PL_CONF_SPEED_MASK) ==
-					PCIE_CORE_PL_CONF_SPEED_5G) {
-				dev_dbg(dev, "PCIe link training gen2 pass!\n");
-				break;
-			}
-
-			if (time_after(jiffies, timeout)) {
-				dev_dbg(dev, "PCIe link training gen2 timeout, fall back to gen1!\n");
-				break;
-			}
-
-			msleep(20);
-		}
+		err = readl_poll_timeout(rockchip->apb_base + PCIE_CORE_CTRL,
+					 status, PCIE_LINK_IS_GEN2(status), 20,
+					 500 * USEC_PER_MSEC);
+		if (err)
+			dev_dbg(dev, "PCIe link training gen2 timeout, fall back to gen1!\n");
 	}
 
 	/* Check the final link width from negotiated lane counter from MGMT */
 	status = rockchip_pcie_read(rockchip, PCIE_CORE_CTRL);
-	status =  0x1 << ((status & PCIE_CORE_PL_CONF_LANE_MASK) >>
-			  PCIE_CORE_PL_CONF_LANE_MASK);
+	status = 0x1 << ((status & PCIE_CORE_PL_CONF_LANE_MASK) >>
+			  PCIE_CORE_PL_CONF_LANE_SHIFT);
 	dev_dbg(dev, "current link width is x%d\n", status);
 
-	rockchip_pcie_phy_laneoff(rockchip->phy,
-				  rockchip_pcie_lane_map(rockchip));
+	/* Power off unused lane(s) */
+	rockchip->lanes_map = rockchip_pcie_lane_map(rockchip);
+	for (i = 0; i < MAX_LANE_NUM; i++) {
+		if (!(rockchip->lanes_map & BIT(i))) {
+			dev_dbg(dev, "idling lane %d\n", i);
+			phy_power_off(rockchip->phys[i]);
+		}
+	}
 
 	rockchip_pcie_write(rockchip, ROCKCHIP_VENDOR_ID,
-			    PCIE_RC_CONFIG_VENDOR);
+			    PCIE_CORE_CONFIG_VENDOR);
 	rockchip_pcie_write(rockchip,
 			    PCI_CLASS_BRIDGE_PCI << PCIE_RC_CONFIG_SCC_SHIFT,
 			    PCIE_RC_CONFIG_RID_CCR);
@@ -657,23 +743,38 @@ static int rockchip_pcie_init_port(struct rockchip_pcie *rockchip)
 	rockchip_pcie_write(rockchip, status, PCIE_RC_CONFIG_THP_CAP);
 
 	/* Clear L0s from RC's link cap */
-	if (of_property_read_bool(dev->of_node, "quirk,apsm-no-l0s")) {
+	if (of_property_read_bool(dev->of_node, "aspm-no-l0s")) {
 		status = rockchip_pcie_read(rockchip, PCIE_RC_CONFIG_LINK_CAP);
 		status &= ~PCIE_RC_CONFIG_LINK_CAP_L0S;
 		rockchip_pcie_write(rockchip, status, PCIE_RC_CONFIG_LINK_CAP);
 	}
 
-	rockchip_pcie_write(rockchip, 0x0, PCIE_RC_BAR_CONF);
-
-	rockchip_pcie_write(rockchip,
-			    (RC_REGION_0_ADDR_TRANS_L + RC_REGION_0_PASS_BITS),
-			    PCIE_CORE_OB_REGION_ADDR0);
-	rockchip_pcie_write(rockchip, RC_REGION_0_ADDR_TRANS_H,
-			    PCIE_CORE_OB_REGION_ADDR1);
-	rockchip_pcie_write(rockchip, 0x0080000a, PCIE_CORE_OB_REGION_DESC0);
-	rockchip_pcie_write(rockchip, 0x0, PCIE_CORE_OB_REGION_DESC1);
+	status = rockchip_pcie_read(rockchip, PCIE_RC_CONFIG_DCSR);
+	status &= ~PCIE_RC_CONFIG_DCSR_MPS_MASK;
+	status |= PCIE_RC_CONFIG_DCSR_MPS_256;
+	rockchip_pcie_write(rockchip, status, PCIE_RC_CONFIG_DCSR);
 
 	return 0;
+err_power_off_phy:
+	while (i--)
+		phy_power_off(rockchip->phys[i]);
+	i = MAX_LANE_NUM;
+err_exit_phy:
+	while (i--)
+		phy_exit(rockchip->phys[i]);
+	return err;
+}
+
+static void rockchip_pcie_deinit_phys(struct rockchip_pcie *rockchip)
+{
+	int i;
+
+	for (i = 0; i < MAX_LANE_NUM; i++) {
+		/* inactive lanes are already powered off */
+		if (rockchip->lanes_map & BIT(i))
+			phy_power_off(rockchip->phys[i]);
+		phy_exit(rockchip->phys[i]);
+	}
 }
 
 static irqreturn_t rockchip_pcie_subsys_irq_handler(int irq, void *arg)
@@ -812,6 +913,91 @@ static void rockchip_pcie_legacy_int_handler(struct irq_desc *desc)
 	chained_irq_exit(chip, desc);
 }
 
+static int rockchip_pcie_get_phys(struct rockchip_pcie *rockchip)
+{
+	struct device *dev = rockchip->dev;
+	struct phy *phy;
+	char *name;
+	u32 i;
+
+	phy = devm_phy_get(dev, "pcie-phy");
+	if (!IS_ERR(phy)) {
+		rockchip->legacy_phy = true;
+		rockchip->phys[0] = phy;
+		dev_warn(dev, "legacy phy model is deprecated!\n");
+		return 0;
+	}
+
+	if (PTR_ERR(phy) == -EPROBE_DEFER)
+		return PTR_ERR(phy);
+
+	dev_dbg(dev, "missing legacy phy; search for per-lane PHY\n");
+
+	for (i = 0; i < MAX_LANE_NUM; i++) {
+		name = kasprintf(GFP_KERNEL, "pcie-phy-%u", i);
+		if (!name)
+			return -ENOMEM;
+
+		phy = devm_of_phy_get(dev, dev->of_node, name);
+		kfree(name);
+
+		if (IS_ERR(phy)) {
+			if (PTR_ERR(phy) != -EPROBE_DEFER)
+				dev_err(dev, "missing phy for lane %d: %ld\n",
+					i, PTR_ERR(phy));
+			return PTR_ERR(phy);
+		}
+
+		rockchip->phys[i] = phy;
+	}
+
+	return 0;
+}
+
+static int rockchip_pcie_setup_irq(struct rockchip_pcie *rockchip)
+{
+	int irq, err;
+	struct device *dev = rockchip->dev;
+	struct platform_device *pdev = to_platform_device(dev);
+
+	irq = platform_get_irq_byname(pdev, "sys");
+	if (irq < 0) {
+		dev_err(dev, "missing sys IRQ resource\n");
+		return irq;
+	}
+
+	err = devm_request_irq(dev, irq, rockchip_pcie_subsys_irq_handler,
+			       IRQF_SHARED, "pcie-sys", rockchip);
+	if (err) {
+		dev_err(dev, "failed to request PCIe subsystem IRQ\n");
+		return err;
+	}
+
+	irq = platform_get_irq_byname(pdev, "legacy");
+	if (irq < 0) {
+		dev_err(dev, "missing legacy IRQ resource\n");
+		return irq;
+	}
+
+	irq_set_chained_handler_and_data(irq,
+					 rockchip_pcie_legacy_int_handler,
+					 rockchip);
+
+	irq = platform_get_irq_byname(pdev, "client");
+	if (irq < 0) {
+		dev_err(dev, "missing client IRQ resource\n");
+		return irq;
+	}
+
+	err = devm_request_irq(dev, irq, rockchip_pcie_client_irq_handler,
+			       IRQF_SHARED, "pcie-client", rockchip);
+	if (err) {
+		dev_err(dev, "failed to request PCIe client IRQ\n");
+		return err;
+	}
+
+	return 0;
+}
 
 /**
  * rockchip_pcie_parse_dt - Parse Device Tree
@@ -825,13 +1011,12 @@ static int rockchip_pcie_parse_dt(struct rockchip_pcie *rockchip)
 	struct platform_device *pdev = to_platform_device(dev);
 	struct device_node *node = dev->of_node;
 	struct resource *regs;
-	int irq;
 	int err;
 
 	regs = platform_get_resource_byname(pdev,
 					    IORESOURCE_MEM,
 					    "axi-base");
-	rockchip->reg_base = devm_ioremap_resource(dev, regs);
+	rockchip->reg_base = devm_pci_remap_cfg_resource(dev, regs);
 	if (IS_ERR(rockchip->reg_base))
 		return PTR_ERR(rockchip->reg_base);
 
@@ -842,12 +1027,9 @@ static int rockchip_pcie_parse_dt(struct rockchip_pcie *rockchip)
 	if (IS_ERR(rockchip->apb_base))
 		return PTR_ERR(rockchip->apb_base);
 
-	rockchip->phy = devm_phy_get(dev, "pcie-phy");
-	if (IS_ERR(rockchip->phy)) {
-		if (PTR_ERR(rockchip->phy) != -EPROBE_DEFER)
-			dev_err(dev, "missing phy\n");
-		return PTR_ERR(rockchip->phy);
-	}
+	err = rockchip_pcie_get_phys(rockchip);
+	if (err)
+		return err;
 
 	rockchip->lanes = 1;
 	err = of_property_read_u32(node, "num-lanes", &rockchip->lanes);
@@ -858,8 +1040,9 @@ static int rockchip_pcie_parse_dt(struct rockchip_pcie *rockchip)
 		rockchip->lanes = 1;
 	}
 
-	rockchip->enable_gen2 = !of_property_read_bool(node,
-						       "rockchip,disable-gen2");
+	rockchip->link_gen = of_pci_get_max_link_speed(node);
+	if (rockchip->link_gen < 0 || rockchip->link_gen > 2)
+		rockchip->link_gen = 2;
 
 	rockchip->core_rst = devm_reset_control_get(dev, "core");
 	if (IS_ERR(rockchip->core_rst)) {
@@ -940,40 +1123,15 @@ static int rockchip_pcie_parse_dt(struct rockchip_pcie *rockchip)
 		return PTR_ERR(rockchip->clk_pcie_pm);
 	}
 
-	irq = platform_get_irq_byname(pdev, "sys");
-	if (irq < 0) {
-		dev_err(dev, "missing sys IRQ resource\n");
-		return -EINVAL;
-	}
-
-	err = devm_request_irq(dev, irq, rockchip_pcie_subsys_irq_handler,
-			       IRQF_SHARED, "pcie-sys", rockchip);
-	if (err) {
-		dev_err(dev, "failed to request PCIe subsystem IRQ\n");
+	err = rockchip_pcie_setup_irq(rockchip);
+	if (err)
 		return err;
-	}
 
-	irq = platform_get_irq_byname(pdev, "legacy");
-	if (irq < 0) {
-		dev_err(dev, "missing legacy IRQ resource\n");
-		return -EINVAL;
-	}
-
-	irq_set_chained_handler_and_data(irq,
-					 rockchip_pcie_legacy_int_handler,
-					 rockchip);
-
-	irq = platform_get_irq_byname(pdev, "client");
-	if (irq < 0) {
-		dev_err(dev, "missing client IRQ resource\n");
-		return -EINVAL;
-	}
-
-	err = devm_request_irq(dev, irq, rockchip_pcie_client_irq_handler,
-			       IRQF_SHARED, "pcie-client", rockchip);
-	if (err) {
-		dev_err(dev, "failed to request PCIe client IRQ\n");
-		return err;
+	rockchip->vpcie12v = devm_regulator_get_optional(dev, "vpcie12v");
+	if (IS_ERR(rockchip->vpcie12v)) {
+		if (PTR_ERR(rockchip->vpcie12v) == -EPROBE_DEFER)
+			return -EPROBE_DEFER;
+		dev_info(dev, "no vpcie12v regulator found\n");
 	}
 
 	rockchip->vpcie3v3 = devm_regulator_get_optional(dev, "vpcie3v3");
@@ -997,6 +1155,9 @@ static int rockchip_pcie_parse_dt(struct rockchip_pcie *rockchip)
 		dev_info(dev, "no vpcie0v9 regulator found\n");
 	}
 
+	/* Default not-asserted, to retain backward compatibility. */
+	rockchip->suspend_reset = of_pci_get_pcie_reset_suspend(node) > 0;
+
 	return 0;
 }
 
@@ -1005,11 +1166,19 @@ static int rockchip_pcie_set_vpcie(struct rockchip_pcie *rockchip)
 	struct device *dev = rockchip->dev;
 	int err;
 
+	if (!IS_ERR(rockchip->vpcie12v)) {
+		err = regulator_enable(rockchip->vpcie12v);
+		if (err) {
+			dev_err(dev, "fail to enable vpcie12v regulator\n");
+			goto err_out;
+		}
+	}
+
 	if (!IS_ERR(rockchip->vpcie3v3)) {
 		err = regulator_enable(rockchip->vpcie3v3);
 		if (err) {
 			dev_err(dev, "fail to enable vpcie3v3 regulator\n");
-			goto err_out;
+			goto err_disable_12v;
 		}
 	}
 
@@ -1037,6 +1206,9 @@ err_disable_1v8:
 err_disable_3v3:
 	if (!IS_ERR(rockchip->vpcie3v3))
 		regulator_disable(rockchip->vpcie3v3);
+err_disable_12v:
+	if (!IS_ERR(rockchip->vpcie12v))
+		regulator_disable(rockchip->vpcie12v);
 err_out:
 	return err;
 }
@@ -1154,11 +1326,15 @@ static int rockchip_pcie_prog_ib_atu(struct rockchip_pcie *rockchip,
 	return 0;
 }
 
-static int rockchip_cfg_atu(struct rockchip_pcie *rockchip)
+static int rockchip_pcie_cfg_atu(struct rockchip_pcie *rockchip)
 {
+	struct device *dev = rockchip->dev;
 	int offset;
 	int err;
 	int reg_no;
+
+	rockchip_pcie_cfg_configuration_accesses(rockchip,
+						 AXI_WRAPPER_TYPE0_CFG);
 
 	for (reg_no = 0; reg_no < (rockchip->mem_size >> 20); reg_no++) {
 		err = rockchip_pcie_prog_ob_atu(rockchip, reg_no + 1,
@@ -1168,15 +1344,14 @@ static int rockchip_cfg_atu(struct rockchip_pcie *rockchip)
 						(reg_no << 20),
 						0);
 		if (err) {
-			dev_err(rockchip->dev,
-					"program RC mem outbound ATU failed\n");
+			dev_err(dev, "program RC mem outbound ATU failed\n");
 			return err;
 		}
 	}
 
 	err = rockchip_pcie_prog_ib_atu(rockchip, 2, 32 - 1, 0x0, 0);
 	if (err) {
-		dev_err(rockchip->dev, "program RC mem inbound ATU failed\n");
+		dev_err(dev, "program RC mem inbound ATU failed\n");
 		return err;
 	}
 
@@ -1190,8 +1365,7 @@ static int rockchip_cfg_atu(struct rockchip_pcie *rockchip)
 						(reg_no << 20),
 						0);
 		if (err) {
-			dev_err(rockchip->dev,
-					"program RC io outbound ATU failed\n");
+			dev_err(dev, "program RC io outbound ATU failed\n");
 			return err;
 		}
 	}
@@ -1200,17 +1374,9 @@ static int rockchip_cfg_atu(struct rockchip_pcie *rockchip)
 	rockchip_pcie_prog_ob_atu(rockchip, reg_no + 1 + offset,
 				  AXI_WRAPPER_NOR_MSG,
 				  20 - 1, 0, 0);
-	if (rockchip->msg_region)
-		goto out;
 
-	rockchip->msg_region = devm_ioremap(rockchip->dev,
-					    rockchip->mem_bus_addr +
-					    ((reg_no + offset) << 20),
-					    SZ_1M);
-	if (!rockchip->msg_region)
-		err = -ENOMEM;
-
-out:
+	rockchip->msg_bus_addr = rockchip->mem_bus_addr +
+					((reg_no + offset) << 20);
 	return err;
 }
 
@@ -1234,7 +1400,57 @@ static int rockchip_pcie_wait_l2(struct rockchip_pcie *rockchip)
 	return 0;
 }
 
-static int rockchip_pcie_suspend_noirq(struct device *dev)
+static int rockchip_pcie_enable_clocks(struct rockchip_pcie *rockchip)
+{
+	struct device *dev = rockchip->dev;
+	int err;
+
+	err = clk_prepare_enable(rockchip->aclk_pcie);
+	if (err) {
+		dev_err(dev, "unable to enable aclk_pcie clock\n");
+		return err;
+	}
+
+	err = clk_prepare_enable(rockchip->aclk_perf_pcie);
+	if (err) {
+		dev_err(dev, "unable to enable aclk_perf_pcie clock\n");
+		goto err_aclk_perf_pcie;
+	}
+
+	err = clk_prepare_enable(rockchip->hclk_pcie);
+	if (err) {
+		dev_err(dev, "unable to enable hclk_pcie clock\n");
+		goto err_hclk_pcie;
+	}
+
+	err = clk_prepare_enable(rockchip->clk_pcie_pm);
+	if (err) {
+		dev_err(dev, "unable to enable clk_pcie_pm clock\n");
+		goto err_clk_pcie_pm;
+	}
+
+	return 0;
+
+err_clk_pcie_pm:
+	clk_disable_unprepare(rockchip->hclk_pcie);
+err_hclk_pcie:
+	clk_disable_unprepare(rockchip->aclk_perf_pcie);
+err_aclk_perf_pcie:
+	clk_disable_unprepare(rockchip->aclk_pcie);
+	return err;
+}
+
+static void rockchip_pcie_disable_clocks(void *data)
+{
+	struct rockchip_pcie *rockchip = data;
+
+	clk_disable_unprepare(rockchip->clk_pcie_pm);
+	clk_disable_unprepare(rockchip->hclk_pcie);
+	clk_disable_unprepare(rockchip->aclk_perf_pcie);
+	clk_disable_unprepare(rockchip->aclk_pcie);
+}
+
+static int __maybe_unused rockchip_pcie_suspend_noirq(struct device *dev)
 {
 	struct rockchip_pcie *rockchip = dev_get_drvdata(dev);
 	int ret;
@@ -1250,40 +1466,58 @@ static int rockchip_pcie_suspend_noirq(struct device *dev)
 		return ret;
 	}
 
-	phy_power_off(rockchip->phy);
-	phy_exit(rockchip->phy);
+	if (rockchip->suspend_reset)
+		gpiod_set_value(rockchip->ep_gpio, 0);
 
-	clk_disable_unprepare(rockchip->clk_pcie_pm);
-	clk_disable_unprepare(rockchip->hclk_pcie);
-	clk_disable_unprepare(rockchip->aclk_perf_pcie);
-	clk_disable_unprepare(rockchip->aclk_pcie);
+	rockchip_pcie_deinit_phys(rockchip);
+
+	rockchip_pcie_disable_clocks(rockchip);
+
+	if (!IS_ERR(rockchip->vpcie0v9))
+		regulator_disable(rockchip->vpcie0v9);
 
 	return ret;
 }
 
-static int rockchip_pcie_resume_noirq(struct device *dev)
+static int __maybe_unused rockchip_pcie_resume_noirq(struct device *dev)
 {
 	struct rockchip_pcie *rockchip = dev_get_drvdata(dev);
 	int err;
 
-	clk_prepare_enable(rockchip->clk_pcie_pm);
-	clk_prepare_enable(rockchip->hclk_pcie);
-	clk_prepare_enable(rockchip->aclk_perf_pcie);
-	clk_prepare_enable(rockchip->aclk_pcie);
+	if (!IS_ERR(rockchip->vpcie0v9)) {
+		err = regulator_enable(rockchip->vpcie0v9);
+		if (err) {
+			dev_err(dev, "fail to enable vpcie0v9 regulator\n");
+			return err;
+		}
+	}
+
+	err = rockchip_pcie_enable_clocks(rockchip);
+	if (err)
+		goto err_disable_0v9;
 
 	err = rockchip_pcie_init_port(rockchip);
 	if (err)
-		return err;
+		goto err_pcie_resume;
 
-	err = rockchip_cfg_atu(rockchip);
+	err = rockchip_pcie_cfg_atu(rockchip);
 	if (err)
-		return err;
+		goto err_err_deinit_port;
 
 	/* Need this to enter L1 again */
 	rockchip_pcie_update_txcredit_mui(rockchip);
 	rockchip_pcie_enable_interrupts(rockchip);
 
 	return 0;
+
+err_err_deinit_port:
+	rockchip_pcie_deinit_phys(rockchip);
+err_pcie_resume:
+	rockchip_pcie_disable_clocks(rockchip);
+err_disable_0v9:
+	if (!IS_ERR(rockchip->vpcie0v9))
+		regulator_disable(rockchip->vpcie0v9);
+	return err;
 }
 
 static int rockchip_pcie_probe(struct platform_device *pdev)
@@ -1307,36 +1541,15 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	platform_set_drvdata(pdev, rockchip);
-
 	rockchip->dev = dev;
 
 	err = rockchip_pcie_parse_dt(rockchip);
 	if (err)
 		return err;
 
-	err = clk_prepare_enable(rockchip->aclk_pcie);
-	if (err) {
-		dev_err(dev, "unable to enable aclk_pcie clock\n");
-		goto err_aclk_pcie;
-	}
-
-	err = clk_prepare_enable(rockchip->aclk_perf_pcie);
-	if (err) {
-		dev_err(dev, "unable to enable aclk_perf_pcie clock\n");
-		goto err_aclk_perf_pcie;
-	}
-
-	err = clk_prepare_enable(rockchip->hclk_pcie);
-	if (err) {
-		dev_err(dev, "unable to enable hclk_pcie clock\n");
-		goto err_hclk_pcie;
-	}
-
-	err = clk_prepare_enable(rockchip->clk_pcie_pm);
-	if (err) {
-		dev_err(dev, "unable to enable hclk_pcie clock\n");
-		goto err_pcie_pm;
-	}
+	err = rockchip_pcie_enable_clocks(rockchip);
+	if (err)
+		return err;
 
 	err = rockchip_pcie_set_vpcie(rockchip);
 	if (err) {
@@ -1352,16 +1565,16 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
 
 	err = rockchip_pcie_init_irq_domain(rockchip);
 	if (err < 0)
-		goto err_vpcie;
+		goto err_deinit_port;
 
 	err = of_pci_get_host_bridge_resources(dev->of_node, 0, 0xff,
 					       &res, &io_base);
 	if (err)
-		goto err_vpcie;
+		goto err_remove_irq_domain;
 
 	err = devm_request_pci_bus_resources(dev, &res);
 	if (err)
-		goto err_vpcie;
+		goto err_free_res;
 
 	/* Get the I/O and memory ranges from DT */
 	resource_list_for_each_entry(win, &res) {
@@ -1377,6 +1590,7 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
 					 err, io);
 				continue;
 			}
+			rockchip->io = io;
 			break;
 		case IORESOURCE_MEM:
 			mem = win->res;
@@ -1392,14 +1606,23 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
 		}
 	}
 
-	err = rockchip_cfg_atu(rockchip);
+	err = rockchip_pcie_cfg_atu(rockchip);
 	if (err)
-		goto err_vpcie;
+		goto err_free_res;
+
+	rockchip->msg_region = devm_ioremap(rockchip->dev,
+					    rockchip->msg_bus_addr, SZ_1M);
+	if (!rockchip->msg_region) {
+		err = -ENOMEM;
+		goto err_free_res;
+	}
+
 	bus = pci_scan_root_bus(&pdev->dev, 0, &rockchip_pcie_ops, rockchip, &res);
 	if (!bus) {
 		err = -ENOMEM;
-		goto err_vpcie;
+		goto err_free_res;
 	}
+	rockchip->root_bus = bus;
 
 	pci_bus_size_bridges(bus);
 	pci_bus_assign_resources(bus);
@@ -1407,12 +1630,17 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
 		pcie_bus_configure_settings(child);
 
 	pci_bus_add_devices(bus);
+	return 0;
 
-	dev_warn(dev, "only 32-bit config accesses supported; smaller writes may corrupt adjacent RW1C fields\n");
-
-	return err;
-
+err_free_res:
+	pci_free_resource_list(&res);
+err_remove_irq_domain:
+	irq_domain_remove(rockchip->irq_domain);
+err_deinit_port:
+	rockchip_pcie_deinit_phys(rockchip);
 err_vpcie:
+	if (!IS_ERR(rockchip->vpcie12v))
+		regulator_disable(rockchip->vpcie12v);
 	if (!IS_ERR(rockchip->vpcie3v3))
 		regulator_disable(rockchip->vpcie3v3);
 	if (!IS_ERR(rockchip->vpcie1v8))
@@ -1420,15 +1648,34 @@ err_vpcie:
 	if (!IS_ERR(rockchip->vpcie0v9))
 		regulator_disable(rockchip->vpcie0v9);
 err_set_vpcie:
-	clk_disable_unprepare(rockchip->clk_pcie_pm);
-err_pcie_pm:
-	clk_disable_unprepare(rockchip->hclk_pcie);
-err_hclk_pcie:
-	clk_disable_unprepare(rockchip->aclk_perf_pcie);
-err_aclk_perf_pcie:
-	clk_disable_unprepare(rockchip->aclk_pcie);
-err_aclk_pcie:
+	rockchip_pcie_disable_clocks(rockchip);
 	return err;
+}
+
+static int rockchip_pcie_remove(struct platform_device *pdev)
+{
+	struct device *dev = &pdev->dev;
+	struct rockchip_pcie *rockchip = dev_get_drvdata(dev);
+
+	pci_stop_root_bus(rockchip->root_bus);
+	pci_remove_root_bus(rockchip->root_bus);
+	pci_unmap_iospace(rockchip->io);
+	irq_domain_remove(rockchip->irq_domain);
+
+	rockchip_pcie_deinit_phys(rockchip);
+
+	rockchip_pcie_disable_clocks(rockchip);
+
+	if (!IS_ERR(rockchip->vpcie12v))
+		regulator_disable(rockchip->vpcie12v);
+	if (!IS_ERR(rockchip->vpcie3v3))
+		regulator_disable(rockchip->vpcie3v3);
+	if (!IS_ERR(rockchip->vpcie1v8))
+		regulator_disable(rockchip->vpcie1v8);
+	if (!IS_ERR(rockchip->vpcie0v9))
+		regulator_disable(rockchip->vpcie0v9);
+
+	return 0;
 }
 
 static const struct dev_pm_ops rockchip_pcie_pm_ops = {
@@ -1440,6 +1687,7 @@ static const struct of_device_id rockchip_pcie_of_match[] = {
 	{ .compatible = "rockchip,rk3399-pcie", },
 	{}
 };
+MODULE_DEVICE_TABLE(of, rockchip_pcie_of_match);
 
 static struct platform_driver rockchip_pcie_driver = {
 	.driver = {
@@ -1448,6 +1696,10 @@ static struct platform_driver rockchip_pcie_driver = {
 		.pm = &rockchip_pcie_pm_ops,
 	},
 	.probe = rockchip_pcie_probe,
-
+	.remove = rockchip_pcie_remove,
 };
-builtin_platform_driver(rockchip_pcie_driver);
+module_platform_driver(rockchip_pcie_driver);
+
+MODULE_AUTHOR("Rockchip Inc");
+MODULE_DESCRIPTION("Rockchip AXI PCIe driver");
+MODULE_LICENSE("GPL v2");

@@ -85,7 +85,7 @@ static struct drm_fb_cma *drm_fb_cma_alloc(struct drm_device *dev,
 	if (!fb_cma)
 		return ERR_PTR(-ENOMEM);
 
-	drm_helper_mode_fill_fb_struct(&fb_cma->fb, mode_cmd);
+	drm_helper_mode_fill_fb_struct(dev, &fb_cma->fb, mode_cmd);
 
 	for (i = 0; i < num_planes; i++)
 		fb_cma->obj[i] = obj[i];
@@ -109,23 +109,23 @@ static struct drm_fb_cma *drm_fb_cma_alloc(struct drm_device *dev,
 struct drm_framebuffer *drm_fb_cma_create(struct drm_device *dev,
 	struct drm_file *file_priv, const struct drm_mode_fb_cmd2 *mode_cmd)
 {
+	const struct drm_format_info *info;
 	struct drm_fb_cma *fb_cma;
 	struct drm_gem_cma_object *objs[4];
 	struct drm_gem_object *obj;
-	unsigned int hsub;
-	unsigned int vsub;
 	int ret;
 	int i;
 
-	hsub = drm_format_horz_chroma_subsampling(mode_cmd->pixel_format);
-	vsub = drm_format_vert_chroma_subsampling(mode_cmd->pixel_format);
+	info = drm_format_info(mode_cmd->pixel_format);
+	if (!info)
+		return ERR_PTR(-EINVAL);
 
-	for (i = 0; i < drm_format_num_planes(mode_cmd->pixel_format); i++) {
-		unsigned int width = mode_cmd->width / (i ? hsub : 1);
-		unsigned int height = mode_cmd->height / (i ? vsub : 1);
+	for (i = 0; i < info->num_planes; i++) {
+		unsigned int width = mode_cmd->width / (i ? info->hsub : 1);
+		unsigned int height = mode_cmd->height / (i ? info->vsub : 1);
 		unsigned int min_size;
 
-		obj = drm_gem_object_lookup(dev, file_priv, mode_cmd->handles[i]);
+		obj = drm_gem_object_lookup(file_priv, mode_cmd->handles[i]);
 		if (!obj) {
 			dev_err(dev->dev, "Failed to lookup GEM object\n");
 			ret = -ENXIO;
@@ -133,7 +133,7 @@ struct drm_framebuffer *drm_fb_cma_create(struct drm_device *dev,
 		}
 
 		min_size = (height - 1) * mode_cmd->pitches[i]
-			 + width * drm_format_plane_cpp(mode_cmd->pixel_format, i)
+			 + width * info->cpp[i]
 			 + mode_cmd->offsets[i];
 
 		if (obj->size < min_size) {
@@ -188,12 +188,12 @@ EXPORT_SYMBOL_GPL(drm_fb_cma_get_gem_obj);
 static void drm_fb_cma_describe(struct drm_framebuffer *fb, struct seq_file *m)
 {
 	struct drm_fb_cma *fb_cma = to_fb_cma(fb);
-	int i, n = drm_format_num_planes(fb->pixel_format);
+	int i;
 
 	seq_printf(m, "fb: %dx%d@%4.4s\n", fb->width, fb->height,
-			(char *)&fb->pixel_format);
+			(char *)&fb->format->format);
 
-	for (i = 0; i < n; i++) {
+	for (i = 0; i < fb->format->num_planes; i++) {
 		seq_printf(m, "   %d: offset=%d pitch=%d, obj: ",
 				i, fb->offsets[i], fb->pitches[i]);
 		drm_gem_cma_describe(fb_cma->obj[i], m);
@@ -283,7 +283,7 @@ static int drm_fbdev_cma_create(struct drm_fb_helper *helper,
 	fbi->flags = FBINFO_FLAG_DEFAULT;
 	fbi->fbops = &drm_fbdev_cma_ops;
 
-	drm_fb_helper_fill_fix(fbi, fb->pitches[0], fb->depth);
+	drm_fb_helper_fill_fix(fbi, fb->pitches[0], fb->format->depth);
 	drm_fb_helper_fill_var(fbi, helper, sizes->fb_width, sizes->fb_height);
 
 	offset = fbi->var.xoffset * bytes_per_pixel;

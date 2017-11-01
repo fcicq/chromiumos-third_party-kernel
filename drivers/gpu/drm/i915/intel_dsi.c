@@ -68,7 +68,7 @@ static void wait_for_dsi_fifo_empty(struct intel_dsi *intel_dsi, enum port port)
 {
 	struct drm_encoder *encoder = &intel_dsi->base.base;
 	struct drm_device *dev = encoder->dev;
-	struct drm_i915_private *dev_priv = dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(dev);
 	u32 mask;
 
 	mask = LP_CTRL_FIFO_EMPTY | HS_CTRL_FIFO_EMPTY |
@@ -113,7 +113,7 @@ static ssize_t intel_dsi_host_transfer(struct mipi_dsi_host *host,
 {
 	struct intel_dsi_host *intel_dsi_host = to_intel_dsi_host(host);
 	struct drm_device *dev = intel_dsi_host->intel_dsi->base.base.dev;
-	struct drm_i915_private *dev_priv = dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(dev);
 	enum port port = intel_dsi_host->port;
 	struct mipi_dsi_packet packet;
 	ssize_t ret;
@@ -234,7 +234,7 @@ static int dpi_send_cmd(struct intel_dsi *intel_dsi, u32 cmd, bool hs,
 {
 	struct drm_encoder *encoder = &intel_dsi->base.base;
 	struct drm_device *dev = encoder->dev;
-	struct drm_i915_private *dev_priv = dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(dev);
 	u32 mask;
 
 	/* XXX: pipe, hs */
@@ -284,9 +284,10 @@ static inline bool is_cmd_mode(struct intel_dsi *intel_dsi)
 }
 
 static bool intel_dsi_compute_config(struct intel_encoder *encoder,
-				     struct intel_crtc_state *pipe_config)
+				     struct intel_crtc_state *pipe_config,
+				     struct drm_connector_state *conn_state)
 {
-	struct drm_i915_private *dev_priv = encoder->base.dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(encoder->base.dev);
 	struct intel_dsi *intel_dsi = container_of(encoder, struct intel_dsi,
 						   base);
 	struct intel_connector *intel_connector = intel_dsi->attached_connector;
@@ -296,8 +297,6 @@ static bool intel_dsi_compute_config(struct intel_encoder *encoder,
 	int ret;
 
 	DRM_DEBUG_KMS("\n");
-
-	pipe_config->has_dsi_encoder = true;
 
 	if (fixed_mode) {
 		intel_fixed_panel_mode(fixed_mode, adjusted_mode);
@@ -332,7 +331,7 @@ static bool intel_dsi_compute_config(struct intel_encoder *encoder,
 
 static void bxt_dsi_device_ready(struct intel_encoder *encoder)
 {
-	struct drm_i915_private *dev_priv = encoder->base.dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(encoder->base.dev);
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(&encoder->base);
 	enum port port;
 	u32 val;
@@ -371,7 +370,7 @@ static void bxt_dsi_device_ready(struct intel_encoder *encoder)
 
 static void vlv_dsi_device_ready(struct intel_encoder *encoder)
 {
-	struct drm_i915_private *dev_priv = encoder->base.dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(encoder->base.dev);
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(&encoder->base);
 	enum port port;
 	u32 val;
@@ -410,18 +409,18 @@ static void vlv_dsi_device_ready(struct intel_encoder *encoder)
 
 static void intel_dsi_device_ready(struct intel_encoder *encoder)
 {
-	struct drm_device *dev = encoder->base.dev;
+	struct drm_i915_private *dev_priv = to_i915(encoder->base.dev);
 
-	if (IS_VALLEYVIEW(dev) || IS_CHERRYVIEW(dev))
+	if (IS_VALLEYVIEW(dev_priv) || IS_CHERRYVIEW(dev_priv))
 		vlv_dsi_device_ready(encoder);
-	else if (IS_BROXTON(dev))
+	else if (IS_BROXTON(dev_priv))
 		bxt_dsi_device_ready(encoder);
 }
 
 static void intel_dsi_port_enable(struct intel_encoder *encoder)
 {
 	struct drm_device *dev = encoder->base.dev;
-	struct drm_i915_private *dev_priv = dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(dev);
 	struct intel_crtc *intel_crtc = to_intel_crtc(encoder->base.crtc);
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(&encoder->base);
 	enum port port;
@@ -437,7 +436,7 @@ static void intel_dsi_port_enable(struct intel_encoder *encoder)
 	}
 
 	for_each_dsi_port(port, intel_dsi->ports) {
-		i915_reg_t port_ctrl = IS_BROXTON(dev) ?
+		i915_reg_t port_ctrl = IS_BROXTON(dev_priv) ?
 			BXT_MIPI_PORT_CTRL(port) : MIPI_PORT_CTRL(port);
 		u32 temp;
 
@@ -462,12 +461,12 @@ static void intel_dsi_port_enable(struct intel_encoder *encoder)
 static void intel_dsi_port_disable(struct intel_encoder *encoder)
 {
 	struct drm_device *dev = encoder->base.dev;
-	struct drm_i915_private *dev_priv = dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(dev);
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(&encoder->base);
 	enum port port;
 
 	for_each_dsi_port(port, intel_dsi->ports) {
-		i915_reg_t port_ctrl = IS_BROXTON(dev) ?
+		i915_reg_t port_ctrl = IS_BROXTON(dev_priv) ?
 			BXT_MIPI_PORT_CTRL(port) : MIPI_PORT_CTRL(port);
 		u32 temp;
 
@@ -481,7 +480,7 @@ static void intel_dsi_port_disable(struct intel_encoder *encoder)
 static void intel_dsi_enable(struct intel_encoder *encoder)
 {
 	struct drm_device *dev = encoder->base.dev;
-	struct drm_i915_private *dev_priv = dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(dev);
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(&encoder->base);
 	enum port port;
 
@@ -509,14 +508,15 @@ static void intel_dsi_enable(struct intel_encoder *encoder)
 
 static void intel_dsi_prepare(struct intel_encoder *intel_encoder);
 
-static void intel_dsi_pre_enable(struct intel_encoder *encoder)
+static void intel_dsi_pre_enable(struct intel_encoder *encoder,
+				 struct intel_crtc_state *pipe_config,
+				 struct drm_connector_state *conn_state)
 {
 	struct drm_device *dev = encoder->base.dev;
-	struct drm_i915_private *dev_priv = dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(dev);
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(&encoder->base);
 	struct intel_crtc *crtc = to_intel_crtc(encoder->base.crtc);
 	enum port port;
-	u32 tmp;
 
 	DRM_DEBUG_KMS("\n");
 
@@ -535,11 +535,13 @@ static void intel_dsi_pre_enable(struct intel_encoder *encoder)
 
 	msleep(intel_dsi->panel_on_delay);
 
-	if (IS_VALLEYVIEW(dev) || IS_CHERRYVIEW(dev)) {
+	if (IS_VALLEYVIEW(dev_priv) || IS_CHERRYVIEW(dev_priv)) {
+		u32 val;
+
 		/* Disable DPOunit clock gating, can stall pipe */
-		tmp = I915_READ(DSPCLK_GATE_D);
-		tmp |= DPOUNIT_CLOCK_GATE_DISABLE;
-		I915_WRITE(DSPCLK_GATE_D, tmp);
+		val = I915_READ(DSPCLK_GATE_D);
+		val |= DPOUNIT_CLOCK_GATE_DISABLE;
+		I915_WRITE(DSPCLK_GATE_D, val);
 	}
 
 	/* put device in ready state */
@@ -555,7 +557,9 @@ static void intel_dsi_pre_enable(struct intel_encoder *encoder)
 	intel_dsi_enable(encoder);
 }
 
-static void intel_dsi_enable_nop(struct intel_encoder *encoder)
+static void intel_dsi_enable_nop(struct intel_encoder *encoder,
+				 struct intel_crtc_state *pipe_config,
+				 struct drm_connector_state *conn_state)
 {
 	DRM_DEBUG_KMS("\n");
 
@@ -565,7 +569,9 @@ static void intel_dsi_enable_nop(struct intel_encoder *encoder)
 	 */
 }
 
-static void intel_dsi_pre_disable(struct intel_encoder *encoder)
+static void intel_dsi_pre_disable(struct intel_encoder *encoder,
+				  struct intel_crtc_state *old_crtc_state,
+				  struct drm_connector_state *old_conn_state)
 {
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(&encoder->base);
 	enum port port;
@@ -585,7 +591,7 @@ static void intel_dsi_pre_disable(struct intel_encoder *encoder)
 static void intel_dsi_disable(struct intel_encoder *encoder)
 {
 	struct drm_device *dev = encoder->base.dev;
-	struct drm_i915_private *dev_priv = dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(dev);
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(&encoder->base);
 	enum port port;
 	u32 temp;
@@ -623,15 +629,14 @@ static void intel_dsi_disable(struct intel_encoder *encoder)
 
 static void intel_dsi_clear_device_ready(struct intel_encoder *encoder)
 {
-	struct drm_device *dev = encoder->base.dev;
-	struct drm_i915_private *dev_priv = encoder->base.dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(encoder->base.dev);
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(&encoder->base);
 	enum port port;
 
 	DRM_DEBUG_KMS("\n");
 	for_each_dsi_port(port, intel_dsi->ports) {
 		/* Common bit for both MIPI Port A & MIPI Port C on VLV/CHV */
-		i915_reg_t port_ctrl = IS_BROXTON(dev) ?
+		i915_reg_t port_ctrl = IS_BROXTON(dev_priv) ?
 			BXT_MIPI_PORT_CTRL(port) : MIPI_PORT_CTRL(PORT_A);
 		u32 val;
 
@@ -666,9 +671,11 @@ static void intel_dsi_clear_device_ready(struct intel_encoder *encoder)
 	intel_disable_dsi_pll(encoder);
 }
 
-static void intel_dsi_post_disable(struct intel_encoder *encoder)
+static void intel_dsi_post_disable(struct intel_encoder *encoder,
+				   struct intel_crtc_state *pipe_config,
+				   struct drm_connector_state *conn_state)
 {
-	struct drm_i915_private *dev_priv = encoder->base.dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(encoder->base.dev);
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(&encoder->base);
 
 	DRM_DEBUG_KMS("\n");
@@ -677,7 +684,7 @@ static void intel_dsi_post_disable(struct intel_encoder *encoder)
 
 	intel_dsi_clear_device_ready(encoder);
 
-	if (!IS_BROXTON(dev_priv)) {
+	if (IS_VALLEYVIEW(dev_priv) || IS_CHERRYVIEW(dev_priv)) {
 		u32 val;
 
 		val = I915_READ(DSPCLK_GATE_D);
@@ -703,9 +710,8 @@ static void intel_dsi_post_disable(struct intel_encoder *encoder)
 static bool intel_dsi_get_hw_state(struct intel_encoder *encoder,
 				   enum pipe *pipe)
 {
-	struct drm_i915_private *dev_priv = encoder->base.dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(encoder->base.dev);
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(&encoder->base);
-	struct drm_device *dev = encoder->base.dev;
 	enum intel_display_power_domain power_domain;
 	enum port port;
 	bool active = false;
@@ -726,7 +732,7 @@ static bool intel_dsi_get_hw_state(struct intel_encoder *encoder,
 
 	/* XXX: this only works for one DSI output */
 	for_each_dsi_port(port, intel_dsi->ports) {
-		i915_reg_t ctrl_reg = IS_BROXTON(dev) ?
+		i915_reg_t ctrl_reg = IS_BROXTON(dev_priv) ?
 			BXT_MIPI_PORT_CTRL(port) : MIPI_PORT_CTRL(port);
 		bool enabled = I915_READ(ctrl_reg) & DPI_ENABLE;
 
@@ -735,7 +741,8 @@ static bool intel_dsi_get_hw_state(struct intel_encoder *encoder,
 		 * bit in port C control register does not get set. As a
 		 * workaround, check pipe B conf instead.
 		 */
-		if ((IS_VALLEYVIEW(dev) || IS_CHERRYVIEW(dev)) && port == PORT_C)
+		if ((IS_VALLEYVIEW(dev_priv) || IS_CHERRYVIEW(dev_priv)) &&
+		    port == PORT_C)
 			enabled = I915_READ(PIPECONF(PIPE_B)) & PIPECONF_ENABLE;
 
 		/* Try command mode if video mode not enabled */
@@ -777,7 +784,7 @@ static void bxt_dsi_get_pipe_config(struct intel_encoder *encoder,
 				 struct intel_crtc_state *pipe_config)
 {
 	struct drm_device *dev = encoder->base.dev;
-	struct drm_i915_private *dev_priv = dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(dev);
 	struct drm_display_mode *adjusted_mode =
 					&pipe_config->base.adjusted_mode;
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(&encoder->base);
@@ -832,13 +839,11 @@ static void bxt_dsi_get_pipe_config(struct intel_encoder *encoder,
 static void intel_dsi_get_config(struct intel_encoder *encoder,
 				 struct intel_crtc_state *pipe_config)
 {
-	struct drm_device *dev = encoder->base.dev;
+	struct drm_i915_private *dev_priv = to_i915(encoder->base.dev);
 	u32 pclk;
 	DRM_DEBUG_KMS("\n");
 
-	pipe_config->has_dsi_encoder = true;
-
-	if (IS_BROXTON(dev))
+	if (IS_BROXTON(dev_priv))
 		bxt_dsi_get_pipe_config(encoder, pipe_config);
 
 	pclk = intel_dsi_get_pclk(encoder, pipe_config->pipe_bpp,
@@ -903,7 +908,7 @@ static void set_dsi_timings(struct drm_encoder *encoder,
 			    const struct drm_display_mode *adjusted_mode)
 {
 	struct drm_device *dev = encoder->dev;
-	struct drm_i915_private *dev_priv = dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(dev);
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(encoder);
 	enum port port;
 	unsigned int bpp = mipi_dsi_pixel_format_to_bpp(intel_dsi->pixel_format);
@@ -938,7 +943,7 @@ static void set_dsi_timings(struct drm_encoder *encoder,
 	hbp = txbyteclkhs(hbp, bpp, lane_count, intel_dsi->burst_mode_ratio);
 
 	for_each_dsi_port(port, intel_dsi->ports) {
-		if (IS_BROXTON(dev)) {
+		if (IS_BROXTON(dev_priv)) {
 			/*
 			 * Program hdisplay and vdisplay on MIPI transcoder.
 			 * This is different from calculated hactive and
@@ -989,7 +994,7 @@ static void intel_dsi_prepare(struct intel_encoder *intel_encoder)
 {
 	struct drm_encoder *encoder = &intel_encoder->base;
 	struct drm_device *dev = encoder->dev;
-	struct drm_i915_private *dev_priv = dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(dev);
 	struct intel_crtc *intel_crtc = to_intel_crtc(encoder->crtc);
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(encoder);
 	const struct drm_display_mode *adjusted_mode = &intel_crtc->config->base.adjusted_mode;
@@ -1009,7 +1014,7 @@ static void intel_dsi_prepare(struct intel_encoder *intel_encoder)
 	}
 
 	for_each_dsi_port(port, intel_dsi->ports) {
-		if (IS_VALLEYVIEW(dev) || IS_CHERRYVIEW(dev)) {
+		if (IS_VALLEYVIEW(dev_priv) || IS_CHERRYVIEW(dev_priv)) {
 			/*
 			 * escape clock divider, 20MHz, shared for A and C.
 			 * device ready must be off when doing this! txclkesc?
@@ -1024,7 +1029,7 @@ static void intel_dsi_prepare(struct intel_encoder *intel_encoder)
 			tmp &= ~READ_REQUEST_PRIORITY_MASK;
 			I915_WRITE(MIPI_CTRL(port), tmp |
 					READ_REQUEST_PRIORITY_HIGH);
-		} else if (IS_BROXTON(dev)) {
+		} else if (IS_BROXTON(dev_priv)) {
 			enum pipe pipe = intel_crtc->pipe;
 
 			tmp = I915_READ(MIPI_CTRL(port));
@@ -1107,7 +1112,7 @@ static void intel_dsi_prepare(struct intel_encoder *intel_encoder)
 		I915_WRITE(MIPI_INIT_COUNT(port),
 				txclkesc(intel_dsi->escape_clk_div, 100));
 
-		if (IS_BROXTON(dev) && (!intel_dsi->dual_link)) {
+		if (IS_BROXTON(dev_priv) && (!intel_dsi->dual_link)) {
 			/*
 			 * BXT spec says write MIPI_INIT_COUNT for
 			 * both the ports, even if only one is
@@ -1211,7 +1216,7 @@ static int intel_dsi_set_property(struct drm_connector *connector,
 			DRM_DEBUG_KMS("no scaling not supported\n");
 			return -EINVAL;
 		}
-		if (HAS_GMCH_DISPLAY(dev) &&
+		if (HAS_GMCH_DISPLAY(to_i915(dev)) &&
 		    val == DRM_MODE_SCALE_CENTER) {
 			DRM_DEBUG_KMS("centering not supported\n");
 			return -EINVAL;
@@ -1269,12 +1274,13 @@ static const struct drm_encoder_funcs intel_dsi_funcs = {
 static const struct drm_connector_helper_funcs intel_dsi_connector_helper_funcs = {
 	.get_modes = intel_dsi_get_modes,
 	.mode_valid = intel_dsi_mode_valid,
-	.best_encoder = intel_best_encoder,
 };
 
 static const struct drm_connector_funcs intel_dsi_connector_funcs = {
 	.dpms = drm_atomic_helper_connector_dpms,
 	.detect = intel_dsi_detect,
+	.late_register = intel_connector_register,
+	.early_unregister = intel_connector_unregister,
 	.destroy = intel_dsi_connector_destroy,
 	.fill_modes = drm_helper_probe_single_connector_modes,
 	.set_property = intel_dsi_set_property,
@@ -1296,15 +1302,15 @@ static void intel_dsi_add_properties(struct intel_connector *connector)
 	}
 }
 
-void intel_dsi_init(struct drm_device *dev)
+void intel_dsi_init(struct drm_i915_private *dev_priv)
 {
+	struct drm_device *dev = &dev_priv->drm;
 	struct intel_dsi *intel_dsi;
 	struct intel_encoder *intel_encoder;
 	struct drm_encoder *encoder;
 	struct intel_connector *intel_connector;
 	struct drm_connector *connector;
 	struct drm_display_mode *scan, *fixed_mode = NULL;
-	struct drm_i915_private *dev_priv = dev->dev_private;
 	enum port port;
 	unsigned int i;
 
@@ -1314,9 +1320,9 @@ void intel_dsi_init(struct drm_device *dev)
 	if (!intel_bios_is_dsi_present(dev_priv, &port))
 		return;
 
-	if (IS_VALLEYVIEW(dev) || IS_CHERRYVIEW(dev)) {
+	if (IS_VALLEYVIEW(dev_priv) || IS_CHERRYVIEW(dev_priv)) {
 		dev_priv->mipi_mmio_base = VLV_MIPI_BASE;
-	} else if (IS_BROXTON(dev)) {
+	} else if (IS_BROXTON(dev_priv)) {
 		dev_priv->mipi_mmio_base = BXT_MIPI_BASE;
 	} else {
 		DRM_ERROR("Unsupported Mipi device to reg base");
@@ -1340,7 +1346,7 @@ void intel_dsi_init(struct drm_device *dev)
 	connector = &intel_connector->base;
 
 	drm_encoder_init(dev, encoder, &intel_dsi_funcs, DRM_MODE_ENCODER_DSI,
-			 NULL);
+			 "DSI %c", port_name(port));
 
 	intel_encoder->compute_config = intel_dsi_compute_config;
 	intel_encoder->pre_enable = intel_dsi_pre_enable;
@@ -1351,8 +1357,8 @@ void intel_dsi_init(struct drm_device *dev)
 	intel_encoder->get_config = intel_dsi_get_config;
 
 	intel_connector->get_hw_state = intel_connector_get_hw_state;
-	intel_connector->unregister = intel_connector_unregister;
 
+	intel_encoder->port = port;
 	/*
 	 * On BYT/CHV, pipe A maps to MIPI DSI port A, pipe B maps to MIPI DSI
 	 * port C. BXT isn't limited like this.
@@ -1437,12 +1443,9 @@ void intel_dsi_init(struct drm_device *dev)
 	}
 
 	intel_panel_init(&intel_connector->panel, fixed_mode, NULL);
+	intel_panel_setup_backlight(connector, INVALID_PIPE);
 
 	intel_dsi_add_properties(intel_connector);
-
-	drm_connector_register(connector);
-
-	intel_panel_setup_backlight(connector, INVALID_PIPE);
 
 	return;
 

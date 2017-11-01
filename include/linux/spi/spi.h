@@ -25,6 +25,7 @@
 struct dma_chan;
 struct spi_master;
 struct spi_transfer;
+struct spi_flash_read_message;
 
 /*
  * INTERFACES between SPI master-side drivers and SPI infrastructure.
@@ -303,8 +304,11 @@ static inline void spi_unregister_driver(struct spi_driver *sdrv)
  * @min_speed_hz: Lowest supported transfer speed
  * @max_speed_hz: Highest supported transfer speed
  * @flags: other constraints relevant to this driver
+ * @max_transfer_size: function that returns the max transfer size for
+ *	a &spi_device; may be %NULL, so the default %SIZE_MAX will be used.
+ * @io_mutex: mutex for physical bus access
  * @bus_lock_spinlock: spinlock for SPI bus locking
- * @bus_lock_mutex: mutex for SPI bus locking
+ * @bus_lock_mutex: mutex for exclusion of multiple callers
  * @bus_lock_flag: indicates that the SPI bus is locked for exclusive use
  * @setup: updates the device mode and clocking records used by a
  *	device's SPI controller; protocol code may call this.  This
@@ -361,6 +365,9 @@ static inline void spi_unregister_driver(struct spi_driver *sdrv)
  * @handle_err: the subsystem calls the driver to handle an error that occurs
  *		in the generic implementation of transfer_one_message().
  * @unprepare_message: undo any work done by prepare_message().
+ * @spi_flash_read: to support spi-controller hardwares that provide
+ *                  accelerated interface to read from flash devices.
+ * @flash_read_supported: spi device supports flash read
  * @cs_gpios: Array of GPIOs to use as chip select lines; one per CS
  *	number. Any individual value may be -ENOENT for CS lines that
  *	are not GPIOs (driven by the SPI controller itself).
@@ -424,6 +431,16 @@ struct spi_master {
 #define SPI_MASTER_NO_TX	BIT(2)		/* can't do buffer write */
 #define SPI_MASTER_MUST_RX      BIT(3)		/* requires rx */
 #define SPI_MASTER_MUST_TX      BIT(4)		/* requires tx */
+#define SPI_MASTER_GPIO_SS      BIT(5)		/* GPIO CS must select slave */
+
+	/*
+	 * on some hardware transfer size may be constrained
+	 * the limit may depend on device transfer settings
+	 */
+	size_t (*max_transfer_size)(struct spi_device *spi);
+
+	/* I/O mutex */
+	struct mutex		io_mutex;
 
 	/* lock and mutex for SPI bus locking */
 	spinlock_t		bus_lock_spinlock;
@@ -507,6 +524,9 @@ struct spi_master {
 			       struct spi_message *message);
 	int (*unprepare_message)(struct spi_master *master,
 				 struct spi_message *message);
+	int (*spi_flash_read)(struct  spi_device *spi,
+			      struct spi_flash_read_message *msg);
+	bool (*flash_read_supported)(struct spi_device *spi);
 
 	/*
 	 * These hooks are for drivers that use a generic implementation
@@ -832,6 +852,15 @@ extern int spi_async(struct spi_device *spi, struct spi_message *message);
 extern int spi_async_locked(struct spi_device *spi,
 			    struct spi_message *message);
 
+static inline size_t
+spi_max_transfer_size(struct spi_device *spi)
+{
+	struct spi_master *master = spi->master;
+	if (!master->max_transfer_size)
+		return SIZE_MAX;
+	return master->max_transfer_size(spi);
+}
+
 /*---------------------------------------------------------------------------*/
 
 /* All these synchronous SPI transfer routines are utilities layered
@@ -998,6 +1027,48 @@ static inline ssize_t spi_w8r16be(struct spi_device *spi, u8 cmd)
 
 	return be16_to_cpu(result);
 }
+
+/**
+ * struct spi_flash_read_message - flash specific information for
+ * spi-masters that provide accelerated flash read interfaces
+ * @buf: buffer to read data
+ * @from: offset within the flash from where data is to be read
+ * @len: length of data to be read
+ * @retlen: actual length of data read
+ * @read_opcode: read_opcode to be used to communicate with flash
+ * @addr_width: number of address bytes
+ * @dummy_bytes: number of dummy bytes
+ * @opcode_nbits: number of lines to send opcode
+ * @addr_nbits: number of lines to send address
+ * @data_nbits: number of lines for data
+ * @rx_sg: Scatterlist for receive data read from flash
+ * @cur_msg_mapped: message has been mapped for DMA
+ */
+struct spi_flash_read_message {
+	void *buf;
+	loff_t from;
+	size_t len;
+	size_t retlen;
+	u8 read_opcode;
+	u8 addr_width;
+	u8 dummy_bytes;
+	u8 opcode_nbits;
+	u8 addr_nbits;
+	u8 data_nbits;
+	struct sg_table rx_sg;
+	bool cur_msg_mapped;
+};
+
+/* SPI core interface for flash read support */
+static inline bool spi_flash_read_supported(struct spi_device *spi)
+{
+	return spi->master->spi_flash_read &&
+	       (!spi->master->flash_read_supported ||
+	       spi->master->flash_read_supported(spi));
+}
+
+int spi_flash_read(struct spi_device *spi,
+		   struct spi_flash_read_message *msg);
 
 /*---------------------------------------------------------------------------*/
 

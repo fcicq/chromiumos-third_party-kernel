@@ -199,13 +199,14 @@ static bool sane_reclaim(struct scan_control *sc)
 
 static unsigned long zone_reclaimable_pages(struct zone *zone)
 {
-	unsigned long pages_min;
+	u64 pages_min = min_filelist_kbytes >> (PAGE_SHIFT - 10);
 	unsigned long nr;
 
 	nr = zone_page_state(zone, NR_ACTIVE_FILE) +
 	     zone_page_state(zone, NR_INACTIVE_FILE);
 
-	pages_min = min_filelist_kbytes >> (PAGE_SHIFT - 10);
+	pages_min *= zone->managed_pages;
+	do_div(pages_min, totalram_pages);
 	if (nr < pages_min)
 		nr = 0;
 
@@ -1953,13 +1954,16 @@ static bool inactive_list_is_low(struct lruvec *lruvec, enum lru_list lru)
  */
 static int file_is_low(struct lruvec *lruvec)
 {
-	unsigned long pages_min, active, inactive;
+	unsigned long active, inactive;
 	struct zone *zone = lruvec_zone(lruvec);
+	u64 pages_min = min_filelist_kbytes >> (PAGE_SHIFT - 10);
 
 	if (!mem_cgroup_disabled())
 		return false;
 
-	pages_min = min_filelist_kbytes >> (PAGE_SHIFT - 10);
+	pages_min *= zone->managed_pages;
+	do_div(pages_min, totalram_pages);
+
 	active = zone_page_state(zone, NR_ACTIVE_FILE);
 	inactive = zone_page_state(zone, NR_INACTIVE_FILE);
 
@@ -1969,11 +1973,6 @@ static int file_is_low(struct lruvec *lruvec)
 static unsigned long shrink_list(enum lru_list lru, unsigned long nr_to_scan,
 				 struct lruvec *lruvec, struct scan_control *sc)
 {
-	int file = is_file_lru(lru);
-
-	if (file && file_is_low(lruvec))
-		return 0;
-
 	if (is_active_lru(lru)) {
 		if (inactive_list_is_low(lruvec, lru))
 			shrink_active_list(nr_to_scan, lruvec, sc, lru);
@@ -2034,6 +2033,12 @@ static void get_scan_count(struct lruvec *lruvec, int swappiness,
 	}
 	if (!global_reclaim(sc))
 		force_scan = true;
+
+	/* do not scan file pages when file page count is low */
+	if (file_is_low(lruvec)) {
+		scan_balance = SCAN_ANON;
+		goto out;
+	}
 
 	/* If we have no swap space, do not bother scanning anon pages. */
 	if (!sc->may_swap || (get_nr_swap_pages() <= 0)) {
@@ -2562,7 +2567,7 @@ static bool shrink_zones(struct zonelist *zonelist, struct scan_control *sc)
 		if (!populated_zone(zone))
 			continue;
 
-		classzone_idx = requested_highidx;
+		classzone_idx = gfp_zone(sc->gfp_mask);
 		while (!populated_zone(zone->zone_pgdat->node_zones +
 							classzone_idx))
 			classzone_idx--;

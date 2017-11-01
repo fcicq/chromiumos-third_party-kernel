@@ -16,6 +16,7 @@
 #define __SOC_RK3399_DMC_H
 
 #include <linux/devfreq.h>
+#include <linux/kthread.h>
 #include <linux/notifier.h>
 #include <linux/workqueue.h>
 
@@ -47,8 +48,15 @@ struct rk3399_dmcfreq {
 	unsigned long volt;
 	struct delayed_work throttle_work;
 	unsigned int target_load;
+	unsigned int boosted_target_load;
 	unsigned int hysteresis;
 	unsigned int down_throttle_ms;
+	struct task_struct *boost_thread;
+	wait_queue_head_t boost_thread_wq;
+	struct notifier_block cpufreq_policy_nb;
+	struct notifier_block cpufreq_trans_nb;
+	struct notifier_block cpu_hotplug_nb;
+	bool was_boosted;
 };
 
 #if IS_ENABLED(CONFIG_ARM_RK3399_DMC_DEVFREQ)
@@ -58,7 +66,8 @@ int rockchip_dmcfreq_unregister_clk_sync_nb(struct devfreq *devfreq,
 					  struct notifier_block *nb);
 int rockchip_dmcfreq_block(struct devfreq *devfreq);
 int rockchip_dmcfreq_unblock(struct devfreq *devfreq);
-int pd_register_notify_to_dmc(struct devfreq *devfreq);
+int pd_register_dmc_nb(struct devfreq *devfreq);
+int pd_unregister_dmc_nb(struct devfreq *devfreq);
 #else
 static inline int rockchip_dmcfreq_register_clk_sync_nb(struct devfreq *devfreq,
 		struct notifier_block *nb) { return 0; }
@@ -68,7 +77,7 @@ static inline int rockchip_dmcfreq_unregister_clk_sync_nb(
 static inline int rockchip_dmcfreq_block(struct devfreq *devfreq) { return 0; }
 static inline int rockchip_dmcfreq_unblock(struct devfreq *devfreq)
 { return 0; }
-static inline int pd_register_notify_to_dmc(struct devfreq *devfreq)
-{ return 0; }
+static inline int pd_register_dmc_nb(struct devfreq *devfreq) { return 0; }
+static inline int pd_unregister_dmc_nb(struct devfreq *devfreq) { return 0; }
 #endif
 #endif

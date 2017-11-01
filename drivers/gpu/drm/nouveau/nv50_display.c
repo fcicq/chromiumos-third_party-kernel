@@ -701,7 +701,7 @@ nv50_crtc_set_dither(struct nouveau_crtc *nv_crtc, bool update)
 	nv_connector = nouveau_crtc_connector_get(nv_crtc);
 	connector = &nv_connector->base;
 	if (nv_connector->dithering_mode == DITHERING_MODE_AUTO) {
-		if (nv_crtc->base.primary->fb->depth > connector->display_info.bpc * 3)
+		if (nv_crtc->base.primary->fb->format->depth > connector->display_info.bpc * 3)
 			mode = DITHERING_MODE_DYNAMIC2X2;
 	} else {
 		mode = nv_connector->dithering_mode;
@@ -1299,7 +1299,6 @@ nv50_crtc_cursor_set(struct drm_crtc *crtc, struct drm_file *file_priv,
 		     uint32_t handle, uint32_t width, uint32_t height)
 {
 	struct nouveau_crtc *nv_crtc = nouveau_crtc(crtc);
-	struct drm_device *dev = crtc->dev;
 	struct drm_gem_object *gem = NULL;
 	struct nouveau_bo *nvbo = NULL;
 	int ret = 0;
@@ -1308,7 +1307,7 @@ nv50_crtc_cursor_set(struct drm_crtc *crtc, struct drm_file *file_priv,
 		if (width != 64 || height != 64)
 			return -EINVAL;
 
-		gem = drm_gem_object_lookup(dev, file_priv, handle);
+		gem = drm_gem_object_lookup(file_priv, handle);
 		if (unlikely(!gem))
 			return -ENOENT;
 		nvbo = nouveau_gem_object(gem);
@@ -1341,21 +1340,22 @@ nv50_crtc_cursor_move(struct drm_crtc *crtc, int x, int y)
 	return 0;
 }
 
-static void
+static int
 nv50_crtc_gamma_set(struct drm_crtc *crtc, u16 *r, u16 *g, u16 *b,
-		    uint32_t start, uint32_t size)
+		    uint32_t size)
 {
 	struct nouveau_crtc *nv_crtc = nouveau_crtc(crtc);
-	u32 end = min_t(u32, start + size, 256);
 	u32 i;
 
-	for (i = start; i < end; i++) {
+	for (i = 0; i < size; i++) {
 		nv_crtc->lut.r[i] = r[i];
 		nv_crtc->lut.g[i] = g[i];
 		nv_crtc->lut.b[i] = b[i];
 	}
 
 	nv50_crtc_lut_load(crtc);
+
+	return 0;
 }
 
 static void
@@ -2419,7 +2419,7 @@ nv50_fb_ctor(struct drm_framebuffer *fb)
 	if (drm->device.info.chipset >= 0xc0)
 		tile >>= 4; /* yep.. */
 
-	switch (fb->depth) {
+	switch (fb->format->depth) {
 	case  8: nv_fb->r_format = 0x1e00; break;
 	case 15: nv_fb->r_format = 0xe900; break;
 	case 16: nv_fb->r_format = 0xe800; break;
@@ -2427,7 +2427,7 @@ nv50_fb_ctor(struct drm_framebuffer *fb)
 	case 32: nv_fb->r_format = 0xcf00; break;
 	case 30: nv_fb->r_format = 0xd100; break;
 	default:
-		 NV_ERROR(drm, "unknown depth %d\n", fb->depth);
+		 NV_ERROR(drm, "unknown depth %d\n", fb->format->depth);
 		 return -EINVAL;
 	}
 

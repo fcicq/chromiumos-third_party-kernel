@@ -55,7 +55,7 @@ void nilfs_inode_add_blocks(struct inode *inode, int n)
 {
 	struct nilfs_root *root = NILFS_I(inode)->i_root;
 
-	inode_add_bytes(inode, (1 << inode->i_blkbits) * n);
+	inode_add_bytes(inode, i_blocksize(inode) * n);
 	if (root)
 		atomic64_add(n, &root->blocks_count);
 }
@@ -64,7 +64,7 @@ void nilfs_inode_sub_blocks(struct inode *inode, int n)
 {
 	struct nilfs_root *root = NILFS_I(inode)->i_root;
 
-	inode_sub_bytes(inode, (1 << inode->i_blkbits) * n);
+	inode_sub_bytes(inode, i_blocksize(inode) * n);
 	if (root)
 		atomic64_sub(n, &root->blocks_count);
 }
@@ -510,6 +510,7 @@ static int __nilfs_read_inode(struct super_block *sb,
 		inode->i_mapping->a_ops = &nilfs_aops;
 	} else if (S_ISLNK(inode->i_mode)) {
 		inode->i_op = &nilfs_symlink_inode_operations;
+		inode_nohighmem(inode);
 		inode->i_mapping->a_ops = &nilfs_aops;
 	} else {
 		inode->i_op = &nilfs_special_inode_operations;

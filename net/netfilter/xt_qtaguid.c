@@ -1075,8 +1075,8 @@ static void iface_stat_create(struct net_device *net_dev,
 			IF_DEBUG("qtaguid: iface_stat: create(%s): "
 				 "ifa=%p ifa_label=%s\n",
 				 ifname, ifa,
-				 ifa->ifa_label ? ifa->ifa_label : "(null)");
-			if (ifa->ifa_label && !strcmp(ifname, ifa->ifa_label))
+				 ifa->ifa_label);
+			if (!strcmp(ifname, ifa->ifa_label))
 				break;
 		}
 	}
@@ -1320,10 +1320,6 @@ static void iface_stat_update_from_skb(const struct net *net,
 
 	if (unlikely(!el_dev)) {
 		pr_err_ratelimited("qtaguid[%d]: %s(): no par->in/out?!!\n",
-				   par->hooknum, __func__);
-		BUG();
-	} else if (unlikely(!el_dev->name)) {
-		pr_err_ratelimited("qtaguid[%d]: %s(): no dev->name?!!\n",
 				   par->hooknum, __func__);
 		BUG();
 	} else {
@@ -1709,8 +1705,6 @@ static void account_for_uid(const struct sk_buff *skb,
 
 	if (unlikely(!el_dev)) {
 		pr_info("qtaguid[%d]: no par->in/out?!!\n", par->hooknum);
-	} else if (unlikely(!el_dev->name)) {
-		pr_info("qtaguid[%d]: no dev->name?!!\n", par->hooknum);
 	} else {
 		int proto = ipx_proto(skb, par);
 		MT_DEBUG("qtaguid[%d]: dev name=%s type=%d fam=%d proto=%d\n",
@@ -3236,6 +3230,7 @@ static void __net_exit qtaguid_net_exit(struct net *net)
 				 &qtaguid_net->iface_stat_list, list) {
 		iface_delete_proc(qtaguid_net, iface_entry);
 		tag_stat_tree_erase(&iface_entry->tag_stat_tree);
+		kfree(iface_entry->ifname);
 		kfree(iface_entry);
 	}
 

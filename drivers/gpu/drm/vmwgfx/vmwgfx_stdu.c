@@ -523,7 +523,7 @@ static int vmw_stdu_crtc_set_config(struct drm_mode_set *set)
 		 */
 		if (stdu->content_fb_type == SEPARATE_DMA) {
 
-			switch (new_fb->bits_per_pixel) {
+			switch (new_fb->format->cpp[0] * 8) {
 			case 32:
 				content_srf.format = SVGA3D_X8R8G8B8;
 				break;
@@ -1041,8 +1041,6 @@ out_finish:
  *  Screen Target CRTC dispatch table
  */
 static struct drm_crtc_funcs vmw_stdu_crtc_funcs = {
-	.save = vmw_du_crtc_save,
-	.restore = vmw_du_crtc_restore,
 	.cursor_set2 = vmw_du_crtc_cursor_set2,
 	.cursor_move = vmw_du_crtc_cursor_move,
 	.gamma_set = vmw_du_crtc_gamma_set,
@@ -1101,8 +1099,6 @@ static void vmw_stdu_connector_destroy(struct drm_connector *connector)
 
 static struct drm_connector_funcs vmw_stdu_connector_funcs = {
 	.dpms = vmw_du_connector_dpms,
-	.save = vmw_du_connector_save,
-	.restore = vmw_du_connector_restore,
 	.detect = vmw_du_connector_detect,
 	.fill_modes = vmw_du_connector_fill_modes,
 	.set_property = vmw_du_connector_set_property,

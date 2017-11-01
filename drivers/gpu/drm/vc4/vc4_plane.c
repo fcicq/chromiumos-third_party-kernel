@@ -150,7 +150,7 @@ static int vc4_plane_mode_set(struct drm_plane *plane,
 	struct drm_framebuffer *fb = state->fb;
 	struct drm_gem_cma_object *bo = drm_fb_cma_get_gem_obj(fb, 0);
 	u32 ctl0_offset = vc4_state->dlist_count;
-	const struct hvs_format *format = vc4_get_hvs_format(fb->pixel_format);
+	const struct hvs_format *format = vc4_get_hvs_format(fb->format->format);
 	uint32_t offset = fb->offsets[0];
 	int crtc_x = state->crtc_x;
 	int crtc_y = state->crtc_y;
@@ -168,7 +168,7 @@ static int vc4_plane_mode_set(struct drm_plane *plane,
 	}
 
 	if (crtc_x < 0) {
-		offset += drm_format_plane_cpp(fb->pixel_format, 0) * -crtc_x;
+		offset += drm_format_plane_cpp(fb->format->format, 0) * -crtc_x;
 		crtc_w += crtc_x;
 		crtc_x = 0;
 	}
@@ -265,9 +265,10 @@ u32 vc4_plane_write_dlist(struct drm_plane *plane, u32 __iomem *dlist)
 	return vc4_state->dlist_count;
 }
 
-u32 vc4_plane_dlist_size(struct drm_plane_state *state)
+u32 vc4_plane_dlist_size(const struct drm_plane_state *state)
 {
-	struct vc4_plane_state *vc4_state = to_vc4_plane_state(state);
+	const struct vc4_plane_state *vc4_state =
+		container_of(state, typeof(*vc4_state), base);
 
 	return vc4_state->dlist_count;
 }

@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2012 Red Hat
- * Copyright (c) 2015 - 2016 DisplayLink (UK) Ltd.
+ * Copyright (c) 2015 - 2017 DisplayLink (UK) Ltd.
  *
  * Based on parts on udlfb.c:
  * Copyright (C) 2009 its respective authors
@@ -14,11 +14,13 @@
 #include <drm/drm_crtc.h>
 #include <drm/drm_edid.h>
 #include <drm/drm_crtc_helper.h>
+#include <drm/drm_atomic_helper.h>
 #include "evdi_drv.h"
 
-/* dummy connector to just get EDID,
-*  all EVDI appear to have a DVI-D
-*/
+/*
+ * dummy connector to just get EDID,
+ * all EVDI appear to have a DVI-D
+ */
 
 static int evdi_get_modes(struct drm_connector *connector)
 {
@@ -53,7 +55,8 @@ static int evdi_mode_valid(struct drm_connector *connector,
 		return MODE_OK;
 
 	if (mode_area > evdi->sku_area_limit) {
-		EVDI_WARN("Mode %dx%d@%d rejected\n",
+		EVDI_WARN("(dev=%d) Mode %dx%d@%d rejected\n",
+			evdi->dev_index,
 			mode->hdisplay,
 			mode->vdisplay,
 			drm_mode_vrefresh(mode));
@@ -64,7 +67,7 @@ static int evdi_mode_valid(struct drm_connector *connector,
 }
 
 static enum drm_connector_status
-evdi_detect(struct drm_connector *connector, bool force)
+evdi_detect(struct drm_connector *connector, __always_unused bool force)
 {
 	struct evdi_device *evdi = connector->dev->dev_private;
 
@@ -73,32 +76,8 @@ evdi_detect(struct drm_connector *connector, bool force)
 		EVDI_DEBUG("(dev=%d) Painter is connected\n", evdi->dev_index);
 		return connector_status_connected;
 	}
-	EVDI_DEBUG("Painter is disconnected\n");
+	EVDI_DEBUG("(dev=%d) Painter is disconnected\n", evdi->dev_index);
 	return connector_status_disconnected;
-}
-
-static struct drm_encoder *evdi_best_single_encoder(struct drm_connector
-						    *connector)
-{
-	int enc_id = connector->encoder_ids[0];
-	struct drm_mode_object *obj;
-	struct drm_encoder *encoder;
-
-	obj =
-	    drm_mode_object_find(connector->dev, enc_id,
-				 DRM_MODE_OBJECT_ENCODER);
-	if (!obj)
-		return NULL;
-
-	encoder = obj_to_encoder(obj);
-	return encoder;
-}
-
-static int evdi_connector_set_property(struct drm_connector *connector,
-				       struct drm_property *property,
-				       uint64_t val)
-{
-	return 0;
 }
 
 static void evdi_connector_destroy(struct drm_connector *connector)
@@ -108,18 +87,26 @@ static void evdi_connector_destroy(struct drm_connector *connector)
 	kfree(connector);
 }
 
+static struct drm_encoder *evdi_best_encoder(struct drm_connector *connector)
+{
+	return drm_encoder_find(connector->dev, connector->encoder_ids[0]);
+}
+
 static struct drm_connector_helper_funcs evdi_connector_helper_funcs = {
 	.get_modes = evdi_get_modes,
 	.mode_valid = evdi_mode_valid,
-	.best_encoder = evdi_best_single_encoder,
+	.best_encoder = evdi_best_encoder
 };
 
-static struct drm_connector_funcs evdi_connector_funcs = {
-	.dpms = drm_helper_connector_dpms,
+static const struct drm_connector_funcs evdi_connector_funcs = {
+	.dpms = drm_atomic_helper_connector_dpms,
 	.detect = evdi_detect,
 	.fill_modes = drm_helper_probe_single_connector_modes,
 	.destroy = evdi_connector_destroy,
-	.set_property = evdi_connector_set_property,
+	.set_property = drm_atomic_helper_connector_set_property,
+	.reset = drm_atomic_helper_connector_reset,
+	.atomic_duplicate_state = drm_atomic_helper_connector_duplicate_state,
+	.atomic_destroy_state = drm_atomic_helper_connector_destroy_state
 };
 
 int evdi_connector_init(struct drm_device *dev, struct drm_encoder *encoder)
@@ -141,5 +128,6 @@ int evdi_connector_init(struct drm_device *dev, struct drm_encoder *encoder)
 
 	drm_object_attach_property(&connector->base,
 				   dev->mode_config.dirty_info_property, 1);
+
 	return 0;
 }

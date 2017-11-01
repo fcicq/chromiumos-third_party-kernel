@@ -22,42 +22,17 @@ static void evdi_enc_destroy(struct drm_encoder *encoder)
 	kfree(encoder);
 }
 
+static void evdi_encoder_enable(struct drm_encoder *encoder)
+{
+}
+
 static void evdi_encoder_disable(struct drm_encoder *encoder)
 {
 }
 
-static bool evdi_mode_fixup(struct drm_encoder *encoder,
-			    const struct drm_display_mode *mode,
-			    struct drm_display_mode *adjusted_mode)
-{
-	return true;
-}
-
-static void evdi_encoder_prepare(struct drm_encoder *encoder)
-{
-}
-
-static void evdi_encoder_commit(struct drm_encoder *encoder)
-{
-}
-
-static void evdi_encoder_mode_set(struct drm_encoder *encoder,
-				  struct drm_display_mode *mode,
-				  struct drm_display_mode *adjusted_mode)
-{
-}
-
-static void evdi_encoder_dpms(struct drm_encoder *encoder, int mode)
-{
-}
-
-static const struct drm_encoder_helper_funcs evdi_helper_funcs = {
-	.dpms = evdi_encoder_dpms,
-	.mode_fixup = evdi_mode_fixup,
-	.prepare = evdi_encoder_prepare,
-	.mode_set = evdi_encoder_mode_set,
-	.commit = evdi_encoder_commit,
-	.disable = evdi_encoder_disable,
+static const struct drm_encoder_helper_funcs evdi_enc_helper_funcs = {
+	.enable = evdi_encoder_enable,
+	.disable = evdi_encoder_disable
 };
 
 static const struct drm_encoder_funcs evdi_enc_funcs = {
@@ -79,7 +54,9 @@ struct drm_encoder *evdi_encoder_init(struct drm_device *dev)
 		EVDI_ERROR("Failed to initialize encoder: %d\n", ret);
 		goto err_encoder;
 	}
-	drm_encoder_helper_add(encoder, &evdi_helper_funcs);
+
+	drm_encoder_helper_add(encoder, &evdi_enc_helper_funcs);
+
 	encoder->possible_crtcs = 1;
 	return encoder;
 

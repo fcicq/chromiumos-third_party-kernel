@@ -706,18 +706,33 @@ static int dwc3_core_init(struct dwc3 *dwc)
 		break;
 	}
 
+	if (dwc->revision >= DWC3_REVISION_250A) {
+		reg = dwc3_readl(dwc->regs, DWC3_GUCTL1);
+
+		/*
+		 * Enable hardware control of sending remote wakeup
+		 * in HS when the device is in the L1 state.
+		 */
+		if (dwc->revision >= DWC3_REVISION_290A)
+			reg |= DWC3_GUCTL1_DEV_L1_EXIT_BY_HW;
+
+		if (dwc->dis_tx_ipgap_linecheck_quirk)
+			reg |= DWC3_GUCTL1_TX_IPGAP_LINECHECK_DIS;
+
+		dwc3_writel(dwc->regs, DWC3_GUCTL1, reg);
+	}
+
 	return 0;
 
 err4:
-	phy_power_off(dwc->usb2_generic_phy);
+	phy_power_off(dwc->usb3_generic_phy);
 
 err3:
-	phy_power_off(dwc->usb3_generic_phy);
+	phy_power_off(dwc->usb2_generic_phy);
 
 err2:
 	usb_phy_set_suspend(dwc->usb2_phy, 1);
 	usb_phy_set_suspend(dwc->usb3_phy, 1);
-	dwc3_core_exit(dwc);
 
 err1:
 	usb_phy_shutdown(dwc->usb2_phy);
@@ -974,6 +989,8 @@ static int dwc3_probe(struct platform_device *pdev)
 				"snps,dis_u2_freeclk_exists_quirk");
 	dwc->dis_del_phy_power_chg_quirk = device_property_read_bool(dev,
 				"snps,dis_del_phy_power_chg_quirk");
+	dwc->dis_tx_ipgap_linecheck_quirk = device_property_read_bool(dev,
+				"snps,dis-tx-ipgap-linecheck-quirk");
 	dwc->usb3_slow_suspend_quirk = device_property_read_bool(dev,
 				"snps,usb3-slow-suspend-quirk");
 	dwc->usb3_warm_reset_on_resume_quirk = device_property_read_bool(dev,
@@ -1115,6 +1132,8 @@ static int dwc3_probe(struct platform_device *pdev)
 
 	dwc3_debugfs_init(dwc);
 	pm_runtime_put(dev);
+
+	device_enable_async_suspend(dev);
 
 	return 0;
 

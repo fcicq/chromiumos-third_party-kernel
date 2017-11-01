@@ -105,7 +105,7 @@ static int omap_framebuffer_create_handle(struct drm_framebuffer *fb,
 static void omap_framebuffer_destroy(struct drm_framebuffer *fb)
 {
 	struct omap_framebuffer *omap_fb = to_omap_framebuffer(fb);
-	int i, n = drm_format_num_planes(fb->pixel_format);
+	int i, n = fb->format->num_planes;
 
 	DBG("destroy: FB ID: %d (%p)", fb->base.id, fb);
 
@@ -177,24 +177,24 @@ void omap_framebuffer_update_scanout(struct drm_framebuffer *fb,
 					(uint32_t)win->rotation);
 			/* fallthru to default to no rotation */
 		case 0:
-		case BIT(DRM_ROTATE_0):
+		case DRM_ROTATE_0:
 			orient = 0;
 			break;
-		case BIT(DRM_ROTATE_90):
+		case DRM_ROTATE_90:
 			orient = MASK_XY_FLIP | MASK_X_INVERT;
 			break;
-		case BIT(DRM_ROTATE_180):
+		case DRM_ROTATE_180:
 			orient = MASK_X_INVERT | MASK_Y_INVERT;
 			break;
-		case BIT(DRM_ROTATE_270):
+		case DRM_ROTATE_270:
 			orient = MASK_XY_FLIP | MASK_Y_INVERT;
 			break;
 		}
 
-		if (win->rotation & BIT(DRM_REFLECT_X))
+		if (win->rotation & DRM_REFLECT_X)
 			orient ^= MASK_X_INVERT;
 
-		if (win->rotation & BIT(DRM_REFLECT_Y))
+		if (win->rotation & DRM_REFLECT_Y)
 			orient ^= MASK_Y_INVERT;
 
 		/* adjust x,y offset for flip/invert: */
@@ -211,7 +211,7 @@ void omap_framebuffer_update_scanout(struct drm_framebuffer *fb,
 	} else {
 		switch (win->rotation & DRM_ROTATE_MASK) {
 		case 0:
-		case BIT(DRM_ROTATE_0):
+		case DRM_ROTATE_0:
 			/* OK */
 			break;
 
@@ -250,7 +250,7 @@ void omap_framebuffer_update_scanout(struct drm_framebuffer *fb,
 int omap_framebuffer_pin(struct drm_framebuffer *fb)
 {
 	struct omap_framebuffer *omap_fb = to_omap_framebuffer(fb);
-	int ret, i, n = drm_format_num_planes(fb->pixel_format);
+	int ret, i, n = fb->format->num_planes;
 
 	mutex_lock(&omap_fb->lock);
 
@@ -290,7 +290,7 @@ fail:
 void omap_framebuffer_unpin(struct drm_framebuffer *fb)
 {
 	struct omap_framebuffer *omap_fb = to_omap_framebuffer(fb);
-	int i, n = drm_format_num_planes(fb->pixel_format);
+	int i, n = fb->format->num_planes;
 
 	mutex_lock(&omap_fb->lock);
 
@@ -349,10 +349,10 @@ struct drm_connector *omap_framebuffer_get_next_connector(
 void omap_framebuffer_describe(struct drm_framebuffer *fb, struct seq_file *m)
 {
 	struct omap_framebuffer *omap_fb = to_omap_framebuffer(fb);
-	int i, n = drm_format_num_planes(fb->pixel_format);
+	int i, n = fb->format->num_planes;
 
 	seq_printf(m, "fb: %dx%d@%4.4s\n", fb->width, fb->height,
-			(char *)&fb->pixel_format);
+			(char *)&fb->format->format);
 
 	for (i = 0; i < n; i++) {
 		struct plane *plane = &omap_fb->planes[i];
@@ -370,7 +370,7 @@ struct drm_framebuffer *omap_framebuffer_create(struct drm_device *dev,
 	struct drm_framebuffer *fb;
 	int ret;
 
-	ret = objects_lookup(dev, file, mode_cmd->pixel_format,
+	ret = objects_lookup(file, mode_cmd->pixel_format,
 			bos, mode_cmd->handles);
 	if (ret)
 		return ERR_PTR(ret);
@@ -455,7 +455,7 @@ struct drm_framebuffer *omap_framebuffer_init(struct drm_device *dev,
 		plane->paddr  = 0;
 	}
 
-	drm_helper_mode_fill_fb_struct(fb, mode_cmd);
+	drm_helper_mode_fill_fb_struct(dev, fb, mode_cmd);
 
 	ret = drm_framebuffer_init(dev, fb, &omap_framebuffer_funcs);
 	if (ret) {

@@ -11,6 +11,7 @@
 
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/regulator/regulator.h>
 #include "mt8173.dtsi"
 
 / {
@@ -109,6 +110,42 @@
 		};
 	};
 
+	panel: panel {
+		compatible = "lg,lp120up1";
+		power-supply = <&panel_fixed_3v3>;
+		ddc-i2c-bus = <&i2c4>;
+		backlight = <&backlight_lcd>;
+
+		port {
+			panel_in: endpoint {
+				remote-endpoint = <&ps8640_out>;
+			};
+		};
+	};
+
+	panel_fixed_3v3: regulator@1 {
+		compatible = "regulator-fixed";
+		regulator-name = "PANEL_3V3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		enable-active-high;
+		gpio = <&pio 41 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&panel_fixed_pins>;
+	};
+
+	ps8640_fixed_1v2: regulator@2 {
+		compatible = "regulator-fixed";
+		regulator-name = "PS8640_1V2";
+		regulator-min-microvolt = <1200000>;
+		regulator-max-microvolt = <1200000>;
+		enable-active-high;
+		regulator-boot-on;
+		gpio = <&pio 30 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&ps8640_fixed_pins>;
+	};
+
 	sdio_fixed_3v3: fixedregulator@0 {
 		compatible = "regulator-fixed";
 		regulator-name = "3V3";
@@ -153,6 +190,35 @@
 };
 
 &dpi0 {
+	status = "okay";
+};
+
+&dsi0 {
+	status = "okay";
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@1 {
+			reg = <1>;
+
+			dsi0_out: endpoint {
+				remote-endpoint = <&ps8640_in>;
+			};
+		};
+	};
+};
+
+&gpu {
+	mfgsys-power-supply = <&da9211_vgpu_reg>;
+	operating-points = <
+		253500 1000000
+		299000 1000000
+		396500 1000000
+		455000 1000000
+		494000 1130000
+		598000 1130000
+	>;
 	status = "okay";
 };
 
@@ -217,6 +283,9 @@
 				regulator-max-microamp  = <4400000>;
 				regulator-ramp-delay = <10000>;
 				regulator-always-on;
+				regulator-supported-modes =
+					<REGULATOR_OPERATION_MODE_FAST
+					 REGULATOR_OPERATION_MODE_NORMAL>;
 			};
 
 			da9211_vgpu_reg: BUCKB {
@@ -287,6 +356,40 @@
 		reg = <0x15>;
 		wakeup-source;
 	};
+
+	ps8640: edp-bridge@18 {
+		compatible = "parade,ps8640";
+		reg = <0x18>;
+		sleep-gpios = <&pio 127 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&pio 115 GPIO_ACTIVE_HIGH>;
+		mode-sel-gpios = <&pio 92 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&ps8640_pins>;
+		vdd12-supply = <&ps8640_fixed_1v2>;
+		vdd33-supply = <&mt6397_vgp2_reg>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@0 {
+			reg = <0>;
+
+			ps8640_in: endpoint {
+				remote-endpoint = <&dsi0_out>;
+			};
+		};
+
+		port@1 {
+			reg = <1>;
+
+			ps8640_out: endpoint {
+				remote-endpoint = <&panel_in>;
+			};
+		};
+	};
+};
+
+&mipi_tx0 {
+	status = "okay";
 };
 
 &mmc0 {
@@ -334,8 +437,10 @@
 	cap-sd-highspeed;
 	sd-uhs-sdr50;
 	sd-uhs-sdr104;
+	sdr104-clk-delay = <5>;
 	keep-power-in-suspend;
 	enable-sdio-wakeup;
+	cap-sdio-irq;
 	vmmc-supply = <&sdio_fixed_3v3>;
 	vqmmc-supply = <&mt6397_vgp3_reg>;
 	non-removable;
@@ -505,21 +610,21 @@
 				 <MT8173_PIN_24_MSDC3_DAT2__FUNC_MSDC3_DAT2>,
 				 <MT8173_PIN_25_MSDC3_DAT3__FUNC_MSDC3_DAT3>;
 			input-enable;
-			drive-strength = <MTK_DRIVE_10mA>;
+			drive-strength = <MTK_DRIVE_8mA>;
 			bias-pull-up = <MTK_PUPD_SET_R1R0_10>;
 		};
 
 		pins_cmd {
 			pinmux = <MT8173_PIN_27_MSDC3_CMD__FUNC_MSDC3_CMD>;
 			input-enable;
-			drive-strength = <MTK_DRIVE_12mA>;
+			drive-strength = <MTK_DRIVE_8mA>;
 			bias-pull-up = <MTK_PUPD_SET_R1R0_10>;
 		};
 
 		pins_clk {
 			pinmux = <MT8173_PIN_26_MSDC3_CLK__FUNC_MSDC3_CLK>;
 			bias-pull-down;
-			drive-strength = <MTK_DRIVE_10mA>;
+			drive-strength = <MTK_DRIVE_8mA>;
 		};
 
 		pins_pdn {
@@ -588,20 +693,20 @@
 				 <MT8173_PIN_24_MSDC3_DAT2__FUNC_MSDC3_DAT2>,
 				 <MT8173_PIN_25_MSDC3_DAT3__FUNC_MSDC3_DAT3>;
 			input-enable;
-			drive-strength = <MTK_DRIVE_10mA>;
+			drive-strength = <MTK_DRIVE_8mA>;
 			bias-pull-up = <MTK_PUPD_SET_R1R0_10>;
 		};
 
 		pins_cmd {
 			pinmux = <MT8173_PIN_27_MSDC3_CMD__FUNC_MSDC3_CMD>;
 			input-enable;
-			drive-strength = <MTK_DRIVE_12mA>;
+			drive-strength = <MTK_DRIVE_8mA>;
 			bias-pull-up = <MTK_PUPD_SET_R1R0_10>;
 		};
 
 		pins_clk {
 			pinmux = <MT8173_PIN_26_MSDC3_CLK__FUNC_MSDC3_CLK>;
-			drive-strength = <MTK_DRIVE_10mA>;
+			drive-strength = <MTK_DRIVE_8mA>;
 			bias-pull-down = <MTK_PUPD_SET_R1R0_10>;
 		};
 	};
@@ -627,6 +732,26 @@
 			input-enable;
 			drive-strength = <MTK_DRIVE_4mA>;
 			bias-pull-up;
+		};
+	};
+
+	panel_fixed_pins: panel_fixed_pins {
+		pins1 {
+			pinmux = <MT8173_PIN_41_CMMCLK__FUNC_GPIO41>;
+		};
+	};
+
+	ps8640_pins: ps8640_pins {
+		pins1 {
+			pinmux = <MT8173_PIN_92_PCM_CLK__FUNC_GPIO92>,
+				 <MT8173_PIN_115_URTS0__FUNC_GPIO115>,
+				 <MT8173_PIN_127_LCM_RST__FUNC_GPIO127>;
+		};
+	};
+
+	ps8640_fixed_pins: ps8640_fixed_pins {
+		pins1 {
+			pinmux = <MT8173_PIN_30_URTS2__FUNC_GPIO30>;
 		};
 	};
 
@@ -725,6 +850,9 @@
 				regulator-max-microvolt = <1350000>;
 				regulator-ramp-delay = <12500>;
 				regulator-always-on;
+				regulator-supported-modes =
+					<REGULATOR_OPERATION_MODE_FAST
+					 REGULATOR_OPERATION_MODE_NORMAL>;
 			};
 
 			mt6397_vpca7_reg: buck_vpca7 {
@@ -941,6 +1069,11 @@
 			};
 		};
 	};
+};
+
+&thermal {
+	bank0-supply = <&mt6397_vpca15_reg>;
+	bank1-supply = <&da9211_vcpu_reg>;
 };
 
 &uart0 {

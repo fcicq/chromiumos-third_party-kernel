@@ -303,7 +303,7 @@ int amdgpu_mode_dumb_mmap(struct drm_file *filp,
 	struct drm_gem_object *gobj;
 	struct amdgpu_bo *robj;
 
-	gobj = drm_gem_object_lookup(dev, filp, handle);
+	gobj = drm_gem_object_lookup(filp, handle);
 	if (gobj == NULL) {
 		return -ENOENT;
 	}
@@ -367,7 +367,7 @@ int amdgpu_gem_wait_idle_ioctl(struct drm_device *dev, void *data,
 	int r = 0;
 	long ret;
 
-	gobj = drm_gem_object_lookup(dev, filp, handle);
+	gobj = drm_gem_object_lookup(filp, handle);
 	if (gobj == NULL) {
 		return -ENOENT;
 	}
@@ -401,7 +401,7 @@ int amdgpu_gem_metadata_ioctl(struct drm_device *dev, void *data,
 	int r = -1;
 
 	DRM_DEBUG("%d \n", args->handle);
-	gobj = drm_gem_object_lookup(dev, filp, args->handle);
+	gobj = drm_gem_object_lookup(filp, args->handle);
 	if (gobj == NULL)
 		return -ENOENT;
 	robj = gem_to_amdgpu_bo(gobj);
@@ -552,7 +552,7 @@ int amdgpu_gem_va_ioctl(struct drm_device *dev, void *data,
 		return -EINVAL;
 	}
 
-	gobj = drm_gem_object_lookup(dev, filp, args->handle);
+	gobj = drm_gem_object_lookup(filp, args->handle);
 	if (gobj == NULL)
 		return -ENOENT;
 	rbo = gem_to_amdgpu_bo(gobj);
@@ -614,7 +614,7 @@ int amdgpu_gem_op_ioctl(struct drm_device *dev, void *data,
 	struct amdgpu_bo *robj;
 	int r;
 
-	gobj = drm_gem_object_lookup(dev, filp, args->handle);
+	gobj = drm_gem_object_lookup(filp, args->handle);
 	if (gobj == NULL) {
 		return -ENOENT;
 	}
@@ -668,7 +668,8 @@ int amdgpu_mode_dumb_create(struct drm_file *file_priv,
 	uint32_t handle;
 	int r;
 
-	args->pitch = amdgpu_align_pitch(adev, args->width, args->bpp, 0) * ((args->bpp + 1) / 8);
+	args->pitch = amdgpu_align_pitch(adev, args->width,
+					 DIV_ROUND_UP(args->bpp, 8), 0);
 	args->size = (u64)args->pitch * args->height;
 	args->size = ALIGN(args->size, PAGE_SIZE);
 

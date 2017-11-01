@@ -394,7 +394,7 @@ static int init_vqs(struct virtio_balloon *vb)
 {
 	struct virtqueue *vqs[3];
 	vq_callback_t *callbacks[] = { balloon_ack, balloon_ack, stats_request };
-	const char *names[] = { "inflate", "deflate", "stats" };
+	static const char * const names[] = { "inflate", "deflate", "stats" };
 	int err, nvqs;
 
 	/*
@@ -416,6 +416,8 @@ static int init_vqs(struct virtio_balloon *vb)
 		 * Prime this virtqueue with one buffer so the hypervisor can
 		 * use it to signal us later (it can't be broken yet!).
 		 */
+		update_balloon_stats(vb);
+
 		sg_init_one(&sg, vb->stats, sizeof vb->stats);
 		if (virtqueue_add_outbuf(vb->stats_vq, &sg, 1, vb, GFP_KERNEL)
 		    < 0)

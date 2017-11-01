@@ -44,23 +44,26 @@ struct i915_params {
 	int disable_power_well;
 	int enable_ips;
 	int invert_brightness;
-	int enable_cmd_parser;
+	int enable_guc_loading;
+	int enable_guc_submission;
 	int guc_log_level;
 	int use_mmio_flip;
 	int mmio_debug;
 	int edp_vswing;
 	unsigned int inject_load_failure;
+	int enable_dpcd_backlight;
 	/* leave bools at the end to not create holes */
+	bool enable_cmd_parser;
 	bool enable_hangcheck;
 	bool fastboot;
 	bool prefault_disable;
 	bool load_detect_test;
 	bool reset;
 	bool disable_display;
-	bool enable_guc_submission;
 	bool verbose_state_checks;
 	bool nuclear_pageflip;
 	bool enable_dp_mst;
+	bool enable_dbc;
 };
 
 extern struct i915_params i915 __read_mostly;

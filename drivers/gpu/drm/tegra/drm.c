@@ -62,7 +62,7 @@ static void tegra_atomic_complete(struct tegra_drm *tegra,
 	drm_atomic_helper_wait_for_vblanks(drm, state);
 
 	drm_atomic_helper_cleanup_planes(drm, state);
-	drm_atomic_state_free(state);
+	drm_atomic_state_put(state);
 }
 
 static void tegra_atomic_work(struct work_struct *work)
@@ -93,7 +93,7 @@ static int tegra_atomic_commit(struct drm_device *drm,
 	 * the software side now.
 	 */
 
-	drm_atomic_helper_swap_state(drm, state);
+	drm_atomic_helper_swap_state(state, true);
 
 	if (async)
 		tegra_atomic_schedule(tegra, state);
@@ -268,12 +268,12 @@ static void tegra_drm_lastclose(struct drm_device *drm)
 }
 
 static struct host1x_bo *
-host1x_bo_lookup(struct drm_device *drm, struct drm_file *file, u32 handle)
+host1x_bo_lookup(struct drm_file *file, u32 handle)
 {
 	struct drm_gem_object *gem;
 	struct tegra_bo *bo;
 
-	gem = drm_gem_object_lookup(drm, file, handle);
+	gem = drm_gem_object_lookup(file, handle);
 	if (!gem)
 		return NULL;
 
@@ -309,11 +309,11 @@ static int host1x_reloc_copy_from_user(struct host1x_reloc *dest,
 	if (err < 0)
 		return err;
 
-	dest->cmdbuf.bo = host1x_bo_lookup(drm, file, cmdbuf);
+	dest->cmdbuf.bo = host1x_bo_lookup(file, cmdbuf);
 	if (!dest->cmdbuf.bo)
 		return -ENOENT;
 
-	dest->target.bo = host1x_bo_lookup(drm, file, target);
+	dest->target.bo = host1x_bo_lookup(file, target);
 	if (!dest->target.bo)
 		return -ENOENT;
 
@@ -361,7 +361,7 @@ int tegra_drm_submit(struct tegra_drm_context *context,
 			goto fail;
 		}
 
-		bo = host1x_bo_lookup(drm, file, cmdbuf.handle);
+		bo = host1x_bo_lookup(file, cmdbuf.handle);
 		if (!bo) {
 			err = -ENOENT;
 			goto fail;
@@ -462,7 +462,7 @@ static int tegra_gem_mmap(struct drm_device *drm, void *data,
 	struct drm_gem_object *gem;
 	struct tegra_bo *bo;
 
-	gem = drm_gem_object_lookup(drm, file, args->handle);
+	gem = drm_gem_object_lookup(file, args->handle);
 	if (!gem)
 		return -EINVAL;
 
@@ -671,7 +671,7 @@ static int tegra_gem_set_tiling(struct drm_device *drm, void *data,
 		return -EINVAL;
 	}
 
-	gem = drm_gem_object_lookup(drm, file, args->handle);
+	gem = drm_gem_object_lookup(file, args->handle);
 	if (!gem)
 		return -ENOENT;
 
@@ -693,7 +693,7 @@ static int tegra_gem_get_tiling(struct drm_device *drm, void *data,
 	struct tegra_bo *bo;
 	int err = 0;
 
-	gem = drm_gem_object_lookup(drm, file, args->handle);
+	gem = drm_gem_object_lookup(file, args->handle);
 	if (!gem)
 		return -ENOENT;
 
@@ -735,7 +735,7 @@ static int tegra_gem_set_flags(struct drm_device *drm, void *data,
 	if (args->flags & ~DRM_TEGRA_GEM_FLAGS)
 		return -EINVAL;
 
-	gem = drm_gem_object_lookup(drm, file, args->handle);
+	gem = drm_gem_object_lookup(file, args->handle);
 	if (!gem)
 		return -ENOENT;
 
@@ -757,7 +757,7 @@ static int tegra_gem_get_flags(struct drm_device *drm, void *data,
 	struct drm_gem_object *gem;
 	struct tegra_bo *bo;
 
-	gem = drm_gem_object_lookup(drm, file, args->handle);
+	gem = drm_gem_object_lookup(file, args->handle);
 	if (!gem)
 		return -ENOENT;
 
@@ -800,9 +800,7 @@ static const struct file_operations tegra_drm_fops = {
 	.mmap = tegra_drm_mmap,
 	.poll = drm_poll,
 	.read = drm_read,
-#ifdef CONFIG_COMPAT
 	.compat_ioctl = drm_compat_ioctl,
-#endif
 	.llseek = noop_llseek,
 };
 
@@ -879,9 +877,10 @@ static int tegra_debugfs_framebuffers(struct seq_file *s, void *data)
 
 	list_for_each_entry(fb, &drm->mode_config.fb_list, head) {
 		seq_printf(s, "%3d: user size: %d x %d, depth %d, %d bpp, refcount %d\n",
-			   fb->base.id, fb->width, fb->height, fb->depth,
-			   fb->bits_per_pixel,
-			   atomic_read(&fb->refcount.refcount));
+			   fb->base.id, fb->width, fb->height,
+			   fb->format->depth,
+			   fb->format->cpp[0] * 8,
+			   drm_framebuffer_read_refcount(fb));
 	}
 
 	mutex_unlock(&drm->mode_config.fb_lock);

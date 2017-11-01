@@ -382,6 +382,9 @@ int snd_soc_dapm_put_pin_switch(struct snd_kcontrol *kcontrol,
 int snd_soc_dapm_new_controls(struct snd_soc_dapm_context *dapm,
 	const struct snd_soc_dapm_widget *widget,
 	int num);
+struct snd_soc_dapm_widget *snd_soc_dapm_new_control(
+		struct snd_soc_dapm_context *dapm,
+		const struct snd_soc_dapm_widget *widget);
 int snd_soc_dapm_new_dai_widgets(struct snd_soc_dapm_context *dapm,
 				 struct snd_soc_dai *dai);
 int snd_soc_dapm_link_dai_widgets(struct snd_soc_card *card);
@@ -611,6 +614,10 @@ struct snd_soc_dapm_update {
 	int reg;
 	int mask;
 	int val;
+	int reg2;
+	int mask2;
+	int val2;
+	bool has_second_set;
 };
 
 struct snd_soc_dapm_wcache {

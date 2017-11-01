@@ -734,15 +734,8 @@ void usbhid_close(struct hid_device *hid)
 		spin_unlock_irq(&usbhid->lock);
 		hid_cancel_delayed_stuff(usbhid);
 		if (!(hid->quirks & HID_QUIRK_ALWAYS_POLL)) {
-			int autopm_error;
-
-			autopm_error = usb_autopm_get_interface(usbhid->intf);
-
 			usb_kill_urb(usbhid->urbin);
 			usbhid->intf->needs_remote_wakeup = 0;
-
-			if (!autopm_error)
-				usb_autopm_put_interface(usbhid->intf);
 		}
 	} else {
 		spin_unlock_irq(&usbhid->lock);
@@ -761,11 +754,9 @@ void usbhid_init_reports(struct hid_device *hid)
 	struct hid_report_enum *report_enum;
 	int err, ret;
 
-	if (!(hid->quirks & HID_QUIRK_NO_INIT_INPUT_REPORTS)) {
-		report_enum = &hid->report_enum[HID_INPUT_REPORT];
-		list_for_each_entry(report, &report_enum->report_list, list)
-			usbhid_submit_report(hid, report, USB_DIR_IN);
-	}
+	report_enum = &hid->report_enum[HID_INPUT_REPORT];
+	list_for_each_entry(report, &report_enum->report_list, list)
+		usbhid_submit_report(hid, report, USB_DIR_IN);
 
 	report_enum = &hid->report_enum[HID_FEATURE_REPORT];
 	list_for_each_entry(report, &report_enum->report_list, list)
@@ -1128,9 +1119,6 @@ static int usbhid_start(struct hid_device *hid)
 	usbhid->urbctrl->transfer_dma = usbhid->ctrlbuf_dma;
 	usbhid->urbctrl->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
 
-	if (!(hid->quirks & HID_QUIRK_NO_INIT_REPORTS))
-		usbhid_init_reports(hid);
-
 	set_bit(HID_STARTED, &usbhid->iofl);
 
 	if (hid->quirks & HID_QUIRK_ALWAYS_POLL) {
@@ -1178,16 +1166,8 @@ static void usbhid_stop(struct hid_device *hid)
 	if (WARN_ON(!usbhid))
 		return;
 
-	if (hid->quirks & HID_QUIRK_ALWAYS_POLL) {
-		int autopm_error;
-
-		autopm_error = usb_autopm_get_interface(usbhid->intf);
-
+	if (hid->quirks & HID_QUIRK_ALWAYS_POLL)
 		usbhid->intf->needs_remote_wakeup = 0;
-
-		if (!autopm_error)
-			usb_autopm_put_interface(usbhid->intf);
-	}
 
 	clear_bit(HID_STARTED, &usbhid->iofl);
 	spin_lock_irq(&usbhid->lock);	/* Sync with error and led handlers */

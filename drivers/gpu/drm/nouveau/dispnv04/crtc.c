@@ -466,6 +466,7 @@ nv_crtc_mode_set_regs(struct drm_crtc *crtc, struct drm_display_mode * mode)
 	struct nouveau_crtc *nv_crtc = nouveau_crtc(crtc);
 	struct nv04_crtc_reg *regp = &nv04_display(dev)->mode_reg.crtc_reg[nv_crtc->index];
 	struct nv04_crtc_reg *savep = &nv04_display(dev)->saved_reg.crtc_reg[nv_crtc->index];
+	const struct drm_framebuffer *fb = crtc->primary->fb;
 	struct drm_encoder *encoder;
 	bool lvds_output = false, tmds_output = false, tv_output = false,
 		off_chip_digital = false;
@@ -575,7 +576,7 @@ nv_crtc_mode_set_regs(struct drm_crtc *crtc, struct drm_display_mode * mode)
 		regp->CRTC[NV_CIO_CRE_86] = 0x1;
 	}
 
-	regp->CRTC[NV_CIO_CRE_PIXEL_INDEX] = (crtc->primary->fb->depth + 1) / 8;
+	regp->CRTC[NV_CIO_CRE_PIXEL_INDEX] = (fb->format->depth + 1) / 8;
 	/* Enable slaved mode (called MODE_TV in nv4ref.h) */
 	if (lvds_output || tmds_output || tv_output)
 		regp->CRTC[NV_CIO_CRE_PIXEL_INDEX] |= (1 << 7);
@@ -589,7 +590,7 @@ nv_crtc_mode_set_regs(struct drm_crtc *crtc, struct drm_display_mode * mode)
 	regp->ramdac_gen_ctrl = NV_PRAMDAC_GENERAL_CONTROL_BPC_8BITS |
 				NV_PRAMDAC_GENERAL_CONTROL_VGA_STATE_SEL |
 				NV_PRAMDAC_GENERAL_CONTROL_PIXMIX_ON;
-	if (crtc->primary->fb->depth == 16)
+	if (fb->format->depth == 16)
 		regp->ramdac_gen_ctrl |= NV_PRAMDAC_GENERAL_CONTROL_ALT_MODE_SEL;
 	if (drm->device.info.chipset >= 0x11)
 		regp->ramdac_gen_ctrl |= NV_PRAMDAC_GENERAL_CONTROL_PIPE_LONG;
@@ -791,14 +792,14 @@ nv_crtc_disable(struct drm_crtc *crtc)
 	nouveau_bo_ref(NULL, &disp->image[nv_crtc->index]);
 }
 
-static void
-nv_crtc_gamma_set(struct drm_crtc *crtc, u16 *r, u16 *g, u16 *b, uint32_t start,
+static int
+nv_crtc_gamma_set(struct drm_crtc *crtc, u16 *r, u16 *g, u16 *b,
 		  uint32_t size)
 {
-	int end = (start + size > 256) ? 256 : start + size, i;
 	struct nouveau_crtc *nv_crtc = nouveau_crtc(crtc);
+	int i;
 
-	for (i = start; i < end; i++) {
+	for (i = 0; i < size; i++) {
 		nv_crtc->lut.r[i] = r[i];
 		nv_crtc->lut.g[i] = g[i];
 		nv_crtc->lut.b[i] = b[i];
@@ -811,10 +812,12 @@ nv_crtc_gamma_set(struct drm_crtc *crtc, u16 *r, u16 *g, u16 *b, uint32_t start,
 	 */
 	if (!nv_crtc->base.primary->fb) {
 		nv_crtc->lut.depth = 0;
-		return;
+		return 0;
 	}
 
 	nv_crtc_gamma_load(crtc);
+
+	return 0;
 }
 
 static int
@@ -851,16 +854,16 @@ nv04_crtc_do_mode_set_base(struct drm_crtc *crtc,
 
 	nv_crtc->fb.offset = fb->nvbo->bo.offset;
 
-	if (nv_crtc->lut.depth != drm_fb->depth) {
-		nv_crtc->lut.depth = drm_fb->depth;
+	if (nv_crtc->lut.depth != drm_fb->format->depth) {
+		nv_crtc->lut.depth = drm_fb->format->depth;
 		nv_crtc_gamma_load(crtc);
 	}
 
 	/* Update the framebuffer format. */
 	regp->CRTC[NV_CIO_CRE_PIXEL_INDEX] &= ~3;
-	regp->CRTC[NV_CIO_CRE_PIXEL_INDEX] |= (crtc->primary->fb->depth + 1) / 8;
+	regp->CRTC[NV_CIO_CRE_PIXEL_INDEX] |= (drm_fb->format->depth + 1) / 8;
 	regp->ramdac_gen_ctrl &= ~NV_PRAMDAC_GENERAL_CONTROL_ALT_MODE_SEL;
-	if (crtc->primary->fb->depth == 16)
+	if (drm_fb->format->depth == 16)
 		regp->ramdac_gen_ctrl |= NV_PRAMDAC_GENERAL_CONTROL_ALT_MODE_SEL;
 	crtc_wr_cio_state(crtc, regp, NV_CIO_CRE_PIXEL_INDEX);
 	NVWriteRAMDAC(dev, nv_crtc->index, NV_PRAMDAC_GENERAL_CONTROL,
@@ -877,11 +880,11 @@ nv04_crtc_do_mode_set_base(struct drm_crtc *crtc,
 
 	/* Update the framebuffer location. */
 	regp->fb_start = nv_crtc->fb.offset & ~3;
-	regp->fb_start += (y * drm_fb->pitches[0]) + (x * drm_fb->bits_per_pixel / 8);
+	regp->fb_start += (y * drm_fb->pitches[0]) + (x * drm_fb->format->cpp[0]);
 	nv_set_crtc_base(dev, nv_crtc->index, regp->fb_start);
 
 	/* Update the arbitration parameters. */
-	nouveau_calc_arb(dev, crtc->mode.clock, drm_fb->bits_per_pixel,
+	nouveau_calc_arb(dev, crtc->mode.clock, drm_fb->format->cpp[0] * 8,
 			 &arb_burst, &arb_lwm);
 
 	regp->CRTC[NV_CIO_CRE_FF_INDEX] = arb_burst;
@@ -1002,7 +1005,7 @@ nv04_crtc_cursor_set(struct drm_crtc *crtc, struct drm_file *file_priv,
 	if (width != 64 || height != 64)
 		return -EINVAL;
 
-	gem = drm_gem_object_lookup(dev, file_priv, buffer_handle);
+	gem = drm_gem_object_lookup(file_priv, buffer_handle);
 	if (!gem)
 		return -ENOENT;
 	cursor = nouveau_gem_object(gem);
@@ -1081,8 +1084,6 @@ nouveau_crtc_set_config(struct drm_mode_set *set)
 }
 
 static const struct drm_crtc_funcs nv04_crtc_funcs = {
-	.save = nv_crtc_save,
-	.restore = nv_crtc_restore,
 	.cursor_set = nv04_crtc_cursor_set,
 	.cursor_move = nv04_crtc_cursor_move,
 	.gamma_set = nv_crtc_gamma_set,
@@ -1122,6 +1123,9 @@ nv04_crtc_create(struct drm_device *dev, int crtc_num)
 
 	nv_crtc->index = crtc_num;
 	nv_crtc->last_dpms = NV_DPMS_CLEARED;
+
+	nv_crtc->save = nv_crtc_save;
+	nv_crtc->restore = nv_crtc_restore;
 
 	drm_crtc_init(dev, &nv_crtc->base, &nv04_crtc_funcs);
 	drm_crtc_helper_add(&nv_crtc->base, &nv04_crtc_helper_funcs);

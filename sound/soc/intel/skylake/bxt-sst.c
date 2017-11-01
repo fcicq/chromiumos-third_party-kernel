@@ -53,18 +53,6 @@ static unsigned int bxt_get_errorcode(struct sst_dsp *ctx)
 	 return sst_dsp_shim_read(ctx, BXT_ADSP_ERROR_CODE);
 }
 
-static void sst_bxt_release_library(struct skl_lib_info *linfo, int lib_count)
-{
-	int i;
-
-	for (i = 1; i < lib_count; i++) {
-		if (linfo[i].fw) {
-			release_firmware(linfo[i].fw);
-			linfo[i].fw = NULL;
-		}
-	}
-}
-
 static int
 bxt_load_library(struct sst_dsp *ctx, struct skl_lib_info *linfo, int lib_count)
 {
@@ -75,26 +63,10 @@ bxt_load_library(struct sst_dsp *ctx, struct skl_lib_info *linfo, int lib_count)
 
 	/* library indices start from 1 to N. 0 represents base FW */
 	for (i = 1; i < lib_count; i++) {
-		if (linfo[i].fw == NULL) {
-			ret = request_firmware(&linfo[i].fw, linfo[i].name,
-						ctx->dev);
-			if (ret < 0) {
-				dev_err(ctx->dev, "Request lib %s failed:%d\n",
-					linfo[i].name, ret);
-				goto load_library_failed;
-			}
-		}
-
-		if (skl->is_first_boot) {
-			ret = snd_skl_parse_uuids(ctx, linfo[i].fw,
-					BXT_ADSP_FW_BIN_HDR_OFFSET, i);
-			if (ret < 0)
-				goto load_library_failed;
-		}
-
-		stripped_fw.data = linfo[i].fw->data;
-		stripped_fw.size = linfo[i].fw->size;
-		skl_dsp_strip_extended_manifest(&stripped_fw);
+		ret = skl_prepare_lib_load(skl, &skl->lib_info[i], &stripped_fw,
+				BXT_ADSP_FW_BIN_HDR_OFFSET, i);
+		if (ret < 0)
+			goto load_library_failed;
 
 		stream_tag = ctx->dsp_ops.prepare(ctx->dev, 0x40,
 					stripped_fw.size, &dmab);
@@ -109,7 +81,7 @@ bxt_load_library(struct sst_dsp *ctx, struct skl_lib_info *linfo, int lib_count)
 		memcpy(dmab.area, stripped_fw.data, stripped_fw.size);
 
 		ctx->dsp_ops.trigger(ctx->dev, true, stream_tag);
-		ret = skl_sst_ipc_load_library(&skl->ipc, dma_id, i);
+		ret = skl_sst_ipc_load_library(&skl->ipc, dma_id, i, true);
 		if (ret < 0)
 			dev_err(ctx->dev, "IPC Load Lib for %s fail: %d\n",
 					linfo[i].name, ret);
@@ -121,7 +93,7 @@ bxt_load_library(struct sst_dsp *ctx, struct skl_lib_info *linfo, int lib_count)
 	return ret;
 
 load_library_failed:
-	sst_bxt_release_library(linfo, lib_count);
+	skl_release_library(linfo, lib_count);
 	return ret;
 }
 
@@ -446,6 +418,7 @@ static int bxt_set_dsp_D0(struct sst_dsp *ctx, unsigned int core_id)
 				return ret;
 			}
 		}
+		skl->cores.state[core_id] = SKL_DSP_RUNNING;
 		return ret;
 	}
 
@@ -532,11 +505,22 @@ static int bxt_set_dsp_D3(struct sst_dsp *ctx, unsigned int core_id)
 
 	ret = skl_ipc_set_dx(&skl->ipc, BXT_INSTANCE_ID,
 				BXT_BASE_FW_MODULE_ID, &dx);
-	if (ret < 0)
+	if (ret < 0) {
 		dev_err(ctx->dev,
 		"Failed to set DSP to D3:core id = %d;Continue reset\n",
 		core_id);
+		/*
+		 * In case of D3 failure, re-download the firmware, so set
+		 * fw_loaded to false.
+		 */
+		skl->fw_loaded = false;
+	}
 
+	if (core_id == SKL_DSP_CORE0_ID) {
+		/* disable Interrupt */
+		skl_ipc_op_int_disable(ctx);
+		skl_ipc_int_disable(ctx);
+	}
 	ret = skl_dsp_disable_core(ctx, core_mask);
 	if (ret < 0) {
 		dev_err(ctx->dev, "Failed to disable core %d", ret);
@@ -578,23 +562,14 @@ int bxt_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
 	struct sst_dsp *sst;
 	int ret;
 
-	skl = devm_kzalloc(dev, sizeof(*skl), GFP_KERNEL);
-	if (skl == NULL)
-		return -ENOMEM;
-
-	skl->dev = dev;
-	skl_dev.thread_context = skl;
-	INIT_LIST_HEAD(&skl->uuid_list);
-
-	skl->dsp = skl_dsp_ctx_init(dev, &skl_dev, irq);
-	if (!skl->dsp) {
-		dev_err(skl->dev, "skl_dsp_ctx_init failed\n");
-		return -ENODEV;
+	ret = skl_sst_ctx_init(dev, irq, fw_name, dsp_ops, dsp, &skl_dev);
+	if (ret < 0) {
+		dev_err(skl->dev, "%s: no device\n", __func__);
+		return ret;
 	}
 
+	skl = *dsp;
 	sst = skl->dsp;
-	sst->fw_name = fw_name;
-	sst->dsp_ops = dsp_ops;
 	sst->fw_ops = bxt_fw_ops;
 	sst->addr.lpe = mmio_base;
 	sst->addr.shim = mmio_base;
@@ -602,23 +577,20 @@ int bxt_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
 	sst_dsp_mailbox_init(sst, (BXT_ADSP_SRAM0_BASE + SKL_ADSP_W0_STAT_SZ),
 			SKL_ADSP_W0_UP_SZ, BXT_ADSP_SRAM1_BASE, SKL_ADSP_W1_SZ);
 
-	INIT_LIST_HEAD(&sst->module_list);
 	ret = skl_ipc_init(dev, skl);
-	if (ret)
+	if (ret) {
+		skl_dsp_free(sst);
 		return ret;
+	}
 
 	/* set the D0i3 check */
+	skl = *dsp;
 	skl->ipc.ops.check_dsp_lp_on = skl_ipc_check_D0i0;
 
-	skl->cores.count = 2;
 	skl->boot_complete = false;
 	init_waitqueue_head(&skl->boot_wait);
-	skl->is_first_boot = true;
 	INIT_DELAYED_WORK(&skl->d0i3.work, bxt_set_dsp_D0i3);
 	skl->d0i3.state = SKL_DSP_D0I3_NONE;
-
-	if (dsp)
-		*dsp = skl;
 
 	return 0;
 }
@@ -654,7 +626,7 @@ EXPORT_SYMBOL_GPL(bxt_sst_init_fw);
 void bxt_sst_dsp_cleanup(struct device *dev, struct skl_sst *ctx)
 {
 
-	sst_bxt_release_library(ctx->lib_info, ctx->lib_count);
+	skl_release_library(ctx->lib_info, ctx->lib_count);
 	if (ctx->dsp->fw)
 		release_firmware(ctx->dsp->fw);
 	skl_freeup_uuid_list(ctx);

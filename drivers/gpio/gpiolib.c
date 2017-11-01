@@ -439,6 +439,80 @@ void gpiochip_remove(struct gpio_chip *chip)
 }
 EXPORT_SYMBOL_GPL(gpiochip_remove);
 
+static void devm_gpio_chip_release(struct device *dev, void *res)
+{
+	struct gpio_chip *chip = *(struct gpio_chip **)res;
+
+	gpiochip_remove(chip);
+}
+
+static int devm_gpio_chip_match(struct device *dev, void *res, void *data)
+
+{
+	struct gpio_chip **r = res;
+
+	if (!r || !*r) {
+		WARN_ON(!r || !*r);
+		return 0;
+	}
+
+	return *r == data;
+}
+
+/**
+ * devm_gpiochip_add_data() - Resource manager piochip_add_data()
+ * @dev: the device pointer on which irq_chip belongs to.
+ * @chip: the chip to register, with chip->base initialized
+ * Context: potentially before irqs will work
+ *
+ * Returns a negative errno if the chip can't be registered, such as
+ * because the chip->base is invalid or already associated with a
+ * different chip.  Otherwise it returns zero as a success code.
+ *
+ * The gpio chip automatically be released when the device is unbound.
+ */
+int devm_gpiochip_add_data(struct device *dev, struct gpio_chip *chip,
+			   void *data)
+{
+	struct gpio_chip **ptr;
+	int ret;
+
+	ptr = devres_alloc(devm_gpio_chip_release, sizeof(*ptr),
+			     GFP_KERNEL);
+	if (!ptr)
+		return -ENOMEM;
+
+	ret = gpiochip_add_data(chip, data);
+	if (ret < 0) {
+		devres_free(ptr);
+		return ret;
+	}
+
+	*ptr = chip;
+	devres_add(dev, ptr);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(devm_gpiochip_add_data);
+
+/**
+ * devm_gpiochip_remove() - Resource manager of gpiochip_remove()
+ * @dev: device for which which resource was allocated
+ * @chip: the chip to remove
+ *
+ * A gpio_chip with any GPIOs still requested may not be removed.
+ */
+void devm_gpiochip_remove(struct device *dev, struct gpio_chip *chip)
+{
+	int ret;
+
+	ret = devres_release(dev, devm_gpio_chip_release,
+			     devm_gpio_chip_match, chip);
+	if (!ret)
+		WARN_ON(ret);
+}
+EXPORT_SYMBOL_GPL(devm_gpiochip_remove);
+
 /**
  * gpiochip_find() - iterator for locating a specific gpio_chip
  * @data: data to pass to match function
@@ -1848,9 +1922,11 @@ static struct gpio_desc *of_find_gpio(struct device *dev, const char *con_id,
 	return desc;
 }
 
-static struct gpio_desc *acpi_find_gpio(struct device *dev, const char *con_id,
+static struct gpio_desc *acpi_find_gpio(struct device *dev,
+					const char *con_id,
 					unsigned int idx,
-					enum gpio_lookup_flags *flags)
+					enum gpiod_flags flags,
+					enum gpio_lookup_flags *lookupflags)
 {
 	struct acpi_device *adev = ACPI_COMPANION(dev);
 	struct acpi_gpio_info info;
@@ -1878,10 +1954,16 @@ static struct gpio_desc *acpi_find_gpio(struct device *dev, const char *con_id,
 		desc = acpi_get_gpiod_by_index(adev, NULL, idx, &info);
 		if (IS_ERR(desc))
 			return desc;
+
+		if ((flags == GPIOD_OUT_LOW || flags == GPIOD_OUT_HIGH) &&
+		    info.gpioint) {
+			dev_dbg(dev, "refusing GpioInt() entry when doing GPIOD_OUT_* lookup\n");
+			return ERR_PTR(-ENOENT);
+		}
 	}
 
 	if (info.active_low)
-		*flags |= GPIO_ACTIVE_LOW;
+		*lookupflags |= GPIO_ACTIVE_LOW;
 
 	return desc;
 }
@@ -2029,22 +2111,6 @@ int gpiod_count(struct device *dev, const char *con_id)
 EXPORT_SYMBOL_GPL(gpiod_count);
 
 /**
- * gpiod_lookup - look up a GPIO for a given GPIO function
- * @dev:	GPIO consumer, can be NULL for system-global GPIOs
- * @con_id:	function within the GPIO consumer
- *
- * Return the GPIO descriptor corresponding to the function con_id of device
- * dev, -ENOENT if no GPIO has been assigned to the requested function, or
- * another IS_ERR() code.
- */
-struct gpio_desc *__must_check gpiod_lookup(struct device *dev,
-					    const char *con_id)
-{
-	return gpiod_lookup_index(dev, con_id, 0);
-}
-EXPORT_SYMBOL_GPL(gpiod_lookup);
-
-/**
  * gpiod_get - obtain a GPIO for a given GPIO function
  * @dev:	GPIO consumer, can be NULL for system-global GPIOs
  * @con_id:	function within the GPIO consumer
@@ -2121,57 +2187,6 @@ static int gpiod_configure_flags(struct gpio_desc *desc, const char *con_id,
 }
 
 /**
- * gpiod_lookup_index - look up a GPIO from a multi-index GPIO function
- * @dev:	GPIO consumer, can be NULL for system-global GPIOs
- * @con_id:	function within the GPIO consumer
- * @idx:	index of the GPIO to obtain in the consumer
- *
- * Return a valid GPIO descriptor, or -ENOENT if no GPIO has been assigned to
- * the requested function and/or index, or another IS_ERR() code.
- */
-struct gpio_desc *__must_check gpiod_lookup_index(struct device *dev,
-						  const char *con_id,
-						  unsigned int idx)
-{
-	struct gpio_desc *desc = NULL;
-	enum gpio_lookup_flags lookupflags = 0;
-
-	dev_dbg(dev, "GPIO lookup for consumer %s\n", con_id);
-
-	if (dev) {
-		/* Using device tree? */
-		if (IS_ENABLED(CONFIG_OF) && dev->of_node) {
-			dev_dbg(dev, "using device tree for GPIO lookup\n");
-			desc = of_find_gpio(dev, con_id, idx, &lookupflags);
-		} else if (ACPI_COMPANION(dev)) {
-			dev_dbg(dev, "using ACPI for GPIO lookup\n");
-			desc = acpi_find_gpio(dev, con_id, idx, &lookupflags);
-		}
-	}
-
-	/*
-	 * Either we are not using DT or ACPI, or their lookup did not return
-	 * a result. In that case, use platform lookup as a fallback.
-	 */
-	if (!desc || desc == ERR_PTR(-ENOENT)) {
-		dev_dbg(dev, "using lookup tables for GPIO lookup\n");
-		desc = gpiod_find(dev, con_id, idx, &lookupflags);
-	}
-
-	if (IS_ERR(desc))
-		dev_dbg(dev, "lookup for GPIO %s failed\n", con_id);
-
-	/*
-	 * Configure static flags based on lookup data (such as
-	 * "active low", "open drain", etc.)
-	 */
-	gpiod_configure_flags(desc, con_id, lookupflags, 0);
-
-	return desc;
-}
-EXPORT_SYMBOL_GPL(gpiod_lookup_index);
-
-/**
  * gpiod_get_index - obtain a GPIO from a multi-index GPIO function
  * @dev:	GPIO consumer, can be NULL for system-global GPIOs
  * @con_id:	function within the GPIO consumer
@@ -2190,18 +2205,42 @@ struct gpio_desc *__must_check gpiod_get_index(struct device *dev,
 					       unsigned int idx,
 					       enum gpiod_flags flags)
 {
-	struct gpio_desc *desc;
+	struct gpio_desc *desc = NULL;
 	int status;
+	enum gpio_lookup_flags lookupflags = 0;
 
-	desc = gpiod_lookup_index(dev, con_id, idx);
-	if (IS_ERR(desc))
+	dev_dbg(dev, "GPIO lookup for consumer %s\n", con_id);
+
+	if (dev) {
+		/* Using device tree? */
+		if (IS_ENABLED(CONFIG_OF) && dev->of_node) {
+			dev_dbg(dev, "using device tree for GPIO lookup\n");
+			desc = of_find_gpio(dev, con_id, idx, &lookupflags);
+		} else if (ACPI_COMPANION(dev)) {
+			dev_dbg(dev, "using ACPI for GPIO lookup\n");
+			desc = acpi_find_gpio(dev, con_id, idx, flags, &lookupflags);
+		}
+	}
+
+	/*
+	 * Either we are not using DT or ACPI, or their lookup did not return
+	 * a result. In that case, use platform lookup as a fallback.
+	 */
+	if (!desc || desc == ERR_PTR(-ENOENT)) {
+		dev_dbg(dev, "using lookup tables for GPIO lookup\n");
+		desc = gpiod_find(dev, con_id, idx, &lookupflags);
+	}
+
+	if (IS_ERR(desc)) {
+		dev_dbg(dev, "lookup for GPIO %s failed\n", con_id);
 		return desc;
+	}
 
 	status = gpiod_request(desc, con_id);
 	if (status < 0)
 		return ERR_PTR(status);
 
-	status = gpiod_configure_flags(desc, con_id, 0, flags);
+	status = gpiod_configure_flags(desc, con_id, lookupflags, flags);
 	if (status < 0) {
 		dev_dbg(dev, "setup of GPIO %s failed\n", con_id);
 		gpiod_put(desc);

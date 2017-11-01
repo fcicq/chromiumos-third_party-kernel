@@ -321,6 +321,12 @@ struct skl_pipeline {
 	struct list_head node;
 };
 
+struct skl_module_deferred_bind {
+	struct skl_module_cfg *src;
+	struct skl_module_cfg *dst;
+	struct list_head node;
+};
+
 #define SKL_LIB_NAME_LENGTH 128
 #define SKL_MAX_LIB 16
 
@@ -343,8 +349,8 @@ static inline struct skl *get_skl_ctx(struct device *dev)
 
 int skl_tplg_be_update_params(struct snd_soc_dai *dai,
 	struct skl_pipe_params *params);
-int skl_dsp_set_dma_control(struct skl_sst *ctx,
-		struct skl_module_cfg *mconfig);
+int skl_dsp_set_dma_control(struct skl_sst *ctx, u32 *caps,
+			u32 caps_size, u32 node_id);
 void skl_tplg_set_be_dmic_config(struct snd_soc_dai *dai,
 	struct skl_pipe_params *params, int stream);
 int skl_tplg_init(struct snd_soc_platform *platform,

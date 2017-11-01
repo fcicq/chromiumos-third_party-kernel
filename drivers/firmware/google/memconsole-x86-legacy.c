@@ -3,7 +3,7 @@
  *
  * EBDA specific parts of the memory based BIOS console.
  *
- * Copyright 2016 Google Inc.
+ * Copyright 2017 Google Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License v2.0 as published by
@@ -49,29 +49,39 @@ struct biosmemcon_ebda {
 	};
 } __packed;
 
+static char *memconsole_baseaddr;
+static size_t memconsole_length;
+
+static ssize_t memconsole_read(char *buf, loff_t pos, size_t count)
+{
+	return memory_read_from_buffer(buf, count, &pos, memconsole_baseaddr,
+				       memconsole_length);
+}
+
 static void found_v1_header(struct biosmemcon_ebda *hdr)
 {
 	pr_info("memconsole: BIOS console v1 EBDA structure found at %p\n",
 		hdr);
-	pr_info("memconsole: BIOS console buffer at 0x%.8x, "
-		"start = %d, end = %d, num = %d\n",
+	pr_info("memconsole: BIOS console buffer at 0x%.8x, start = %d, end = %d, num = %d\n",
 		hdr->v1.buffer_addr, hdr->v1.start,
 		hdr->v1.end, hdr->v1.num_chars);
 
-	memconsole_setup(phys_to_virt(hdr->v1.buffer_addr), hdr->v1.num_chars);
+	memconsole_baseaddr = phys_to_virt(hdr->v1.buffer_addr);
+	memconsole_length = hdr->v1.num_chars;
+	memconsole_setup(memconsole_read);
 }
 
 static void found_v2_header(struct biosmemcon_ebda *hdr)
 {
 	pr_info("memconsole: BIOS console v2 EBDA structure found at %p\n",
 		hdr);
-	pr_info("memconsole: BIOS console buffer at 0x%.8x, "
-		"start = %d, end = %d, num_bytes = %d\n",
+	pr_info("memconsole: BIOS console buffer at 0x%.8x, start = %d, end = %d, num_bytes = %d\n",
 		hdr->v2.buffer_addr, hdr->v2.start,
 		hdr->v2.end, hdr->v2.num_bytes);
 
-	memconsole_setup(phys_to_virt(hdr->v2.buffer_addr + hdr->v2.start),
-			 hdr->v2.end - hdr->v2.start);
+	memconsole_baseaddr = phys_to_virt(hdr->v2.buffer_addr + hdr->v2.start);
+	memconsole_length = hdr->v2.end - hdr->v2.start;
+	memconsole_setup(memconsole_read);
 }
 
 /*

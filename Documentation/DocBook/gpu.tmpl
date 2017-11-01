@@ -615,18 +615,6 @@ char *date;</synopsis>
           <function>drm_gem_object_init</function>. Storage for private GEM
           objects must be managed by drivers.
         </para>
-        <para>
-          Drivers that do not need to extend GEM objects with private information
-          can call the <function>drm_gem_object_alloc</function> function to
-          allocate and initialize a struct <structname>drm_gem_object</structname>
-          instance. The GEM core will call the optional driver
-          <methodname>gem_init_object</methodname> operation after initializing
-          the GEM object with <function>drm_gem_object_init</function>.
-          <synopsis>int (*gem_init_object) (struct drm_gem_object *obj);</synopsis>
-        </para>
-        <para>
-          No alloc-and-init function exists for private GEM objects.
-        </para>
       </sect3>
       <sect3>
         <title>GEM Objects Lifetime</title>
@@ -649,15 +637,9 @@ char *date;</synopsis>
         </para>
         <para>
           <synopsis>void (*gem_free_object) (struct drm_gem_object *obj);</synopsis>
-          Drivers are responsible for freeing all GEM object resources, including
-          the resources created by the GEM core. If an mmap offset has been
-          created for the object (in which case
-          <structname>drm_gem_object</structname>::<structfield>map_list</structfield>::<structfield>map</structfield>
-          is not NULL) it must be freed by a call to
-          <function>drm_gem_free_mmap_offset</function>. The shmfs backing store
-          must be released by calling <function>drm_gem_object_release</function>
-          (that function can safely be called if no shmfs backing store has been
-          created).
+          Drivers are responsible for freeing all GEM object resources. This includes
+          the resources created by the GEM core, which need to be released with
+          <function>drm_gem_object_release</function>.
         </para>
       </sect3>
       <sect3>
@@ -740,17 +722,10 @@ char *date;</synopsis>
           DRM identifies the GEM object to be mapped by a fake offset passed
           through the mmap offset argument. Prior to being mapped, a GEM object
           must thus be associated with a fake offset. To do so, drivers must call
-          <function>drm_gem_create_mmap_offset</function> on the object. The
-          function allocates a fake offset range from a pool and stores the
-          offset divided by PAGE_SIZE in
-          <literal>obj-&gt;map_list.hash.key</literal>. Care must be taken not to
-          call <function>drm_gem_create_mmap_offset</function> if a fake offset
-          has already been allocated for the object. This can be tested by
-          <literal>obj-&gt;map_list.map</literal> being non-NULL.
+          <function>drm_gem_create_mmap_offset</function> on the object.
         </para>
         <para>
           Once allocated, the fake offset value
-          (<literal>obj-&gt;map_list.hash.key &lt;&lt; PAGE_SHIFT</literal>)
           must be passed to the application in a driver-specific way and can then
           be used as the mmap offset argument.
         </para>
@@ -1074,6 +1049,11 @@ int max_width, max_height;</synopsis>
       </para>
     </sect2>
     <sect2>
+      <title>DRM Format Handling</title>
+!Iinclude/drm/drm_fourcc.h
+!Edrivers/gpu/drm/drm_fourcc.c
+    </sect2>
+    <sect2>
       <title>Dumb Buffer Objects</title>
       <para>
 	The KMS API doesn't standardize backing storage object creation and
@@ -1197,137 +1177,6 @@ int max_width, max_height;</synopsis>
           pointer to CRTC functions.
         </para>
       </sect3>
-      <sect3 id="drm-kms-crtcops">
-        <title>CRTC Operations</title>
-        <sect4>
-          <title>Set Configuration</title>
-          <synopsis>int (*set_config)(struct drm_mode_set *set);</synopsis>
-          <para>
-            Apply a new CRTC configuration to the device. The configuration
-            specifies a CRTC, a frame buffer to scan out from, a (x,y) position in
-            the frame buffer, a display mode and an array of connectors to drive
-            with the CRTC if possible.
-          </para>
-          <para>
-            If the frame buffer specified in the configuration is NULL, the driver
-            must detach all encoders connected to the CRTC and all connectors
-            attached to those encoders and disable them.
-          </para>
-          <para>
-            This operation is called with the mode config lock held.
-          </para>
-          <note><para>
-	    Note that the drm core has no notion of restoring the mode setting
-	    state after resume, since all resume handling is in the full
-	    responsibility of the driver. The common mode setting helper library
-	    though provides a helper which can be used for this:
-	    <function>drm_helper_resume_force_mode</function>.
-          </para></note>
-        </sect4>
-        <sect4>
-          <title>Page Flipping</title>
-          <synopsis>int (*page_flip)(struct drm_crtc *crtc, struct drm_framebuffer *fb,
-                   struct drm_pending_vblank_event *event);</synopsis>
-          <para>
-            Schedule a page flip to the given frame buffer for the CRTC. This
-            operation is called with the mode config mutex held.
-          </para>
-          <para>
-            Page flipping is a synchronization mechanism that replaces the frame
-            buffer being scanned out by the CRTC with a new frame buffer during
-            vertical blanking, avoiding tearing. When an application requests a page
-            flip the DRM core verifies that the new frame buffer is large enough to
-            be scanned out by  the CRTC in the currently configured mode and then
-            calls the CRTC <methodname>page_flip</methodname> operation with a
-            pointer to the new frame buffer.
-          </para>
-          <para>
-            The <methodname>page_flip</methodname> operation schedules a page flip.
-            Once any pending rendering targeting the new frame buffer has
-            completed, the CRTC will be reprogrammed to display that frame buffer
-            after the next vertical refresh. The operation must return immediately
-            without waiting for rendering or page flip to complete and must block
-            any new rendering to the frame buffer until the page flip completes.
-          </para>
-          <para>
-            If a page flip can be successfully scheduled the driver must set the
-            <code>drm_crtc-&gt;fb</code> field to the new framebuffer pointed to
-            by <code>fb</code>. This is important so that the reference counting
-            on framebuffers stays balanced.
-          </para>
-          <para>
-            If a page flip is already pending, the
-            <methodname>page_flip</methodname> operation must return
-            -<errorname>EBUSY</errorname>.
-          </para>
-          <para>
-            To synchronize page flip to vertical blanking the driver will likely
-            need to enable vertical blanking interrupts. It should call
-            <function>drm_vblank_get</function> for that purpose, and call
-            <function>drm_vblank_put</function> after the page flip completes.
-          </para>
-          <para>
-            If the application has requested to be notified when page flip completes
-            the <methodname>page_flip</methodname> operation will be called with a
-            non-NULL <parameter>event</parameter> argument pointing to a
-            <structname>drm_pending_vblank_event</structname> instance. Upon page
-            flip completion the driver must call <methodname>drm_send_vblank_event</methodname>
-            to fill in the event and send to wake up any waiting processes.
-            This can be performed with
-            <programlisting><![CDATA[
-            spin_lock_irqsave(&dev->event_lock, flags);
-            ...
-            drm_send_vblank_event(dev, pipe, event);
-            spin_unlock_irqrestore(&dev->event_lock, flags);
-            ]]></programlisting>
-          </para>
-          <note><para>
-            FIXME: Could drivers that don't need to wait for rendering to complete
-            just add the event to <literal>dev-&gt;vblank_event_list</literal> and
-            let the DRM core handle everything, as for "normal" vertical blanking
-            events?
-          </para></note>
-          <para>
-            While waiting for the page flip to complete, the
-            <literal>event-&gt;base.link</literal> list head can be used freely by
-            the driver to store the pending event in a driver-specific list.
-          </para>
-          <para>
-            If the file handle is closed before the event is signaled, drivers must
-            take care to destroy the event in their
-            <methodname>preclose</methodname> operation (and, if needed, call
-            <function>drm_vblank_put</function>).
-          </para>
-        </sect4>
-        <sect4>
-          <title>Miscellaneous</title>
-          <itemizedlist>
-            <listitem>
-              <synopsis>void (*set_property)(struct drm_crtc *crtc,
-                     struct drm_property *property, uint64_t value);</synopsis>
-              <para>
-                Set the value of the given CRTC property to
-                <parameter>value</parameter>. See <xref linkend="drm-kms-properties"/>
-                for more information about properties.
-              </para>
-            </listitem>
-            <listitem>
-              <synopsis>void (*gamma_set)(struct drm_crtc *crtc, u16 *r, u16 *g, u16 *b,
-                        uint32_t start, uint32_t size);</synopsis>
-              <para>
-                Apply a gamma table to the device. The operation is optional.
-              </para>
-            </listitem>
-            <listitem>
-              <synopsis>void (*destroy)(struct drm_crtc *crtc);</synopsis>
-              <para>
-                Destroy the CRTC when not needed anymore. See
-                <xref linkend="drm-kms-init"/>.
-              </para>
-            </listitem>
-          </itemizedlist>
-        </sect4>
-      </sect3>
     </sect2>
     <sect2>
       <title>Planes (struct <structname>drm_plane</structname>)</title>
@@ -1344,7 +1193,7 @@ int max_width, max_height;</synopsis>
         <listitem>
         DRM_PLANE_TYPE_PRIMARY represents a "main" plane for a CRTC.  Primary
         planes are the planes operated upon by CRTC modesetting and flipping
-        operations described in <xref linkend="drm-kms-crtcops"/>.
+	operations described in the page_flip hook in <structname>drm_crtc_funcs</structname>.
         </listitem>
         <listitem>
         DRM_PLANE_TYPE_CURSOR represents a "cursor" plane for a CRTC.  Cursor
@@ -1380,52 +1229,6 @@ int max_width, max_height;</synopsis>
           <xref linkend="drm-kms-planehelpers"/> to create and register a
           primary plane with standard capabilities.
         </para>
-      </sect3>
-      <sect3>
-        <title>Plane Operations</title>
-        <itemizedlist>
-          <listitem>
-            <synopsis>int (*update_plane)(struct drm_plane *plane, struct drm_crtc *crtc,
-                        struct drm_framebuffer *fb, int crtc_x, int crtc_y,
-                        unsigned int crtc_w, unsigned int crtc_h,
-                        uint32_t src_x, uint32_t src_y,
-                        uint32_t src_w, uint32_t src_h);</synopsis>
-            <para>
-              Enable and configure the plane to use the given CRTC and frame buffer.
-            </para>
-            <para>
-              The source rectangle in frame buffer memory coordinates is given by
-              the <parameter>src_x</parameter>, <parameter>src_y</parameter>,
-              <parameter>src_w</parameter> and <parameter>src_h</parameter>
-              parameters (as 16.16 fixed point values). Devices that don't support
-              subpixel plane coordinates can ignore the fractional part.
-            </para>
-            <para>
-              The destination rectangle in CRTC coordinates is given by the
-              <parameter>crtc_x</parameter>, <parameter>crtc_y</parameter>,
-              <parameter>crtc_w</parameter> and <parameter>crtc_h</parameter>
-              parameters (as integer values). Devices scale the source rectangle to
-              the destination rectangle. If scaling is not supported, and the source
-              rectangle size doesn't match the destination rectangle size, the
-              driver must return a -<errorname>EINVAL</errorname> error.
-            </para>
-          </listitem>
-          <listitem>
-            <synopsis>int (*disable_plane)(struct drm_plane *plane);</synopsis>
-            <para>
-              Disable the plane. The DRM core calls this method in response to a
-              DRM_IOCTL_MODE_SETPLANE ioctl call with the frame buffer ID set to 0.
-              Disabled planes must not be processed by the CRTC.
-            </para>
-          </listitem>
-          <listitem>
-            <synopsis>void (*destroy)(struct drm_plane *plane);</synopsis>
-            <para>
-              Destroy the plane when not needed anymore. See
-              <xref linkend="drm-kms-init"/>.
-            </para>
-          </listitem>
-        </itemizedlist>
       </sect3>
     </sect2>
     <sect2>
@@ -1482,27 +1285,6 @@ int max_width, max_height;</synopsis>
           compatibility layer when implemented) are responsible for attaching the
           encoders they want to use to a CRTC.
         </para>
-      </sect3>
-      <sect3>
-        <title>Encoder Operations</title>
-        <itemizedlist>
-          <listitem>
-            <synopsis>void (*destroy)(struct drm_encoder *encoder);</synopsis>
-            <para>
-              Called to destroy the encoder when not needed anymore. See
-              <xref linkend="drm-kms-init"/>.
-            </para>
-          </listitem>
-          <listitem>
-            <synopsis>void (*set_property)(struct drm_plane *plane,
-                     struct drm_property *property, uint64_t value);</synopsis>
-            <para>
-              Set the value of the given plane property to
-              <parameter>value</parameter>. See <xref linkend="drm-kms-properties"/>
-              for more information about properties.
-            </para>
-          </listitem>
-        </itemizedlist>
       </sect3>
     </sect2>
     <sect2>
@@ -1706,27 +1488,6 @@ int max_width, max_height;</synopsis>
             the connection status, or failed connection status probes, should return
             connector_status_unknown.
           </para>
-        </sect4>
-        <sect4>
-          <title>Miscellaneous</title>
-          <itemizedlist>
-            <listitem>
-              <synopsis>void (*set_property)(struct drm_connector *connector,
-                     struct drm_property *property, uint64_t value);</synopsis>
-              <para>
-                Set the value of the given connector property to
-                <parameter>value</parameter>. See <xref linkend="drm-kms-properties"/>
-                for more information about properties.
-              </para>
-            </listitem>
-            <listitem>
-              <synopsis>void (*destroy)(struct drm_connector *connector);</synopsis>
-              <para>
-                Destroy the connector when not needed anymore. See
-                <xref linkend="drm-kms-init"/>.
-              </para>
-            </listitem>
-          </itemizedlist>
         </sect4>
       </sect3>
     </sect2>
@@ -2162,6 +1923,12 @@ void intel_crt_init(struct drm_device *dev)
 !Edrivers/gpu/drm/drm_dp_helper.c
     </sect2>
     <sect2>
+      <title>Display Port Dual Mode Adaptor Helper Functions Reference</title>
+!Pdrivers/gpu/drm/drm_dp_dual_mode_helper.c dp dual mode helpers
+!Iinclude/drm/drm_dp_dual_mode_helper.h
+!Edrivers/gpu/drm/drm_dp_dual_mode_helper.c
+    </sect2>
+    <sect2>
       <title>Display Port MST Helper Functions Reference</title>
 !Pdrivers/gpu/drm/drm_dp_mst_topology.c dp mst helper
 !Iinclude/drm/drm_dp_mst_helper.h
@@ -2220,6 +1987,18 @@ void intel_crt_init(struct drm_device *dev)
 !Pdrivers/gpu/drm/drm_bridge.c bridge callbacks
       </sect3>
 !Edrivers/gpu/drm/drm_bridge.c
+    </sect2>
+    <sect2>
+      <title>Panel Helper Reference</title>
+!Iinclude/drm/drm_panel.h
+!Edrivers/gpu/drm/drm_panel.c
+!Pdrivers/gpu/drm/drm_panel.c drm panel
+    </sect2>
+    <sect2>
+      <title>Simple KMS Helper Reference</title>
+!Iinclude/drm/drm_simple_kms_helper.h
+!Edrivers/gpu/drm/drm_simple_kms_helper.c
+!Pdrivers/gpu/drm/drm_simple_kms_helper.c overview
     </sect2>
   </sect1>
 

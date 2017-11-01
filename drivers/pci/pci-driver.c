@@ -463,8 +463,6 @@ static void pci_device_shutdown(struct device *dev)
 
 	if (drv && drv->shutdown)
 		drv->shutdown(pci_dev);
-	pci_msi_shutdown(pci_dev);
-	pci_msix_shutdown(pci_dev);
 
 #ifdef CONFIG_KEXEC_CORE
 	/*
@@ -945,6 +943,7 @@ static int pci_pm_thaw_noirq(struct device *dev)
 		return pci_legacy_resume_early(dev);
 
 	pci_update_current_state(pci_dev, PCI_D0);
+	pci_restore_state(pci_dev);
 
 	if (drv && drv->pm && drv->pm->thaw_noirq)
 		error = drv->pm->thaw_noirq(dev);

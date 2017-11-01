@@ -69,9 +69,7 @@ static const struct file_operations bochs_fops = {
 	.open		= drm_open,
 	.release	= drm_release,
 	.unlocked_ioctl	= drm_ioctl,
-#ifdef CONFIG_COMPAT
 	.compat_ioctl	= drm_compat_ioctl,
-#endif
 	.poll		= drm_poll,
 	.read		= drm_read,
 	.llseek		= no_llseek,
@@ -182,8 +180,8 @@ static const struct pci_device_id bochs_pci_tbl[] = {
 	{
 		.vendor      = 0x1234,
 		.device      = 0x1111,
-		.subvendor   = 0x1af4,
-		.subdevice   = 0x1100,
+		.subvendor   = PCI_SUBVENDOR_ID_REDHAT_QUMRANET,
+		.subdevice   = PCI_SUBDEVICE_ID_QEMU,
 		.driver_data = BOCHS_QEMU_STDVGA,
 	},
 	{

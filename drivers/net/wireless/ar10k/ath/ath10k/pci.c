@@ -2489,6 +2489,12 @@ void ath10k_pci_hif_power_down(struct ath10k *ar)
 
 static int ath10k_pci_hif_suspend(struct ath10k *ar)
 {
+	/* Nothing to do; the important stuff is in the driver suspend. */
+	return 0;
+}
+
+static int ath10k_pci_suspend(struct ath10k *ar)
+{
 	/* The grace timer can still be counting down and ar->ps_awake be true.
 	 * It is known that the device may be asleep after resuming regardless
 	 * of the SoC powersave state before suspending. Hence make sure the
@@ -2500,6 +2506,12 @@ static int ath10k_pci_hif_suspend(struct ath10k *ar)
 }
 
 static int ath10k_pci_hif_resume(struct ath10k *ar)
+{
+	/* Nothing to do; the important stuff is in the driver resume. */
+	return 0;
+}
+
+static int ath10k_pci_resume(struct ath10k *ar)
 {
 	struct ath10k_pci *ar_pci = ath10k_pci_priv(ar);
 	struct pci_dev *pdev = ar_pci->pdev;
@@ -3218,11 +3230,45 @@ static void ath10k_pci_remove(struct pci_dev *pdev)
 
 MODULE_DEVICE_TABLE(pci, ath10k_pci_id_table);
 
+#ifdef CONFIG_PM
+
+static int ath10k_pci_pm_suspend(struct device *dev)
+{
+	struct ath10k *ar = dev_get_drvdata(dev);
+	int ret;
+
+	ret = ath10k_pci_suspend(ar);
+	if (ret)
+		ath10k_warn(ar, "failed to suspend hif: %d\n", ret);
+
+	return ret;
+}
+
+static int ath10k_pci_pm_resume(struct device *dev)
+{
+	struct ath10k *ar = dev_get_drvdata(dev);
+	int ret;
+
+	ret = ath10k_pci_resume(ar);
+	if (ret)
+		ath10k_warn(ar, "failed to resume hif: %d\n", ret);
+
+	return ret;
+}
+
+static SIMPLE_DEV_PM_OPS(ath10k_pci_pm_ops,
+			 ath10k_pci_pm_suspend,
+			 ath10k_pci_pm_resume);
+#endif
+
 static struct pci_driver ath10k_pci_driver = {
 	.name = "ath10k_pci",
 	.id_table = ath10k_pci_id_table,
 	.probe = ath10k_pci_probe,
 	.remove = ath10k_pci_remove,
+#ifdef CONFIG_PM
+	.driver.pm = &ath10k_pci_pm_ops,
+#endif
 };
 
 static int __init ath10k_pci_init(void)
@@ -3272,6 +3318,7 @@ MODULE_FIRMWARE(QCA6174_HW_2_1_FW_DIR "/" ATH10K_BOARD_API2_FILE);
 /* QCA6174 3.1 firmware files */
 MODULE_FIRMWARE(QCA6174_HW_3_0_FW_DIR "/" ATH10K_FW_API4_FILE);
 MODULE_FIRMWARE(QCA6174_HW_3_0_FW_DIR "/" ATH10K_FW_API5_FILE);
+MODULE_FIRMWARE(QCA6174_HW_3_0_FW_DIR "/" ATH10K_FW_API6_FILE);
 MODULE_FIRMWARE(QCA6174_HW_3_0_FW_DIR "/" QCA6174_HW_3_0_BOARD_DATA_FILE);
 MODULE_FIRMWARE(QCA6174_HW_3_0_FW_DIR "/" ATH10K_BOARD_API2_FILE);
 

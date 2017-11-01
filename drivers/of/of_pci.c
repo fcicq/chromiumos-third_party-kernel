@@ -119,6 +119,52 @@ int of_get_pci_domain_nr(struct device_node *node)
 EXPORT_SYMBOL_GPL(of_get_pci_domain_nr);
 
 /**
+ * This function will try to find the limitation of link speed by finding
+ * a property called "max-link-speed" of the given device node.
+ *
+ * @node: device tree node with the max link speed information
+ *
+ * Returns the associated max link speed from DT, or a negative value if the
+ * required property is not found or is invalid.
+ */
+int of_pci_get_max_link_speed(struct device_node *node)
+{
+	u32 max_link_speed;
+
+	if (of_property_read_u32(node, "max-link-speed", &max_link_speed) ||
+	    max_link_speed > 4)
+		return -EINVAL;
+
+	return max_link_speed;
+}
+EXPORT_SYMBOL_GPL(of_pci_get_max_link_speed);
+
+/**
+ * This function returns true if the PCIe controller should assert PCIe Reset
+ * (PERST#) when entering system suspend (e.g., S3).
+ *
+ * @node: device tree node with the reset property
+ *
+ * Returns 1 (meaning "assert reset") or 0 ("don't assert reset"), if the DT
+ * defined a valid behavior. Otherwise, returns a negative error code.
+ */
+int of_pci_get_pcie_reset_suspend(struct device_node *node)
+{
+	int ret;
+	u32 val;
+
+	ret = of_property_read_u32(node, "pcie-reset-suspend", &val);
+	if (ret)
+		return ret;
+
+	if (val > 1)
+		return -EINVAL;
+
+	return val;
+}
+EXPORT_SYMBOL_GPL(of_pci_get_pcie_reset_suspend);
+
+/**
  * of_pci_check_probe_only - Setup probe only mode if linux,pci-probe-only
  *                           is present and valid
  */

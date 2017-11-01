@@ -231,19 +231,21 @@ void radeon_crtc_fb_gamma_get(struct drm_crtc *crtc, u16 *red, u16 *green,
 	*blue = radeon_crtc->lut_b[regno] << 6;
 }
 
-static void radeon_crtc_gamma_set(struct drm_crtc *crtc, u16 *red, u16 *green,
-				  u16 *blue, uint32_t start, uint32_t size)
+static int radeon_crtc_gamma_set(struct drm_crtc *crtc, u16 *red, u16 *green,
+				 u16 *blue, uint32_t size)
 {
 	struct radeon_crtc *radeon_crtc = to_radeon_crtc(crtc);
-	int end = (start + size > 256) ? 256 : start + size, i;
+	int i;
 
 	/* userspace palettes are always correct as is */
-	for (i = start; i < end; i++) {
+	for (i = 0; i < size; i++) {
 		radeon_crtc->lut_r[i] = red[i] >> 6;
 		radeon_crtc->lut_g[i] = green[i] >> 6;
 		radeon_crtc->lut_b[i] = blue[i] >> 6;
 	}
 	radeon_crtc_load_lut(crtc);
+
+	return 0;
 }
 
 static void radeon_crtc_destroy(struct drm_crtc *crtc)
@@ -422,7 +424,7 @@ static void radeon_flip_work_func(struct work_struct *__work)
 				down_read(&rdev->exclusive_lock);
 			}
 		} else
-			r = fence_wait(work->fence, false);
+			r = dma_fence_wait(work->fence, false);
 
 		if (r)
 			DRM_ERROR("failed to wait on page flip fence (%d)!\n", r);
@@ -432,7 +434,7 @@ static void radeon_flip_work_func(struct work_struct *__work)
 		 * confused about which BO the CRTC is scanning out
 		 */
 
-		fence_put(work->fence);
+		dma_fence_put(work->fence);
 		work->fence = NULL;
 	}
 
@@ -556,26 +558,26 @@ static int radeon_crtc_page_flip(struct drm_crtc *crtc,
 		DRM_ERROR("failed to pin new rbo buffer before flip\n");
 		goto cleanup;
 	}
-	work->fence = fence_get(reservation_object_get_excl(new_rbo->tbo.resv));
+	work->fence = dma_fence_get(reservation_object_get_excl(new_rbo->tbo.resv));
 	radeon_bo_get_tiling_flags(new_rbo, &tiling_flags, NULL);
 	radeon_bo_unreserve(new_rbo);
 
 	if (!ASIC_IS_AVIVO(rdev)) {
 		/* crtc offset is from display base addr not FB location */
 		base -= radeon_crtc->legacy_display_base_addr;
-		pitch_pixels = fb->pitches[0] / (fb->bits_per_pixel / 8);
+		pitch_pixels = fb->pitches[0] / fb->format->cpp[0];
 
 		if (tiling_flags & RADEON_TILING_MACRO) {
 			if (ASIC_IS_R300(rdev)) {
 				base &= ~0x7ff;
 			} else {
-				int byteshift = fb->bits_per_pixel >> 4;
+				int byteshift = fb->format->cpp[0] * 8 >> 4;
 				int tile_addr = (((crtc->y >> 3) * pitch_pixels +  crtc->x) >> (8 - byteshift)) << 11;
 				base += tile_addr + ((crtc->x << byteshift) % 256) + ((crtc->y % 8) << 8);
 			}
 		} else {
 			int offset = crtc->y * pitch_pixels + crtc->x;
-			switch (fb->bits_per_pixel) {
+			switch (fb->format->cpp[0] * 8) {
 			case 8:
 			default:
 				offset *= 1;
@@ -638,7 +640,7 @@ pflip_cleanup:
 
 cleanup:
 	drm_gem_object_unreference_unlocked(&work->old_rbo->gem_base);
-	fence_put(work->fence);
+	dma_fence_put(work->fence);
 	kfree(work);
 	return r;
 }
@@ -687,6 +689,7 @@ radeon_crtc_set_config(struct drm_mode_set *set)
 	pm_runtime_put_autosuspend(dev->dev);
 	return ret;
 }
+
 static const struct drm_crtc_funcs radeon_crtc_funcs = {
 	.cursor_set2 = radeon_crtc_cursor_set2,
 	.cursor_move = radeon_crtc_cursor_move,
@@ -1349,7 +1352,7 @@ radeon_framebuffer_init(struct drm_device *dev,
 {
 	int ret;
 	rfb->obj = obj;
-	drm_helper_mode_fill_fb_struct(&rfb->base, mode_cmd);
+	drm_helper_mode_fill_fb_struct(dev, &rfb->base, mode_cmd);
 	ret = drm_framebuffer_init(dev, &rfb->base, &radeon_fb_funcs);
 	if (ret) {
 		rfb->obj = NULL;
@@ -1367,7 +1370,7 @@ radeon_user_framebuffer_create(struct drm_device *dev,
 	struct radeon_framebuffer *radeon_fb;
 	int ret;
 
-	obj = drm_gem_object_lookup(dev, file_priv, mode_cmd->handles[0]);
+	obj = drm_gem_object_lookup(file_priv, mode_cmd->handles[0]);
 	if (obj ==  NULL) {
 		dev_err(&dev->pdev->dev, "No GEM object associated to handle 0x%08X, "
 			"can't create framebuffer\n", mode_cmd->handles[0]);

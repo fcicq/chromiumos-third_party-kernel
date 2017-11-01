@@ -97,7 +97,8 @@ static int vmw_ldu_commit_list(struct vmw_private *dev_priv)
 		fb = entry->base.crtc.primary->fb;
 
 		return vmw_kms_write_svga(dev_priv, w, h, fb->pitches[0],
-					  fb->bits_per_pixel, fb->depth);
+					  fb->format->cpp[0] * 8,
+					  fb->format->depth);
 	}
 
 	if (!list_empty(&lds->active)) {
@@ -105,7 +106,7 @@ static int vmw_ldu_commit_list(struct vmw_private *dev_priv)
 		fb = entry->base.crtc.primary->fb;
 
 		vmw_kms_write_svga(dev_priv, fb->width, fb->height, fb->pitches[0],
-				   fb->bits_per_pixel, fb->depth);
+				   fb->format->cpp[0] * 8, fb->format->depth);
 	}
 
 	/* Make sure we always show something. */
@@ -295,8 +296,6 @@ static int vmw_ldu_crtc_set_config(struct drm_mode_set *set)
 }
 
 static struct drm_crtc_funcs vmw_legacy_crtc_funcs = {
-	.save = vmw_du_crtc_save,
-	.restore = vmw_du_crtc_restore,
 	.cursor_set2 = vmw_du_crtc_cursor_set2,
 	.cursor_move = vmw_du_crtc_cursor_move,
 	.gamma_set = vmw_du_crtc_gamma_set,
@@ -329,8 +328,6 @@ static void vmw_ldu_connector_destroy(struct drm_connector *connector)
 
 static struct drm_connector_funcs vmw_legacy_connector_funcs = {
 	.dpms = vmw_du_connector_dpms,
-	.save = vmw_du_connector_save,
-	.restore = vmw_du_connector_restore,
 	.detect = vmw_du_connector_detect,
 	.fill_modes = vmw_du_connector_fill_modes,
 	.set_property = vmw_du_connector_set_property,

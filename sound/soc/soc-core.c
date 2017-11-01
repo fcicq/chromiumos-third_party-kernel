@@ -933,7 +933,7 @@ static struct snd_soc_component *soc_find_component(
 /**
  * snd_soc_find_dai - Find a registered DAI
  *
- * @dlc: name of the DAI and optional component info to match
+ * @dlc: name of the DAI or the DAI driver and optional component info to match
  *
  * This function will search all regsitered components and their DAIs to
  * find the DAI of the same name. The component's of_node and name
@@ -961,7 +961,9 @@ struct snd_soc_dai *snd_soc_find_dai(
 		if (dlc->name && strcmp(component->name, dlc->name))
 			continue;
 		list_for_each_entry(dai, &component->dai_list, list) {
-			if (dlc->dai_name && strcmp(dai->name, dlc->dai_name))
+			if (dlc->dai_name && strcmp(dai->name, dlc->dai_name)
+			    && (!dai->driver->name
+				|| strcmp(dai->driver->name, dlc->dai_name)))
 				continue;
 
 			return dai;
@@ -971,6 +973,48 @@ struct snd_soc_dai *snd_soc_find_dai(
 	return NULL;
 }
 EXPORT_SYMBOL_GPL(snd_soc_find_dai);
+
+
+/**
+ * snd_soc_find_dai_link - Find a DAI link
+ *
+ * @card: soc card
+ * @id: DAI link ID to match
+ * @name: DAI link name to match, optional
+ * @stream name: DAI link stream name to match, optional
+ *
+ * This function will search all existing DAI links of the soc card to
+ * find the link of the same ID. Since DAI links may not have their
+ * unique ID, so name and stream name should also match if being
+ * specified.
+ *
+ * Return: pointer of DAI link, or NULL if not found.
+ */
+struct snd_soc_dai_link *snd_soc_find_dai_link(struct snd_soc_card *card,
+					       int id, const char *name,
+					       const char *stream_name)
+{
+	struct snd_soc_dai_link *link, *_link;
+
+	lockdep_assert_held(&client_mutex);
+
+	list_for_each_entry_safe(link, _link, &card->dai_link_list, list) {
+		if (link->id != id)
+			continue;
+
+		if (name && (!link->name || strcmp(name, link->name)))
+			continue;
+
+		if (stream_name && (!link->stream_name
+			|| strcmp(stream_name, link->stream_name)))
+			continue;
+
+		return link;
+	}
+
+	return NULL;
+}
+EXPORT_SYMBOL_GPL(snd_soc_find_dai_link);
 
 static bool soc_is_dai_link_bound(struct snd_soc_card *card,
 		struct snd_soc_dai_link *dai_link)
@@ -1056,7 +1100,7 @@ static int soc_bind_dai_link(struct snd_soc_card *card,
 	if (!rtd->platform) {
 		dev_err(card->dev, "ASoC: platform %s not registered\n",
 			dai_link->platform_name);
-		return -EPROBE_DEFER;
+		goto _err_defer;
 	}
 
 	soc_add_pcm_runtime(card, rtd);
@@ -2076,6 +2120,9 @@ static int soc_cleanup_card_resources(struct snd_soc_card *card)
 	list_for_each_entry(rtd, &card->rtd_list, list)
 		flush_delayed_work(&rtd->delayed_work);
 
+	/* free the ALSA card at first; this syncs with pending operations */
+	snd_card_free(card->snd_card);
+
 	/* remove and free each DAI */
 	soc_remove_dai_links(card);
 	soc_remove_pcm_runtimes(card);
@@ -2091,9 +2138,7 @@ static int soc_cleanup_card_resources(struct snd_soc_card *card)
 
 	snd_soc_dapm_free(&card->dapm);
 
-	snd_card_free(card->snd_card);
 	return 0;
-
 }
 
 /* removes a socdev */

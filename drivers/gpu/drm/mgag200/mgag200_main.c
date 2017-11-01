@@ -34,7 +34,7 @@ int mgag200_framebuffer_init(struct drm_device *dev,
 {
 	int ret;
 	
-	drm_helper_mode_fill_fb_struct(&gfb->base, mode_cmd);
+	drm_helper_mode_fill_fb_struct(dev, &gfb->base, mode_cmd);
 	gfb->obj = obj;
 	ret = drm_framebuffer_init(dev, &gfb->base, &mga_fb_funcs);
 	if (ret) {
@@ -53,7 +53,7 @@ mgag200_user_framebuffer_create(struct drm_device *dev,
 	struct mga_framebuffer *mga_fb;
 	int ret;
 
-	obj = drm_gem_object_lookup(dev, filp, mode_cmd->handles[0]);
+	obj = drm_gem_object_lookup(filp, mode_cmd->handles[0]);
 	if (obj == NULL)
 		return ERR_PTR(-ENOENT);
 
@@ -358,7 +358,7 @@ mgag200_dumb_mmap_offset(struct drm_file *file,
 	struct drm_gem_object *obj;
 	struct mgag200_bo *bo;
 
-	obj = drm_gem_object_lookup(dev, file, handle);
+	obj = drm_gem_object_lookup(file, handle);
 	if (obj == NULL)
 		return -ENOENT;
 

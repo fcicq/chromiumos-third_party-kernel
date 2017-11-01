@@ -447,6 +447,7 @@ struct sock {
 	void			*sk_security;
 #endif
 	__u32			sk_mark;
+	kuid_t			sk_uid;
 #ifdef CONFIG_CGROUP_NET_CLASSID
 	u32			sk_classid;
 #endif
@@ -1447,24 +1448,14 @@ static inline void sk_wmem_free_skb(struct sock *sk, struct sk_buff *skb)
 	__kfree_skb(skb);
 }
 
-/* Used by processes to "lock" a socket state, so that
- * interrupts and bottom half handlers won't change it
- * from under us. It essentially blocks any incoming
- * packets, so that we won't get any new data or any
- * packets that change the state of the socket.
- *
- * While locked, BH processing will add new packets to
- * the backlog queue.  This queue is processed by the
- * owner of the socket lock right before it is released.
- *
- * Since ~2.3.5 it is also exclusive sleep lock serializing
- * accesses from user process context.
- */
-#define sock_owned_by_user(sk)	((sk)->sk_lock.owned)
-
 static inline void sock_release_ownership(struct sock *sk)
 {
-	sk->sk_lock.owned = 0;
+	if (sk->sk_lock.owned) {
+		sk->sk_lock.owned = 0;
+
+		/* The sk_lock has mutex_unlock() semantics: */
+		mutex_release(&sk->sk_lock.dep_map, 1, _RET_IP_);
+	}
 }
 
 /*
@@ -1485,6 +1476,16 @@ do {									\
 				(skey), (sname));				\
 	lockdep_init_map(&(sk)->sk_lock.dep_map, (name), (key), 0);	\
 } while (0)
+
+#ifdef CONFIG_LOCKDEP
+static inline bool lockdep_sock_is_held(const struct sock *csk)
+{
+	struct sock *sk = (struct sock *)csk;
+
+	return lockdep_is_held(&sk->sk_lock) ||
+	       lockdep_is_held(&sk->sk_lock.slock);
+}
+#endif
 
 void lock_sock_nested(struct sock *sk, int subclass);
 
@@ -1519,6 +1520,35 @@ static inline void unlock_sock_fast(struct sock *sk, bool slow)
 		spin_unlock_bh(&sk->sk_lock.slock);
 }
 
+/* Used by processes to "lock" a socket state, so that
+ * interrupts and bottom half handlers won't change it
+ * from under us. It essentially blocks any incoming
+ * packets, so that we won't get any new data or any
+ * packets that change the state of the socket.
+ *
+ * While locked, BH processing will add new packets to
+ * the backlog queue.  This queue is processed by the
+ * owner of the socket lock right before it is released.
+ *
+ * Since ~2.3.5 it is also exclusive sleep lock serializing
+ * accesses from user process context.
+ */
+
+static inline bool sock_owned_by_user(const struct sock *sk)
+{
+#ifdef CONFIG_LOCKDEP
+	WARN_ON_ONCE(!lockdep_sock_is_held(sk) && debug_locks);
+#endif
+	return sk->sk_lock.owned;
+}
+
+/* no reclassification while locks are held */
+static inline bool sock_allow_reclassification(const struct sock *csk)
+{
+	struct sock *sk = (struct sock *)csk;
+
+	return !sk->sk_lock.owned && !spin_is_locked(&sk->sk_lock.slock);
+}
 
 struct sock *sk_alloc(struct net *net, int family, gfp_t priority,
 		      struct proto *prot, int kern);
@@ -1693,12 +1723,18 @@ static inline void sock_graft(struct sock *sk, struct socket *parent)
 	sk->sk_wq = parent->wq;
 	parent->sk = sk;
 	sk_set_socket(sk, parent);
+	sk->sk_uid = SOCK_INODE(parent)->i_uid;
 	security_sock_graft(sk, parent);
 	write_unlock_bh(&sk->sk_callback_lock);
 }
 
 kuid_t sock_i_uid(struct sock *sk);
 unsigned long sock_i_ino(struct sock *sk);
+
+static inline kuid_t sock_net_uid(const struct net *net, const struct sock *sk)
+{
+	return sk ? sk->sk_uid : make_kuid(net->user_ns, 0);
+}
 
 static inline u32 net_tx_rndhash(void)
 {
@@ -1721,8 +1757,8 @@ static inline void sk_rethink_txhash(struct sock *sk)
 static inline struct dst_entry *
 __sk_dst_get(struct sock *sk)
 {
-	return rcu_dereference_check(sk->sk_dst_cache, sock_owned_by_user(sk) ||
-						       lockdep_is_held(&sk->sk_lock.slock));
+	return rcu_dereference_check(sk->sk_dst_cache,
+				     lockdep_sock_is_held(sk));
 }
 
 static inline struct dst_entry *

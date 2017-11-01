@@ -456,7 +456,7 @@ int bochs_dumb_mmap_offset(struct drm_file *file, struct drm_device *dev,
 	struct drm_gem_object *obj;
 	struct bochs_bo *bo;
 
-	obj = drm_gem_object_lookup(dev, file, handle);
+	obj = drm_gem_object_lookup(file, handle);
 	if (obj == NULL)
 		return -ENOENT;
 
@@ -489,7 +489,7 @@ int bochs_framebuffer_init(struct drm_device *dev,
 {
 	int ret;
 
-	drm_helper_mode_fill_fb_struct(&gfb->base, mode_cmd);
+	drm_helper_mode_fill_fb_struct(dev, &gfb->base, mode_cmd);
 	gfb->obj = obj;
 	ret = drm_framebuffer_init(dev, &gfb->base, &bochs_fb_funcs);
 	if (ret) {
@@ -518,7 +518,7 @@ bochs_user_framebuffer_create(struct drm_device *dev,
 	if (mode_cmd->pixel_format != DRM_FORMAT_XRGB8888)
 		return ERR_PTR(-ENOENT);
 
-	obj = drm_gem_object_lookup(dev, filp, mode_cmd->handles[0]);
+	obj = drm_gem_object_lookup(filp, mode_cmd->handles[0]);
 	if (obj == NULL)
 		return ERR_PTR(-ENOENT);
 

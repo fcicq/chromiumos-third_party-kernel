@@ -1096,12 +1096,6 @@ struct efivar_operations {
 };
 
 struct efivars {
-	/*
-	 * ->lock protects two things:
-	 * 1) efivarfs_list and efivars_sysfs_list
-	 * 2) ->ops calls
-	 */
-	spinlock_t lock;
 	struct kset *kset;
 	struct kobject *kobject;
 	const struct efivar_operations *ops;
@@ -1166,8 +1160,7 @@ int efivars_unregister(struct efivars *efivars);
 struct kobject *efivars_kobject(void);
 
 int efivar_init(int (*func)(efi_char16_t *, efi_guid_t, unsigned long, void *),
-		void *data, bool atomic, bool duplicates,
-		struct list_head *head);
+		void *data, bool duplicates, struct list_head *head);
 
 void efivar_entry_add(struct efivar_entry *entry, struct list_head *head);
 void efivar_entry_remove(struct efivar_entry *entry);

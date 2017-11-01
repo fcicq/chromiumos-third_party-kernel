@@ -27,6 +27,9 @@
 #ifndef __DRM_MODES_H__
 #define __DRM_MODES_H__
 
+#include <drm/drm_mode_object.h>
+#include <drm/drm_connector.h>
+
 /*
  * Note on terminology:  here, for brevity and convenience, we refer to connector
  * control chips as 'CRTCs'.  They can control any type of connector, VGA, LVDS,
@@ -73,7 +76,7 @@
  * @MODE_ONE_SIZE: only one resolution is supported
  * @MODE_NO_REDUCED: monitor doesn't accept reduced blanking
  * @MODE_NO_STEREO: stereo modes not supported
- * @MODE_UNVERIFIED: mode needs to reverified
+ * @MODE_STALE: mode has become stale
  * @MODE_BAD: unspecified reason
  * @MODE_ERROR: error condition
  *
@@ -117,7 +120,7 @@ enum drm_mode_status {
 	MODE_ONE_SIZE,
 	MODE_NO_REDUCED,
 	MODE_NO_STEREO,
-	MODE_UNVERIFIED = -3,
+	MODE_STALE = -3,
 	MODE_BAD = -2,
 	MODE_ERROR = -1
 };
@@ -398,20 +401,7 @@ struct drm_display_mode {
 	enum hdmi_picture_aspect picture_aspect_ratio;
 };
 
-/* mode specified on the command line */
-struct drm_cmdline_mode {
-	bool specified;
-	bool refresh_specified;
-	bool bpp_specified;
-	int xres, yres;
-	int bpp;
-	int refresh;
-	bool rb;
-	bool interlace;
-	bool cvt;
-	bool margins;
-	enum drm_connector_force force;
-};
+#define obj_to_mode(x) container_of(x, struct drm_display_mode, base)
 
 /**
  * drm_mode_is_stereo - check for stereo mode flags
@@ -462,6 +452,8 @@ int of_get_drm_display_mode(struct device_node *np,
 void drm_mode_set_name(struct drm_display_mode *mode);
 int drm_mode_hsync(const struct drm_display_mode *mode);
 int drm_mode_vrefresh(const struct drm_display_mode *mode);
+void drm_mode_get_hv_timing(const struct drm_display_mode *mode,
+			    int *hdisplay, int *vdisplay);
 
 void drm_mode_set_crtcinfo(struct drm_display_mode *p,
 			   int adjust_flags);

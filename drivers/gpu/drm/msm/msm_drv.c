@@ -863,7 +863,7 @@ static int msm_ioctl_gem_cpu_prep(struct drm_device *dev, void *data,
 		return -EINVAL;
 	}
 
-	obj = drm_gem_object_lookup(dev, file, args->handle);
+	obj = drm_gem_object_lookup(file, args->handle);
 	if (!obj)
 		return -ENOENT;
 
@@ -881,7 +881,7 @@ static int msm_ioctl_gem_cpu_fini(struct drm_device *dev, void *data,
 	struct drm_gem_object *obj;
 	int ret;
 
-	obj = drm_gem_object_lookup(dev, file, args->handle);
+	obj = drm_gem_object_lookup(file, args->handle);
 	if (!obj)
 		return -ENOENT;
 
@@ -902,7 +902,7 @@ static int msm_ioctl_gem_info(struct drm_device *dev, void *data,
 	if (args->pad)
 		return -EINVAL;
 
-	obj = drm_gem_object_lookup(dev, file, args->handle);
+	obj = drm_gem_object_lookup(file, args->handle);
 	if (!obj)
 		return -ENOENT;
 
@@ -948,9 +948,7 @@ static const struct file_operations fops = {
 	.open               = drm_open,
 	.release            = drm_release,
 	.unlocked_ioctl     = drm_ioctl,
-#ifdef CONFIG_COMPAT
 	.compat_ioctl       = drm_compat_ioctl,
-#endif
 	.poll               = drm_poll,
 	.read               = drm_read,
 	.llseek             = no_llseek,
@@ -986,6 +984,7 @@ static struct drm_driver msm_driver = {
 	.prime_fd_to_handle = drm_gem_prime_fd_to_handle,
 	.gem_prime_export   = drm_gem_prime_export,
 	.gem_prime_import   = drm_gem_prime_import,
+	.gem_prime_res_obj  = msm_gem_prime_res_obj,
 	.gem_prime_pin      = msm_gem_prime_pin,
 	.gem_prime_unpin    = msm_gem_prime_unpin,
 	.gem_prime_get_sg_table = msm_gem_prime_get_sg_table,

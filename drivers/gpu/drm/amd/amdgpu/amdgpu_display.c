@@ -36,7 +36,7 @@
 #include <drm/drm_edid.h>
 
 static void amdgpu_flip_wait_fence(struct amdgpu_device *adev,
-				   struct fence **f)
+				   struct dma_fence **f)
 {
 	struct amdgpu_fence *fence;
 	long r;
@@ -46,11 +46,11 @@ static void amdgpu_flip_wait_fence(struct amdgpu_device *adev,
 
 	fence = to_amdgpu_fence(*f);
 	if (fence) {
-		r = fence_wait(&fence->base, false);
+		r = dma_fence_wait(&fence->base, false);
 		if (r == -EDEADLK)
 			r = amdgpu_gpu_reset(adev);
 	} else
-		r = fence_wait(*f, false);
+		r = dma_fence_wait(*f, false);
 
 	if (r)
 		DRM_ERROR("failed to wait on page flip fence (%ld)!\n", r);
@@ -59,7 +59,7 @@ static void amdgpu_flip_wait_fence(struct amdgpu_device *adev,
 	 * the fence, otherwise the DRM core and userspace will be
 	 * confused about which BO the CRTC is scanning out
 	 */
-	fence_put(*f);
+	dma_fence_put(*f);
 	*f = NULL;
 }
 
@@ -272,9 +272,9 @@ pflip_cleanup:
 
 cleanup:
 	amdgpu_bo_unref(&work->old_rbo);
-	fence_put(work->excl);
+	dma_fence_put(work->excl);
 	for (i = 0; i < work->shared_count; ++i)
-		fence_put(work->shared[i]);
+		dma_fence_put(work->shared[i]);
 	kfree(work->shared);
 	kfree(work);
 
@@ -535,7 +535,7 @@ amdgpu_framebuffer_init(struct drm_device *dev,
 {
 	int ret;
 	rfb->obj = obj;
-	drm_helper_mode_fill_fb_struct(&rfb->base, mode_cmd);
+	drm_helper_mode_fill_fb_struct(dev, &rfb->base, mode_cmd);
 	ret = drm_framebuffer_init(dev, &rfb->base, &amdgpu_fb_funcs);
 	if (ret) {
 		rfb->obj = NULL;
@@ -553,7 +553,7 @@ amdgpu_user_framebuffer_create(struct drm_device *dev,
 	struct amdgpu_framebuffer *amdgpu_fb;
 	int ret;
 
-	obj = drm_gem_object_lookup(dev, file_priv, mode_cmd->handles[0]);
+	obj = drm_gem_object_lookup(file_priv, mode_cmd->handles[0]);
 	if (obj ==  NULL) {
 		dev_err(&dev->pdev->dev, "No GEM object associated to handle 0x%08X, "
 			"can't create framebuffer\n", mode_cmd->handles[0]);

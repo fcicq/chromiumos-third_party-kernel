@@ -12,6 +12,7 @@
  * GNU General Public License for more details.
  */
 
+#include <linux/arm-smccc.h>
 #include <linux/clk.h>
 #include <linux/device.h>
 #include <linux/delay.h>
@@ -29,7 +30,7 @@
 #define LINK_TRAINING_RETRY_MS		20
 #define LINK_TRAINING_TIMEOUT_MS	500
 
-void cdn_dp_set_fw_clk(struct cdn_dp_device *dp, u32 clk)
+void cdn_dp_set_fw_clk(struct cdn_dp_device *dp, unsigned long clk)
 {
 	writel(clk / 1000000, dp->regs + SW_CLK_H);
 }
@@ -671,6 +672,10 @@ int cdn_dp_config_video(struct cdn_dp_device *dp)
 		rem = do_div(symbol, 1000);
 		if (tu_size_reg > 64) {
 			ret = -EINVAL;
+			DRM_DEV_ERROR(dp->dev,
+				      "tu error, clk:%d, lanes:%d, rate:%d\n",
+				      mode->clock, dp->link.num_lanes,
+				      link_rate);
 			goto err_config_video;
 		}
 	} while ((symbol <= 1) || (tu_size_reg - symbol < 4) ||
@@ -977,3 +982,114 @@ err_audio_config:
 		DRM_DEV_ERROR(dp->dev, "audio config failed: %d\n", ret);
 	return ret;
 }
+
+int cdn_dp_hdcp_tx_configuration(struct cdn_dp_device *dp, int tx_mode,
+						 bool active)
+{
+	u8 msg;
+
+	msg = tx_mode;
+	if (active)
+		msg |= HDCP_TX_ACTIVATE;
+
+	return cdn_dp_mailbox_send(dp, MB_MODULE_ID_HDCP_TX,
+				   HDCP_TX_CONFIGURATION, sizeof(msg), &msg);
+}
+
+int cdn_dp_hdcp_tx_status_req(struct cdn_dp_device *dp, uint16_t *tx_status)
+{
+	u8 status[5];
+	int ret;
+
+	ret = cdn_dp_mailbox_send(dp, MB_MODULE_ID_HDCP_TX,
+				  HDCP_TX_STATUS_CHANGE, 0, NULL);
+	if (ret)
+		goto err_hdcp_tx_status_rq;
+
+	ret = cdn_dp_mailbox_validate_receive(dp, MB_MODULE_ID_HDCP_TX,
+					      HDCP_TX_STATUS_CHANGE,
+					      sizeof(status));
+	if (ret)
+		goto err_hdcp_tx_status_rq;
+
+	ret = cdn_dp_mailbox_read_receive(dp, status, sizeof(status));
+	if (ret)
+		goto err_hdcp_tx_status_rq;
+
+	*tx_status = status[0] << 8 | status[1];
+
+err_hdcp_tx_status_rq:
+	if (ret)
+		DRM_DEV_ERROR(dp->dev, "hdcp tx status failed: %d\n", ret);
+	return ret;
+}
+
+int cdn_dp_hdcp_tx_is_receiver_id_valid_req(struct cdn_dp_device *dp)
+{
+	int ret;
+	u32 mbox_size, i;
+	u8 header[4], *resp;
+
+	ret = cdn_dp_mailbox_send(dp, MB_MODULE_ID_HDCP_TX,
+				  HDCP_TX_IS_RECEIVER_ID_VALID,
+				  0, NULL);
+	if (ret)
+		goto err_hdcp_tx_is_receiver_id_valid_req;
+
+	/*
+	 * The size of HDCP_TX_IS_RECEIVER_ID_VALID_RESP is variable, which
+	 * is dependent on HDCP device type. It will response receiver ID
+	 * list if the device is a repeater.
+	 * So we need to distinguish the size.
+	 */
+	for (i = 0; i < 4; i++) {
+		ret = cdn_dp_mailbox_read(dp);
+		if (ret < 0)
+			goto err_hdcp_tx_is_receiver_id_valid_req;
+
+		header[i] = ret;
+	}
+
+	mbox_size = (header[2] << 8) | header[3];
+
+	if (header[0] != HDCP_TX_IS_RECEIVER_ID_VALID ||
+	    header[1] != MB_MODULE_ID_HDCP_TX ||
+	    !IS_HDCP_TX_RECEIVER_ID_VALID_RESP_SIZE_VALID(mbox_size)) {
+		ret = -EINVAL;
+		for (i = 0; i < mbox_size; i++)
+			if (cdn_dp_mailbox_read(dp) < 0)
+				break;
+
+		goto err_hdcp_tx_is_receiver_id_valid_req;
+	}
+
+	resp = kzalloc(mbox_size, GFP_KERNEL);
+	if (IS_ERR(resp) || IS_ERR_OR_NULL(resp)) {
+		ret = -ENOMEM;
+		goto err_hdcp_tx_is_receiver_id_valid_req;
+	}
+
+	ret = cdn_dp_mailbox_read_receive(dp, resp, mbox_size);
+
+	/* TODO judge the all receivers are in revocation list. */
+	kfree(resp);
+
+err_hdcp_tx_is_receiver_id_valid_req:
+	if (ret)
+		DRM_DEV_ERROR(dp->dev,
+			      "hdcp receivers id verification failed: %d\n",
+			      ret);
+	return ret;
+}
+
+int cdn_dp_hdcp_tx_respond_id_valid(struct cdn_dp_device *dp, bool valid)
+{
+	u8 msg = 0;
+
+	if (valid)
+		msg = 0x01;
+	return cdn_dp_mailbox_send(dp, MB_MODULE_ID_HDCP_TX,
+				   HDCP_TX_RESPOND_RECEIVER_ID_VALID,
+				   sizeof(msg), &msg);
+}
+

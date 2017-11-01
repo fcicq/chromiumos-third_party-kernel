@@ -401,7 +401,7 @@ static void sti_gdp_atomic_update(struct drm_plane *drm_plane,
 	u32 dma_updated_top;
 	u32 dma_updated_btm;
 	int format;
-	unsigned int depth, bpp;
+	unsigned int bpp;
 	u32 ydo, xdo, yds, xds;
 	int res;
 
@@ -439,10 +439,10 @@ static void sti_gdp_atomic_update(struct drm_plane *drm_plane,
 	/* build the top field */
 	top_field->gam_gdp_agc = GAM_GDP_AGC_FULL_RANGE;
 	top_field->gam_gdp_ctl = WAIT_NEXT_VSYNC;
-	format = sti_gdp_fourcc2format(fb->pixel_format);
+	format = sti_gdp_fourcc2format(fb->format->format);
 	if (format == -1) {
 		DRM_ERROR("Format not supported by GDP %.4s\n",
-			  (char *)&fb->pixel_format);
+			  (char *)&fb->format->format);
 		return;
 	}
 	top_field->gam_gdp_ctl |= format;
@@ -456,13 +456,13 @@ static void sti_gdp_atomic_update(struct drm_plane *drm_plane,
 	}
 
 	DRM_DEBUG_DRIVER("drm FB:%d format:%.4s phys@:0x%lx\n", fb->base.id,
-			 (char *)&fb->pixel_format,
+			 (char *)&fb->format->format,
 			 (unsigned long)cma_obj->paddr);
 
 	/* pixel memory location */
-	drm_fb_get_bpp_depth(fb->pixel_format, &depth, &bpp);
+	bpp = fb->format->cpp[0];
 	top_field->gam_gdp_pml = (u32)cma_obj->paddr + fb->offsets[0];
-	top_field->gam_gdp_pml += src_x * (bpp >> 3);
+	top_field->gam_gdp_pml += src_x * bpp;
 	top_field->gam_gdp_pml += src_y * fb->pitches[0];
 
 	/* input parameters */

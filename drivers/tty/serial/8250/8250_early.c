@@ -37,7 +37,7 @@
 #include <asm/io.h>
 #include <asm/serial.h>
 
-static unsigned int __init serial8250_early_in(struct uart_port *port, int offset)
+static unsigned int serial8250_early_in(struct uart_port *port, int offset)
 {
 	switch (port->iotype) {
 	case UPIO_MEM:
@@ -55,7 +55,7 @@ static unsigned int __init serial8250_early_in(struct uart_port *port, int offse
 	}
 }
 
-static void __init serial8250_early_out(struct uart_port *port, int offset, int value)
+static void serial8250_early_out(struct uart_port *port, int offset, int value)
 {
 	switch (port->iotype) {
 	case UPIO_MEM:
@@ -78,43 +78,27 @@ static void __init serial8250_early_out(struct uart_port *port, int offset, int 
 
 #define BOTH_EMPTY (UART_LSR_TEMT | UART_LSR_THRE)
 
-static void __init wait_for_xmitr(struct uart_port *port)
+static void serial_putc(struct uart_port *port, int c)
 {
 	unsigned int status;
+
+	serial8250_early_out(port, UART_TX, c);
 
 	for (;;) {
 		status = serial8250_early_in(port, UART_LSR);
 		if ((status & BOTH_EMPTY) == BOTH_EMPTY)
-			return;
+			break;
 		cpu_relax();
 	}
 }
 
-static void __init serial_putc(struct uart_port *port, int c)
-{
-	wait_for_xmitr(port);
-	serial8250_early_out(port, UART_TX, c);
-}
-
-static void __init early_serial8250_write(struct console *console,
+static void early_serial8250_write(struct console *console,
 					const char *s, unsigned int count)
 {
 	struct earlycon_device *device = console->data;
 	struct uart_port *port = &device->port;
-	unsigned int ier;
-
-	/* Save the IER and disable interrupts preserving the UUE bit */
-	ier = serial8250_early_in(port, UART_IER);
-	if (ier)
-		serial8250_early_out(port, UART_IER, ier & UART_IER_UUE);
 
 	uart_console_write(port, s, count, serial_putc);
-
-	/* Wait for transmitter to become empty and restore the IER */
-	wait_for_xmitr(port);
-
-	if (ier)
-		serial8250_early_out(port, UART_IER, ier);
 }
 
 static void __init init_port(struct earlycon_device *device)

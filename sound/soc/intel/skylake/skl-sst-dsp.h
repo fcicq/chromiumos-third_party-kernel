@@ -17,6 +17,7 @@
 #define __SKL_SST_DSP_H__
 
 #include <linux/interrupt.h>
+#include <linux/firmware.h>
 #include <sound/memalloc.h>
 #include "skl-sst-cldma.h"
 #include "skl-topology.h"
@@ -144,7 +145,7 @@ struct skl_dsp_fw_ops {
 	int (*load_fw)(struct sst_dsp  *ctx);
 	/* FW module parser/loader */
 	int (*load_library)(struct sst_dsp *ctx,
-		struct skl_lib_info *linfo, int count);
+		struct skl_lib_info *linfo, int lib_count);
 	int (*parse_fw)(struct sst_dsp *ctx);
 	int (*set_state_D0)(struct sst_dsp *ctx, unsigned int core_id);
 	int (*set_state_D3)(struct sst_dsp *ctx, unsigned int core_id);
@@ -186,6 +187,7 @@ struct skl_module_table {
 void skl_cldma_process_intr(struct sst_dsp *ctx);
 void skl_cldma_int_disable(struct sst_dsp *ctx);
 int skl_cldma_prepare(struct sst_dsp *ctx);
+int skl_cldma_wait_interruptible(struct sst_dsp *ctx);
 
 void skl_dsp_set_state_locked(struct sst_dsp *ctx, int state);
 struct sst_dsp *skl_dsp_ctx_init(struct device *dev,
@@ -214,6 +216,9 @@ int skl_dsp_boot(struct sst_dsp *ctx);
 int skl_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
 		const char *fw_name, struct skl_dsp_loader_ops dsp_ops,
 		struct skl_sst **dsp);
+int kbl_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
+		const char *fw_name, struct skl_dsp_loader_ops dsp_ops,
+		struct skl_sst **dsp);
 int bxt_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
 		const char *fw_name, struct skl_dsp_loader_ops dsp_ops,
 		struct skl_sst **dsp);
@@ -229,4 +234,11 @@ int snd_skl_parse_uuids(struct sst_dsp *ctx, const struct firmware *fw,
 void skl_freeup_uuid_list(struct skl_sst *ctx);
 
 int skl_dsp_strip_extended_manifest(struct firmware *fw);
+int skl_sst_ctx_init(struct device *dev, int irq, const char *fw_name,
+		struct skl_dsp_loader_ops dsp_ops, struct skl_sst **dsp,
+		struct sst_dsp_device *skl_dev);
+int skl_prepare_lib_load(struct skl_sst *skl, struct skl_lib_info *linfo,
+			struct firmware *stripped_fw,
+			unsigned int hdr_offset, int index);
+void skl_release_library(struct skl_lib_info *linfo, int lib_count);
 #endif /*__SKL_SST_DSP_H__*/

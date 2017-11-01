@@ -510,7 +510,7 @@ static int aat1290_led_probe(struct platform_device *pdev)
 
 	/* Initialize LED Flash class device */
 	led_cdev->brightness_set = aat1290_led_brightness_set;
-	led_cdev->brightness_set_sync = aat1290_led_brightness_set_sync;
+	led_cdev->brightness_set_blocking = aat1290_led_brightness_set_sync;
 	led_cdev->max_brightness = led_cfg.max_brightness;
 	led_cdev->flags |= LED_DEV_CAP_FLASH;
 	INIT_WORK(&led->work_brightness_set, aat1290_brightness_set_work);
@@ -525,8 +525,9 @@ static int aat1290_led_probe(struct platform_device *pdev)
 	aat1290_init_v4l2_flash_config(led, &led_cfg, &v4l2_sd_cfg);
 
 	/* Create V4L2 Flash subdev. */
-	led->v4l2_flash = v4l2_flash_init(dev, sub_node, fled_cdev, NULL,
-					  &v4l2_flash_ops, &v4l2_sd_cfg);
+	led->v4l2_flash = v4l2_flash_init(dev, of_fwnode_handle(sub_node),
+					  fled_cdev, NULL, &v4l2_flash_ops,
+					  &v4l2_sd_cfg);
 	if (IS_ERR(led->v4l2_flash)) {
 		ret = PTR_ERR(led->v4l2_flash);
 		goto error_v4l2_flash_init;

@@ -241,9 +241,24 @@ static int cros_ec_sensors_probe(struct platform_device *pdev)
 			break;
 		case MOTIONSENSE_TYPE_GYRO:
 			channel->type = IIO_ANGL_VEL;
+			/*
+			 * Workaround for b:65000611:
+			 * The BMI160 gyro EC code may report minimal frequency
+			 * at 25mHz instead of 25Hz.
+			 */
+			if (state->core.min_freq < 1000)
+				state->core.min_freq = 25000;
 			break;
 		case MOTIONSENSE_TYPE_MAG:
 			channel->type = IIO_MAGN;
+			/*
+			 * Workaround for b:68394559:
+			 * The BMM150 frequency reported by the EC can be too
+			 * high. Scale it down to default when greater than
+			 * 50Hz.
+			 */
+			if (state->core.max_freq > 50000)
+				state->core.max_freq = 25000;
 			break;
 		default:
 			dev_warn(&pdev->dev, "unknown\n");

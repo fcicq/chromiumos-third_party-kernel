@@ -174,7 +174,7 @@ static unsigned armada_drm_crtc_calc_fb(struct drm_framebuffer *fb,
 	unsigned i = 0;
 
 	DRM_DEBUG_DRIVER("pitch %u x %d y %d bpp %d\n",
-		pitch, x, y, fb->bits_per_pixel);
+		pitch, x, y, fb->format->cpp[0] * 8);
 
 	addr_odd = addr_even = obj->dev_addr + offset;
 
@@ -911,7 +911,7 @@ static int armada_drm_crtc_cursor_set(struct drm_crtc *crtc,
 		if (w > 64 || h > 64 || (w > 32 && h > 32))
 			return -ENOMEM;
 
-		obj = armada_gem_object_lookup(dev, file, handle);
+		obj = armada_gem_object_lookup(file, handle);
 		if (!obj)
 			return -ENOENT;
 
@@ -1000,7 +1000,7 @@ static int armada_drm_crtc_page_flip(struct drm_crtc *crtc,
 	int ret;
 
 	/* We don't support changing the pixel format */
-	if (fb->pixel_format != crtc->primary->fb->pixel_format)
+	if (fb->format != crtc->primary->fb->format)
 		return -EINVAL;
 
 	work = kmalloc(sizeof(*work), GFP_KERNEL);
