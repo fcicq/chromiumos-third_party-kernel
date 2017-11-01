@@ -49,8 +49,6 @@ extern "C" {
 #endif
 
 #define	RGX_MAX_DEBUG_COMMANDS	(320)
-#define	RGX_MAX_DBGBUS_COMMANDS	(4096)
-#define	RGX_MAX_DEINIT_COMMANDS	(32)
 #define RGX_DBG_CMD_NAME_SIZE	(40)
 
 typedef	enum _RGX_INIT_OPERATION
@@ -161,8 +159,6 @@ typedef union _RGX_INIT_COMMAND_
 typedef struct _RGX_INIT_SCRIPTS_
 {
 	RGX_INIT_COMMAND asDbgCommands[RGX_MAX_DEBUG_COMMANDS];
-	RGX_INIT_COMMAND asDbgBusCommands[RGX_MAX_DBGBUS_COMMANDS];
-	RGX_INIT_COMMAND asDeinitCommands[RGX_MAX_DEINIT_COMMANDS];
 } RGX_SCRIPTS;
 
 #if defined(__cplusplus)

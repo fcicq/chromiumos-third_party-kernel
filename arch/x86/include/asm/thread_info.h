@@ -20,7 +20,7 @@
 #ifndef __ASSEMBLY__
 struct task_struct;
 struct exec_domain;
-typedef void (*ti_sys_call_ptr_t)(void);  /* from asm/syscall.h */
+typedef asmlinkage void (*ti_sys_call_ptr_t)(void);  /* from asm/syscall.h */
 #include <asm/processor.h>
 #include <linux/atomic.h>
 
@@ -54,7 +54,7 @@ struct thread_info {
 
 #ifdef CONFIG_ALT_SYSCALL
 # ifdef CONFIG_IA32_EMULATION
-extern ti_sys_call_ptr_t ia32_sys_call_table[];
+extern const ti_sys_call_ptr_t ia32_sys_call_table[];
 #  define INIT_THREAD_INFO_SYSCALL_COMPAT			\
 	.ia32_nr_syscalls	= IA32_NR_syscalls,		\
 	.ia32_sys_call_table	= ia32_sys_call_table,

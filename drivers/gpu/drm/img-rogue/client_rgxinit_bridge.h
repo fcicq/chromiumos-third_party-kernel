@@ -44,8 +44,13 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #ifndef CLIENT_RGXINIT_BRIDGE_H
 #define CLIENT_RGXINIT_BRIDGE_H
 
+#include "img_defs.h"
+#include "pvrsrv_error.h"
+
+#if defined(PVR_INDIRECT_BRIDGE_CLIENTS)
 #include "pvr_bridge_client.h"
 #include "pvr_bridge.h"
+#endif
 
 #include "common_rgxinit_bridge.h"
 
@@ -67,7 +72,7 @@ IMG_INTERNAL PVRSRV_ERROR IMG_CALLCONV BridgeRGXInitFirmware(IMG_HANDLE hBridge,
 							     IMG_UINT32 ui32SignatureChecksBufSize,
 							     IMG_UINT32 ui32HWPerfFWBufSizeKB,
 							     IMG_UINT64 ui64HWPerfFilter,
-							     IMG_UINT32 ui32RGXFWAlignChecksSize,
+							     IMG_UINT32 ui32RGXFWAlignChecksArrLength,
 							     IMG_UINT32 *pui32RGXFWAlignChecks,
 							     IMG_UINT32 ui32ConfigFlags,
 							     IMG_UINT32 ui32LogType,
@@ -80,15 +85,12 @@ IMG_INTERNAL PVRSRV_ERROR IMG_CALLCONV BridgeRGXInitFirmware(IMG_HANDLE hBridge,
 							     RGX_RD_POWER_ISLAND_CONF eRGXRDPowerIslandConf,
 							     FW_PERF_CONF eFirmwarePerf);
 
-IMG_INTERNAL PVRSRV_ERROR IMG_CALLCONV BridgeRGXInitFinaliseFWImage(IMG_HANDLE hBridge,
-								    IMG_HANDLE hFWImagePMRImport,
-								    IMG_UINT64 ui64FWImgLen);
+IMG_INTERNAL PVRSRV_ERROR IMG_CALLCONV BridgeRGXInitFinaliseFWImage(IMG_HANDLE hBridge);
 
 IMG_INTERNAL PVRSRV_ERROR IMG_CALLCONV BridgeRGXInitDevPart2(IMG_HANDLE hBridge,
 							     RGX_INIT_COMMAND *psDbgScript,
-							     RGX_INIT_COMMAND *psDbgBusScript,
-							     RGX_INIT_COMMAND *psDeinitScript,
 							     IMG_UINT32 ui32DeviceFlags,
+							     IMG_UINT32 ui32HWPerfHostBufSize,
 							     IMG_UINT32 ui32HWPerfHostFilter,
 							     IMG_UINT32 ui32RGXActivePMConf,
 							     IMG_HANDLE hFWCodePMR,
@@ -98,7 +100,23 @@ IMG_INTERNAL PVRSRV_ERROR IMG_CALLCONV BridgeRGXInitDevPart2(IMG_HANDLE hBridge,
 
 IMG_INTERNAL PVRSRV_ERROR IMG_CALLCONV BridgeGPUVIRTPopulateLMASubArenas(IMG_HANDLE hBridge,
 									 IMG_UINT32 ui32NumElements,
-									 IMG_UINT32 *pui32Elements);
+									 IMG_UINT32 *pui32Elements,
+									 IMG_BOOL bEnableTrustedDeviceAceConfig);
+
+IMG_INTERNAL PVRSRV_ERROR IMG_CALLCONV BridgeRGXInitGuest(IMG_HANDLE hBridge,
+							  IMG_BOOL bEnableSignatureChecks,
+							  IMG_UINT32 ui32SignatureChecksBufSize,
+							  IMG_UINT32 ui32RGXFWAlignChecksArrLength,
+							  IMG_UINT32 *pui32RGXFWAlignChecks,
+							  IMG_UINT32 ui32DeviceFlags,
+							  RGXFWIF_COMPCHECKS_BVNC *psClientBVNC);
+
+IMG_INTERNAL PVRSRV_ERROR IMG_CALLCONV BridgeRGXInitFirmwareExtended(IMG_HANDLE hBridge,
+								     IMG_UINT32 ui32RGXFWAlignChecksArrLength,
+								     IMG_UINT32 *pui32RGXFWAlignChecks,
+								     RGXFWIF_DEV_VIRTADDR *pspsRGXFwInit,
+								     IMG_HANDLE *phHWPerfPMR2,
+								     RGX_FW_INIT_IN_PARAMS *pspsInParams);
 
 
 #endif /* CLIENT_RGXINIT_BRIDGE_H */

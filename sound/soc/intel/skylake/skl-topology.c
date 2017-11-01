@@ -54,12 +54,9 @@ static int is_skl_dsp_widget_type(struct snd_soc_dapm_widget *w)
 
 /*
  * Each pipelines needs memory to be allocated. Check if we have free memory
- * from available pool. Then only add this to pool
- * This is freed when pipe is deleted
- * Note: DSP does actual memory management we only keep track for complete
- * pool
+ * from available pool.
  */
-static bool skl_tplg_alloc_pipe_mem(struct skl *skl,
+static bool skl_is_pipe_mem_avail(struct skl *skl,
 				struct skl_module_cfg *mconfig)
 {
 	struct skl_sst *ctx = skl->skl_sst;
@@ -74,10 +71,20 @@ static bool skl_tplg_alloc_pipe_mem(struct skl *skl,
 				"exceeds ppl memory available %d mem %d\n",
 				skl->resource.max_mem, skl->resource.mem);
 		return false;
+	} else {
+		return true;
 	}
+}
 
+/*
+ * Add the mem to the mem pool. This is freed when pipe is deleted.
+ * Note: DSP does actual memory management we only keep track for complete
+ * pool
+ */
+static void skl_tplg_alloc_pipe_mem(struct skl *skl,
+				struct skl_module_cfg *mconfig)
+{
 	skl->resource.mem += mconfig->pipe->memory_pages;
-	return true;
 }
 
 /*
@@ -85,10 +92,10 @@ static bool skl_tplg_alloc_pipe_mem(struct skl *skl,
  * quantified in MCPS (Million Clocks Per Second) required for module/pipe
  *
  * Each pipelines needs mcps to be allocated. Check if we have mcps for this
- * pipe. This adds the mcps to driver counter
- * This is removed on pipeline delete
+ * pipe.
  */
-static bool skl_tplg_alloc_pipe_mcps(struct skl *skl,
+
+static bool skl_is_pipe_mcps_avail(struct skl *skl,
 				struct skl_module_cfg *mconfig)
 {
 	struct skl_sst *ctx = skl->skl_sst;
@@ -98,13 +105,18 @@ static bool skl_tplg_alloc_pipe_mcps(struct skl *skl,
 			"%s: module_id %d instance %d\n", __func__,
 			mconfig->id.module_id, mconfig->id.instance_id);
 		dev_err(ctx->dev,
-			"exceeds ppl memory available %d > mem %d\n",
+			"exceeds ppl mcps available %d > mem %d\n",
 			skl->resource.max_mcps, skl->resource.mcps);
 		return false;
+	} else {
+		return true;
 	}
+}
 
+static void skl_tplg_alloc_pipe_mcps(struct skl *skl,
+				struct skl_module_cfg *mconfig)
+{
 	skl->resource.mcps += mconfig->mcps;
-	return true;
 }
 
 /*
@@ -227,6 +239,7 @@ static void skl_tplg_update_buffer_size(struct skl_sst *ctx,
 {
 	int multiplier = 1;
 	struct skl_module_fmt *in_fmt, *out_fmt;
+	int in_rate, out_rate;
 
 
 	/* Since fixups is applied to pin 0 only, ibs, obs needs
@@ -237,15 +250,83 @@ static void skl_tplg_update_buffer_size(struct skl_sst *ctx,
 
 	if (mcfg->m_type == SKL_MODULE_TYPE_SRCINT)
 		multiplier = 5;
-	mcfg->ibs = (in_fmt->s_freq / 1000) *
-				(mcfg->in_fmt->channels) *
-				(mcfg->in_fmt->bit_depth >> 3) *
-				multiplier;
 
-	mcfg->obs = (mcfg->out_fmt->s_freq / 1000) *
-				(mcfg->out_fmt->channels) *
-				(mcfg->out_fmt->bit_depth >> 3) *
-				multiplier;
+	if (in_fmt->s_freq % 1000)
+		in_rate = (in_fmt->s_freq / 1000) + 1;
+	else
+		in_rate = (in_fmt->s_freq / 1000);
+
+	mcfg->ibs = in_rate * (mcfg->in_fmt->channels) *
+			(mcfg->in_fmt->bit_depth >> 3) *
+			multiplier;
+
+	if (mcfg->out_fmt->s_freq % 1000)
+		out_rate = (mcfg->out_fmt->s_freq / 1000) + 1;
+	else
+		out_rate = (mcfg->out_fmt->s_freq / 1000);
+
+	mcfg->obs = out_rate * (mcfg->out_fmt->channels) *
+			(mcfg->out_fmt->bit_depth >> 3) *
+			multiplier;
+}
+
+static int skl_tplg_update_be_blob(struct snd_soc_dapm_widget *w,
+						struct skl_sst *ctx)
+{
+	struct skl_module_cfg *m_cfg = w->priv;
+	int link_type, dir;
+	u32 ch, s_freq, s_fmt;
+	struct nhlt_specific_cfg *cfg;
+	struct skl *skl = get_skl_ctx(ctx->dev);
+
+	/* check if we already have blob */
+	if (m_cfg->formats_config.caps_size > 0)
+		return 0;
+
+	dev_dbg(ctx->dev, "Applying default cfg blob\n");
+	switch (m_cfg->dev_type) {
+	case SKL_DEVICE_DMIC:
+		link_type = NHLT_LINK_DMIC;
+		dir = SNDRV_PCM_STREAM_CAPTURE;
+		s_freq = m_cfg->in_fmt[0].s_freq;
+		s_fmt = m_cfg->in_fmt[0].bit_depth;
+		ch = m_cfg->in_fmt[0].channels;
+		break;
+
+	case SKL_DEVICE_I2S:
+		link_type = NHLT_LINK_SSP;
+		if (m_cfg->hw_conn_type == SKL_CONN_SOURCE) {
+			dir = SNDRV_PCM_STREAM_PLAYBACK;
+			s_freq = m_cfg->out_fmt[0].s_freq;
+			s_fmt = m_cfg->out_fmt[0].bit_depth;
+			ch = m_cfg->out_fmt[0].channels;
+		} else {
+			dir = SNDRV_PCM_STREAM_CAPTURE;
+			s_freq = m_cfg->in_fmt[0].s_freq;
+			s_fmt = m_cfg->in_fmt[0].bit_depth;
+			ch = m_cfg->in_fmt[0].channels;
+		}
+		break;
+
+	default:
+		return -EINVAL;
+	}
+
+	/* update the blob based on virtual bus_id and default params */
+	cfg = skl_get_ep_blob(skl, m_cfg->vbus_id, link_type,
+					s_fmt, ch, s_freq, dir);
+	if (cfg) {
+		m_cfg->formats_config.caps_size = cfg->size;
+		m_cfg->formats_config.caps = (u32 *) &cfg->caps;
+	} else {
+		dev_err(ctx->dev, "Blob NULL for id %x type %d dirn %d\n",
+					m_cfg->vbus_id, link_type, dir);
+		dev_err(ctx->dev, "PCM: ch %d, freq %d, fmt %d\n",
+					ch, s_freq, s_fmt);
+		return -EIO;
+	}
+
+	return 0;
 }
 
 static void skl_tplg_update_module_params(struct snd_soc_dapm_widget *w,
@@ -348,7 +429,7 @@ static int skl_tplg_set_module_params(struct snd_soc_dapm_widget *w,
 
 			if (bc->set_params == SKL_PARAM_SET) {
 				ret = skl_set_module_params(ctx,
-						(u32 *)bc->params, bc->max,
+						(u32 *)bc->params, bc->size,
 						bc->param_id, mconfig);
 				if (ret < 0)
 					return ret;
@@ -382,8 +463,8 @@ static int skl_tplg_set_module_init_data(struct snd_soc_dapm_widget *w)
 			if (bc->set_params != SKL_PARAM_INIT)
 				continue;
 
-			mconfig->formats_config.caps = (u32 *)&bc->params;
-			mconfig->formats_config.caps_size = bc->max;
+			mconfig->formats_config.caps = (u32 *)bc->params;
+			mconfig->formats_config.caps_size = bc->size;
 
 			break;
 		}
@@ -411,7 +492,7 @@ skl_tplg_init_pipe_modules(struct skl *skl, struct skl_pipe *pipe)
 		mconfig = w->priv;
 
 		/* check resource available */
-		if (!skl_tplg_alloc_pipe_mcps(skl, mconfig))
+		if (!skl_is_pipe_mcps_avail(skl, mconfig))
 			return -ENOMEM;
 
 		if (mconfig->is_loadable && ctx->dsp->fw_ops.load_mod) {
@@ -420,6 +501,9 @@ skl_tplg_init_pipe_modules(struct skl *skl, struct skl_pipe *pipe)
 			if (ret < 0)
 				return ret;
 		}
+
+		/* update blob if blob is null for be with default value */
+		skl_tplg_update_be_blob(w, ctx);
 
 		/*
 		 * apply fix/conversion to module params based on
@@ -435,6 +519,7 @@ skl_tplg_init_pipe_modules(struct skl *skl, struct skl_pipe *pipe)
 		ret = skl_tplg_set_module_params(w, ctx);
 		if (ret < 0)
 			return ret;
+		skl_tplg_alloc_pipe_mcps(skl, mconfig);
 	}
 
 	return 0;
@@ -473,14 +558,15 @@ static int skl_tplg_mixer_dapm_pre_pmu_event(struct snd_soc_dapm_widget *w,
 	struct skl_module_cfg *mconfig = w->priv;
 	struct skl_pipe_module *w_module;
 	struct skl_pipe *s_pipe = mconfig->pipe;
-	struct skl_module_cfg *src_module = NULL, *dst_module;
+	struct skl_module_cfg *src_module = NULL, *dst_module, *module;
 	struct skl_sst *ctx = skl->skl_sst;
+	struct skl_module_deferred_bind *modules;
 
 	/* check resource available */
-	if (!skl_tplg_alloc_pipe_mcps(skl, mconfig))
+	if (!skl_is_pipe_mcps_avail(skl, mconfig))
 		return -EBUSY;
 
-	if (!skl_tplg_alloc_pipe_mem(skl, mconfig))
+	if (!skl_is_pipe_mem_avail(skl, mconfig))
 		return -ENOMEM;
 
 	/*
@@ -526,11 +612,129 @@ static int skl_tplg_mixer_dapm_pre_pmu_event(struct snd_soc_dapm_widget *w,
 		src_module = dst_module;
 	}
 
+	/*
+	 * When the destination module is initialized, check for these modules
+	 * in deferred bind list. If found, bind them.
+	 */
+	list_for_each_entry(w_module, &s_pipe->w_list, node) {
+		if (list_empty(&skl->bind_list))
+			break;
+
+		list_for_each_entry(modules, &skl->bind_list, node) {
+			module = w_module->w->priv;
+			if (modules->dst == module)
+				skl_bind_modules(ctx, modules->src,
+							modules->dst);
+		}
+	}
+
+	skl_tplg_alloc_pipe_mem(skl, mconfig);
+	skl_tplg_alloc_pipe_mcps(skl, mconfig);
+
+	return 0;
+}
+
+/*
+ * Some modules require params to be set after the module is bound to
+ * all pins connected.
+ *
+ * The module provider initializes set_param flag for such modules and we
+ * send params after binding
+ */
+static int skl_tplg_set_module_bind_params(struct snd_soc_dapm_widget *w,
+			struct skl_module_cfg *mcfg, struct skl_sst *ctx)
+{
+	int i, ret;
+	struct skl_module_cfg *mconfig = w->priv;
+	const struct snd_kcontrol_new *k;
+	struct soc_bytes_ext *sb;
+	struct skl_algo_data *bc;
+	struct skl_specific_cfg *sp_cfg;
+
+	/*
+	 * check all out/in pins are in bind state.
+	 * if so set the module param
+	 */
+	for (i = 0; i < mcfg->max_out_queue; i++) {
+		if (mcfg->m_out_pin[i].pin_state != SKL_PIN_BIND_DONE)
+			return 0;
+	}
+
+	for (i = 0; i < mcfg->max_in_queue; i++) {
+		if (mcfg->m_in_pin[i].pin_state != SKL_PIN_BIND_DONE)
+			return 0;
+	}
+
+	if (mconfig->formats_config.caps_size > 0 &&
+		mconfig->formats_config.set_params == SKL_PARAM_BIND) {
+		sp_cfg = &mconfig->formats_config;
+		ret = skl_set_module_params(ctx, sp_cfg->caps,
+					sp_cfg->caps_size,
+					sp_cfg->param_id, mconfig);
+		if (ret < 0)
+			return ret;
+	}
+
+	for (i = 0; i < w->num_kcontrols; i++) {
+		k = &w->kcontrol_news[i];
+		if (k->access & SNDRV_CTL_ELEM_ACCESS_TLV_CALLBACK) {
+			sb = (void *) k->private_value;
+			bc = (struct skl_algo_data *)sb->dobj.private;
+
+			if (bc->set_params == SKL_PARAM_BIND) {
+				ret = skl_set_module_params(ctx,
+						(u32 *)bc->params, bc->max,
+						bc->param_id, mconfig);
+				if (ret < 0)
+					return ret;
+			}
+		}
+	}
+
+	return 0;
+}
+
+
+static int skl_tplg_module_add_deferred_bind(struct skl *skl,
+	struct skl_module_cfg *src, struct skl_module_cfg *dst)
+{
+	struct skl_module_deferred_bind *m_list, *modules;
+	int i;
+
+	/* only supported for module with static pin connection */
+	for (i = 0; i < dst->max_in_queue; i++) {
+		struct skl_module_pin *pin = &dst->m_in_pin[i];
+
+		if (pin->is_dynamic)
+			continue;
+
+		if ((pin->id.module_id  == src->id.module_id) &&
+			(pin->id.instance_id  == src->id.instance_id)) {
+
+			if (!list_empty(&skl->bind_list)) {
+				list_for_each_entry(modules, &skl->bind_list, node) {
+					if (modules->src == src && modules->dst == dst)
+						return 0;
+				}
+			}
+
+			m_list = kzalloc(sizeof(*m_list), GFP_KERNEL);
+			if (!m_list)
+				return -ENOMEM;
+
+			m_list->src = src;
+			m_list->dst = dst;
+
+			list_add(&m_list->node, &skl->bind_list);
+		}
+	}
+
 	return 0;
 }
 
 static int skl_tplg_bind_sinks(struct snd_soc_dapm_widget *w,
 				struct skl *skl,
+				struct snd_soc_dapm_widget *src_w,
 				struct skl_module_cfg *src_mconfig)
 {
 	struct snd_soc_dapm_path *p;
@@ -547,6 +751,10 @@ static int skl_tplg_bind_sinks(struct snd_soc_dapm_widget *w,
 		dev_dbg(ctx->dev, "%s: sink widget=%s\n", __func__, p->sink->name);
 
 		next_sink = p->sink;
+
+		if (!is_skl_dsp_widget_type(p->sink))
+			return skl_tplg_bind_sinks(p->sink, skl, src_w, src_mconfig);
+
 		/*
 		 * here we will check widgets in sink pipelines, so that
 		 * can be any widgets type and we are only interested if
@@ -558,10 +766,40 @@ static int skl_tplg_bind_sinks(struct snd_soc_dapm_widget *w,
 			sink = p->sink;
 			sink_mconfig = sink->priv;
 
+			/*
+			 * Modules other than PGA leaf can be connected
+			 * directly or via switch to a module in another
+			 * pipeline. EX: reference path
+			 * when the path is enabled, the dst module that needs
+			 * to be bound may not be initialized. if the module is
+			 * not initialized, add these modules in the deferred
+			 * bind list and when the dst module is initialised,
+			 * bind this module to the dst_module in deferred list.
+			 */
+			if (((src_mconfig->m_state == SKL_MODULE_INIT_DONE)
+				&& (sink_mconfig->m_state == SKL_MODULE_UNINIT))) {
+
+				ret = skl_tplg_module_add_deferred_bind(skl,
+						src_mconfig, sink_mconfig);
+
+				if (ret < 0)
+					return ret;
+
+			}
+
+
+			if (src_mconfig->m_state == SKL_MODULE_UNINIT ||
+				sink_mconfig->m_state == SKL_MODULE_UNINIT)
+				continue;
+
 			/* Bind source to sink, mixin is always source */
 			ret = skl_bind_modules(ctx, src_mconfig, sink_mconfig);
 			if (ret)
 				return ret;
+
+			/* set module params after bind */
+			skl_tplg_set_module_bind_params(src_w, src_mconfig, ctx);
+			skl_tplg_set_module_bind_params(sink, sink_mconfig, ctx);
 
 			/* Start sinks pipe first */
 			if (sink_mconfig->pipe->state != SKL_PIPE_STARTED) {
@@ -576,7 +814,7 @@ static int skl_tplg_bind_sinks(struct snd_soc_dapm_widget *w,
 	}
 
 	if (!sink)
-		return skl_tplg_bind_sinks(next_sink, skl, src_mconfig);
+		return skl_tplg_bind_sinks(next_sink, skl, src_w, src_mconfig);
 
 	return 0;
 }
@@ -605,7 +843,7 @@ static int skl_tplg_pga_dapm_pre_pmu_event(struct snd_soc_dapm_widget *w,
 	 * if sink is not started, start sink pipe first, then start
 	 * this pipe
 	 */
-	ret = skl_tplg_bind_sinks(w, skl, src_mconfig);
+	ret = skl_tplg_bind_sinks(w, skl, w, src_mconfig);
 	if (ret)
 		return ret;
 
@@ -693,6 +931,10 @@ static int skl_tplg_mixer_dapm_post_pmu_event(struct snd_soc_dapm_widget *w,
 		if (ret)
 			return ret;
 
+		/* set module params after bind */
+		skl_tplg_set_module_bind_params(source, src_mconfig, ctx);
+		skl_tplg_set_module_bind_params(sink, sink_mconfig, ctx);
+
 		if (sink_mconfig->pipe->conn_type != SKL_PIPE_CONN_TYPE_FE)
 			ret = skl_run_pipe(ctx, sink_mconfig->pipe);
 	}
@@ -759,10 +1001,40 @@ static int skl_tplg_mixer_dapm_post_pmd_event(struct snd_soc_dapm_widget *w,
 	struct skl_module_cfg *src_module = NULL, *dst_module;
 	struct skl_sst *ctx = skl->skl_sst;
 	struct skl_pipe *s_pipe = mconfig->pipe;
+	struct skl_module_deferred_bind *modules, *tmp;
 	int ret = 0;
 
 	skl_tplg_free_pipe_mcps(skl, mconfig);
 	skl_tplg_free_pipe_mem(skl, mconfig);
+
+	list_for_each_entry(w_module, &s_pipe->w_list, node) {
+		if (list_empty(&skl->bind_list))
+			break;
+
+		src_module = w_module->w->priv;
+
+		list_for_each_entry_safe(modules, tmp, &skl->bind_list, node) {
+			/*
+			 * When the destination module is deleted, Unbind the
+			 * modules from deferred bind list.
+			 */
+			if (modules->dst == src_module) {
+				skl_unbind_modules(ctx, modules->src,
+						modules->dst);
+			}
+
+			/*
+			 * When the source module is deleted, remove this entry
+			 * from the deferred bind list.
+			 */
+			if (modules->src == src_module) {
+				list_del(&modules->node);
+				modules->src = NULL;
+				modules->dst = NULL;
+				kfree(modules);
+			}
+		}
+	}
 
 	list_for_each_entry(w_module, &s_pipe->w_list, node) {
 		dst_module = w_module->w->priv;
@@ -773,14 +1045,16 @@ static int skl_tplg_mixer_dapm_post_pmd_event(struct snd_soc_dapm_widget *w,
 			continue;
 		}
 
-		ret = skl_unbind_modules(ctx, src_module, dst_module);
-		if (ret < 0)
-			return ret;
-
+		skl_unbind_modules(ctx, src_module, dst_module);
 		src_module = dst_module;
 	}
 
 	ret = skl_delete_pipe(ctx, mconfig->pipe);
+
+	list_for_each_entry(w_module, &s_pipe->w_list, node) {
+		src_module = w_module->w->priv;
+		src_module->m_state = SKL_MODULE_UNINIT;
+	}
 
 	return skl_tplg_unload_pipe_modules(ctx, s_pipe);
 }
@@ -814,9 +1088,6 @@ static int skl_tplg_pga_dapm_post_pmd_event(struct snd_soc_dapm_widget *w,
 			 * This is a connecter and if path is found that means
 			 * unbind between source and sink has not happened yet
 			 */
-			ret = skl_stop_pipe(ctx, sink_mconfig->pipe);
-			if (ret < 0)
-				return ret;
 			ret = skl_unbind_modules(ctx, src_mconfig,
 							sink_mconfig);
 		}
@@ -841,6 +1112,12 @@ static int skl_tplg_vmixer_event(struct snd_soc_dapm_widget *w,
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
 		return skl_tplg_mixer_dapm_pre_pmu_event(w, skl);
+
+	case SND_SOC_DAPM_POST_PMU:
+		return skl_tplg_mixer_dapm_post_pmu_event(w, skl);
+
+	case SND_SOC_DAPM_PRE_PMD:
+		return skl_tplg_mixer_dapm_pre_pmd_event(w, skl);
 
 	case SND_SOC_DAPM_POST_PMD:
 		return skl_tplg_mixer_dapm_post_pmd_event(w, skl);
@@ -914,7 +1191,14 @@ static int skl_tplg_tlv_control_get(struct snd_kcontrol *kcontrol,
 
 	if (w->power)
 		skl_get_module_params(skl->skl_sst, (u32 *)bc->params,
-				      bc->max, bc->param_id, mconfig);
+				      bc->size, bc->param_id, mconfig);
+
+	/* decrement size for TLV header */
+	size -= 2 * sizeof(u32);
+
+	/* check size as we don't want to send kernel data */
+	if (size > bc->max)
+		size = bc->max;
 
 	if (bc->params) {
 		if (copy_to_user(data, &bc->param_id, sizeof(u32)))
@@ -941,6 +1225,10 @@ static int skl_tplg_tlv_control_set(struct snd_kcontrol *kcontrol,
 	struct skl *skl = get_skl_ctx(w->dapm->dev);
 
 	if (ac->params) {
+		if (size > ac->max)
+			return -EINVAL;
+
+		ac->size = size;
 		/*
 		 * if the param_is is of type Vendor, firmware expects actual
 		 * parameter id and size from the control.
@@ -956,7 +1244,7 @@ static int skl_tplg_tlv_control_set(struct snd_kcontrol *kcontrol,
 
 		if (w->power)
 			return skl_set_module_params(skl->skl_sst,
-						(u32 *)ac->params, ac->max,
+						(u32 *)ac->params, ac->size,
 						ac->param_id, mconfig);
 	}
 
@@ -1430,14 +1718,14 @@ static int skl_init_algo_data(struct device *dev, struct soc_bytes_ext *be,
 	ac->max = dfw_ac->max;
 	ac->param_id = dfw_ac->param_id;
 	ac->set_params = dfw_ac->set_params;
+	ac->size = dfw_ac->max;
 
 	if (ac->max) {
 		ac->params = (char *) devm_kzalloc(dev, ac->max, GFP_KERNEL);
 		if (!ac->params)
 			return -ENOMEM;
 
-		if (dfw_ac->params)
-			memcpy(ac->params, dfw_ac->params, ac->max);
+		memcpy(ac->params, dfw_ac->params, ac->max);
 	}
 
 	be->dobj.private  = ac;
@@ -1495,11 +1783,16 @@ int skl_tplg_init(struct snd_soc_platform *platform, struct hdac_ext_bus *ebus)
 	struct hdac_bus *bus = ebus_to_hbus(ebus);
 	struct skl *skl = ebus_to_skl(ebus);
 
-	ret = request_firmware(&fw, "dfw_sst.bin", bus->dev);
+	ret = request_firmware(&fw, skl->tplg_name, bus->dev);
 	if (ret < 0) {
 		dev_err(bus->dev, "tplg fw %s load failed with %d\n",
-				"dfw_sst.bin", ret);
-		return ret;
+				skl->tplg_name, ret);
+		ret = request_firmware(&fw, "dfw_sst.bin", bus->dev);
+		if (ret < 0) {
+			dev_err(bus->dev, "Fallback tplg fw %s load failed with %d\n",
+					"dfw_sst.bin", ret);
+			return ret;
+		}
 	}
 
 	/*
@@ -1510,6 +1803,7 @@ int skl_tplg_init(struct snd_soc_platform *platform, struct hdac_ext_bus *ebus)
 					&skl_tplg_ops, fw, 0);
 	if (ret < 0) {
 		dev_err(bus->dev, "tplg component load failed%d\n", ret);
+		release_firmware(fw);
 		return -EINVAL;
 	}
 

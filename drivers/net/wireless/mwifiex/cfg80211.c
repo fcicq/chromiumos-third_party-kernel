@@ -19,6 +19,7 @@
 
 #include "cfg80211.h"
 #include "main.h"
+#include "wmm.h"
 
 static char *reg_alpha2;
 module_param(reg_alpha2, charp, 0);
@@ -1239,6 +1240,9 @@ static int mwifiex_cfg80211_change_beacon(struct wiphy *wiphy,
 					  struct cfg80211_beacon_data *data)
 {
 	struct mwifiex_private *priv = mwifiex_netdev_get_priv(dev);
+	struct mwifiex_adapter *adapter = priv->adapter;
+
+	mwifiex_cancel_scan(adapter);
 
 	if (GET_BSS_ROLE(priv) != MWIFIEX_BSS_ROLE_UAP) {
 		mwifiex_dbg(priv->adapter, ERROR,
@@ -1602,8 +1606,10 @@ static int mwifiex_cfg80211_inform_ibss_bss(struct mwifiex_private *priv)
 				  CFG80211_BSS_FTYPE_UNKNOWN,
 				  bss_info.bssid, 0, WLAN_CAPABILITY_IBSS,
 				  0, ie_buf, ie_len, 0, GFP_KERNEL);
-	cfg80211_put_bss(priv->wdev.wiphy, bss);
-	memcpy(priv->cfg_bssid, bss_info.bssid, ETH_ALEN);
+	if (bss) {
+		cfg80211_put_bss(priv->wdev.wiphy, bss);
+		ether_addr_copy(priv->cfg_bssid, bss_info.bssid);
+	}
 
 	return 0;
 }
@@ -1751,8 +1757,9 @@ done:
 		} else {
 			mwifiex_dbg(priv->adapter, MSG,
 				    "info: trying to associate\t"
-				    "to '%s' bssid %pM\n",
-				    (char *)req_ssid.ssid, bss->bssid);
+				    "to '%.*s' bssid %pM\n",
+				    req_ssid.ssid_len, (char *)req_ssid.ssid,
+				    bss->bssid);
 			memcpy(&priv->cfg_bssid, bss->bssid, ETH_ALEN);
 			break;
 		}
@@ -1800,6 +1807,9 @@ mwifiex_cfg80211_connect(struct wiphy *wiphy, struct net_device *dev,
 		return -EALREADY;
 	}
 
+	if (priv->scan_block)
+		priv->scan_block = false;
+
 	if (adapter->surprise_removed || adapter->is_cmd_timedout) {
 		mwifiex_dbg(adapter, ERROR,
 			    "%s: Ignore connection.\t"
@@ -1809,8 +1819,8 @@ mwifiex_cfg80211_connect(struct wiphy *wiphy, struct net_device *dev,
 	}
 
 	mwifiex_dbg(priv->adapter, INFO,
-		    "info: Trying to associate to %s and bssid %pM\n",
-		    (char *)sme->ssid, sme->bssid);
+		    "info: Trying to associate to %.*s and bssid %pM\n",
+		    (int)sme->ssid_len, (char *)sme->ssid, sme->bssid);
 
 	if (!mwifiex_stop_bg_scan(priv))
 		cfg80211_sched_scan_stopped_rtnl(priv->wdev.wiphy);
@@ -1939,8 +1949,8 @@ mwifiex_cfg80211_join_ibss(struct wiphy *wiphy, struct net_device *dev,
 	}
 
 	mwifiex_dbg(priv->adapter, MSG,
-		    "info: trying to join to %s and bssid %pM\n",
-		    (char *)params->ssid, params->bssid);
+		    "info: trying to join to %.*s and bssid %pM\n",
+		    params->ssid_len, (char *)params->ssid, params->bssid);
 
 	mwifiex_set_ibss_params(priv, params);
 
@@ -2014,6 +2024,9 @@ mwifiex_cfg80211_scan(struct wiphy *wiphy,
 			    "cmd: Scan already in process..\n");
 		return -EBUSY;
 	}
+
+	if (!priv->wdev.current_bss && priv->scan_block)
+		priv->scan_block = false;
 
 	if (!mwifiex_stop_bg_scan(priv))
 		cfg80211_sched_scan_stopped_rtnl(priv->wdev.wiphy);
@@ -2740,28 +2753,49 @@ static int mwifiex_cfg80211_suspend(struct wiphy *wiphy,
 {
 	struct mwifiex_adapter *adapter = mwifiex_cfg80211_get_adapter(wiphy);
 	struct mwifiex_ds_hs_cfg hs_cfg;
-	int ret = 0;
+	int i, ret = 0, retry_num = 10;
 	struct mwifiex_private *priv;
+	struct mwifiex_private *sta_priv =
+			mwifiex_get_priv(adapter, MWIFIEX_BSS_ROLE_STA);
+
+	sta_priv->scan_aborting = true;
 
 	mwifiex_cancel_all_pending_cmd(adapter);
 
+	for (i = 0; i < adapter->priv_num; i++) {
+		priv = adapter->priv[i];
+		if (priv && priv->netdev) {
+			mwifiex_stop_net_dev_queue(priv->netdev, adapter);
+			if (netif_carrier_ok(priv->netdev))
+				netif_carrier_off(priv->netdev);
+		}
+	}
+
+	for (i = 0; i < retry_num; i++) {
+		if (!mwifiex_wmm_lists_empty(adapter) ||
+		    !skb_queue_empty(&adapter->tx_data_q))
+			usleep_range(10000, 15000);
+		else
+			break;
+	}
+
 	if (!wowlan) {
 		dev_warn(adapter->dev, "None of the WOWLAN triggers enabled\n");
-		return 0;
+		ret = 0;
+		goto done;
 	}
 
-	priv = mwifiex_get_priv(adapter, MWIFIEX_BSS_ROLE_STA);
-
-	if (!priv->media_connected && !wowlan->nd_config) {
+	if (!sta_priv->media_connected && !wowlan->nd_config) {
 		dev_warn(adapter->dev,
 			 "Can not configure WOWLAN in disconnected state\n");
-		return 0;
+		ret = 0;
+		goto done;
 	}
 
-	ret = mwifiex_set_mef_filter(priv, wowlan);
+	ret = mwifiex_set_mef_filter(sta_priv, wowlan);
 	if (ret) {
 		dev_err(adapter->dev, "Failed to set MEF filter\n");
-		return ret;
+		goto done;
 	}
 
 	memset(&hs_cfg, 0, sizeof(hs_cfg));
@@ -2770,38 +2804,50 @@ static int mwifiex_cfg80211_suspend(struct wiphy *wiphy,
 	if (wowlan->nd_config) {
 		mwifiex_dbg(adapter, INFO, "Wake on net detect\n");
 		hs_cfg.conditions |= HS_CFG_COND_MAC_EVENT;
-		mwifiex_cfg80211_sched_scan_start(wiphy, priv->netdev,
+		mwifiex_cfg80211_sched_scan_start(wiphy, sta_priv->netdev,
 						  wowlan->nd_config);
 	}
 
 	if (wowlan->disconnect) {
 		hs_cfg.conditions |= HS_CFG_COND_MAC_EVENT;
-		mwifiex_dbg(priv->adapter, INFO, "Wake on device disconnect\n");
+		mwifiex_dbg(sta_priv->adapter, INFO, "Wake on device disconnect\n");
 	}
 
 	hs_cfg.is_invoke_hostcmd = false;
 	hs_cfg.gpio = adapter->hs_cfg.gpio;
 	hs_cfg.gap = adapter->hs_cfg.gap;
-	ret = mwifiex_set_hs_params(priv, HostCmd_ACT_GEN_SET,
+	ret = mwifiex_set_hs_params(sta_priv, HostCmd_ACT_GEN_SET,
 				    MWIFIEX_SYNC_CMD, &hs_cfg);
-	if (ret) {
-		mwifiex_dbg(adapter, ERROR,
-			    "Failed to set HS params\n");
-		return ret;
-	}
+	if (ret)
+		mwifiex_dbg(adapter, ERROR, "Failed to set HS params\n");
 
+done:
+	sta_priv->scan_aborting = false;
 	return ret;
 }
 
 static int mwifiex_cfg80211_resume(struct wiphy *wiphy)
 {
 	struct mwifiex_adapter *adapter = mwifiex_cfg80211_get_adapter(wiphy);
-	struct mwifiex_private *priv =
-		mwifiex_get_priv(adapter, MWIFIEX_BSS_ROLE_STA);
+	struct mwifiex_private *priv;
 	struct mwifiex_ds_wakeup_reason wakeup_reason;
 	struct cfg80211_wowlan_wakeup wakeup_report;
 	int i;
+	bool report_wakeup_reason = true;
 
+	for (i = 0; i < adapter->priv_num; i++) {
+		priv = adapter->priv[i];
+		if (priv && priv->netdev) {
+			if (!netif_carrier_ok(priv->netdev))
+				netif_carrier_on(priv->netdev);
+			mwifiex_wake_up_net_dev_queue(priv->netdev, adapter);
+		}
+	}
+
+	if (!wiphy->wowlan_config)
+		goto done;
+
+	priv = mwifiex_get_priv(adapter, MWIFIEX_BSS_ROLE_STA);
 	mwifiex_get_wakeup_reason(priv, HostCmd_ACT_GEN_GET, MWIFIEX_SYNC_CMD,
 				  &wakeup_reason);
 	memset(&wakeup_report, 0, sizeof(struct cfg80211_wowlan_wakeup));
@@ -2833,19 +2879,16 @@ static int mwifiex_cfg80211_resume(struct wiphy *wiphy)
 		if (wiphy->wowlan_config->n_patterns)
 			wakeup_report.pattern_idx = 1;
 		break;
-	case CONTROL_FRAME_MATCHED:
-		break;
-	case	MANAGEMENT_FRAME_MATCHED:
-		break;
 	default:
+		report_wakeup_reason = false;
 		break;
 	}
 
-	if ((wakeup_reason.hs_wakeup_reason > 0) &&
-	    (wakeup_reason.hs_wakeup_reason <= 7))
+	if (report_wakeup_reason)
 		cfg80211_report_wowlan_wakeup(&priv->wdev, &wakeup_report,
 					      GFP_KERNEL);
 
+done:
 	if (adapter->nd_info) {
 		for (i = 0 ; i < adapter->nd_info->n_matches ; i++)
 			kfree(adapter->nd_info->matches[i]);
@@ -3297,6 +3340,7 @@ int mwifiex_register_cfg80211(struct mwifiex_adapter *adapter)
 
 	wiphy->features |= NL80211_FEATURE_HT_IBSS |
 			   NL80211_FEATURE_INACTIVITY_TIMER |
+			   NL80211_FEATURE_LOW_PRIORITY_SCAN |
 			   NL80211_FEATURE_NEED_OBSS_SCAN;
 
 	/* Reserve space for mwifiex specific private data for BSS */

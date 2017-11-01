@@ -600,7 +600,7 @@ static struct sk_buff **vxlan_gro_receive(struct sk_buff **head, struct sk_buff 
 
 	skb_gro_pull(skb, sizeof(*eh)); /* pull inner eth header */
 	skb_gro_postpull_rcsum(skb, eh, sizeof(*eh));
-	pp = ptype->callbacks.gro_receive(head, skb);
+	pp = call_gro_receive(ptype->callbacks.gro_receive, head, skb);
 
 out_unlock:
 	rcu_read_unlock();
@@ -2186,7 +2186,6 @@ static void vxlan_setup(struct net_device *dev)
 	dev->destructor = free_netdev;
 	SET_NETDEV_DEVTYPE(dev, &vxlan_type);
 
-	dev->tx_queue_len = 0;
 	dev->features	|= NETIF_F_LLTX;
 	dev->features	|= NETIF_F_SG | NETIF_F_HW_CSUM;
 	dev->features   |= NETIF_F_RXCSUM;
@@ -2198,7 +2197,7 @@ static void vxlan_setup(struct net_device *dev)
 	dev->hw_features |= NETIF_F_GSO_SOFTWARE;
 	dev->hw_features |= NETIF_F_HW_VLAN_CTAG_TX | NETIF_F_HW_VLAN_STAG_TX;
 	netif_keep_dst(dev);
-	dev->priv_flags |= IFF_LIVE_ADDR_CHANGE;
+	dev->priv_flags |= IFF_LIVE_ADDR_CHANGE | IFF_NO_QUEUE;
 
 	INIT_LIST_HEAD(&vxlan->next);
 	spin_lock_init(&vxlan->hash_lock);

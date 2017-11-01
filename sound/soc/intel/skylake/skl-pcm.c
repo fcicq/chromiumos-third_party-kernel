@@ -385,23 +385,33 @@ static int skl_pcm_trigger(struct snd_pcm_substream *substream, int cmd,
 	struct skl_module_cfg *mconfig;
 	struct hdac_ext_bus *ebus = get_bus_ctx(substream);
 	struct hdac_ext_stream *stream = get_hdac_ext_stream(substream);
+	struct snd_soc_dapm_widget *w;
 	int ret;
 
 	mconfig = skl_tplg_fe_get_cpr_module(dai, substream->stream);
 	if (!mconfig)
 		return -EIO;
 
+	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+		w = dai->playback_widget;
+	else
+		w = dai->capture_widget;
+
 	switch (cmd) {
 	case SNDRV_PCM_TRIGGER_RESUME:
-		skl_pcm_prepare(substream, dai);
-		/*
-		 * enable DMA Resume enable bit for the stream, set the dpib
-		 * & lpib position to resune before starting the DMA
-		 */
-		snd_hdac_ext_stream_drsm_enable(ebus, true,
-					hdac_stream(stream)->index);
-		snd_hdac_ext_stream_set_dpibr(ebus, stream, stream->dpib);
-		snd_hdac_ext_stream_set_lpib(stream, stream->lpib);
+		if (!w->ignore_suspend) {
+			skl_pcm_prepare(substream, dai);
+			/*
+			 * enable DMA Resume enable bit for the stream, set the
+			 * dpib & lpib position to resume before starting the
+			 * DMA
+			 */
+			snd_hdac_ext_stream_drsm_enable(ebus, true,
+						hdac_stream(stream)->index);
+			snd_hdac_ext_stream_set_dpibr(ebus, stream,
+							stream->dpib);
+			snd_hdac_ext_stream_set_lpib(stream, stream->lpib);
+		}
 
 	case SNDRV_PCM_TRIGGER_START:
 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
@@ -431,7 +441,7 @@ static int skl_pcm_trigger(struct snd_pcm_substream *substream, int cmd,
 			return ret;
 
 		ret = skl_decoupled_trigger(substream, cmd);
-		if (cmd == SNDRV_PCM_TRIGGER_SUSPEND) {
+		if ((cmd == SNDRV_PCM_TRIGGER_SUSPEND) && !w->ignore_suspend) {
 			/* save the dpib and lpib positions */
 			stream->dpib = readl(ebus->bus.remap_addr +
 					AZX_REG_VS_SDXDPIB_XBASE +
@@ -470,8 +480,7 @@ static int skl_link_hw_params(struct snd_pcm_substream *substream,
 	snd_soc_dai_set_dma_data(dai, substream, (void *)link_dev);
 
 	/* set the stream tag in the codec dai dma params  */
-	dma_params = (struct hdac_ext_dma_params *)
-			snd_soc_dai_get_dma_data(codec_dai, substream);
+	dma_params = snd_soc_dai_get_dma_data(codec_dai, substream);
 	if (dma_params)
 		dma_params->stream_tag =  hdac_stream(link_dev)->stream_tag;
 
@@ -507,7 +516,6 @@ static int skl_link_pcm_prepare(struct snd_pcm_substream *substream,
 	if (!link)
 		return -EINVAL;
 
-	snd_hdac_ext_bus_link_power_up(link);
 	snd_hdac_ext_link_stream_reset(link_dev);
 
 	snd_hdac_ext_link_stream_setup(link_dev, format_val);
@@ -559,9 +567,6 @@ static int skl_link_hw_free(struct snd_pcm_substream *substream,
 				snd_soc_dai_get_dma_data(dai, substream);
 	struct hdac_ext_link *link;
 
-	if (!link_dev)
-		return 0;
-
 	dev_dbg(dai->dev, "%s: %s\n", __func__, dai->name);
 
 	link_dev->link_prepared = 0;
@@ -570,7 +575,6 @@ static int skl_link_hw_free(struct snd_pcm_substream *substream,
 	if (!link)
 		return -EINVAL;
 
-	snd_soc_dai_set_dma_data(dai, substream, NULL);
 	snd_hdac_ext_link_clear_stream_id(link, hdac_stream(link_dev)->stream_tag);
 	snd_hdac_ext_stream_release(link_dev, HDAC_EXT_STREAM_TYPE_LINK);
 	return 0;
@@ -765,7 +769,8 @@ static struct snd_soc_dai_driver skl_platform_dai[] = {
 		.stream_name = "iDisp2 Tx",
 		.channels_min = HDA_STEREO,
 		.channels_max = HDA_STEREO,
-		.rates = SNDRV_PCM_RATE_8000|SNDRV_PCM_RATE_16000|SNDRV_PCM_RATE_48000,
+		.rates = SNDRV_PCM_RATE_8000|SNDRV_PCM_RATE_16000|
+			SNDRV_PCM_RATE_48000,
 		.formats = SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_S32_LE |
 			SNDRV_PCM_FMTBIT_S24_LE,
 	},
@@ -777,7 +782,8 @@ static struct snd_soc_dai_driver skl_platform_dai[] = {
 		.stream_name = "iDisp3 Tx",
 		.channels_min = HDA_STEREO,
 		.channels_max = HDA_STEREO,
-		.rates = SNDRV_PCM_RATE_8000|SNDRV_PCM_RATE_16000|SNDRV_PCM_RATE_48000,
+		.rates = SNDRV_PCM_RATE_8000|SNDRV_PCM_RATE_16000|
+			SNDRV_PCM_RATE_48000,
 		.formats = SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_S32_LE |
 			SNDRV_PCM_FMTBIT_S24_LE,
 	},
@@ -913,72 +919,29 @@ static int skl_platform_pcm_trigger(struct snd_pcm_substream *substream,
 	return 0;
 }
 
-/* calculate runtime delay from LPIB */
-static int skl_get_delay_from_lpib(struct hdac_ext_bus *ebus,
-				struct hdac_ext_stream *sstream,
-				unsigned int pos)
-{
-	struct hdac_bus *bus = ebus_to_hbus(ebus);
-	struct hdac_stream *hstream = hdac_stream(sstream);
-	struct snd_pcm_substream *substream = hstream->substream;
-	int stream = substream->stream;
-	unsigned int lpib_pos = snd_hdac_stream_get_pos_lpib(hstream);
-	int delay;
-
-	if (stream == SNDRV_PCM_STREAM_PLAYBACK)
-		delay = pos - lpib_pos;
-	else
-		delay = lpib_pos - pos;
-
-	if (delay < 0) {
-		if (delay >= hstream->delay_negative_threshold)
-			delay = 0;
-		else
-			delay += hstream->bufsize;
-	}
-
-	if (delay >= hstream->period_bytes) {
-		dev_info(bus->dev,
-			 "Unstable LPIB (%d >= %d); disabling LPIB delay counting\n",
-			 delay, hstream->period_bytes);
-		delay = 0;
-	}
-
-	return bytes_to_frames(substream->runtime, delay);
-}
-
-static unsigned int skl_get_position(struct hdac_ext_stream *hstream,
-					int codec_delay)
-{
-	struct hdac_stream *hstr = hdac_stream(hstream);
-	struct snd_pcm_substream *substream = hstr->substream;
-	struct hdac_ext_bus *ebus;
-	unsigned int pos;
-	int delay;
-
-	/* use the position buffer as default */
-	pos = snd_hdac_stream_get_pos_posbuf(hdac_stream(hstream));
-
-	if (pos >= hdac_stream(hstream)->bufsize)
-		pos = 0;
-
-	if (substream->runtime) {
-		ebus = get_bus_ctx(substream);
-		delay = skl_get_delay_from_lpib(ebus, hstream, pos)
-						 + codec_delay;
-		substream->runtime->delay += delay;
-	}
-
-	return pos;
-}
-
 static snd_pcm_uframes_t skl_platform_pcm_pointer
 			(struct snd_pcm_substream *substream)
 {
 	struct hdac_ext_stream *hstream = get_hdac_ext_stream(substream);
+	struct hdac_ext_bus *ebus = get_bus_ctx(substream);
+	unsigned int pos;
 
-	return bytes_to_frames(substream->runtime,
-			       skl_get_position(hstream, 0));
+	/*
+	 * Use DPIB as the periodic DMA Position-in-Buffer
+	 * writes may be scheduled at the same time or later than
+	 * the MSI and does not guarantee to reflect the Position of the
+	 * last buffer that was transferred. Whereas DPIB register in
+	 * HDA space reflects the actual data that is transferred.
+	 */
+
+	pos = readl(ebus->bus.remap_addr + AZX_REG_VS_SDXDPIB_XBASE +
+			(AZX_REG_VS_SDXDPIB_XINTERVAL *
+			hdac_stream(hstream)->index));
+
+	if (pos >= hdac_stream(hstream)->bufsize)
+		pos = 0;
+
+	return bytes_to_frames(substream->runtime, pos);
 }
 
 static u64 skl_adjust_codec_delay(struct snd_pcm_substream *substream,
@@ -1105,6 +1068,7 @@ int skl_platform_register(struct device *dev)
 	struct skl *skl = ebus_to_skl(ebus);
 
 	INIT_LIST_HEAD(&skl->ppl_list);
+	INIT_LIST_HEAD(&skl->bind_list);
 
 	ret = snd_soc_register_platform(dev, &skl_platform_drv);
 	if (ret) {
@@ -1125,6 +1089,17 @@ int skl_platform_register(struct device *dev)
 
 int skl_platform_unregister(struct device *dev)
 {
+	struct hdac_ext_bus *ebus = dev_get_drvdata(dev);
+	struct skl *skl = ebus_to_skl(ebus);
+	struct skl_module_deferred_bind *modules, *tmp;
+
+	if (!list_empty(&skl->bind_list)) {
+		list_for_each_entry_safe(modules, tmp, &skl->bind_list, node) {
+			list_del(&modules->node);
+			kfree(modules);
+		}
+	}
+
 	snd_soc_unregister_component(dev);
 	snd_soc_unregister_platform(dev);
 	return 0;

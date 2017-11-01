@@ -897,6 +897,10 @@ intel_tv_mode_valid(struct drm_connector *connector,
 {
 	struct intel_tv *intel_tv = intel_attached_tv(connector);
 	const struct tv_mode *tv_mode = intel_tv_mode_find(intel_tv);
+	int max_dotclk = to_i915(connector->dev)->max_dotclk_freq;
+
+	if (mode->clock > max_dotclk)
+		return MODE_CLOCK_HIGH;
 
 	/* Ensure TV refresh is close to desired refresh */
 	if (tv_mode && abs(tv_mode->refresh - drm_mode_vrefresh(mode) * 1000)
@@ -1509,8 +1513,10 @@ out:
 }
 
 static const struct drm_connector_funcs intel_tv_connector_funcs = {
-	.dpms = intel_connector_dpms,
+	.dpms = drm_atomic_helper_connector_dpms,
 	.detect = intel_tv_detect,
+	.late_register = intel_connector_register,
+	.early_unregister = intel_connector_unregister,
 	.destroy = intel_tv_destroy,
 	.set_property = intel_tv_set_property,
 	.atomic_get_property = intel_connector_atomic_get_property,
@@ -1522,7 +1528,6 @@ static const struct drm_connector_funcs intel_tv_connector_funcs = {
 static const struct drm_connector_helper_funcs intel_tv_connector_helper_funcs = {
 	.mode_valid = intel_tv_mode_valid,
 	.get_modes = intel_tv_get_modes,
-	.best_encoder = intel_best_encoder,
 };
 
 static const struct drm_encoder_funcs intel_tv_enc_funcs = {
@@ -1654,7 +1659,6 @@ intel_tv_init(struct drm_device *dev)
 	intel_encoder->disable = intel_disable_tv;
 	intel_encoder->get_hw_state = intel_tv_get_hw_state;
 	intel_connector->get_hw_state = intel_connector_get_hw_state;
-	intel_connector->unregister = intel_connector_unregister;
 
 	intel_connector_attach_encoder(intel_connector, intel_encoder);
 	intel_encoder->type = INTEL_OUTPUT_TVOUT;
@@ -1696,5 +1700,4 @@ intel_tv_init(struct drm_device *dev)
 	drm_object_attach_property(&connector->base,
 				   dev->mode_config.tv_bottom_margin_property,
 				   intel_tv->margin[TV_MARGIN_BOTTOM]);
-	drm_connector_register(connector);
 }

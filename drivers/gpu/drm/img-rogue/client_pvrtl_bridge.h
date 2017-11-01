@@ -44,13 +44,18 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #ifndef CLIENT_PVRTL_BRIDGE_H
 #define CLIENT_PVRTL_BRIDGE_H
 
+#include "img_defs.h"
+#include "pvrsrv_error.h"
+
+#if defined(PVR_INDIRECT_BRIDGE_CLIENTS)
 #include "pvr_bridge_client.h"
 #include "pvr_bridge.h"
+#endif
 
 #include "common_pvrtl_bridge.h"
 
 IMG_INTERNAL PVRSRV_ERROR IMG_CALLCONV BridgeTLOpenStream(IMG_HANDLE hBridge,
-							  IMG_CHAR *puiName,
+							  const IMG_CHAR *puiName,
 							  IMG_UINT32 ui32Mode,
 							  IMG_HANDLE *phSD,
 							  IMG_HANDLE *phTLPMR);
@@ -67,6 +72,28 @@ IMG_INTERNAL PVRSRV_ERROR IMG_CALLCONV BridgeTLReleaseData(IMG_HANDLE hBridge,
 							   IMG_HANDLE hSD,
 							   IMG_UINT32 ui32ReadOffset,
 							   IMG_UINT32 ui32ReadLen);
+
+IMG_INTERNAL PVRSRV_ERROR IMG_CALLCONV BridgeTLDiscoverStreams(IMG_HANDLE hBridge,
+							       const IMG_CHAR *puiNamePattern,
+							       IMG_UINT32 ui32Max,
+							       IMG_UINT32 *pui32Streams,
+							       IMG_UINT32 *pui32NumFound);
+
+IMG_INTERNAL PVRSRV_ERROR IMG_CALLCONV BridgeTLReserveStream(IMG_HANDLE hBridge,
+							     IMG_HANDLE hSD,
+							     IMG_UINT32 *pui32BufferOffset,
+							     IMG_UINT32 ui32Size,
+							     IMG_UINT32 ui32SizeMin,
+							     IMG_UINT32 *pui32Available);
+
+IMG_INTERNAL PVRSRV_ERROR IMG_CALLCONV BridgeTLCommitStream(IMG_HANDLE hBridge,
+							    IMG_HANDLE hSD,
+							    IMG_UINT32 ui32ReqSize);
+
+IMG_INTERNAL PVRSRV_ERROR IMG_CALLCONV BridgeTLWriteData(IMG_HANDLE hBridge,
+							 IMG_HANDLE hSD,
+							 IMG_UINT32 ui32Size,
+							 IMG_BYTE *psData);
 
 
 #endif /* CLIENT_PVRTL_BRIDGE_H */

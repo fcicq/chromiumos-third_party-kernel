@@ -112,6 +112,7 @@ enum pin_config_param {
 	PIN_CONFIG_SLEW_RATE,
 	PIN_CONFIG_LOW_POWER_MODE,
 	PIN_CONFIG_OUTPUT,
+	PIN_CONFIG_PULL_UP_RES,
 	PIN_CONFIG_END = 0x7FFF,
 };
 
@@ -162,7 +163,7 @@ static inline unsigned long pinconf_to_config_packed(enum pin_config_param param
 struct pinctrl_dev;
 struct pinctrl_map;
 
-struct pinconf_generic_dt_params {
+struct pinconf_generic_params {
 	const char * const property;
 	enum pin_config_param param;
 	u32 default_value;

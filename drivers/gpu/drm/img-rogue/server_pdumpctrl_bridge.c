@@ -65,6 +65,8 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
 
+
+
 /* ***************************************************************************
  * Server-side bridge entry points
  */
@@ -76,9 +78,10 @@ PVRSRVBridgePVRSRVPDumpIsCapturing(IMG_UINT32 ui32DispatchTableEntry,
 					 CONNECTION_DATA *psConnection)
 {
 
+
+
 	PVR_UNREFERENCED_PARAMETER(psConnection);
 	PVR_UNREFERENCED_PARAMETER(psPVRSRVPDumpIsCapturingIN);
-
 
 
 
@@ -92,8 +95,12 @@ PVRSRVBridgePVRSRVPDumpIsCapturing(IMG_UINT32 ui32DispatchTableEntry,
 
 
 
+
+
+
 	return 0;
 }
+
 
 static IMG_INT
 PVRSRVBridgePVRSRVPDumpGetFrame(IMG_UINT32 ui32DispatchTableEntry,
@@ -102,8 +109,9 @@ PVRSRVBridgePVRSRVPDumpGetFrame(IMG_UINT32 ui32DispatchTableEntry,
 					 CONNECTION_DATA *psConnection)
 {
 
-	PVR_UNREFERENCED_PARAMETER(psPVRSRVPDumpGetFrameIN);
 
+
+	PVR_UNREFERENCED_PARAMETER(psPVRSRVPDumpGetFrameIN);
 
 
 
@@ -117,8 +125,12 @@ PVRSRVBridgePVRSRVPDumpGetFrame(IMG_UINT32 ui32DispatchTableEntry,
 
 
 
+
+
+
 	return 0;
 }
+
 
 static IMG_INT
 PVRSRVBridgePVRSRVPDumpSetDefaultCaptureParams(IMG_UINT32 ui32DispatchTableEntry,
@@ -127,8 +139,9 @@ PVRSRVBridgePVRSRVPDumpSetDefaultCaptureParams(IMG_UINT32 ui32DispatchTableEntry
 					 CONNECTION_DATA *psConnection)
 {
 
-	PVR_UNREFERENCED_PARAMETER(psConnection);
 
+
+	PVR_UNREFERENCED_PARAMETER(psConnection);
 
 
 
@@ -146,8 +159,12 @@ PVRSRVBridgePVRSRVPDumpSetDefaultCaptureParams(IMG_UINT32 ui32DispatchTableEntry
 
 
 
+
+
+
 	return 0;
 }
+
 
 static IMG_INT
 PVRSRVBridgePVRSRVPDumpIsLastCaptureFrame(IMG_UINT32 ui32DispatchTableEntry,
@@ -156,6 +173,8 @@ PVRSRVBridgePVRSRVPDumpIsLastCaptureFrame(IMG_UINT32 ui32DispatchTableEntry,
 					 CONNECTION_DATA *psConnection)
 {
 
+
+
 	PVR_UNREFERENCED_PARAMETER(psConnection);
 	PVR_UNREFERENCED_PARAMETER(psPVRSRVPDumpIsLastCaptureFrameIN);
 
@@ -163,10 +182,12 @@ PVRSRVBridgePVRSRVPDumpIsLastCaptureFrame(IMG_UINT32 ui32DispatchTableEntry,
 
 
 
-
 	psPVRSRVPDumpIsLastCaptureFrameOUT->eError =
 		PDumpIsLastCaptureFrameKM(
-					);
+					&psPVRSRVPDumpIsLastCaptureFrameOUT->bpbIsLastCaptureFrame);
+
+
+
 
 
 
@@ -174,6 +195,7 @@ PVRSRVBridgePVRSRVPDumpIsLastCaptureFrame(IMG_UINT32 ui32DispatchTableEntry,
 
 	return 0;
 }
+
 
 
 
@@ -218,4 +240,3 @@ PVRSRV_ERROR DeinitPDUMPCTRLBridge(void)
 	PVR_LOGR_IF_ERROR(OSLockDestroy(pPDUMPCTRLBridgeLock), "OSLockDestroy");
 	return PVRSRV_OK;
 }
-

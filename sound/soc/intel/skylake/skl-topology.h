@@ -296,11 +296,18 @@ struct skl_algo_data {
 	u32 param_id;
 	u32 set_params;
 	u32 max;
+	u32 size;
 	char *params;
 };
 
 struct skl_pipeline {
 	struct skl_pipe *pipe;
+	struct list_head node;
+};
+
+struct skl_module_deferred_bind {
+	struct skl_module_cfg *src;
+	struct skl_module_cfg *dst;
 	struct list_head node;
 };
 

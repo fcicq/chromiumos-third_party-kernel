@@ -750,6 +750,7 @@ struct gk20a_pmu_priv {
 	struct completion lspmu_completion;
 	struct completion elpg_off_completion;
 	struct completion elpg_on_completion;
+	struct completion zbc_save_done;
 	int pmu_state;
 	int elpg_disable_depth;
 	int clk_gating_disable_depth;
@@ -889,5 +890,8 @@ gk20a_pmu_mutex_acquire(struct nvkm_pmu *pmu, u32 id, u32 *token);
 
 int
 gk20a_pmu_mutex_release(struct nvkm_pmu *pmu, u32 id, u32 *token);
+
+void
+gk20a_pmu_save_zbc(struct nvkm_pmu *pmu, u32 entries);
 
 #endif

@@ -63,6 +63,11 @@ static struct drm_driver driver;
 #define IVB_CURSOR_OFFSETS \
 	.cursor_offsets = { CURSOR_A_OFFSET, IVB_CURSOR_B_OFFSET, IVB_CURSOR_C_OFFSET }
 
+#define BDW_COLORS \
+	.color = { .degamma_lut_size = 512, .gamma_lut_size = 512 }
+#define CHV_COLORS \
+	.color = { .degamma_lut_size = 65, .gamma_lut_size = 257 }
+
 static const struct intel_device_info intel_i830_info = {
 	.gen = 2, .is_mobile = 1, .cursor_needs_physical = 1, .num_pipes = 2,
 	.has_overlay = 1, .overlay_needs_physical = 1,
@@ -307,6 +312,7 @@ static const struct intel_device_info intel_broadwell_d_info = {
 	.has_fbc = 1,
 	GEN_DEFAULT_PIPEOFFSETS,
 	IVB_CURSOR_OFFSETS,
+	BDW_COLORS,
 };
 
 static const struct intel_device_info intel_broadwell_m_info = {
@@ -319,6 +325,7 @@ static const struct intel_device_info intel_broadwell_m_info = {
 	.has_fbc = 1,
 	GEN_DEFAULT_PIPEOFFSETS,
 	IVB_CURSOR_OFFSETS,
+	BDW_COLORS,
 };
 
 static const struct intel_device_info intel_broadwell_gt3d_info = {
@@ -331,6 +338,7 @@ static const struct intel_device_info intel_broadwell_gt3d_info = {
 	.has_fbc = 1,
 	GEN_DEFAULT_PIPEOFFSETS,
 	IVB_CURSOR_OFFSETS,
+	BDW_COLORS,
 };
 
 static const struct intel_device_info intel_broadwell_gt3m_info = {
@@ -343,6 +351,7 @@ static const struct intel_device_info intel_broadwell_gt3m_info = {
 	.has_fbc = 1,
 	GEN_DEFAULT_PIPEOFFSETS,
 	IVB_CURSOR_OFFSETS,
+	BDW_COLORS,
 };
 
 static const struct intel_device_info intel_cherryview_info = {
@@ -353,6 +362,7 @@ static const struct intel_device_info intel_cherryview_info = {
 	.display_mmio_offset = VLV_DISPLAY_BASE,
 	GEN_CHV_PIPEOFFSETS,
 	CURSOR_OFFSETS,
+	CHV_COLORS,
 };
 
 static const struct intel_device_info intel_skylake_info = {
@@ -365,6 +375,7 @@ static const struct intel_device_info intel_skylake_info = {
 	.has_fbc = 1,
 	GEN_DEFAULT_PIPEOFFSETS,
 	IVB_CURSOR_OFFSETS,
+	BDW_COLORS,
 };
 
 static const struct intel_device_info intel_skylake_gt3_info = {
@@ -377,6 +388,7 @@ static const struct intel_device_info intel_skylake_gt3_info = {
 	.has_fbc = 1,
 	GEN_DEFAULT_PIPEOFFSETS,
 	IVB_CURSOR_OFFSETS,
+	BDW_COLORS,
 };
 
 static const struct intel_device_info intel_broxton_info = {
@@ -389,6 +401,37 @@ static const struct intel_device_info intel_broxton_info = {
 	.has_fbc = 1,
 	GEN_DEFAULT_PIPEOFFSETS,
 	IVB_CURSOR_OFFSETS,
+	BDW_COLORS,
+};
+
+static const struct intel_device_info intel_kabylake_info = {
+	.is_preliminary = 1,
+	.is_kabylake = 1,
+	.gen = 9,
+	.num_pipes = 3,
+	.need_gfx_hws = 1, .has_hotplug = 1,
+	.ring_mask = RENDER_RING | BSD_RING | BLT_RING | VEBOX_RING,
+	.has_llc = 1,
+	.has_ddi = 1,
+	.has_fpga_dbg = 1,
+	.has_fbc = 1,
+	GEN_DEFAULT_PIPEOFFSETS,
+	IVB_CURSOR_OFFSETS,
+};
+
+static const struct intel_device_info intel_kabylake_gt3_info = {
+	.is_preliminary = 1,
+	.is_kabylake = 1,
+	.gen = 9,
+	.num_pipes = 3,
+	.need_gfx_hws = 1, .has_hotplug = 1,
+	.ring_mask = RENDER_RING | BSD_RING | BLT_RING | VEBOX_RING | BSD2_RING,
+	.has_llc = 1,
+	.has_ddi = 1,
+	.has_fpga_dbg = 1,
+	.has_fbc = 1,
+	GEN_DEFAULT_PIPEOFFSETS,
+	IVB_CURSOR_OFFSETS,
 };
 
 /*
@@ -397,44 +440,45 @@ static const struct intel_device_info intel_broxton_info = {
  * and subvendor IDs, we need it to come before the more general IVB
  * PCI ID matches, otherwise we'll use the wrong info struct above.
  */
-#define INTEL_PCI_IDS \
-	INTEL_I830_IDS(&intel_i830_info),	\
-	INTEL_I845G_IDS(&intel_845g_info),	\
-	INTEL_I85X_IDS(&intel_i85x_info),	\
-	INTEL_I865G_IDS(&intel_i865g_info),	\
-	INTEL_I915G_IDS(&intel_i915g_info),	\
-	INTEL_I915GM_IDS(&intel_i915gm_info),	\
-	INTEL_I945G_IDS(&intel_i945g_info),	\
-	INTEL_I945GM_IDS(&intel_i945gm_info),	\
-	INTEL_I965G_IDS(&intel_i965g_info),	\
-	INTEL_G33_IDS(&intel_g33_info),		\
-	INTEL_I965GM_IDS(&intel_i965gm_info),	\
-	INTEL_GM45_IDS(&intel_gm45_info), 	\
-	INTEL_G45_IDS(&intel_g45_info), 	\
-	INTEL_PINEVIEW_IDS(&intel_pineview_info),	\
-	INTEL_IRONLAKE_D_IDS(&intel_ironlake_d_info),	\
-	INTEL_IRONLAKE_M_IDS(&intel_ironlake_m_info),	\
-	INTEL_SNB_D_IDS(&intel_sandybridge_d_info),	\
-	INTEL_SNB_M_IDS(&intel_sandybridge_m_info),	\
-	INTEL_IVB_Q_IDS(&intel_ivybridge_q_info), /* must be first IVB */ \
-	INTEL_IVB_M_IDS(&intel_ivybridge_m_info),	\
-	INTEL_IVB_D_IDS(&intel_ivybridge_d_info),	\
-	INTEL_HSW_D_IDS(&intel_haswell_d_info), \
-	INTEL_HSW_M_IDS(&intel_haswell_m_info), \
-	INTEL_VLV_M_IDS(&intel_valleyview_m_info),	\
-	INTEL_VLV_D_IDS(&intel_valleyview_d_info),	\
-	INTEL_BDW_GT12M_IDS(&intel_broadwell_m_info),	\
-	INTEL_BDW_GT12D_IDS(&intel_broadwell_d_info),	\
-	INTEL_BDW_GT3M_IDS(&intel_broadwell_gt3m_info),	\
-	INTEL_BDW_GT3D_IDS(&intel_broadwell_gt3d_info), \
-	INTEL_CHV_IDS(&intel_cherryview_info),	\
-	INTEL_SKL_GT1_IDS(&intel_skylake_info),	\
-	INTEL_SKL_GT2_IDS(&intel_skylake_info),	\
-	INTEL_SKL_GT3_IDS(&intel_skylake_gt3_info),	\
-	INTEL_BXT_IDS(&intel_broxton_info)
-
-static const struct pci_device_id pciidlist[] = {		/* aka */
-	INTEL_PCI_IDS,
+static const struct pci_device_id pciidlist[] = {
+	INTEL_I830_IDS(&intel_i830_info),
+	INTEL_I845G_IDS(&intel_845g_info),
+	INTEL_I85X_IDS(&intel_i85x_info),
+	INTEL_I865G_IDS(&intel_i865g_info),
+	INTEL_I915G_IDS(&intel_i915g_info),
+	INTEL_I915GM_IDS(&intel_i915gm_info),
+	INTEL_I945G_IDS(&intel_i945g_info),
+	INTEL_I945GM_IDS(&intel_i945gm_info),
+	INTEL_I965G_IDS(&intel_i965g_info),
+	INTEL_G33_IDS(&intel_g33_info),
+	INTEL_I965GM_IDS(&intel_i965gm_info),
+	INTEL_GM45_IDS(&intel_gm45_info),
+	INTEL_G45_IDS(&intel_g45_info),
+	INTEL_PINEVIEW_IDS(&intel_pineview_info),
+	INTEL_IRONLAKE_D_IDS(&intel_ironlake_d_info),
+	INTEL_IRONLAKE_M_IDS(&intel_ironlake_m_info),
+	INTEL_SNB_D_IDS(&intel_sandybridge_d_info),
+	INTEL_SNB_M_IDS(&intel_sandybridge_m_info),
+	INTEL_IVB_Q_IDS(&intel_ivybridge_q_info), /* must be first IVB */
+	INTEL_IVB_M_IDS(&intel_ivybridge_m_info),
+	INTEL_IVB_D_IDS(&intel_ivybridge_d_info),
+	INTEL_HSW_D_IDS(&intel_haswell_d_info),
+	INTEL_HSW_M_IDS(&intel_haswell_m_info),
+	INTEL_VLV_M_IDS(&intel_valleyview_m_info),
+	INTEL_VLV_D_IDS(&intel_valleyview_d_info),
+	INTEL_BDW_GT12M_IDS(&intel_broadwell_m_info),
+	INTEL_BDW_GT12D_IDS(&intel_broadwell_d_info),
+	INTEL_BDW_GT3M_IDS(&intel_broadwell_gt3m_info),
+	INTEL_BDW_GT3D_IDS(&intel_broadwell_gt3d_info),
+	INTEL_CHV_IDS(&intel_cherryview_info),
+	INTEL_SKL_GT1_IDS(&intel_skylake_info),
+	INTEL_SKL_GT2_IDS(&intel_skylake_info),
+	INTEL_SKL_GT3_IDS(&intel_skylake_gt3_info),
+	INTEL_BXT_IDS(&intel_broxton_info),
+	INTEL_KBL_GT1_IDS(&intel_kabylake_info),
+	INTEL_KBL_GT2_IDS(&intel_kabylake_info),
+	INTEL_KBL_GT3_IDS(&intel_kabylake_gt3_info),
+	INTEL_KBL_GT4_IDS(&intel_kabylake_gt3_info),
 	{0, 0, 0}
 };
 
@@ -495,11 +539,13 @@ void intel_detect_pch(struct drm_device *dev)
 			} else if (id == INTEL_PCH_SPT_DEVICE_ID_TYPE) {
 				dev_priv->pch_type = PCH_SPT;
 				DRM_DEBUG_KMS("Found SunrisePoint PCH\n");
-				WARN_ON(!IS_SKYLAKE(dev));
+				WARN_ON(!IS_SKYLAKE(dev) &&
+					!IS_KABYLAKE(dev));
 			} else if (id == INTEL_PCH_SPT_LP_DEVICE_ID_TYPE) {
 				dev_priv->pch_type = PCH_SPT;
 				DRM_DEBUG_KMS("Found SunrisePoint LP PCH\n");
-				WARN_ON(!IS_SKYLAKE(dev));
+				WARN_ON(!IS_SKYLAKE(dev) &&
+					!IS_KABYLAKE(dev));
 			} else
 				continue;
 
@@ -540,15 +586,12 @@ bool i915_semaphore_is_enabled(struct drm_device *dev)
 static void intel_suspend_encoders(struct drm_i915_private *dev_priv)
 {
 	struct drm_device *dev = dev_priv->dev;
-	struct drm_encoder *encoder;
+	struct intel_encoder *encoder;
 
 	drm_modeset_lock_all(dev);
-	list_for_each_entry(encoder, &dev->mode_config.encoder_list, head) {
-		struct intel_encoder *intel_encoder = to_intel_encoder(encoder);
-
-		if (intel_encoder->suspend)
-			intel_encoder->suspend(intel_encoder);
-	}
+	for_each_intel_encoder(dev, encoder)
+		if (encoder->suspend)
+			encoder->suspend(encoder);
 	drm_modeset_unlock_all(dev);
 }
 
@@ -577,6 +620,8 @@ static int i915_drm_suspend(struct drm_device *dev)
 	dev_priv->modeset_restore = MODESET_SUSPENDED;
 	mutex_unlock(&dev_priv->modeset_restore_lock);
 
+	disable_rpm_wakeref_asserts(dev_priv);
+
 	/* We do a lot of poking in a lot of registers, make sure they work
 	 * properly. */
 	intel_display_set_init_power(dev_priv, true);
@@ -589,18 +634,12 @@ static int i915_drm_suspend(struct drm_device *dev)
 	if (error) {
 		dev_err(&dev->pdev->dev,
 			"GEM idle failed, resume might fail\n");
-		return error;
+		goto out;
 	}
 
 	intel_suspend_gt_powersave(dev);
 
-	/*
-	 * Disable CRTCs directly since we want to preserve sw state
-	 * for _thaw. Also, power gate the CRTC power wells.
-	 */
-	drm_modeset_lock_all(dev);
 	intel_display_suspend(dev);
-	drm_modeset_unlock_all(dev);
 
 	intel_dp_mst_suspend(dev);
 
@@ -630,7 +669,10 @@ static int i915_drm_suspend(struct drm_device *dev)
 	if (HAS_CSR(dev_priv))
 		flush_work(&dev_priv->csr.work);
 
-	return 0;
+out:
+	enable_rpm_wakeref_asserts(dev_priv);
+
+	return error;
 }
 
 static int i915_drm_suspend_late(struct drm_device *drm_dev, bool hibernation)
@@ -638,6 +680,8 @@ static int i915_drm_suspend_late(struct drm_device *drm_dev, bool hibernation)
 	struct drm_i915_private *dev_priv = drm_dev->dev_private;
 	bool fw_csr;
 	int ret;
+
+	disable_rpm_wakeref_asserts(dev_priv);
 
 	fw_csr = suspend_to_idle(dev_priv) && dev_priv->csr.dmc_payload;
 	/*
@@ -657,7 +701,7 @@ static int i915_drm_suspend_late(struct drm_device *drm_dev, bool hibernation)
 		if (!fw_csr)
 			intel_power_domains_init_hw(dev_priv, true);
 
-		return ret;
+		goto out;
 	}
 
 	pci_disable_device(drm_dev->pdev);
@@ -675,7 +719,10 @@ static int i915_drm_suspend_late(struct drm_device *drm_dev, bool hibernation)
 
 	dev_priv->suspended_to_idle = suspend_to_idle(dev_priv);
 
-	return 0;
+out:
+	enable_rpm_wakeref_asserts(dev_priv);
+
+	return ret;
 }
 
 int i915_suspend_legacy(struct drm_device *dev, pm_message_t state)
@@ -705,6 +752,8 @@ int i915_suspend_legacy(struct drm_device *dev, pm_message_t state)
 static int i915_drm_resume(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
+
+	disable_rpm_wakeref_asserts(dev_priv);
 
 	mutex_lock(&dev->struct_mutex);
 	i915_gem_restore_gtt_mappings(dev);
@@ -740,11 +789,11 @@ static int i915_drm_resume(struct drm_device *dev)
 		dev_priv->display.hpd_irq_setup(dev);
 	spin_unlock_irq(&dev_priv->irq_lock);
 
-	drm_modeset_lock_all(dev);
-	intel_display_resume(dev);
-	drm_modeset_unlock_all(dev);
-
 	intel_dp_mst_resume(dev);
+
+	intel_display_resume(dev);
+
+	drm_kms_helper_poll_enable(dev);
 
 	/*
 	 * ... but also need to make sure that hotplug processing
@@ -753,8 +802,6 @@ static int i915_drm_resume(struct drm_device *dev)
 	 * notifications.
 	 * */
 	intel_hpd_init(dev_priv);
-	/* Config may have changed between suspend and resume */
-	drm_helper_hpd_irq_event(dev);
 
 	intel_opregion_init(dev);
 
@@ -766,7 +813,7 @@ static int i915_drm_resume(struct drm_device *dev)
 
 	intel_opregion_notify_adapter(dev, PCI_D0);
 
-	drm_kms_helper_poll_enable(dev);
+	enable_rpm_wakeref_asserts(dev_priv);
 
 	return 0;
 }
@@ -792,6 +839,8 @@ static int i915_drm_resume_early(struct drm_device *dev)
 
 	pci_set_master(dev->pdev);
 
+	disable_rpm_wakeref_asserts(dev_priv);
+
 	if (IS_VALLEYVIEW(dev_priv))
 		ret = vlv_resume_prepare(dev_priv, false);
 	if (ret)
@@ -812,6 +861,8 @@ static int i915_drm_resume_early(struct drm_device *dev)
 
 out:
 	dev_priv->suspended_to_idle = false;
+
+	enable_rpm_wakeref_asserts(dev_priv);
 
 	return ret;
 }
@@ -1054,7 +1105,6 @@ static int bxt_resume_prepare(struct drm_i915_private *dev_priv)
 	 */
 	broxton_init_cdclk(dev);
 	broxton_ddi_phy_init(dev);
-	intel_prepare_ddi(dev);
 
 	return 0;
 }
@@ -1313,8 +1363,8 @@ static int vlv_wait_for_gt_wells(struct drm_i915_private *dev_priv,
 		return 0;
 
 	DRM_DEBUG_KMS("waiting for GT wells to go %s (%08x)\n",
-			wait_for_on ? "on" : "off",
-			I915_READ(VLV_GTLC_PW_STATUS));
+		      onoff(wait_for_on),
+		      I915_READ(VLV_GTLC_PW_STATUS));
 
 	/*
 	 * RC6 transitioning can be delayed up to 2 msec (see
@@ -1323,7 +1373,7 @@ static int vlv_wait_for_gt_wells(struct drm_i915_private *dev_priv,
 	err = wait_for(COND, 3);
 	if (err)
 		DRM_ERROR("timeout waiting for GT wells to go %s\n",
-			  wait_for_on ? "on" : "off");
+			  onoff(wait_for_on));
 
 	return err;
 #undef COND
@@ -1447,6 +1497,9 @@ static int intel_runtime_suspend(struct device *device)
 
 		return -EAGAIN;
 	}
+
+	disable_rpm_wakeref_asserts(dev_priv);
+
 	/*
 	 * We are safe here against re-faults, since the fault handler takes
 	 * an RPM reference.
@@ -1462,11 +1515,16 @@ static int intel_runtime_suspend(struct device *device)
 		DRM_ERROR("Runtime suspend failed, disabling it (%d)\n", ret);
 		intel_runtime_pm_enable_interrupts(dev_priv);
 
+		enable_rpm_wakeref_asserts(dev_priv);
+
 		return ret;
 	}
 
 	cancel_delayed_work_sync(&dev_priv->gpu_error.hangcheck_work);
 	intel_uncore_forcewake_reset(dev, false);
+
+	enable_rpm_wakeref_asserts(dev_priv);
+	WARN_ON_ONCE(atomic_read(&dev_priv->pm.wakeref_count));
 	dev_priv->pm.suspended = true;
 
 	/*
@@ -1494,6 +1552,9 @@ static int intel_runtime_suspend(struct device *device)
 
 	assert_forcewakes_inactive(dev_priv);
 
+	if (!IS_VALLEYVIEW(dev_priv) && !IS_CHERRYVIEW(dev_priv))
+		intel_hpd_poll_init(dev_priv);
+
 	DRM_DEBUG_KMS("Device suspended\n");
 	return 0;
 }
@@ -1509,6 +1570,9 @@ static int intel_runtime_resume(struct device *device)
 		return -ENODEV;
 
 	DRM_DEBUG_KMS("Resuming device\n");
+
+	WARN_ON_ONCE(atomic_read(&dev_priv->pm.wakeref_count));
+	disable_rpm_wakeref_asserts(dev_priv);
 
 	intel_opregion_notify_adapter(dev, PCI_D0);
 	dev_priv->pm.suspended = false;
@@ -1531,7 +1595,18 @@ static int intel_runtime_resume(struct device *device)
 	gen6_update_ring_freq(dev);
 
 	intel_runtime_pm_enable_interrupts(dev_priv);
+
+	/*
+	 * On VLV/CHV display interrupts are part of the display
+	 * power well, so hpd is reinitialized from there. For
+	 * everyone else do it here.
+	 */
+	if (!IS_VALLEYVIEW(dev_priv))
+		intel_hpd_init(dev_priv);
+
 	intel_enable_gt_powersave(dev);
+
+	enable_rpm_wakeref_asserts(dev_priv);
 
 	if (ret)
 		DRM_ERROR("Runtime resume failed, disabling it (%d)\n", ret);

@@ -63,9 +63,6 @@
  * but need to implement the atomic interface instead, potentially using the
  * atomic helpers for that.
  */
-MODULE_AUTHOR("David Airlie, Jesse Barnes");
-MODULE_DESCRIPTION("DRM KMS helper");
-MODULE_LICENSE("GPL and additional rights");
 
 /**
  * drm_helper_move_panel_connectors_to_head() - move panels to the front in the
@@ -329,7 +326,7 @@ bool drm_crtc_helper_set_mode(struct drm_crtc *crtc,
 		DRM_DEBUG_KMS("CRTC fixup failed\n");
 		goto done;
 	}
-	DRM_DEBUG_KMS("[CRTC:%d]\n", crtc->base.id);
+	DRM_DEBUG_KMS("[CRTC:%d:%s]\n", crtc->base.id, crtc->name);
 
 	crtc->hwmode = *adjusted_mode;
 
@@ -435,6 +432,9 @@ drm_crtc_helper_disable(struct drm_crtc *crtc)
 			 * between them is henceforth no longer available.
 			 */
 			connector->dpms = DRM_MODE_DPMS_OFF;
+
+			/* we keep a reference while the encoder is bound */
+			drm_connector_unreference(connector);
 		}
 	}
 
@@ -484,11 +484,13 @@ int drm_crtc_helper_set_config(struct drm_mode_set *set)
 		set->fb = NULL;
 
 	if (set->fb) {
-		DRM_DEBUG_KMS("[CRTC:%d] [FB:%d] #connectors=%d (x y) (%i %i)\n",
-				set->crtc->base.id, set->fb->base.id,
-				(int)set->num_connectors, set->x, set->y);
+		DRM_DEBUG_KMS("[CRTC:%d:%s] [FB:%d] #connectors=%d (x y) (%i %i)\n",
+			      set->crtc->base.id, set->crtc->name,
+			      set->fb->base.id,
+			      (int)set->num_connectors, set->x, set->y);
 	} else {
-		DRM_DEBUG_KMS("[CRTC:%d] [NOFB]\n", set->crtc->base.id);
+		DRM_DEBUG_KMS("[CRTC:%d:%s] [NOFB]\n",
+			      set->crtc->base.id, set->crtc->name);
 		drm_crtc_helper_disable(set->crtc);
 		return 0;
 	}
@@ -560,6 +562,15 @@ int drm_crtc_helper_set_config(struct drm_mode_set *set)
 		mode_changed = true;
 	}
 
+	/* take a reference on all unbound connectors in set, reuse the
+	 * already taken reference for bound connectors
+	 */
+	for (ro = 0; ro < set->num_connectors; ro++) {
+		if (set->connectors[ro]->encoder)
+			continue;
+		drm_connector_reference(set->connectors[ro]);
+	}
+
 	/* a) traverse passed in connector list and get encoders for them */
 	count = 0;
 	drm_for_each_connector(connector, dev) {
@@ -628,12 +639,12 @@ int drm_crtc_helper_set_config(struct drm_mode_set *set)
 			connector->encoder->crtc = new_crtc;
 		}
 		if (new_crtc) {
-			DRM_DEBUG_KMS("[CONNECTOR:%d:%s] to [CRTC:%d]\n",
-				connector->base.id, connector->name,
-				new_crtc->base.id);
+			DRM_DEBUG_KMS("[CONNECTOR:%d:%s] to [CRTC:%d:%s]\n",
+				      connector->base.id, connector->name,
+				      new_crtc->base.id, new_crtc->name);
 		} else {
 			DRM_DEBUG_KMS("[CONNECTOR:%d:%s] to [NOCRTC]\n",
-				connector->base.id, connector->name);
+				      connector->base.id, connector->name);
 		}
 	}
 
@@ -650,8 +661,8 @@ int drm_crtc_helper_set_config(struct drm_mode_set *set)
 			if (!drm_crtc_helper_set_mode(set->crtc, set->mode,
 						      set->x, set->y,
 						      save_set.fb)) {
-				DRM_ERROR("failed to set mode on [CRTC:%d]\n",
-					  set->crtc->base.id);
+				DRM_ERROR("failed to set mode on [CRTC:%d:%s]\n",
+					  set->crtc->base.id, set->crtc->name);
 				set->crtc->primary->fb = save_set.fb;
 				ret = -EINVAL;
 				goto fail;
@@ -692,6 +703,15 @@ fail:
 	count = 0;
 	drm_for_each_connector(connector, dev) {
 		*connector = save_connectors[count++];
+	}
+
+	/* after fail drop reference on all unbound connectors in set, let
+	 * bound connectors keep their reference
+	 */
+	for (ro = 0; ro < set->num_connectors; ro++) {
+		if (set->connectors[ro]->encoder)
+			continue;
+		drm_connector_unreference(set->connectors[ro]);
 	}
 
 	/* Try to restore the config */
@@ -799,15 +819,18 @@ void drm_helper_dpms_attached_encoders(struct drm_crtc *crtc, int mode)
  * implementing the DPMS connector attribute. It computes the new desired DPMS
  * state for all encoders and crtcs in the output mesh and calls the ->dpms()
  * callback provided by the driver appropriately.
+ *
+ * Returns:
+ * Always returns 0.
  */
-void drm_helper_connector_dpms(struct drm_connector *connector, int mode)
+int drm_helper_connector_dpms(struct drm_connector *connector, int mode)
 {
 	struct drm_encoder *encoder = connector->encoder;
 	struct drm_crtc *crtc = encoder ? encoder->crtc : NULL;
 	int old_dpms, encoder_dpms = DRM_MODE_DPMS_OFF;
 
 	if (mode == connector->dpms)
-		return;
+		return 0;
 
 	old_dpms = connector->dpms;
 	connector->dpms = mode;
@@ -839,7 +862,7 @@ void drm_helper_connector_dpms(struct drm_connector *connector, int mode)
 		}
 	}
 
-	return;
+	return 0;
 }
 EXPORT_SYMBOL(drm_helper_connector_dpms);
 
@@ -889,6 +912,12 @@ EXPORT_SYMBOL(drm_helper_mode_fill_fb_struct);
  * due to slight differences in allocating shared resources when the
  * configuration is restored in a different order than when userspace set it up)
  * need to use their own restore logic.
+ *
+ * This function is deprecated. New drivers should implement atomic mode-
+ * setting and use the atomic suspend/resume helpers.
+ *
+ * See also:
+ * drm_atomic_helper_suspend(), drm_atomic_helper_resume()
  */
 void drm_helper_resume_force_mode(struct drm_device *dev)
 {
@@ -1049,3 +1078,36 @@ int drm_helper_crtc_mode_set_base(struct drm_crtc *crtc, int x, int y,
 	return drm_plane_helper_commit(plane, plane_state, old_fb);
 }
 EXPORT_SYMBOL(drm_helper_crtc_mode_set_base);
+
+/**
+ * drm_helper_crtc_enable_color_mgmt - enable color management properties
+ * @crtc: DRM CRTC
+ * @degamma_lut_size: the size of the degamma lut (before CSC)
+ * @gamma_lut_size: the size of the gamma lut (after CSC)
+ *
+ * This function lets the driver enable the color correction properties on a
+ * CRTC. This includes 3 degamma, csc and gamma properties that userspace can
+ * set and 2 size properties to inform the userspace of the lut sizes.
+ */
+void drm_helper_crtc_enable_color_mgmt(struct drm_crtc *crtc,
+				       int degamma_lut_size,
+				       int gamma_lut_size)
+{
+	struct drm_device *dev = crtc->dev;
+	struct drm_mode_config *config = &dev->mode_config;
+
+	drm_object_attach_property(&crtc->base,
+				   config->degamma_lut_property, 0);
+	drm_object_attach_property(&crtc->base,
+				   config->ctm_property, 0);
+	drm_object_attach_property(&crtc->base,
+				   config->gamma_lut_property, 0);
+
+	drm_object_attach_property(&crtc->base,
+				   config->degamma_lut_size_property,
+				   degamma_lut_size);
+	drm_object_attach_property(&crtc->base,
+				   config->gamma_lut_size_property,
+				   gamma_lut_size);
+}
+EXPORT_SYMBOL(drm_helper_crtc_enable_color_mgmt);

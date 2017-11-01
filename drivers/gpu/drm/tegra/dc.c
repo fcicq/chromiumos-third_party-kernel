@@ -705,14 +705,12 @@ static const struct drm_plane_funcs tegra_primary_plane_funcs = {
 };
 
 static int tegra_plane_prepare_fb(struct drm_plane *plane,
-				  struct drm_framebuffer *fb,
 				  const struct drm_plane_state *new_state)
 {
 	return 0;
 }
 
 static void tegra_plane_cleanup_fb(struct drm_plane *plane,
-				   struct drm_framebuffer *fb,
 				   const struct drm_plane_state *old_fb)
 {
 }
@@ -2691,8 +2689,8 @@ static int tegra_dc_show_regs(struct seq_file *s, void *data)
 	u32 state_access_save;
 	int i;
 
-	if (!tegra_powergate_is_powered(dc->powergate)) {
-		DRM_INFO("Can't dump registers as dc is powergated\n");
+	if (dc->dpms == DRM_MODE_DPMS_OFF) {
+		DRM_INFO("Can't dump registers if dc is disabled\n");
 		return -EPERM;
 	}
 

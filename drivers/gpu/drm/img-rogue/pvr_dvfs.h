@@ -43,10 +43,13 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #ifndef _PVR_DVFS_H_
 #define _PVR_DVFS_H_
 
+#if defined(PVR_DVFS)
 #include <linux/devfreq.h>
+#endif
 
 #include "pvrsrv_error.h"
 #include "img_types.h"
+#include "lock.h"
 
 typedef void (*PFN_SYS_DEV_DVFS_SET_FREQUENCY)(IMG_UINT32 ui32Freq);
 typedef void (*PFN_SYS_DEV_DVFS_SET_VOLTAGE)(IMG_UINT32 ui32Volt);
@@ -60,34 +63,38 @@ typedef struct _IMG_OPP_
 	IMG_UINT32			ui32Freq;
 } IMG_OPP;
 
-typedef struct _IMG_DVFS_GOVERNOR_CFG_
-{
-	IMG_UINT32			ui32UpThreshold;
-	IMG_UINT32			ui32DownDifferential;
-} IMG_DVFS_GOVERNOR_CFG;
-
 typedef struct _IMG_DVFS_DEVICE_CFG_
 {
 	const IMG_OPP  *pasOPPTable;
 	IMG_UINT32      ui32OPPTableSize;
+#if defined(PVR_DVFS)
 	IMG_UINT32      ui32PollMs;
+#endif
 	IMG_BOOL        bIdleReq;
-
 	PFN_SYS_DEV_DVFS_SET_FREQUENCY  pfnSetFrequency;
 	PFN_SYS_DEV_DVFS_SET_VOLTAGE    pfnSetVoltage;
 
-#if defined(CONFIG_DEVFREQ_THERMAL)
+#if defined(CONFIG_DEVFREQ_THERMAL) && defined(PVR_DVFS)
 	struct devfreq_cooling_power *psPowerOps;
 #endif
 
 } IMG_DVFS_DEVICE_CFG;
 
+#if defined(PVR_DVFS)
 typedef struct _IMG_DVFS_GOVERNOR_
 {
 	IMG_BOOL			bEnabled;
 } IMG_DVFS_GOVERNOR;
 
+typedef struct _IMG_DVFS_GOVERNOR_CFG_
+{
+	IMG_UINT32			ui32UpThreshold;
+	IMG_UINT32			ui32DownDifferential;
+} IMG_DVFS_GOVERNOR_CFG;
+#endif
+
 #if defined(__linux__)
+#if defined(PVR_DVFS)
 typedef struct _IMG_DVFS_DEVICE_
 {
 	struct dev_pm_opp		*psOPP;
@@ -99,44 +106,27 @@ typedef struct _IMG_DVFS_DEVICE_
 	struct thermal_cooling_device	*psDevfreqCoolingDevice;
 #endif
 } IMG_DVFS_DEVICE;
+#endif
 
-typedef struct _IMG_POWER_AVG_
+#if defined(SUPPORT_PDVFS)
+typedef struct _PDVFS_DATA_
 {
-	IMG_UINT32			ui32Power;
-	IMG_UINT32			ui32Samples;
-} IMG_POWER_AVG;
-
-typedef struct _IMG_DVFS_PA_
-{
-	IMG_UINT32			ui32AllocatedPower;
-	IMG_UINT32			*aui32ConversionTable;
-	IMG_OPP				sOPPCurrent;
-	IMG_INT32			i32Temp;
-	IMG_UINT64			ui64StartTime;
-	IMG_UINT32			ui32Energy;
-	POS_LOCK			hDVFSLock;
-	struct power_actor		*psPowerActor;
-	IMG_POWER_AVG			sPowerAvg;
-} IMG_DVFS_PA;
-
-typedef struct _IMG_DVFS_PA_CFG_
-{
-	/* Coefficients for a curve defining power leakage due to temperature */
-	IMG_INT32			i32Ta;		/* t^3 */
-	IMG_INT32			i32Tb;		/* t^2 */
-	IMG_INT32			i32Tc;		/* t^1 */
-	IMG_INT32			i32Td;		/* const */
-
-	IMG_UINT32			ui32Other;	/* Static losses unrelated to GPU */
-	IMG_UINT32			ui32Weight;	/* Power actor weight */
-} IMG_DVFS_PA_CFG;
+	IMG_HANDLE hReactiveTimer;
+	IMG_BOOL bWorkInFrame;
+} PDVFS_DATA;
+#endif
 
 typedef struct _IMG_DVFS_
 {
+#if defined(PVR_DVFS)
 	IMG_DVFS_DEVICE			sDVFSDevice;
 	IMG_DVFS_GOVERNOR		sDVFSGovernor;
+	IMG_DVFS_GOVERNOR_CFG	sDVFSGovernorCfg;
+#endif
+#if defined(SUPPORT_PDVFS)
+	PDVFS_DATA				sPDVFSData;
+#endif
 	IMG_DVFS_DEVICE_CFG		sDVFSDeviceCfg;
-	IMG_DVFS_GOVERNOR_CFG		sDVFSGovernorCfg;
 } PVRSRV_DVFS;
 #endif/* (__linux__) */
 

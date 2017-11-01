@@ -61,11 +61,8 @@ extern "C" {
 
 #if defined(PDUMP)
 
-#if defined(__GNUC__)
-IMG_INTERNAL void SRVINITPDumpComment(SHARED_DEV_CONNECTION hServices, const IMG_CHAR *pszFormat, ...) __attribute__ ((format (printf, 2, 3)));
-#else
+__printf(2, 3)
 IMG_INTERNAL void SRVINITPDumpComment(SHARED_DEV_CONNECTION hServices, const IMG_CHAR *pszFormat, ...);
-#endif
 
 #else
 

@@ -401,7 +401,7 @@ parse_sdvo_device_mapping(struct drm_i915_private *dev_priv,
 {
 	struct sdvo_device_mapping *p_mapping;
 	const struct bdb_general_definitions *p_defs;
-	const union child_device_config *p_child;
+	const struct old_child_dev_config *child; /* legacy */
 	int i, child_device_num, count;
 	u16	block_size;
 
@@ -410,14 +410,14 @@ parse_sdvo_device_mapping(struct drm_i915_private *dev_priv,
 		DRM_DEBUG_KMS("No general definition block is found, unable to construct sdvo mapping.\n");
 		return;
 	}
-	/* judge whether the size of child device meets the requirements.
-	 * If the child device size obtained from general definition block
-	 * is different with sizeof(struct child_device_config), skip the
-	 * parsing of sdvo device info
+
+	/*
+	 * Only parse SDVO mappings when the general definitions block child
+	 * device size matches that of the *legacy* child device config
+	 * struct. Thus, SDVO mapping will be skipped for newer VBT.
 	 */
-	if (p_defs->child_dev_size != sizeof(*p_child)) {
-		/* different child dev size . Ignore it */
-		DRM_DEBUG_KMS("different child size is found. Invalid.\n");
+	if (p_defs->child_dev_size != sizeof(*child)) {
+		DRM_DEBUG_KMS("Unsupported child device size for SDVO mapping.\n");
 		return;
 	}
 	/* get the block size of general definitions */
@@ -427,37 +427,37 @@ parse_sdvo_device_mapping(struct drm_i915_private *dev_priv,
 		p_defs->child_dev_size;
 	count = 0;
 	for (i = 0; i < child_device_num; i++) {
-		p_child = child_device_ptr(p_defs, i);
-		if (!p_child->old.device_type) {
+		child = &child_device_ptr(p_defs, i)->old;
+		if (!child->device_type) {
 			/* skip the device block if device type is invalid */
 			continue;
 		}
-		if (p_child->old.slave_addr != SLAVE_ADDR1 &&
-			p_child->old.slave_addr != SLAVE_ADDR2) {
+		if (child->slave_addr != SLAVE_ADDR1 &&
+		    child->slave_addr != SLAVE_ADDR2) {
 			/*
 			 * If the slave address is neither 0x70 nor 0x72,
 			 * it is not a SDVO device. Skip it.
 			 */
 			continue;
 		}
-		if (p_child->old.dvo_port != DEVICE_PORT_DVOB &&
-			p_child->old.dvo_port != DEVICE_PORT_DVOC) {
+		if (child->dvo_port != DEVICE_PORT_DVOB &&
+		    child->dvo_port != DEVICE_PORT_DVOC) {
 			/* skip the incorrect SDVO port */
 			DRM_DEBUG_KMS("Incorrect SDVO port. Skip it\n");
 			continue;
 		}
 		DRM_DEBUG_KMS("the SDVO device with slave addr %2x is found on"
-				" %s port\n",
-				p_child->old.slave_addr,
-				(p_child->old.dvo_port == DEVICE_PORT_DVOB) ?
-					"SDVOB" : "SDVOC");
-		p_mapping = &(dev_priv->sdvo_mappings[p_child->old.dvo_port - 1]);
+			      " %s port\n",
+			      child->slave_addr,
+			      (child->dvo_port == DEVICE_PORT_DVOB) ?
+			      "SDVOB" : "SDVOC");
+		p_mapping = &(dev_priv->sdvo_mappings[child->dvo_port - 1]);
 		if (!p_mapping->initialized) {
-			p_mapping->dvo_port = p_child->old.dvo_port;
-			p_mapping->slave_addr = p_child->old.slave_addr;
-			p_mapping->dvo_wiring = p_child->old.dvo_wiring;
-			p_mapping->ddc_pin = p_child->old.ddc_pin;
-			p_mapping->i2c_pin = p_child->old.i2c_pin;
+			p_mapping->dvo_port = child->dvo_port;
+			p_mapping->slave_addr = child->slave_addr;
+			p_mapping->dvo_wiring = child->dvo_wiring;
+			p_mapping->ddc_pin = child->ddc_pin;
+			p_mapping->i2c_pin = child->i2c_pin;
 			p_mapping->initialized = 1;
 			DRM_DEBUG_KMS("SDVO device: dvo=%x, addr=%x, wiring=%d, ddc_pin=%d, i2c_pin=%d\n",
 				      p_mapping->dvo_port,
@@ -469,7 +469,7 @@ parse_sdvo_device_mapping(struct drm_i915_private *dev_priv,
 			DRM_DEBUG_KMS("Maybe one SDVO port is shared by "
 					 "two SDVO device.\n");
 		}
-		if (p_child->old.slave2_addr) {
+		if (child->slave2_addr) {
 			/* Maybe this is a SDVO device with multiple inputs */
 			/* And the mapping info is not added */
 			DRM_DEBUG_KMS("there exists the slave2_addr. Maybe this"
@@ -886,6 +886,17 @@ err:
 	memset(dev_priv->vbt.dsi.sequence, 0, sizeof(dev_priv->vbt.dsi.sequence));
 }
 
+static u8 translate_iboost(u8 val)
+{
+	static const u8 mapping[] = { 1, 3, 7 }; /* See VBT spec */
+
+	if (val >= ARRAY_SIZE(mapping)) {
+		DRM_DEBUG_KMS("Unsupported I_boost value found in VBT (%d), display may not work properly\n", val);
+		return 0;
+	}
+	return mapping[val];
+}
+
 static void parse_ddi_port(struct drm_i915_private *dev_priv, enum port port,
 			   const struct bdb_header *bdb)
 {
@@ -968,13 +979,28 @@ static void parse_ddi_port(struct drm_i915_private *dev_priv, enum port port,
 	}
 
 	if (is_dp) {
-		if (aux_channel == 0x40 && port != PORT_A)
+		if (port == PORT_E) {
+			info->alternate_aux_channel = aux_channel;
+			/* if DDIE share aux channel with other port, then
+			 * DP couldn't exist on the shared port. Otherwise
+			 * they share the same aux channel and system
+			 * couldn't communicate with them seperately. */
+			if (aux_channel == DP_AUX_A)
+				dev_priv->vbt.ddi_port_info[PORT_A].supports_dp = 0;
+			else if (aux_channel == DP_AUX_B)
+				dev_priv->vbt.ddi_port_info[PORT_B].supports_dp = 0;
+			else if (aux_channel == DP_AUX_C)
+				dev_priv->vbt.ddi_port_info[PORT_C].supports_dp = 0;
+			else if (aux_channel == DP_AUX_D)
+				dev_priv->vbt.ddi_port_info[PORT_D].supports_dp = 0;
+		}
+		else if (aux_channel == DP_AUX_A && port != PORT_A)
 			DRM_DEBUG_KMS("Unexpected AUX channel for port A\n");
-		if (aux_channel == 0x10 && port != PORT_B)
+		else if (aux_channel == DP_AUX_B && port != PORT_B)
 			DRM_DEBUG_KMS("Unexpected AUX channel for port B\n");
-		if (aux_channel == 0x20 && port != PORT_C)
+		else if (aux_channel == DP_AUX_C && port != PORT_C)
 			DRM_DEBUG_KMS("Unexpected AUX channel for port C\n");
-		if (aux_channel == 0x30 && port != PORT_D)
+		else if (aux_channel == DP_AUX_D && port != PORT_D)
 			DRM_DEBUG_KMS("Unexpected AUX channel for port D\n");
 	}
 
@@ -985,6 +1011,16 @@ static void parse_ddi_port(struct drm_i915_private *dev_priv, enum port port,
 			      port_name(port),
 			      hdmi_level_shift);
 		info->hdmi_level_shift = hdmi_level_shift;
+	}
+
+	/* Parse the I_boost config for SKL and above */
+	if (bdb->version >= 196 && (child->common.flags_1 & IBOOST_ENABLE)) {
+		info->dp_boost_level = translate_iboost(child->common.iboost_level & 0xF);
+		DRM_DEBUG_KMS("VBT (e)DP boost level for port %c: %d\n",
+			      port_name(port), info->dp_boost_level);
+		info->hdmi_boost_level = translate_iboost(child->common.iboost_level >> 4);
+		DRM_DEBUG_KMS("VBT HDMI boost level for port %c: %d\n",
+			      port_name(port), info->hdmi_boost_level);
 	}
 }
 
@@ -1015,17 +1051,39 @@ parse_device_mapping(struct drm_i915_private *dev_priv,
 	const union child_device_config *p_child;
 	union child_device_config *child_dev_ptr;
 	int i, child_device_num, count;
-	u16	block_size;
+	u8 expected_size;
+	u16 block_size;
 
 	p_defs = find_section(bdb, BDB_GENERAL_DEFINITIONS);
 	if (!p_defs) {
 		DRM_DEBUG_KMS("No general definition block is found, no devices defined.\n");
 		return;
 	}
-	if (p_defs->child_dev_size < sizeof(*p_child)) {
-		DRM_ERROR("General definiton block child device size is too small.\n");
+	if (bdb->version < 195) {
+		expected_size = sizeof(struct old_child_dev_config);
+	} else if (bdb->version == 195) {
+		expected_size = 37;
+	} else if (bdb->version <= 197) {
+		expected_size = 38;
+	} else {
+		expected_size = 38;
+		BUILD_BUG_ON(sizeof(*p_child) < 38);
+		DRM_DEBUG_DRIVER("Expected child device config size for VBT version %u not known; assuming %u\n",
+				 bdb->version, expected_size);
+	}
+
+	/* The legacy sized child device config is the minimum we need. */
+	if (p_defs->child_dev_size < sizeof(struct old_child_dev_config)) {
+		DRM_ERROR("Child device config size %u is too small.\n",
+			  p_defs->child_dev_size);
 		return;
 	}
+
+	/* Flag an error for unexpected size, but continue anyway. */
+	if (p_defs->child_dev_size != expected_size)
+		DRM_ERROR("Unexpected child device config size %u (expected %u for VBT version %u)\n",
+			  p_defs->child_dev_size, expected_size, bdb->version);
+
 	/* get the block size of general definitions */
 	block_size = get_blocksize(p_defs);
 	/* get the number of child device */
@@ -1070,7 +1128,14 @@ parse_device_mapping(struct drm_i915_private *dev_priv,
 
 		child_dev_ptr = dev_priv->vbt.child_dev + count;
 		count++;
-		memcpy(child_dev_ptr, p_child, sizeof(*p_child));
+
+		/*
+		 * Copy as much as we know (sizeof) and is available
+		 * (child_dev_size) of the child device. Accessing the data must
+		 * depend on VBT version.
+		 */
+		memcpy(child_dev_ptr, p_child,
+		       min_t(size_t, p_defs->child_dev_size, sizeof(*p_child)));
 	}
 	return;
 }
@@ -1257,22 +1322,4 @@ intel_parse_bios(struct drm_device *dev)
 		pci_unmap_rom(pdev, bios);
 
 	return 0;
-}
-
-/* Ensure that vital registers have been initialised, even if the BIOS
- * is absent or just failing to do its job.
- */
-void intel_setup_bios(struct drm_device *dev)
-{
-	struct drm_i915_private *dev_priv = dev->dev_private;
-
-	 /* Set the Panel Power On/Off timings if uninitialized. */
-	if (!HAS_PCH_SPLIT(dev) &&
-	    I915_READ(PP_ON_DELAYS) == 0 && I915_READ(PP_OFF_DELAYS) == 0) {
-		/* Set T2 to 40ms and T5 to 200ms */
-		I915_WRITE(PP_ON_DELAYS, 0x019007d0);
-
-		/* Set T3 to 35ms and Tx to 200ms */
-		I915_WRITE(PP_OFF_DELAYS, 0x015e07d0);
-	}
 }

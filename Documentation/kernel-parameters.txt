@@ -1459,6 +1459,12 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 		       disable
 		         Do not enable intel_pstate as the default
 		         scaling driver for the supported processors
+		       no_hwp
+		         Do not enable hardware P state control (HWP)
+			 if available.
+		hwp_only
+			Only load intel_pstate on systems which support
+			hardware P state control (HWP) if available.
 
 	intremap=	[X86-64, Intel-IOMMU]
 			on	enable Interrupt Remapping (default)
@@ -2366,6 +2372,8 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 
 	nointroute	[IA-64]
 
+	noinvpcid	[X86] Disable the INVPCID cpu feature.
+
 	nojitter	[IA-64] Disables jitter checking for ITC timers.
 
 	no-kvmclock	[X86,KVM] Disable paravirtualized KVM clock driver
@@ -2399,6 +2407,8 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 
 	nopat		[X86] Disable PAT (page attribute table extension of
 			pagetables) support.
+
+	nopcid		[X86-64] Disable the PCID cpu feature.
 
 	norandmaps	Don't use address space randomization.  Equivalent to
 			echo 0 > /proc/sys/kernel/randomize_va_space
@@ -3335,6 +3345,13 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 	spia_fio_base=
 	spia_pedr=
 	spia_peddr=
+
+	stack_guard_gap=	[MM]
+			override the default stack gap protection. The value
+			is in page units and it defines how many pages prior
+			to (for stacks growing down) resp. after (for stacks
+			growing up) the main stack are reserved for no other
+			mapping. Default value is 256 pages.
 
 	stacktrace	[FTRACE]
 			Enabled the stack tracer on boot up.

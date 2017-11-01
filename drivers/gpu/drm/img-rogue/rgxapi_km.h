@@ -86,7 +86,7 @@ PVRSRV_ERROR RGXHWPerfLazyConnect(
 			   connection object has to be provided which means the this
 			   function needs to be preceded by the call to
 			   RGXHWPerfLazyConnect() function.
-@Output        phDevData      handle to a connection object
+@Input        phDevData      handle to a connection object
 @Return        PVRSRV_ERROR:  for system error codes
 */ /***************************************************************************/
 PVRSRV_ERROR RGXHWPerfOpen(
@@ -99,6 +99,8 @@ PVRSRV_ERROR RGXHWPerfOpen(
 			   connection object references opened connection.
 			   Calling this function is an equivalent of calling
 			   RGXHWPerfLazyConnect and RGXHWPerfOpen.
+			   This connect should be used when the caller will be retrieving
+			   event data.
 @Output        phDevData      Address of a handle to a connection object
 @Return        PVRSRV_ERROR:  for system error codes
 */ /***************************************************************************/
@@ -109,7 +111,7 @@ PVRSRV_ERROR RGXHWPerfConnect(
 /**************************************************************************/ /*!
 @Function       RGXHWPerfFreeConnection
 @Description    Frees the handle to RGX device
-@Input          hSrvHandle    Handle to connection object as returned from
+@Input          hDevData      Handle to connection object as returned from
                               RGXHWPerfLazyConnect()
 @Return         PVRSRV_ERROR: for system error codes
 */ /***************************************************************************/
@@ -120,7 +122,7 @@ PVRSRV_ERROR RGXHWPerfFreeConnection(
 /**************************************************************************/ /*!
 @Function       RGXHWPerfClose
 @Description    Disconnect from the RGX device
-@Input          hSrvHandle    Handle to connection object as returned from
+@Input          hDevData      Handle to connection object as returned from
                               RGXHWPerfConnect() or RGXHWPerfOpen()
 @Return         PVRSRV_ERROR: for system error codes
 */ /***************************************************************************/
@@ -131,7 +133,7 @@ PVRSRV_ERROR RGXHWPerfClose(
 /**************************************************************************/ /*!
 @Function       RGXHWPerfDisconnect
 @Description    Disconnect from the RGX device
-@Input          hSrvHandle    Handle to connection object as returned from
+@Input          hDevData      Handle to connection object as returned from
                               RGXHWPerfConnect() or RGXHWPerfOpen().
                               Calling this function is an equivalent of calling
 			                  RGXHWPerfClose and RGXHWPerfFreeConnection.
@@ -146,6 +148,7 @@ PVRSRV_ERROR RGXHWPerfDisconnect(
 @Description    Enable or disable the generation of RGX HWPerf event packets.
                  See RGXCtrlHWPerf().
 @Input          hDevData         Handle to connection object
+@Input			eStreamId		 ID of the HWPerf stream
 @Input          bToggle          Switch to toggle or apply mask.
 @Input          ui64Mask         Mask of events to control.
 @Return         PVRSRV_ERROR:    for system error codes
@@ -155,6 +158,22 @@ PVRSRV_ERROR IMG_CALLCONV RGXHWPerfControl(
 		RGX_HWPERF_STREAM_ID eStreamId,
 		IMG_BOOL             bToggle,
 		IMG_UINT64           ui64Mask);
+
+
+/**************************************************************************/ /*!
+@Function       RGXHWPerfGetFilter
+@Description    Reads HWPerf stream filter where stream is identified by
+                the given stream ID.
+@Input          hDevData        Handle to connection/device object
+@Input          eStreamId       ID of the HWPerf stream
+@Output         IMG_UINT64      HWPerf filter value
+@Return         PVRSRV_ERROR:   for system error codes
+*/ /***************************************************************************/
+PVRSRV_ERROR RGXHWPerfGetFilter(
+		IMG_HANDLE  hDevData,
+		RGX_HWPERF_STREAM_ID eStreamId,
+		IMG_UINT64 *ui64Filter
+);
 
 
 /**************************************************************************/ /*!
@@ -188,6 +207,20 @@ PVRSRV_ERROR IMG_CALLCONV RGXHWPerfDisableCounters(
 		IMG_UINT32   ui32NumBlocks,
 		IMG_UINT16*   aeBlockIDs);
 
+/**************************************************************************/ /*!
+@Function       RGXEnableHWPerfCounters
+@Description    Enable the performance counter block for one or more
+                 device layout modules. See RGXEnableHWPerfCounters().
+@Input          hDevData        Handle to connection/device object
+@Input          ui32NumBlocks   Number of elements in the array
+@Input          aeBlockIDs      An array of bytes with values taken from
+                                 the RGX_HWPERF_CNTBLK_ID enumeration.
+@Return         PVRSRV_ERROR:   for system error codes
+*/ /***************************************************************************/
+PVRSRV_ERROR IMG_CALLCONV RGXHWPerfEnableCounters(
+		IMG_HANDLE   hDevData,
+		IMG_UINT32   ui32NumBlocks,
+		IMG_UINT16*   aeBlockIDs);
 
 /******************************************************************************
  * RGX HW Performance Profiling Retrieval API(s)
@@ -200,22 +233,23 @@ PVRSRV_ERROR IMG_CALLCONV RGXHWPerfDisableCounters(
  *****************************************************************************/
 
 /**************************************************************************/ /*!
-@Function       RGXHWPerfAcquireData
-@Description    When there is data available to read this call returns with
-                 the address and length of the data buffer the
+@Function       RGXHWPerfAcquireEvents
+@Description    When there is data available to read this call returns with OK
+                 and the address and length of the data buffer the
                  client can safely read. This buffer may contain one or more
-                 event packets. If no data is available then this call 
-				 returns OK and sets *puiBufLen to 0 on exit.
-				 Clients must pair this call with a ReleaseData call.
+                 event packets.
+                 When there is no data to read, this call returns with OK
+                 and sets *puiBufLen to 0 on exit.
+				 Clients must pair this call with a ReleaseEvents call.
 @Input          hDevData        Handle to connection/device object
 @Input          eStreamId       ID of the HWPerf stream
 @Output         ppBuf           Address of a pointer to a byte buffer. On exit
-                                 it contains the address of buffer to read from
-@Output         puiBufLen       Pointer to an integer. On exit it is the size
-                                 of the data to read from the buffer
+                                it contains the address of buffer to read from
+@Output         pui32BufLen     Pointer to an integer. On exit it is the size
+                                of the data to read from the buffer
 @Return         PVRSRV_ERROR:   for system error codes
 */ /***************************************************************************/
-PVRSRV_ERROR RGXHWPerfAcquireData(
+PVRSRV_ERROR RGXHWPerfAcquireEvents(
 		IMG_HANDLE  hDevData,
 		RGX_HWPERF_STREAM_ID eStreamId,
 		IMG_PBYTE*  ppBuf,
@@ -223,33 +257,37 @@ PVRSRV_ERROR RGXHWPerfAcquireData(
 
 
 /**************************************************************************/ /*!
-@Function       RGXHWPerfGetFilter
-@Description    Reads HWPerf stream filter where stream is identified by
-                the given stream ID.
+@Function       RGXHWPerfReleaseEvents
+@Description    Called after client has read the event data out of the buffer
+                 retrieved from the Acquire Events call to release resources.
 @Input          hDevData        Handle to connection/device object
 @Input          eStreamId       ID of the HWPerf stream
-@Output         IMG_UINT64      HWPerf filter value
-@Return         PVRSRV_ERROR:   for system error codes
-*/ /***************************************************************************/
-PVRSRV_ERROR RGXHWPerfGetFilter(
-		IMG_HANDLE  hDevData,
-		RGX_HWPERF_STREAM_ID eStreamId,
-		IMG_UINT64 *ui64Filter
-);
-
-
-/**************************************************************************/ /*!
-@Function       RGXHWPerfReleaseData
-@Description    Called after client has read the event data out of the buffer
-                 retrieved from the Acquire Data call to release resources.
-@Input          hDevData        Handle to connection/device object
 @Return         PVRSRV_ERROR:   for system error codes
 */ /***************************************************************************/
 IMG_INTERNAL
-PVRSRV_ERROR RGXHWPerfReleaseData(
+PVRSRV_ERROR RGXHWPerfReleaseEvents(
 		IMG_HANDLE hDevData,
 		RGX_HWPERF_STREAM_ID eStreamId);
 
+
+/**************************************************************************/ /*!
+@Function       RGXHWPerfConvertCRTimeStamp
+@Description    Converts the timestamp given by FW events to the common OS
+                timestamp. The first three inputs are obtained via
+                a CLK_SYNC event, ui64CRTimeStamp is the CR timestamp
+                from the FW event to be converted.
+@Input          ui32ClkSpeed            Clock speed given by sync event
+@Input          ui64CorrCRTimeStamp     CR Timestamp given by sync event
+@Input          ui64CorrOSTimeStamp     Correlating OS Timestamp given by sync
+                                        event
+@Input          ui64CRTimeStamp         CR Timestamp to convert
+@Return         IMG_UINT64:             Calculated OS Timestamp
+ */ /**************************************************************************/
+IMG_UINT64 RGXHWPerfConvertCRTimeStamp(
+		IMG_UINT32 ui32ClkSpeed,
+		IMG_UINT64 ui64CorrCRTimeStamp,
+		IMG_UINT64 ui64CorrOSTimeStamp,
+		IMG_UINT64 ui64CRTimeStamp);
 
 #endif /* __RGXAPI_KM_H__ */
 

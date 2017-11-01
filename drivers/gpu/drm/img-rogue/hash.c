@@ -189,26 +189,19 @@ HASH_Key_Comp_Default (size_t uKeySize, void *pKey1, void *pKey2)
 @Input          uSize         The size of the hash table
 @Return         PVRSRV_ERROR
 */ /**************************************************************************/
-static PVRSRV_ERROR
+static void
 _ChainInsert (HASH_TABLE *pHash, BUCKET *pBucket, BUCKET **ppBucketTable, IMG_UINT32 uSize)
 {
 	IMG_UINT32 uIndex;
 
+	/* We assume that all parameters passed by the caller are valid. */
 	PVR_ASSERT (pBucket != NULL);
 	PVR_ASSERT (ppBucketTable != NULL);
 	PVR_ASSERT (uSize != 0);
 
-	if ((pBucket == NULL) || (ppBucketTable == NULL) || (uSize == 0))
-	{
-		PVR_DPF((PVR_DBG_ERROR, "_ChainInsert: invalid parameter"));
-		return PVRSRV_ERROR_INVALID_PARAMS;
-	}
-
 	uIndex = KEY_TO_INDEX(pHash, pBucket->k, uSize);	/* PRQA S 0432,0541 */ /* ignore dynamic array warning */
 	pBucket->pNext = ppBucketTable[uIndex];
 	ppBucketTable[uIndex] = pBucket;
-
-	return PVRSRV_OK;
 }
 
 /*************************************************************************/ /*!
@@ -221,9 +214,9 @@ _ChainInsert (HASH_TABLE *pHash, BUCKET *pBucket, BUCKET **ppBucketTable, IMG_UI
 @Input          uNewSize     The size of the new hash table
 @Return         None
 */ /**************************************************************************/
-static PVRSRV_ERROR
+static void
 _Rehash (HASH_TABLE *pHash,
-	 BUCKET **ppOldTable, IMG_UINT32 uOldSize,
+         BUCKET **ppOldTable, IMG_UINT32 uOldSize,
          BUCKET **ppNewTable, IMG_UINT32 uNewSize)
 {
 	IMG_UINT32 uIndex;
@@ -233,18 +226,11 @@ _Rehash (HASH_TABLE *pHash,
 		pBucket = ppOldTable[uIndex];
 		while (pBucket != NULL)
 		{
-			PVRSRV_ERROR eError;
 			BUCKET *pNextBucket = pBucket->pNext;
-			eError = _ChainInsert (pHash, pBucket, ppNewTable, uNewSize);
-			if (eError != PVRSRV_OK)
-			{
-				PVR_DPF((PVR_DBG_ERROR, "_Rehash: call to _ChainInsert failed"));
-				return eError;
-			}
+			_ChainInsert (pHash, pBucket, ppNewTable, uNewSize);
 			pBucket = pNextBucket;
 		}
     }
-	return PVRSRV_OK;
 }
 
 /*************************************************************************/ /*!
@@ -279,18 +265,7 @@ _Resize (HASH_TABLE *pHash, IMG_UINT32 uNewSize)
         for (uIndex=0; uIndex<uNewSize; uIndex++)
             ppNewTable[uIndex] = NULL;
 
-        if (_Rehash (pHash, pHash->ppBucketTable, pHash->uSize, ppNewTable, uNewSize) != PVRSRV_OK)
-		{
-			/*
-				If we fail the rehash then there is nothing we can do as we've already
-				started to modify some of the entries if we just return FALSE here then
-				we will have dropped some items off the hash table.
-				The only reason the rehash can fail if is there is bug in another part
-				of the driver so in reality we should never hit this
-			*/
-			PVR_ASSERT(IMG_FALSE);
-			return IMG_FALSE;
-		}
+        _Rehash(pHash, pHash->ppBucketTable, pHash->uSize, ppNewTable, uNewSize);
 
 #if defined(__linux__) && defined(__KERNEL__)
         OSFreeMemNoStats(pHash->ppBucketTable);
@@ -324,6 +299,12 @@ HASH_TABLE * HASH_Create_Extended (IMG_UINT32 uInitialLen, size_t uKeySize, HASH
 {
 	HASH_TABLE *pHash;
 	IMG_UINT32 uIndex;
+
+	if (uInitialLen == 0 || uKeySize == 0 || pfnHashFunc == NULL || pfnKeyComp == NULL)
+	{
+		PVR_DPF((PVR_DBG_ERROR, "HASH_Create_Extended: invalid input parameters"));
+		return NULL;
+	}
 
 	PVR_DPF ((PVR_DBG_MESSAGE, "HASH_Create_Extended: InitialSize=0x%x", uInitialLen));
 
@@ -405,6 +386,12 @@ HASH_Delete (HASH_TABLE *pHash)
 			bDoCheck = IMG_FALSE;
 		}
 	}
+#if defined(PVRSRV_FORCE_UNLOAD_IF_BAD_STATE)
+	else
+	{
+		bDoCheck = IMG_FALSE;
+	}
+#endif
 #endif
 	if (pHash != NULL)
     {
@@ -416,8 +403,20 @@ HASH_Delete (HASH_TABLE *pHash)
 		}
 		if(pHash->uCount != 0)
 		{
-			PVR_DPF ((PVR_DBG_ERROR, "HASH_Delete: leak detected in hash table!"));
-			PVR_DPF ((PVR_DBG_ERROR, "Likely Cause: client drivers not freeing alocations before destroying devmemcontext"));
+			IMG_UINT32 uiEntriesLeft = pHash->uCount;
+			IMG_UINT32 i;
+			PVR_DPF ((PVR_DBG_ERROR, "%s: Leak detected in hash table!", __func__));
+			PVR_DPF ((PVR_DBG_ERROR, "%s: Likely Cause: client drivers not freeing allocations before destroying devmemcontext", __func__));
+			PVR_DPF ((PVR_DBG_ERROR, "%s: Removing remaining %u hash entries.", __func__, uiEntriesLeft));
+
+			for (i = 0; i < uiEntriesLeft; i++)
+			{
+#if defined(__linux__) && defined(__KERNEL__)
+				OSFreeMemNoStats(pHash->ppBucketTable[i]);
+#else
+				OSFreeMem(pHash->ppBucketTable[i]);
+#endif
+			}
 		}
 #if defined(__linux__) && defined(__KERNEL__)
 		OSFreeMemNoStats(pHash->ppBucketTable);
@@ -470,15 +469,8 @@ HASH_Insert_Extended (HASH_TABLE *pHash, void *pKey, uintptr_t v)
 	pBucket->v = v;
 	/* PRQA S 0432,0541 1 */ /* ignore warning about dynamic array k (linux)*/
 	OSCachedMemCopy(pBucket->k, pKey, pHash->uKeySize);
-	if (_ChainInsert (pHash, pBucket, pHash->ppBucketTable, pHash->uSize) != PVRSRV_OK)
-	{
-#if defined(__linux__) && defined(__KERNEL__)
-		OSFreeMemNoStats(pBucket);
-#else
-		OSFreeMem(pBucket);
-#endif
-		return IMG_FALSE;
-	}
+
+	_ChainInsert (pHash, pBucket, pHash->ppBucketTable, pHash->uSize);
 
 	pHash->uCount++;
 
@@ -669,7 +661,6 @@ HASH_Iterate(HASH_TABLE *pHash, HASH_pfnCallback pfnCallback)
     }
     return PVRSRV_OK;
 }
-
 
 #ifdef HASH_TRACE
 /*************************************************************************/ /*!

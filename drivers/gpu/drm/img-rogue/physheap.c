@@ -49,37 +49,33 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "allocmem.h"
 #include "pvr_debug.h"
 #include "osfunc.h"
+#include "pvrsrv.h"
 
 struct _PHYS_HEAP_
 {
-	/*! ID of this physcial memory heap */
+	/*! ID of this physical memory heap */
 	IMG_UINT32					ui32PhysHeapID;
 	/*! The type of this heap */
 	PHYS_HEAP_TYPE			eType;
 
-	/*! Start address of the physcial memory heap (LMA only) */
-	IMG_CPU_PHYADDR				sStartAddr;
-	/*! Size of the physcial memory heap (LMA only) */
-	IMG_UINT64					uiSize;
-	/*! Heap card base (GPU view of sStartAddr, LMA only) */
-	IMG_UINT64					uiCardBase;
-
-
-	/*! PDump name of this physcial memory heap */
+	/*! PDump name of this physical memory heap */
 	IMG_CHAR					*pszPDumpMemspaceName;
 	/*! Private data for the translate routines */
 	IMG_HANDLE					hPrivData;
 	/*! Function callbacks */
 	PHYS_HEAP_FUNCTIONS			*psMemFuncs;
 
+	/*! Array of sub-regions of the heap */
+	PHYS_HEAP_REGION			*pasRegions;
+	IMG_UINT32					ui32NumOfRegions;
 
 	/*! Refcount */
 	IMG_UINT32					ui32RefCount;
-	/*! Pointer to next physcial heap */
+	/*! Pointer to next physical heap */
 	struct _PHYS_HEAP_		*psNext;
 };
 
-PHYS_HEAP *g_psPhysHeapList;
+static PHYS_HEAP *g_psPhysHeapList;
 
 #if defined(REFCOUNT_DEBUG)
 #define PHYSHEAP_REFCOUNT_PRINT(fmt, ...)	\
@@ -125,13 +121,13 @@ PVRSRV_ERROR PhysHeapRegister(PHYS_HEAP_CONFIG *psConfig,
 
 	psNew->ui32PhysHeapID = psConfig->ui32PhysHeapID;
 	psNew->eType = psConfig->eType;
-	psNew->sStartAddr = psConfig->sStartAddr;
-	psNew->uiCardBase = psConfig->uiCardBase;
-	psNew->uiSize = psConfig->uiSize;
 	psNew->psMemFuncs = psConfig->psMemFuncs;
 	psNew->hPrivData = psConfig->hPrivData;
 	psNew->ui32RefCount = 0;
 	psNew->pszPDumpMemspaceName = psConfig->pszPDumpMemspaceName;
+
+	psNew->pasRegions = psConfig->pasRegions;
+	psNew->ui32NumOfRegions = psConfig->ui32NumOfRegions;
 
 	psNew->psNext = g_psPhysHeapList;
 	g_psPhysHeapList = psNew;
@@ -145,7 +141,12 @@ void PhysHeapUnregister(PHYS_HEAP *psPhysHeap)
 {
 	PVR_DPF_ENTERED1(psPhysHeap);
 
-	PVR_ASSERT(psPhysHeap->ui32RefCount == 0);
+#if defined(PVRSRV_FORCE_UNLOAD_IF_BAD_STATE)
+	if (PVRSRVGetPVRSRVData()->eServicesState == PVRSRV_SERVICES_STATE_OK)
+#endif
+	{
+		PVR_ASSERT(psPhysHeap->ui32RefCount == 0);
+	}
 
 	if (g_psPhysHeapList == psPhysHeap)
 	{
@@ -213,46 +214,59 @@ PHYS_HEAP_TYPE PhysHeapGetType(PHYS_HEAP *psPhysHeap)
 	return psPhysHeap->eType;
 }
 
-PVRSRV_ERROR PhysHeapGetAddress(PHYS_HEAP *psPhysHeap,
+/*
+ * This function will set the psDevPAddr to whatever the system layer
+ * has set it for the referenced region.
+ * It will not fail if the psDevPAddr is invalid.
+ */
+PVRSRV_ERROR PhysHeapRegionGetDevPAddr(PHYS_HEAP *psPhysHeap,
+								IMG_UINT32 ui32RegionId,
+								IMG_DEV_PHYADDR *psDevPAddr)
+{
+	if (ui32RegionId < psPhysHeap->ui32NumOfRegions)
+	{
+		*psDevPAddr = psPhysHeap->pasRegions[ui32RegionId].sCardBase;
+		return PVRSRV_OK;
+	}
+	else
+	{
+		return PVRSRV_ERROR_INVALID_PARAMS;
+	}
+}
+
+/*
+ * This function will set the psCpuPAddr to whatever the system layer
+ * has set it for the referenced region.
+ * It will not fail if the psCpuPAddr is invalid.
+ */
+PVRSRV_ERROR PhysHeapRegionGetCpuPAddr(PHYS_HEAP *psPhysHeap,
+								IMG_UINT32 ui32RegionId,
 								IMG_CPU_PHYADDR *psCpuPAddr)
 {
-	if (psPhysHeap->eType == PHYS_HEAP_TYPE_LMA)
+	if (ui32RegionId < psPhysHeap->ui32NumOfRegions)
 	{
-		*psCpuPAddr = psPhysHeap->sStartAddr;
+		*psCpuPAddr = psPhysHeap->pasRegions[ui32RegionId].sStartAddr;
 		return PVRSRV_OK;
 	}
-
-	return PVRSRV_ERROR_INVALID_PARAMS;
+	else
+	{
+		return PVRSRV_ERROR_INVALID_PARAMS;
+	}
 }
 
-PVRSRV_ERROR PhysHeapGetBase(PHYS_HEAP *psPhysHeap,
-							 IMG_UINT64 *puiBase)
+PVRSRV_ERROR PhysHeapRegionGetSize(PHYS_HEAP *psPhysHeap,
+								   IMG_UINT32 ui32RegionId,
+								   IMG_UINT64 *puiSize)
 {
-	if (psPhysHeap->eType == PHYS_HEAP_TYPE_LMA)
+	if (ui32RegionId < psPhysHeap->ui32NumOfRegions)
 	{
-		IMG_UINT64 uiTmp = 0;
-		if (psPhysHeap->uiCardBase == --uiTmp)
-		{
-			return PVRSRV_ERROR_INVALID_HEAPINFO;
-		}
-
-		*puiBase = psPhysHeap->uiCardBase;
+		*puiSize = psPhysHeap->pasRegions[ui32RegionId].uiSize;
 		return PVRSRV_OK;
 	}
-
-	return PVRSRV_ERROR_INVALID_PARAMS;
-}
-
-PVRSRV_ERROR PhysHeapGetSize(PHYS_HEAP *psPhysHeap,
-							   IMG_UINT64 *puiSize)
-{
-	if (psPhysHeap->eType == PHYS_HEAP_TYPE_LMA)
+	else
 	{
-		*puiSize = psPhysHeap->uiSize;
-		return PVRSRV_OK;
+		return PVRSRV_ERROR_INVALID_PARAMS;
 	}
-
-	return PVRSRV_ERROR_INVALID_PARAMS;
 }
 
 void PhysHeapCpuPAddrToDevPAddr(PHYS_HEAP *psPhysHeap,
@@ -277,6 +291,18 @@ void PhysHeapDevPAddrToCpuPAddr(PHYS_HEAP *psPhysHeap,
 												 psDevPAddr);
 }
 
+IMG_UINT32 PhysHeapGetRegionId(PHYS_HEAP *psPhysHeap,
+								PVRSRV_MEMALLOCFLAGS_T uiAllocFlags)
+{
+	if (psPhysHeap->psMemFuncs->pfnGetRegionId == NULL)
+	{
+		return 0;
+	}
+
+	return psPhysHeap->psMemFuncs->pfnGetRegionId(psPhysHeap->hPrivData,
+												 uiAllocFlags);
+}
+
 IMG_CHAR *PhysHeapPDumpMemspaceName(PHYS_HEAP *psPhysHeap)
 {
 	return psPhysHeap->pszPDumpMemspaceName;
@@ -294,4 +320,9 @@ PVRSRV_ERROR PhysHeapDeinit(void)
 	PVR_ASSERT(g_psPhysHeapList == NULL);
 
 	return PVRSRV_OK;
+}
+
+IMG_UINT32 PhysHeapNumberOfRegions(PHYS_HEAP *psPhysHeap)
+{
+	return psPhysHeap->ui32NumOfRegions;
 }

@@ -50,11 +50,11 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "ra.h"  		/* RA_ARENA */
 #include "pvrsrv_device.h"
 #include "srvkm.h"
-#include "devicemem.h"
 #include "physheap.h"
-#include "sync.h"
+#include <powervr/sync_external.h>
+#include "sysinfo.h"
 #include "dllist.h"
-#include "cache_external.h"
+#include "cache_km.h"
 
 #include "lock.h"
 
@@ -62,8 +62,15 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "virt_validation_defs.h"
 #endif
 
-/* BM context forward reference */
-typedef struct _BM_CONTEXT_ BM_CONTEXT;
+#if defined(SUPPORT_BUFFER_SYNC)
+struct pvr_buffer_sync_context;
+#endif
+
+typedef struct _PVRSRV_POWER_DEV_TAG_ PVRSRV_POWER_DEV;
+
+#if defined(PVRSRV_ENABLE_FULL_SYNC_TRACKING)
+struct SYNC_RECORD;
+#endif
 
 /*********************************************************************/ /*!
  @Function      AllocUFOCallback
@@ -97,26 +104,17 @@ typedef PVRSRV_ERROR (*AllocUFOBlockCallback)(struct _PVRSRV_DEVICE_NODE_ *psDev
 typedef void (*FreeUFOBlockCallback)(struct _PVRSRV_DEVICE_NODE_ *psDeviceNode,
 									 DEVMEM_MEMDESC *psMemDesc);
 
+typedef struct _PVRSRV_DEVICE_IDENTIFIER_
+{
+	/* Pdump memory and register bank names */
+	IMG_CHAR				*pszPDumpDevName;
+	IMG_CHAR				*pszPDumpRegName;
+} PVRSRV_DEVICE_IDENTIFIER;
 
 typedef struct _DEVICE_MEMORY_INFO_
 {
-	/* size of address space, as log2 */
-	IMG_UINT32				ui32AddressSpaceSizeLog2;
-
-	/* 
-		flags, includes physical memory resource types available to the system.  
-		Allows for validation at heap creation, define PVRSRV_BACKINGSTORE_XXX 
-	*/
-	IMG_UINT32				ui32Flags;
-
 	/* heap count.  Doesn't include additional heaps from PVRSRVCreateDeviceMemHeap */
 	IMG_UINT32				ui32HeapCount;
-
-	/* BM kernel context for the device */
-    BM_CONTEXT				*pBMKernelContext;
-
-	/* BM context list for the device*/
-    BM_CONTEXT				*pBMContext;
 
     /* Blueprints for creating new device memory contexts */
     IMG_UINT32              uiNumHeapConfigs;
@@ -158,6 +156,7 @@ typedef enum _PVRSRV_DEVICE_STATE_
 	PVRSRV_DEVICE_STATE_INIT,
 	PVRSRV_DEVICE_STATE_ACTIVE,
 	PVRSRV_DEVICE_STATE_DEINIT,
+	PVRSRV_DEVICE_STATE_BAD,
 } PVRSRV_DEVICE_STATE;
 
 typedef enum _PVRSRV_DEVICE_HEALTH_STATUS_
@@ -185,20 +184,29 @@ typedef PVRSRV_ERROR (*FN_CREATERAMBACKEDPMR)(struct _PVRSRV_DEVICE_NODE_ *psDev
 										IMG_UINT32 *pui32MappingTable,
 										IMG_UINT32 uiLog2PageSize,
 										PVRSRV_MEMALLOCFLAGS_T uiFlags,
+										const IMG_CHAR *pszAnnotation,
 										PMR **ppsPMRPtr);
+
 typedef struct _PVRSRV_DEVICE_NODE_
 {
 	PVRSRV_DEVICE_IDENTIFIER	sDevId;
 
 	PVRSRV_DEVICE_STATE			eDevState;
-	PVRSRV_DEVICE_HEALTH_STATUS eHealthStatus;
-	PVRSRV_DEVICE_HEALTH_REASON eHealthReason;
+	ATOMIC_T					eHealthStatus; /* Holds values from PVRSRV_DEVICE_HEALTH_STATUS */
+	ATOMIC_T					eHealthReason; /* Holds values from PVRSRV_DEVICE_HEALTH_REASON */
+
+	IMG_HANDLE						*hDebugTable;
 
 	/* device specific MMU attributes */
    	MMU_DEVICEATTRIBS      *psMMUDevAttrs;
 	/* device specific MMU firmware atrributes, used only in some devices*/
 	MMU_DEVICEATTRIBS      *psFirmwareMMUDevAttrs;
 
+	/* lock for power state transitions */
+	POS_LOCK				hPowerLock;
+	/* current system device power state */
+	PVRSRV_SYS_POWER_STATE	eCurrentSysPowerState;
+	PVRSRV_POWER_DEV		*psPowerDev;
 
 	/*
 		callbacks the device must support:
@@ -218,16 +226,24 @@ typedef struct _PVRSRV_DEVICE_NODE_
 	void (*pfnDevPxUnMap)(struct _PVRSRV_DEVICE_NODE_ *psDevNode,
 						  PG_HANDLE *psMemHandle, void *pvPtr);
 
+	PVRSRV_ERROR (*pfnDevPxClean)(struct _PVRSRV_DEVICE_NODE_ *psDevNode,
+								PG_HANDLE *pshMemHandle,
+								IMG_UINT32 uiOffset,
+								IMG_UINT32 uiLength);
+
 	IMG_UINT32 uiMMUPxLog2AllocGran;
-	IMG_CHAR				*pszMMUPxPDumpMemSpaceName;
 
 	void (*pfnMMUCacheInvalidate)(struct _PVRSRV_DEVICE_NODE_ *psDevNode,
 								  IMG_HANDLE hDeviceData,
 								  MMU_LEVEL eLevel,
 								  IMG_BOOL bUnmap);
 
-	PVRSRV_ERROR (*pfnSLCCacheInvalidateRequest)(struct _PVRSRV_DEVICE_NODE_ *psDevNode,
-										PMR *psPmr);
+	PVRSRV_ERROR (*pfnMMUCacheInvalidateKick)(struct _PVRSRV_DEVICE_NODE_ *psDevNode,
+	                                          IMG_UINT32 *pui32NextMMUInvalidateUpdate,
+	                                          IMG_BOOL bInterrupt);
+
+	IMG_UINT32 (*pfnMMUCacheGetInvalidateCounter)(struct _PVRSRV_DEVICE_NODE_ *psDevNode);
+
 
 	void (*pfnDumpDebugInfo)(struct _PVRSRV_DEVICE_NODE_ *psDevNode);
 
@@ -245,29 +261,48 @@ typedef struct _PVRSRV_DEVICE_NODE_
 
 	PVRSRV_ERROR (*pfnSoftReset)(struct _PVRSRV_DEVICE_NODE_ *psDevNode, IMG_UINT64 ui64ResetValue1, IMG_UINT64 ui64ResetValue2);
 
+#if defined(SUPPORT_KERNEL_SRVINIT) && defined(RGXFW_ALIGNCHECKS)
+	PVRSRV_ERROR (*pfnAlignmentCheck)(struct _PVRSRV_DEVICE_NODE_ *psDevNode, IMG_UINT32 ui32FWAlignChecksSize, IMG_UINT32 aui32FWAlignChecks[]);
+#endif
+	IMG_BOOL	(*pfnCheckDeviceFeature)(struct _PVRSRV_DEVICE_NODE_ *psDevNode, IMG_UINT64 ui64FeatureMask);
+
+	IMG_INT32	(*pfnGetDeviceFeatureValue)(struct _PVRSRV_DEVICE_NODE_ *psDevNode, IMG_UINT64 ui64FeatureMask);
+
 	PVRSRV_DEVICE_CONFIG	*psDevConfig;
 
 	/* device post-finalise compatibility check */
-	PVRSRV_ERROR			(*pfnInitDeviceCompatCheck) (struct _PVRSRV_DEVICE_NODE_*,IMG_UINT32 ui32ClientBuildOptions);
+	PVRSRV_ERROR			(*pfnInitDeviceCompatCheck) (struct _PVRSRV_DEVICE_NODE_*);
 
 	/* information about the device's address space and heaps */
 	DEVICE_MEMORY_INFO		sDevMemoryInfo;
 
+	/* device's shared-virtual-memory heap max virtual address */
+	IMG_UINT64				ui64GeneralSVMHeapTopVA;
+
 	/* private device information */
 	void					*pvDevice;
 
-	IMG_CHAR				szRAName[50];
+
 
 #if defined(SUPPORT_GPUVIRT_VALIDATION)
 	RA_ARENA                *psOSidSubArena[GPUVIRT_VALIDATION_NUM_OS];
 #endif
 
-	RA_ARENA				*psLocalDevMemArena;
+
+#define PVRSRV_MAX_RA_NAME_LENGTH (50)
+	RA_ARENA				**apsLocalDevMemArenas;
+	IMG_CHAR				**apszRANames;
+	IMG_UINT32				ui32NumOfLocalMemArenas;
+
 #if defined(SUPPORT_PVRSRV_GPUVIRT)
-	IMG_CHAR				szKernelFwRAName[RGXFW_NUM_OS][50];
+	IMG_CHAR				szKernelFwRAName[RGXFW_NUM_OS][PVRSRV_MAX_RA_NAME_LENGTH];
 	RA_ARENA				*psKernelFwMemArena[RGXFW_NUM_OS];
 	IMG_UINT32				uiKernelFwRAIdx;
+	RA_BASE_T				ui64RABase[RGXFW_NUM_OS];
 #endif
+
+	IMG_UINT32				ui32RegisteredPhysHeaps;
+	PHYS_HEAP				**papsRegisteredPhysHeaps;
 
 	/*
 	 * Pointers to the device's physical memory heap(s)
@@ -295,17 +330,43 @@ typedef struct _PVRSRV_DEVICE_NODE_
 														IMG_HANDLE					*hPrivData);
 	void					(*pfnUnregisterMemoryContext)(IMG_HANDLE hPrivData);
 
-	/* Funtions for allocation/freeing of UFOs */
+	/* Functions for allocation/freeing of UFOs */
 	AllocUFOBlockCallback	pfnAllocUFOBlock;	/*!< Callback for allocation of a block of UFO memory */
 	FreeUFOBlockCallback	pfnFreeUFOBlock;	/*!< Callback for freeing of a block of UFO memory */
 
+#if defined(SUPPORT_BUFFER_SYNC)
+	struct pvr_buffer_sync_context *psBufferSyncContext;
+#endif
+
+	IMG_HANDLE				hSyncServerNotify;
+	POS_LOCK				hSyncServerListLock;
+	DLLIST_NODE				sSyncServerSyncsList;
+
+#if defined(PVRSRV_ENABLE_FULL_SYNC_TRACKING)
+	IMG_HANDLE				hSyncServerRecordNotify;
+	POS_LOCK				hSyncServerRecordLock;
+	DLLIST_NODE				sSyncServerRecordList;
+	struct SYNC_RECORD		*apsSyncServerRecordsFreed[PVRSRV_FULL_SYNC_TRACKING_HISTORY_LEN];
+	IMG_UINT32				uiSyncServerRecordFreeIdx;
+#endif
+
 	PSYNC_PRIM_CONTEXT		hSyncPrimContext;
 
-	PVRSRV_CLIENT_SYNC_PRIM *psSyncPrim;
+	PVRSRV_CLIENT_SYNC_PRIM	*psSyncPrim;
+	/* With this sync-prim we make sure the MMU cache is flushed
+	 * before we free the page table memory */
+	PVRSRV_CLIENT_SYNC_PRIM	*psMMUCacheSyncPrim;
+	IMG_UINT32				ui32NextMMUInvalidateUpdate;
 
 	IMG_HANDLE				hCmdCompNotify;
 	IMG_HANDLE				hDbgReqNotify;
+	IMG_HANDLE				hHtbDbgReqNotify;
+	IMG_HANDLE				hAppHintDbgReqNotify;
+
 	PVRSRV_DUMMY_PAGE		sDummyPage;
+
+	DLLIST_NODE				sMemoryContextPageFaultNotifyListHead;
+
 #if defined(PDUMP)
 	/* 	device-level callback which is called when pdump.exe starts.
 	 *	Should be implemented in device-specific init code, e.g. rgxinit.c
@@ -316,11 +377,12 @@ typedef struct _PVRSRV_DEVICE_NODE_
 #endif
 } PVRSRV_DEVICE_NODE;
 
-PVRSRV_ERROR IMG_CALLCONV PVRSRVFinaliseSystem(IMG_BOOL bInitSuccesful,
-														IMG_UINT32 ui32ClientBuildOptions);
+PVRSRV_ERROR IMG_CALLCONV PVRSRVDeviceFinalise(PVRSRV_DEVICE_NODE *psDeviceNode,
+											   IMG_BOOL bInitSuccessful);
 
-PVRSRV_ERROR IMG_CALLCONV PVRSRVDevInitCompatCheck(PVRSRV_DEVICE_NODE *psDeviceNode,
-														IMG_UINT32 ui32ClientBuildOptions);
+PVRSRV_ERROR IMG_CALLCONV PVRSRVDevInitCompatCheck(PVRSRV_DEVICE_NODE *psDeviceNode);
+
+PVRSRV_ERROR IMG_CALLCONV RGXClientConnectCompatCheck_ClientAgainstFW(PVRSRV_DEVICE_NODE * psDeviceNode, IMG_UINT32 ui32ClientBuildOptions);
 
 	
 #endif /* __DEVICE_H__ */

@@ -74,7 +74,8 @@ EXPORT_SYMBOL(__skb_flow_get_ports);
 bool __skb_flow_dissect(const struct sk_buff *skb, struct flow_keys *flow,
 			void *data, __be16 proto, int nhoff, int hlen)
 {
-	u8 ip_proto;
+	u8 ip_proto = 0;
+	bool ret = false;
 
 	if (!data) {
 		data = skb->data;
@@ -93,7 +94,7 @@ again:
 ip:
 		iph = __skb_header_pointer(skb, nhoff, sizeof(_iph), data, hlen, &_iph);
 		if (!iph || iph->ihl < 5)
-			return false;
+			goto out_bad;
 		nhoff += iph->ihl * 4;
 
 		ip_proto = iph->protocol;
@@ -118,7 +119,7 @@ ip:
 ipv6:
 		iph = __skb_header_pointer(skb, nhoff, sizeof(_iph), data, hlen, &_iph);
 		if (!iph)
-			return false;
+			goto out_bad;
 
 		ip_proto = iph->nexthdr;
 		nhoff += sizeof(struct ipv6hdr);
@@ -136,12 +137,8 @@ ipv6:
 			 * use that to represent the ports without any
 			 * further dissection.
 			 */
-			flow->n_proto = proto;
-			flow->ip_proto = ip_proto;
 			flow->ports = flow_label;
-			flow->thoff = (u16)nhoff;
-
-			return true;
+			goto out_good;
 		}
 
 		break;
@@ -153,7 +150,7 @@ ipv6:
 
 		vlan = __skb_header_pointer(skb, nhoff, sizeof(_vlan), data, hlen, &_vlan);
 		if (!vlan)
-			return false;
+			goto out_bad;
 
 		proto = vlan->h_vlan_encapsulated_proto;
 		nhoff += sizeof(*vlan);
@@ -166,7 +163,7 @@ ipv6:
 		} *hdr, _hdr;
 		hdr = __skb_header_pointer(skb, nhoff, sizeof(_hdr), data, hlen, &_hdr);
 		if (!hdr)
-			return false;
+			goto out_bad;
 		proto = hdr->proto;
 		nhoff += PPPOE_SES_HLEN;
 		switch (proto) {
@@ -175,14 +172,14 @@ ipv6:
 		case htons(PPP_IPV6):
 			goto ipv6;
 		default:
-			return false;
+			goto out_bad;
 		}
 	}
 	case htons(ETH_P_FCOE):
 		flow->thoff = (u16)(nhoff + FCOE_HEADER_LEN);
 		/* fall through */
 	default:
-		return false;
+		goto out_bad;
 	}
 
 	switch (ip_proto) {
@@ -194,7 +191,7 @@ ipv6:
 
 		hdr = __skb_header_pointer(skb, nhoff, sizeof(_hdr), data, hlen, &_hdr);
 		if (!hdr)
-			return false;
+			goto out_bad;
 		/*
 		 * Only look inside GRE if version zero and no
 		 * routing
@@ -216,7 +213,7 @@ ipv6:
 							   sizeof(_eth),
 							   data, hlen, &_eth);
 				if (!eth)
-					return false;
+					goto out_bad;
 				proto = eth->h_proto;
 				nhoff += sizeof(*eth);
 			}
@@ -234,16 +231,20 @@ ipv6:
 		break;
 	}
 
-	flow->n_proto = proto;
-	flow->ip_proto = ip_proto;
-	flow->thoff = (u16) nhoff;
-
 	/* unless skb is set we don't need to record port info */
 	if (skb)
 		flow->ports = __skb_flow_get_ports(skb, nhoff, ip_proto,
 						   data, hlen);
 
-	return true;
+out_good:
+	ret = true;
+
+out_bad:
+	flow->n_proto = proto;
+	flow->ip_proto = ip_proto;
+	flow->thoff = (u16)nhoff;
+
+	return ret;
 }
 EXPORT_SYMBOL(__skb_flow_dissect);
 
@@ -253,13 +254,12 @@ static __always_inline void __flow_hash_secret_init(void)
 	net_get_random_once(&hashrnd, sizeof(hashrnd));
 }
 
-static __always_inline u32 __flow_hash_3words(u32 a, u32 b, u32 c)
+static __always_inline u32 __flow_hash_3words(u32 a, u32 b, u32 c, u32 keyval)
 {
-	__flow_hash_secret_init();
-	return jhash_3words(a, b, c, hashrnd);
+	return jhash_3words(a, b, c, keyval);
 }
 
-static inline u32 __flow_hash_from_keys(struct flow_keys *keys)
+static inline u32 __flow_hash_from_keys(struct flow_keys *keys, u32 keyval)
 {
 	u32 hash;
 
@@ -273,7 +273,8 @@ static inline u32 __flow_hash_from_keys(struct flow_keys *keys)
 
 	hash = __flow_hash_3words((__force u32)keys->dst,
 				  (__force u32)keys->src,
-				  (__force u32)keys->ports);
+				  (__force u32)keys->ports,
+				  keyval);
 	if (!hash)
 		hash = 1;
 
@@ -282,9 +283,19 @@ static inline u32 __flow_hash_from_keys(struct flow_keys *keys)
 
 u32 flow_hash_from_keys(struct flow_keys *keys)
 {
-	return __flow_hash_from_keys(keys);
+	__flow_hash_secret_init();
+	return __flow_hash_from_keys(keys, hashrnd);
 }
 EXPORT_SYMBOL(flow_hash_from_keys);
+
+static inline u32 ___skb_get_hash(const struct sk_buff *skb,
+				  struct flow_keys *keys, u32 keyval)
+{
+	if (!skb_flow_dissect(skb, keys))
+		return 0;
+
+	return __flow_hash_from_keys(keys, keyval);
+}
 
 /*
  * __skb_get_hash: calculate a flow hash based on src/dst addresses
@@ -295,8 +306,12 @@ EXPORT_SYMBOL(flow_hash_from_keys);
 void __skb_get_hash(struct sk_buff *skb)
 {
 	struct flow_keys keys;
+	u32 hash;
 
-	if (!skb_flow_dissect(skb, &keys))
+	__flow_hash_secret_init();
+
+	hash = ___skb_get_hash(skb, &keys, hashrnd);
+	if (!hash)
 		return;
 
 	if (keys.ports)
@@ -304,9 +319,17 @@ void __skb_get_hash(struct sk_buff *skb)
 
 	skb->sw_hash = 1;
 
-	skb->hash = __flow_hash_from_keys(&keys);
+	skb->hash = hash;
 }
 EXPORT_SYMBOL(__skb_get_hash);
+
+__u32 skb_get_hash_perturb(const struct sk_buff *skb, u32 perturb)
+{
+	struct flow_keys keys;
+
+	return ___skb_get_hash(skb, &keys, perturb);
+}
+EXPORT_SYMBOL(skb_get_hash_perturb);
 
 /*
  * Returns a Tx hash based on the given packet descriptor a Tx queues' number

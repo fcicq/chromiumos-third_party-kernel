@@ -45,6 +45,15 @@ config COMPAT_NETLINK_MESSAGES
 	  Newly written code should NEVER need this option but do
 	  compat-independent messages instead!
 
+config NETDEV_ALLOC_SKB_FROM_SLAB
+	bool "use kmalloc instead of page fragment for netdev_alloc_skb()"
+	default n
+	help
+	  If this option is selected, netdev_alloc_skb() will not use page
+	  fragment based allocation.
+
+	  If you are not sure, say N here.
+
 menu "Networking options"
 
 source "net/packet/Kconfig"
@@ -82,12 +91,6 @@ source "net/ipv6/Kconfig"
 source "net/netlabel/Kconfig"
 
 endif # if INET
-
-config ANDROID_PARANOID_NETWORK
-	bool "Only allow certain groups to create sockets"
-	default y
-	help
-		none
 
 config NET_ACTIVITY_STATS
 	bool "Network activity statistics tracking"
@@ -373,7 +376,7 @@ if WIRELESS
 
 #
 # This is our hook to build with another wifi stack version. For example
-# set WIFIVERSION="-3.8" in the environment to build with the 3.8 stack.
+# set WIFIVERSION="-4.2" in the environment to build with the 4.2 stack.
 #
 
 config WIFIVERSION

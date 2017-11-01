@@ -50,6 +50,7 @@
 #include <linux/intel-iommu.h>
 #include <linux/kref.h>
 #include <linux/pm_qos.h>
+#include "intel_dpll_mgr.h"
 
 /* General customization:
  */
@@ -104,6 +105,16 @@
 	}								\
 	unlikely(__ret_warn_on);					\
 })
+
+static inline const char *yesno(bool v)
+{
+	return v ? "yes" : "no";
+}
+
+static inline const char *onoff(bool v)
+{
+	return v ? "on" : "off";
+}
 
 enum pipe {
 	INVALID_PIPE = -1,
@@ -204,14 +215,15 @@ enum intel_display_power_domain {
 
 enum hpd_pin {
 	HPD_NONE = 0,
-	HPD_PORT_A = HPD_NONE, /* PORT_A is internal */
 	HPD_TV = HPD_NONE,     /* TV is known to be unreliable */
 	HPD_CRT,
 	HPD_SDVO_B,
 	HPD_SDVO_C,
+	HPD_PORT_A,
 	HPD_PORT_B,
 	HPD_PORT_C,
 	HPD_PORT_D,
+	HPD_PORT_E,
 	HPD_NUM_PINS
 };
 
@@ -237,6 +249,9 @@ struct i915_hotplug {
 	u32 long_port_mask;
 	u32 short_port_mask;
 	struct work_struct dig_port_work;
+
+	struct work_struct poll_init_work;
+	bool poll_enabled;
 
 	/*
 	 * if we get a HPD irq from DP and a HPD irq from non-DP
@@ -274,6 +289,12 @@ struct i915_hotplug {
 			    &dev->mode_config.plane_list,	\
 			    base.head)
 
+#define for_each_intel_plane_mask(dev, intel_plane, plane_mask)		\
+	list_for_each_entry(intel_plane, &dev->mode_config.plane_list,	\
+			    base.head)					\
+		for_each_if ((plane_mask) &				\
+			     (1 << drm_plane_index(&intel_plane->base)))
+
 #define for_each_intel_plane_on_crtc(dev, intel_crtc, intel_plane)	\
 	list_for_each_entry(intel_plane,				\
 			    &(dev)->mode_config.plane_list,		\
@@ -282,6 +303,10 @@ struct i915_hotplug {
 
 #define for_each_intel_crtc(dev, intel_crtc) \
 	list_for_each_entry(intel_crtc, &dev->mode_config.crtc_list, base.head)
+
+#define for_each_intel_crtc_mask(dev, intel_crtc, crtc_mask) \
+	list_for_each_entry(intel_crtc, &dev->mode_config.crtc_list, base.head) \
+		for_each_if ((crtc_mask) & (1 << drm_crtc_index(&intel_crtc->base)))
 
 #define for_each_intel_encoder(dev, intel_encoder)		\
 	list_for_each_entry(intel_encoder,			\
@@ -332,78 +357,6 @@ struct drm_i915_file_private {
 
 	struct intel_engine_cs *bsd_ring;
 };
-
-enum intel_dpll_id {
-	DPLL_ID_PRIVATE = -1, /* non-shared dpll in use */
-	/* real shared dpll ids must be >= 0 */
-	DPLL_ID_PCH_PLL_A = 0,
-	DPLL_ID_PCH_PLL_B = 1,
-	/* hsw/bdw */
-	DPLL_ID_WRPLL1 = 0,
-	DPLL_ID_WRPLL2 = 1,
-	/* skl */
-	DPLL_ID_SKL_DPLL1 = 0,
-	DPLL_ID_SKL_DPLL2 = 1,
-	DPLL_ID_SKL_DPLL3 = 2,
-};
-#define I915_NUM_PLLS 3
-
-struct intel_dpll_hw_state {
-	/* i9xx, pch plls */
-	uint32_t dpll;
-	uint32_t dpll_md;
-	uint32_t fp0;
-	uint32_t fp1;
-
-	/* hsw, bdw */
-	uint32_t wrpll;
-
-	/* skl */
-	/*
-	 * DPLL_CTRL1 has 6 bits for each each this DPLL. We store those in
-	 * lower part of ctrl1 and they get shifted into position when writing
-	 * the register.  This allows us to easily compare the state to share
-	 * the DPLL.
-	 */
-	uint32_t ctrl1;
-	/* HDMI only, 0 when used for DP */
-	uint32_t cfgcr1, cfgcr2;
-
-	/* bxt */
-	uint32_t ebb0, ebb4, pll0, pll1, pll2, pll3, pll6, pll8, pll9, pll10,
-		 pcsdw12;
-};
-
-struct intel_shared_dpll_config {
-	unsigned crtc_mask; /* mask of CRTCs sharing this PLL */
-	struct intel_dpll_hw_state hw_state;
-};
-
-struct intel_shared_dpll {
-	struct intel_shared_dpll_config config;
-
-	int active; /* count of number of active CRTCs (i.e. DPMS on) */
-	bool on; /* is the PLL actually active? Disabled during modeset */
-	const char *name;
-	/* should match the index in the dev_priv->shared_dplls array */
-	enum intel_dpll_id id;
-	/* The mode_set hook is optional and should be used together with the
-	 * intel_prepare_shared_dpll function. */
-	void (*mode_set)(struct drm_i915_private *dev_priv,
-			 struct intel_shared_dpll *pll);
-	void (*enable)(struct drm_i915_private *dev_priv,
-		       struct intel_shared_dpll *pll);
-	void (*disable)(struct drm_i915_private *dev_priv,
-			struct intel_shared_dpll *pll);
-	bool (*get_hw_state)(struct drm_i915_private *dev_priv,
-			     struct intel_shared_dpll *pll,
-			     struct intel_dpll_hw_state *hw_state);
-};
-
-#define SKL_DPLL0 0
-#define SKL_DPLL1 1
-#define SKL_DPLL2 2
-#define SKL_DPLL3 3
 
 /* Used by dp and fdi links */
 struct intel_link_m_n {
@@ -544,7 +497,7 @@ struct drm_i915_error_state {
 
 		struct drm_i915_error_object {
 			int page_count;
-			u32 gtt_offset;
+			u64 gtt_offset;
 			u32 *pages[0];
 		} *ringbuffer, *batchbuffer, *wa_batchbuffer, *ctx, *hws_page;
 
@@ -570,7 +523,7 @@ struct drm_i915_error_state {
 		u32 size;
 		u32 name;
 		u32 rseqno[I915_NUM_RINGS], wseqno;
-		u32 gtt_offset;
+		u64 gtt_offset;
 		u32 read_domains;
 		u32 write_domain;
 		s32 fence_reg:I915_MAX_NUM_FENCE_BITS;
@@ -616,11 +569,14 @@ struct drm_i915_display_funcs {
 			  int target, int refclk,
 			  struct dpll *match_clock,
 			  struct dpll *best_clock);
+	int (*compute_pipe_wm)(struct intel_crtc_state *cstate);
+	int (*compute_intermediate_wm)(struct drm_device *dev,
+				       struct intel_crtc *intel_crtc,
+				       struct intel_crtc_state *newstate);
+	void (*initial_watermarks)(struct intel_crtc_state *cstate);
+	void (*optimize_watermarks)(struct intel_crtc_state *cstate);
+	int (*compute_global_watermarks)(struct drm_atomic_state *state);
 	void (*update_wm)(struct drm_crtc *crtc);
-	void (*update_sprite_wm)(struct drm_plane *plane,
-				 struct drm_crtc *crtc,
-				 uint32_t sprite_width, uint32_t sprite_height,
-				 int pixel_size, bool enable, bool scaled);
 	int (*modeset_calc_cdclk)(struct drm_atomic_state *state);
 	void (*modeset_commit_cdclk)(struct drm_atomic_state *state);
 	/* Returns the active state of the crtc, and if the crtc is active,
@@ -635,7 +591,7 @@ struct drm_i915_display_funcs {
 	void (*crtc_disable)(struct drm_crtc *crtc);
 	void (*audio_codec_enable)(struct drm_connector *connector,
 				   struct intel_encoder *encoder,
-				   struct drm_display_mode *mode);
+				   const struct drm_display_mode *adjusted_mode);
 	void (*audio_codec_disable)(struct intel_encoder *encoder);
 	void (*fdi_link_train)(struct drm_crtc *crtc);
 	void (*init_clock_gating)(struct drm_device *dev);
@@ -654,14 +610,8 @@ struct drm_i915_display_funcs {
 	/* display clock increase/decrease */
 	/* pll clock increase/decrease */
 
-	int (*setup_backlight)(struct intel_connector *connector, enum pipe pipe);
-	uint32_t (*get_backlight)(struct intel_connector *connector);
-	void (*set_backlight)(struct intel_connector *connector,
-			      uint32_t level);
-	void (*disable_backlight)(struct intel_connector *connector);
-	void (*enable_backlight)(struct intel_connector *connector);
-	uint32_t (*backlight_hz_to_pwm)(struct intel_connector *connector,
-					uint32_t hz);
+	void (*load_csc_matrix)(struct drm_crtc *crtc);
+	void (*load_luts)(struct drm_crtc *crtc);
 };
 
 enum forcewake_domain_id {
@@ -747,6 +697,7 @@ struct intel_csr {
 	uint32_t mmio_count;
 	uint32_t mmioaddr[8];
 	uint32_t mmiodata[8];
+	uint32_t dc_state;
 };
 
 #define DEV_INFO_FOR_EACH_FLAG(func, sep) \
@@ -764,6 +715,7 @@ struct intel_csr {
 	func(is_valleyview) sep \
 	func(is_haswell) sep \
 	func(is_skylake) sep \
+	func(is_kabylake) sep \
 	func(is_preliminary) sep \
 	func(has_fbc) sep \
 	func(has_pipe_cxsr) sep \
@@ -804,6 +756,11 @@ struct intel_device_info {
 	u8 has_slice_pg:1;
 	u8 has_subslice_pg:1;
 	u8 has_eu_pg:1;
+
+	struct color_luts {
+		u16 degamma_lut_size;
+		u16 gamma_lut_size;
+	} color;
 };
 
 #undef DEFINE_FLAG
@@ -1132,7 +1089,6 @@ struct intel_gen6_power_mgmt {
 	u8 efficient_freq;	/* AKA RPe. Pre-determined balanced frequency */
 	u8 rp1_freq;		/* "less than" RP0 power/freqency */
 	u8 rp0_freq;		/* Non-overclocked max frequency. */
-	u32 cz_freq;
 
 	u8 up_threshold; /* Current %busy required to uplock */
 	u8 down_threshold; /* Current %busy required to downclock */
@@ -1408,6 +1364,11 @@ enum modeset_restore {
 	MODESET_SUSPENDED,
 };
 
+#define DP_AUX_A 0x40
+#define DP_AUX_B 0x10
+#define DP_AUX_C 0x20
+#define DP_AUX_D 0x30
+
 struct ddi_vbt_port_info {
 	/*
 	 * This is an index in the HDMI/DVI DDI buffer translation table.
@@ -1420,6 +1381,10 @@ struct ddi_vbt_port_info {
 	uint8_t supports_dvi:1;
 	uint8_t supports_hdmi:1;
 	uint8_t supports_dp:1;
+
+	uint8_t dp_boost_level;
+	uint8_t hdmi_boost_level;
+	uint8_t alternate_aux_channel;
 };
 
 enum psr_lines_to_wait {
@@ -1563,7 +1528,7 @@ struct skl_ddb_allocation {
 };
 
 struct skl_wm_values {
-	bool dirty[I915_MAX_PIPES];
+	unsigned dirty_pipes;
 	struct skl_ddb_allocation ddb;
 	uint32_t wm_linetime[I915_MAX_PIPES];
 	uint32_t plane[I915_MAX_PIPES][I915_MAX_PLANES][8];
@@ -1600,6 +1565,7 @@ struct skl_wm_level {
  * For more, read the Documentation/power/runtime_pm.txt.
  */
 struct i915_runtime_pm {
+	atomic_t wakeref_count;
 	bool suspended;
 	bool irqs_enabled;
 };
@@ -1668,11 +1634,18 @@ struct i915_execbuffer_params {
 	struct drm_file                 *file;
 	uint32_t                        dispatch_flags;
 	uint32_t                        args_batch_start_offset;
-	uint32_t                        batch_obj_vm_offset;
+	uint64_t                        batch_obj_vm_offset;
 	struct intel_engine_cs          *ring;
 	struct drm_i915_gem_object      *batch_obj;
 	struct intel_context            *ctx;
 	struct drm_i915_gem_request     *request;
+};
+
+/* used in computing the new watermarks state */
+struct intel_wm_config {
+	unsigned int num_pipes_active;
+	bool sprites_enabled;
+	bool sprites_scaled;
 };
 
 struct drm_i915_private {
@@ -1766,9 +1739,15 @@ struct drm_i915_private {
 	int num_fence_regs; /* 8 on pre-965, 16 otherwise */
 
 	unsigned int fsb_freq, mem_freq, is_ddr3;
-	unsigned int skl_boot_cdclk;
-	unsigned int cdclk_freq, max_cdclk_freq;
+	unsigned int skl_preferred_vco_freq;
+	unsigned int cdclk_freq, max_cdclk_freq, atomic_cdclk_freq;
+	unsigned int max_dotclk_freq;
 	unsigned int hpll_freq;
+	unsigned int czclk_freq;
+
+	struct {
+		unsigned int vco, ref;
+	} cdclk_pll;
 
 	/**
 	 * wq - Driver workqueue for GEM.
@@ -1790,6 +1769,7 @@ struct drm_i915_private {
 
 	enum modeset_restore modeset_restore;
 	struct mutex modeset_restore_lock;
+	struct drm_atomic_state *modeset_restore_state;
 
 	struct list_head vm_list; /* Global list of all address spaces */
 	struct i915_gtt gtt; /* VM representing the global address space */
@@ -1810,8 +1790,14 @@ struct drm_i915_private {
 	struct intel_pipe_crc pipe_crc[I915_MAX_PIPES];
 #endif
 
+	/* dpll and cdclk state is protected by connection_mutex */
 	int num_shared_dpll;
 	struct intel_shared_dpll shared_dplls[I915_NUM_PLLS];
+	const struct intel_dpll_mgr *dpll_mgr;
+
+	unsigned int active_crtcs;
+	unsigned int min_pixclk[I915_MAX_PIPES];
+
 	int dpio_phy_iosf_port[I915_NUM_PHYS_VLV];
 
 	struct i915_workarounds workarounds;
@@ -1907,6 +1893,20 @@ struct drm_i915_private {
 			struct skl_wm_values skl_hw;
 			struct vlv_wm_values vlv;
 		};
+
+		/*
+		 * Should be held around atomic WM register writing; also
+		 * protects * intel_crtc->wm.active and
+		 * cstate->wm.need_postvbl_update.
+		 */
+		struct mutex wm_mutex;
+
+		/*
+		 * Set during HW readout of watermarks/DDB.  Some platforms
+		 * need to know when we're still using BIOS-provided values
+		 * (which we don't fully trust).
+		 */
+		bool distrust_bios_wm;
 	} wm;
 
 	struct i915_runtime_pm pm;
@@ -1925,6 +1925,16 @@ struct drm_i915_private {
 
 	/* perform PHY state sanity checks? */
 	bool chv_phy_assert[2];
+
+	struct intel_encoder *dig_port_map[I915_MAX_PORTS];
+
+	/*
+	 * Temporary copy of drm_framebuffer to fill and use in case cursor
+	 * pos is < 0 for CHV PIPE_C
+	 * Will be initialized only when crtc_x < 0 as there is a
+	 * HW bug causing pipe underrun
+	 */
+	struct drm_framebuffer *clipped_cursor_fb;
 
 	/*
 	 * NOTE: This is the dri1/ums dungeon, don't add stuff here. Your patch
@@ -2157,8 +2167,17 @@ struct drm_i915_gem_request {
 	struct drm_i915_private *i915;
 	struct intel_engine_cs *ring;
 
-	/** GEM sequence number associated with this request. */
-	uint32_t seqno;
+	 /** GEM sequence number associated with the previous request,
+	  * when the HWS breadcrumb is equal to this the GPU is processing
+	  * this request.
+	  */
+	u32 previous_seqno;
+
+	 /** GEM sequence number associated with this request,
+	  * when the HWS breadcrumb is equal or greater than this the GPU
+	  * has finished processing this request.
+	  */
+	u32 seqno;
 
 	/** Position in the ringbuffer of the start of the request */
 	u32 head;
@@ -2397,6 +2416,7 @@ struct drm_i915_cmd_table {
 	__p; \
 })
 #define INTEL_INFO(p) 	(&__I915__(p)->info)
+#define INTEL_GEN(p)	(INTEL_INFO(p)->gen)
 #define INTEL_DEVID(p)	(INTEL_INFO(p)->device_id)
 #define INTEL_REVID(p)	(__I915__(p)->dev->pdev->revision)
 
@@ -2427,6 +2447,7 @@ struct drm_i915_cmd_table {
 #define IS_BROADWELL(dev)	(!INTEL_INFO(dev)->is_valleyview && IS_GEN8(dev))
 #define IS_SKYLAKE(dev)	(INTEL_INFO(dev)->is_skylake)
 #define IS_BROXTON(dev)	(!INTEL_INFO(dev)->is_skylake && IS_GEN9(dev))
+#define IS_KABYLAKE(dev)	(INTEL_INFO(dev)->is_kabylake)
 #define IS_MOBILE(dev)		(INTEL_INFO(dev)->is_mobile)
 #define IS_HSW_EARLY_SDV(dev)	(IS_HASWELL(dev) && \
 				 (INTEL_DEVID(dev) & 0xFF00) == 0x0C00)
@@ -2454,6 +2475,15 @@ struct drm_i915_cmd_table {
 #define IS_SKL_ULX(dev)		(INTEL_DEVID(dev) == 0x190E || \
 				 INTEL_DEVID(dev) == 0x1915 || \
 				 INTEL_DEVID(dev) == 0x191E)
+#define IS_KBL_ULT(dev)		(INTEL_DEVID(dev) == 0x5906 || \
+				 INTEL_DEVID(dev) == 0x5913 || \
+				 INTEL_DEVID(dev) == 0x5916 || \
+				 INTEL_DEVID(dev) == 0x5921 || \
+				 INTEL_DEVID(dev) == 0x5926)
+#define IS_KBL_ULX(dev)		(INTEL_DEVID(dev) == 0x590E || \
+				 INTEL_DEVID(dev) == 0x5915 || \
+				 INTEL_DEVID(dev) == 0x591E)
+
 #define IS_PRELIMINARY_HW(intel_info) ((intel_info)->is_preliminary)
 
 #define SKL_REVID_A0		(0x0)
@@ -2499,7 +2529,8 @@ struct drm_i915_cmd_table {
 #define HAS_HW_CONTEXTS(dev)	(INTEL_INFO(dev)->gen >= 6)
 #define HAS_LOGICAL_RING_CONTEXTS(dev)	(INTEL_INFO(dev)->gen >= 8)
 #define USES_PPGTT(dev)		(i915.enable_ppgtt)
-#define USES_FULL_PPGTT(dev)	(i915.enable_ppgtt == 2)
+#define USES_FULL_PPGTT(dev)	(i915.enable_ppgtt >= 2)
+#define USES_FULL_48BIT_PPGTT(dev)	(i915.enable_ppgtt == 3)
 
 #define HAS_OVERLAY(dev)		(INTEL_INFO(dev)->has_overlay)
 #define OVERLAY_NEEDS_PHYSICAL(dev)	(INTEL_INFO(dev)->overlay_needs_physical)
@@ -2536,10 +2567,10 @@ struct drm_i915_cmd_table {
 #define HAS_FPGA_DBG_UNCLAIMED(dev)	(INTEL_INFO(dev)->has_fpga_dbg)
 #define HAS_PSR(dev)		(IS_HASWELL(dev) || IS_BROADWELL(dev) || \
 				 IS_VALLEYVIEW(dev) || IS_CHERRYVIEW(dev) || \
-				 IS_SKYLAKE(dev))
+				 IS_SKYLAKE(dev) || IS_KABYLAKE(dev))
 #define HAS_RUNTIME_PM(dev)	(IS_GEN6(dev) || IS_HASWELL(dev) || \
 				 IS_BROADWELL(dev) || IS_VALLEYVIEW(dev) || \
-				 IS_SKYLAKE(dev))
+				 IS_SKYLAKE(dev) || IS_KABYLAKE(dev))
 #define HAS_RC6(dev)		(INTEL_INFO(dev)->gen >= 6)
 #define HAS_RC6p(dev)		(INTEL_INFO(dev)->gen == 6 || IS_IVYBRIDGE(dev))
 
@@ -2563,6 +2594,7 @@ struct drm_i915_cmd_table {
 #define INTEL_PCH_TYPE(dev) (__I915__(dev)->pch_type)
 #define HAS_PCH_SPT(dev) (INTEL_PCH_TYPE(dev) == PCH_SPT)
 #define HAS_PCH_LPT(dev) (INTEL_PCH_TYPE(dev) == PCH_LPT)
+#define HAS_PCH_LPT_LP(dev) (__I915__(dev)->pch_id == INTEL_PCH_LPT_LP_DEVICE_ID_TYPE)
 #define HAS_PCH_CPT(dev) (INTEL_PCH_TYPE(dev) == PCH_CPT)
 #define HAS_PCH_IBX(dev) (INTEL_PCH_TYPE(dev) == PCH_IBX)
 #define HAS_PCH_NOP(dev) (INTEL_PCH_TYPE(dev) == PCH_NOP)
@@ -2616,6 +2648,7 @@ struct i915_params {
 	int mmio_debug;
 	bool verbose_state_checks;
 	int edp_vswing;
+	bool enable_dp_mst;
 };
 extern struct i915_params i915 __read_mostly;
 
@@ -2647,7 +2680,7 @@ void intel_hpd_irq_handler(struct drm_device *dev, u32 pin_mask, u32 long_mask);
 void intel_hpd_init(struct drm_i915_private *dev_priv);
 void intel_hpd_init_work(struct drm_i915_private *dev_priv);
 void intel_hpd_cancel_work(struct drm_i915_private *dev_priv);
-enum port intel_hpd_pin_to_port(enum hpd_pin pin);
+bool intel_hpd_pin_to_port(enum hpd_pin pin, enum port *port);
 
 /* i915_irq.c */
 void i915_queue_hangcheck(struct drm_device *dev);
@@ -2694,6 +2727,9 @@ i915_disable_pipestat(struct drm_i915_private *dev_priv, enum pipe pipe,
 
 void valleyview_enable_display_irqs(struct drm_i915_private *dev_priv);
 void valleyview_disable_display_irqs(struct drm_i915_private *dev_priv);
+void i915_hotplug_interrupt_update(struct drm_i915_private *dev_priv,
+				   uint32_t mask,
+				   uint32_t bits);
 void
 ironlake_enable_display_irq(struct drm_i915_private *dev_priv, u32 mask);
 void
@@ -2752,15 +2788,15 @@ int i915_gem_get_aperture_ioctl(struct drm_device *dev, void *data,
 				struct drm_file *file_priv);
 int i915_gem_wait_ioctl(struct drm_device *dev, void *data,
 			struct drm_file *file_priv);
-void i915_gem_load(struct drm_device *dev);
+void i915_gem_load_init(struct drm_device *dev);
+void i915_gem_load_cleanup(struct drm_device *dev);
+void i915_gem_load_init_fences(struct drm_i915_private *dev_priv);
 void *i915_gem_object_alloc(struct drm_device *dev);
 void i915_gem_object_free(struct drm_i915_gem_object *obj);
 void i915_gem_object_init(struct drm_i915_gem_object *obj,
 			 const struct drm_i915_gem_object_ops *ops);
 struct drm_i915_gem_object *i915_gem_alloc_object(struct drm_device *dev,
 						  size_t size);
-void i915_init_vm(struct drm_i915_private *dev_priv,
-		  struct i915_address_space *vm);
 void i915_gem_free_object(struct drm_gem_object *obj);
 void i915_gem_vma_destroy(struct i915_vma *vma);
 
@@ -2771,6 +2807,8 @@ void i915_gem_vma_destroy(struct i915_vma *vma);
 #define PIN_OFFSET_BIAS	(1<<3)
 #define PIN_USER	(1<<4)
 #define PIN_UPDATE	(1<<5)
+#define PIN_ZONE_4G	(1<<6)
+#define PIN_HIGH	(1<<7)
 #define PIN_OFFSET_MASK (~4095)
 int __must_check
 i915_gem_object_pin(struct drm_i915_gem_object *obj,
@@ -2851,15 +2889,17 @@ i915_seqno_passed(uint32_t seq1, uint32_t seq2)
 	return (int32_t)(seq1 - seq2) >= 0;
 }
 
+static inline bool i915_gem_request_started(struct drm_i915_gem_request *req,
+					   bool lazy_coherency)
+{
+	u32 seqno = req->ring->get_seqno(req->ring, lazy_coherency);
+	return i915_seqno_passed(seqno, req->previous_seqno);
+}
+
 static inline bool i915_gem_request_completed(struct drm_i915_gem_request *req,
 					      bool lazy_coherency)
 {
-	u32 seqno;
-
-	BUG_ON(req == NULL);
-
-	seqno = req->ring->get_seqno(req->ring, lazy_coherency);
-
+	u32 seqno = req->ring->get_seqno(req->ring, lazy_coherency);
 	return i915_seqno_passed(seqno, req->seqno);
 }
 
@@ -2942,8 +2982,6 @@ i915_gem_object_set_to_cpu_domain(struct drm_i915_gem_object *obj, bool write);
 int __must_check
 i915_gem_object_pin_to_display_plane(struct drm_i915_gem_object *obj,
 				     u32 alignment,
-				     struct intel_engine_cs *pipelined,
-				     struct drm_i915_gem_request **pipelined_request,
 				     const struct i915_ggtt_view *view);
 void i915_gem_object_unpin_from_display_plane(struct drm_i915_gem_object *obj,
 					      const struct i915_ggtt_view *view);
@@ -3144,6 +3182,7 @@ unsigned long i915_gem_shrink(struct drm_i915_private *dev_priv,
 #define I915_SHRINK_BOUND 0x4
 unsigned long i915_gem_shrink_all(struct drm_i915_private *dev_priv);
 void i915_gem_shrinker_init(struct drm_i915_private *dev_priv);
+void i915_gem_shrinker_cleanup(struct drm_i915_private *dev_priv);
 
 
 /* i915_gem_tiling.c */
@@ -3281,7 +3320,8 @@ extern void intel_modeset_init_hw(struct drm_device *dev);
 extern void intel_modeset_init(struct drm_device *dev);
 extern void intel_modeset_gem_init(struct drm_device *dev);
 extern void intel_modeset_cleanup(struct drm_device *dev);
-extern void intel_connector_unregister(struct intel_connector *);
+extern int intel_connector_register(struct drm_connector *);
+extern void intel_connector_unregister(struct drm_connector *);
 extern int intel_modeset_vga_set_state(struct drm_device *dev, bool state);
 extern void intel_display_resume(struct drm_device *dev);
 extern void i915_redisable_vga(struct drm_device *dev);
@@ -3292,7 +3332,6 @@ extern void intel_set_rps(struct drm_device *dev, u8 val);
 extern void intel_set_memory_cxsr(struct drm_i915_private *dev_priv,
 				  bool enable);
 extern void intel_detect_pch(struct drm_device *dev);
-extern int intel_trans_dp_port_sel(struct drm_crtc *crtc);
 extern int intel_enable_rc6(const struct drm_device *dev);
 
 extern bool i915_semaphore_is_enabled(struct drm_device *dev);

@@ -53,7 +53,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "ra.h"
 #include "osfunc.h"
 #include "lock.h"
-#include "devicemem_mmap.h"
+#include "osmmap.h"
 #include "devicemem_utils.h"
 #if defined(SUPPORT_PAGE_FAULT_DEBUG)
 #include "mm_common.h"
@@ -103,6 +103,9 @@ struct _DEVMEM_CONTEXT_ {
     /* pointer to array of such heaps */
     struct _DEVMEM_HEAP_ **ppsAutoHeapArray;
 
+    /* The cache line size for use when allocating memory, as it is not queryable on the client side */
+    IMG_UINT32 ui32CPUCacheLineSize;
+
 	/* Private data handle for device specific data */
 	IMG_HANDLE hPrivData;
 };
@@ -112,62 +115,73 @@ typedef enum
 {
 	DEVMEM_HEAP_TYPE_UNKNOWN = 0,
 	DEVMEM_HEAP_TYPE_USER_MANAGED,
-	DEVMEM_HEAP_TYPE_RA_MANAGED
+	DEVMEM_HEAP_TYPE_KERNEL_MANAGED,
+	DEVMEM_HEAP_TYPE_RA_MANAGED,
 }DEVMEM_HEAP_TYPE;
 
 struct _DEVMEM_HEAP_ {
-    /* Name of heap - for debug and lookup purposes. */
-    IMG_CHAR *pszName;
+	/* Name of heap - for debug and lookup purposes. */
+	IMG_CHAR *pszName;
 
-    /* Number of live imports in the heap */
-    ATOMIC_T hImportCount;
+	/* Number of live imports in the heap */
+	ATOMIC_T hImportCount;
 
-    /*
-     * Base address of heap, required by clients due to some requesters
-     * not being full range 
-     */
-    IMG_DEV_VIRTADDR sBaseAddress;
+	/*
+	* Base address and size of heap, required by clients due to some requesters
+	* not being full range
+	*/
+	IMG_DEV_VIRTADDR sBaseAddress;
+	DEVMEM_SIZE_T uiSize;
 
-    /* The heap type, describing if the space is managed by the user or an RA*/
-    DEVMEM_HEAP_TYPE eHeapType;
+	/* The heap type, describing if the space is managed by the user or an RA*/
+	DEVMEM_HEAP_TYPE eHeapType;
 
-    /* This RA is for managing sub-allocations in virtual space.  Two
-       more RA's will be used under the Hood for managing the coarser
-       allocation of virtual space from the heap, and also for
-       managing the physical backing storage. */
-    RA_ARENA *psSubAllocRA;
-    IMG_CHAR *pszSubAllocRAName;
-    /*
-      This RA is for the coarse allocation of virtual space from the heap
-    */
-    RA_ARENA *psQuantizedVMRA;
-    IMG_CHAR *pszQuantizedVMRAName;
+	/* This RA is for managing sub-allocations in virtual space.  Two
+	more RA's will be used under the Hood for managing the coarser
+	allocation of virtual space from the heap, and also for
+	managing the physical backing storage. */
+	RA_ARENA *psSubAllocRA;
+	IMG_CHAR *pszSubAllocRAName;
+	/*
+	This RA is for the coarse allocation of virtual space from the heap
+	*/
+	RA_ARENA *psQuantizedVMRA;
+	IMG_CHAR *pszQuantizedVMRAName;
 
-    /* We also need to store a copy of the quantum size in order to
-       feed this down to the server */
-    IMG_UINT32 uiLog2Quantum;
+	/* We also need to store a copy of the quantum size in order to
+	feed this down to the server */
+	IMG_UINT32 uiLog2Quantum;
 
-    /* Store a copy of the minimum import alignment */
-    IMG_UINT32 uiLog2ImportAlignment;
+	/* Store a copy of the minimum import alignment */
+	IMG_UINT32 uiLog2ImportAlignment;
 
-    /* The parent memory context for this heap */
-    struct _DEVMEM_CONTEXT_ *psCtx;
+	/* The relationship between tiled heap alignment and heap byte-stride
+	 * (dependent on tiling mode, abstracted here) */
+	IMG_UINT32 uiLog2TilingStrideFactor;
 
-	POS_LOCK hLock;							/*!< Lock to protect this structure */
+	/* The parent memory context for this heap */
+	struct _DEVMEM_CONTEXT_ *psCtx;
 
-    /*
-      Each "DEVMEM_HEAP" has a counterpart in the server,
-      which is responsible for handling the mapping into device MMU.
-      We have a handle to that here.
-    */
-    IMG_HANDLE hDevMemServerHeap;
+	/* Lock to protect this structure */
+	POS_LOCK hLock;
+
+	/*
+	Each "DEVMEM_HEAP" has a counterpart in the server,
+	which is responsible for handling the mapping into device MMU.
+	We have a handle to that here.
+	*/
+	IMG_HANDLE hDevMemServerHeap;
 };
 
 typedef IMG_UINT32 DEVMEM_PROPERTIES_T;                 /*!< Typedef for Devicemem properties */
 #define DEVMEM_PROPERTIES_EXPORTABLE        (1UL<<0)    /*!< Is it exportable? */
 #define DEVMEM_PROPERTIES_IMPORTED          (1UL<<1)    /*!< Is it imported from another process? */
 #define DEVMEM_PROPERTIES_SUBALLOCATABLE    (1UL<<2)    /*!< Is it suballocatable? */
-#define DEVMEM_PROPERTIES_UNPINNED          (1UL<<4)    /*!< Is it currently pinned? */
+#define DEVMEM_PROPERTIES_UNPINNED          (1UL<<3)    /*!< Is it currently pinned? */
+#define DEVMEM_PROPERTIES_IMPORT_IS_ZEROED  (1UL<<4)	/*!< Is the memory fully zeroed? */
+#define DEVMEM_PROPERTIES_IMPORT_IS_CLEAN   (1UL<<5)	/*!< Is the memory clean, i.e. not been used before? */
+#define DEVMEM_PROPERTIES_SECURE            (1UL<<6)    /*!< Is it a special secure buffer? No CPU maps allowed! */
+
 
 typedef struct _DEVMEM_DEVICE_IMPORT_ {
 	DEVMEM_HEAP *psHeap;			/*!< Heap this import is bound to */
@@ -199,6 +213,9 @@ typedef struct _DEVMEM_IMPORT_ {
 
 	DEVMEM_DEVICE_IMPORT sDeviceImport;	/*!< Device specifics of the import */
 	DEVMEM_CPU_IMPORT sCPUImport;		/*!< CPU specifics of the import */
+#if defined(PDUMP)
+	IMG_CHAR *pszAnnotation;
+#endif
 } DEVMEM_IMPORT;
 
 typedef struct _DEVMEM_DEVICE_MEMDESC_ {
@@ -219,6 +236,7 @@ struct _DEVMEM_MEMDESC_ {
 	IMG_DEVMEM_SIZE_T uiAllocSize;          /*!< Size of the allocation */
     ATOMIC_T hRefCount;						/*!< Refcount of the memdesc */
     POS_LOCK hLock;							/*!< Lock to protect memdesc */
+    IMG_HANDLE hPrivData;
 
 	DEVMEM_DEVICE_MEMDESC sDeviceMemDesc;	/*!< Device specifics of the memdesc */
 	DEVMEM_CPU_MEMDESC sCPUMemDesc;		/*!< CPU specifics of the memdesc */
@@ -268,12 +286,12 @@ struct _DEVMEMX_VIRT_MEMDESC_ {
 
 @Input          uiSize      Size of the import.
 @Input          uiAlign     Alignment of the import.
-@Input          uiFlags     Flags for the import.
+@Input          puiFlags    Pointer to the flags for the import.
 @return         PVRSRV_ERROR
 ******************************************************************************/
 PVRSRV_ERROR _DevmemValidateParams(IMG_DEVMEM_SIZE_T uiSize,
-								   IMG_DEVMEM_ALIGN_T uiAlign,
-								   DEVMEM_FLAGS_T uiFlags);
+                                   IMG_DEVMEM_ALIGN_T uiAlign,
+                                   DEVMEM_FLAGS_T *puiFlags);
 
 /******************************************************************************
 @Function       _DevmemImportStructAlloc

@@ -31,9 +31,87 @@
 #include "tpm.h"
 #include "tpm_tis_common.h"
 
+#ifdef CONFIG_X86
+#define INTEL_FAM6_ATOM_AIRMONT		0x4C
+#define INTEL_LEGACY_BLK_BASE_ADDR      0xFED08000
+#define ILB_REMAP_SIZE			0x100
+#define LPC_CNTRL_REG_OFFSET            0x84
+#define LPC_CLKRUN_EN                   (1 << 2)
+
+static void __iomem *ilb_base_addr;
+
+static inline bool is_bsw(void)
+{
+	return ((boot_cpu_data.x86_model == INTEL_FAM6_ATOM_AIRMONT) ? 1 : 0);
+}
+
+/**
+ * tpm_platform_begin_xfer() - clear LPC CLKRUN_EN i.e. clocks will be running
+ */
+static void tpm_platform_begin_xfer(void)
+{
+	u32 clkrun_val;
+
+	if (!is_bsw())
+		return;
+
+	clkrun_val = ioread32(ilb_base_addr + LPC_CNTRL_REG_OFFSET);
+
+	/* Disable LPC CLKRUN# */
+	clkrun_val &= ~LPC_CLKRUN_EN;
+	iowrite32(clkrun_val, ilb_base_addr + LPC_CNTRL_REG_OFFSET);
+
+	/*
+	 * Write any random value on port 0x80 which is on LPC, to make
+	 * sure LPC clock is running before sending any TPM command.
+	 */
+	outb(0xCC, 0x80);
+
+}
+
+/**
+ * tpm_platform_end_xfer() - set LPC CLKRUN_EN i.e. clocks can be turned off
+ */
+static void tpm_platform_end_xfer(void)
+{
+	u32 clkrun_val;
+
+	if (!is_bsw())
+		return;
+
+	clkrun_val = ioread32(ilb_base_addr + LPC_CNTRL_REG_OFFSET);
+
+	/* Enable LPC CLKRUN# */
+	clkrun_val |= LPC_CLKRUN_EN;
+	iowrite32(clkrun_val, ilb_base_addr + LPC_CNTRL_REG_OFFSET);
+
+	/*
+	 * Write any random value on port 0x80 which is on LPC, to make
+	 * sure LPC clock is running before sending any TPM command.
+	 */
+	outb(0xCC, 0x80);
+
+}
+#else
+static inline bool is_bsw(void)
+{
+	return false;
+}
+
+static void tpm_platform_begin_xfer(void)
+{
+}
+
+static void tpm_platform_end_xfer(void)
+{
+}
+#endif
+
 static void read_mem_bytes(struct tpm_chip *chip, u32 addr, u8 len, u8 size, u8 *result)
 {
 	int i;
+
+	tpm_platform_begin_xfer();
 
 	if (size == 4)
 		*(u32 *)result = ioread32(chip->vendor.iobase + addr);
@@ -46,11 +124,15 @@ static void read_mem_bytes(struct tpm_chip *chip, u32 addr, u8 len, u8 size, u8 
 			result[i] = ioread8(chip->vendor.iobase + addr);
 		}
 	}
+
+	tpm_platform_end_xfer();
 }
 
 static void write_mem_bytes(struct tpm_chip *chip, u32 addr, u8 len, u8 size, u8 *value)
 {
 	int i;
+
+	tpm_platform_begin_xfer();
 
 	if (size == 4)
 		iowrite32(*(u32 *)value, chip->vendor.iobase + addr);
@@ -63,6 +145,8 @@ static void write_mem_bytes(struct tpm_chip *chip, u32 addr, u8 len, u8 size, u8
 			iowrite8(value[i], chip->vendor.iobase + addr);
 		}
 	}
+
+	tpm_platform_end_xfer();
 }
 
 #if defined(CONFIG_PNP) && defined(CONFIG_ACPI)
@@ -217,6 +301,12 @@ MODULE_PARM_DESC(force, "Force device probe rather than using ACPI entry");
 static int __init init_tis(void)
 {
 	int rc;
+
+#ifdef CONFIG_X86
+	if (is_bsw())
+		ilb_base_addr = ioremap(INTEL_LEGACY_BLK_BASE_ADDR,
+					ILB_REMAP_SIZE);
+#endif
 #ifdef CONFIG_PNP
 	if (!force)
 		return pnp_register_driver(&tis_pnp_driver);
@@ -238,6 +328,10 @@ err_init:
 	platform_device_unregister(pdev);
 err_dev:
 	platform_driver_unregister(&tis_drv);
+#ifdef CONFIG_X86
+	if (is_bsw())
+		iounmap(ilb_base_addr);
+#endif
 	return rc;
 }
 
@@ -253,6 +347,10 @@ static void __exit cleanup_tis(void)
 	chip = dev_get_drvdata(&pdev->dev);
 	tpm_chip_unregister(chip);
 	tpm_tis_remove(chip);
+#ifdef CONFIG_X86
+	if (is_bsw())
+		iounmap(ilb_base_addr);
+#endif
 	platform_device_unregister(pdev);
 	platform_driver_unregister(&tis_drv);
 }

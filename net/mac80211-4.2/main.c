@@ -35,6 +35,10 @@
 #include "cfg.h"
 #include "debugfs.h"
 
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+#include "wifi_diag.h"
+#endif
+
 void ieee80211_configure_filter(struct ieee80211_local *local)
 {
 	u64 mc;
@@ -250,6 +254,7 @@ static void ieee80211_restart_work(struct work_struct *work)
 
 	/* wait for scan work complete */
 	flush_workqueue(local->workqueue);
+	flush_work(&local->sched_scan_stopped_work);
 
 	WARN(test_bit(SCAN_HW_SCANNING, &local->scanning),
 	     "%s called with hardware scan in progress\n", __func__);
@@ -1045,9 +1050,6 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 
 	local->dynamic_ps_forced_timeout = -1;
 
-	if (!local->hw.txq_ac_max_pending)
-		local->hw.txq_ac_max_pending = 64;
-
 	result = ieee80211_wep_init(local);
 	if (result < 0)
 		wiphy_debug(local->hw.wiphy, "Failed to initialize wep: %d\n",
@@ -1086,6 +1088,10 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 	if (result)
 		goto fail_pm_qos;
 
+	result = ieee80211_txq_setup_flows(local);
+	if (result)
+		goto fail_flows;
+
 #ifdef CONFIG_INET
 	local->ifa_notifier.notifier_call = ieee80211_ifa_changed;
 	result = register_inetaddr_notifier(&local->ifa_notifier);
@@ -1098,6 +1104,10 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 	result = register_inet6addr_notifier(&local->ifa6_notifier);
 	if (result)
 		goto fail_ifa6;
+#endif
+
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+	wifi_diag_init(local);
 #endif
 
 	return 0;
@@ -1113,6 +1123,8 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 	pm_qos_remove_notifier(PM_QOS_NETWORK_LATENCY,
 			       &local->network_latency_notifier);
 #endif
+	ieee80211_txq_teardown_flows(local);
+ fail_flows:
  fail_pm_qos:
 	rtnl_lock();
 	rate_control_deinitialize(local);
@@ -1151,6 +1163,10 @@ void ieee80211_unregister_hw(struct ieee80211_hw *hw)
 	tasklet_kill(&local->tx_pending_tasklet);
 	tasklet_kill(&local->tasklet);
 
+#ifdef CONFIG_MAC80211_WIFI_DIAG
+	wifi_diag_deinit(local);
+#endif
+
 	pm_qos_remove_notifier(PM_QOS_NETWORK_LATENCY,
 			       &local->network_latency_notifier);
 #ifdef CONFIG_INET
@@ -1183,6 +1199,7 @@ void ieee80211_unregister_hw(struct ieee80211_hw *hw)
 		wiphy_warn(local->hw.wiphy, "skb_queue not empty\n");
 	skb_queue_purge(&local->skb_queue);
 	skb_queue_purge(&local->skb_queue_unreliable);
+	ieee80211_txq_teardown_flows(local);
 
 	destroy_workqueue(local->workqueue);
 	wiphy_unregister(local->hw.wiphy);

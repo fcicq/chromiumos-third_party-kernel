@@ -357,9 +357,10 @@ static int dapm_kcontrol_data_alloc(struct snd_soc_dapm_widget *widget,
 			data->widget =
 				snd_soc_dapm_new_control_unlocked(widget->dapm,
 				&template);
+			kfree(name);
 			if (!data->widget) {
 				ret = -ENOMEM;
-				goto err_name;
+				goto err_data;
 			}
 		}
 		break;
@@ -388,11 +389,12 @@ static int dapm_kcontrol_data_alloc(struct snd_soc_dapm_widget *widget,
 
 			data->value = template.on_val;
 
-			data->widget = snd_soc_dapm_new_control(widget->dapm,
-					&template);
+			data->widget = snd_soc_dapm_new_control_unlocked(
+						widget->dapm, &template);
+			kfree(name);
 			if (!data->widget) {
 				ret = -ENOMEM;
-				goto err_name;
+				goto err_data;
 			}
 
 			snd_soc_dapm_add_path(widget->dapm, data->widget,
@@ -407,8 +409,6 @@ static int dapm_kcontrol_data_alloc(struct snd_soc_dapm_widget *widget,
 
 	return 0;
 
-err_name:
-	kfree(name);
 err_data:
 	kfree(data);
 	return ret;
@@ -417,8 +417,6 @@ err_data:
 static void dapm_kcontrol_free(struct snd_kcontrol *kctl)
 {
 	struct dapm_kcontrol_data *data = snd_kcontrol_chip(kctl);
-	if (data->widget)
-		kfree(data->widget->name);
 	kfree(data->wlist);
 	kfree(data);
 }
@@ -1921,6 +1919,7 @@ static ssize_t dapm_widget_power_read_file(struct file *file,
 					   size_t count, loff_t *ppos)
 {
 	struct snd_soc_dapm_widget *w = file->private_data;
+	struct snd_soc_card *card = w->dapm->card;
 	enum snd_soc_dapm_direction dir, rdir;
 	char *buf;
 	int in, out;
@@ -1930,6 +1929,8 @@ static ssize_t dapm_widget_power_read_file(struct file *file,
 	buf = kmalloc(PAGE_SIZE, GFP_KERNEL);
 	if (!buf)
 		return -ENOMEM;
+
+	mutex_lock(&card->dapm_mutex);
 
 	/* Supply widgets are not handled by is_connected_{input,output}_ep() */
 	if (w->is_supply) {
@@ -1972,6 +1973,8 @@ static ssize_t dapm_widget_power_read_file(struct file *file,
 					p->node[rdir]->name);
 		}
 	}
+
+	mutex_unlock(&card->dapm_mutex);
 
 	ret = simple_read_from_buffer(user_buf, count, ppos, buf, ret);
 
@@ -2192,6 +2195,13 @@ static ssize_t dapm_widget_show_codec(struct snd_soc_codec *codec, char *buf)
 	int count = 0;
 	char *state = "not set";
 
+	/* card won't be set for the dummy component, as a spot fix
+	 * we're checking for that case specifically here but in future
+	 * we will ensure that the dummy component looks like others.
+	 */
+	if (!codec->component.card)
+		return 0;
+
 	list_for_each_entry(w, &codec->component.card->widgets, list) {
 		if (w->dapm != &codec->dapm)
 			continue;
@@ -2247,10 +2257,14 @@ static ssize_t dapm_widget_show(struct device *dev,
 	struct snd_soc_pcm_runtime *rtd = dev_get_drvdata(dev);
 	int i, count = 0;
 
+	mutex_lock(&rtd->card->dapm_mutex);
+
 	for (i = 0; i < rtd->num_codecs; i++) {
 		struct snd_soc_codec *codec = rtd->codec_dais[i]->codec;
 		count += dapm_widget_show_codec(codec, buf + count);
 	}
+
+	mutex_unlock(&rtd->card->dapm_mutex);
 
 	return count;
 }
@@ -2543,7 +2557,6 @@ static int snd_soc_dapm_add_path(struct snd_soc_dapm_context *dapm,
 	path->node[SND_SOC_DAPM_DIR_OUT] = wsink;
 	widgets[SND_SOC_DAPM_DIR_IN] = wsource;
 	widgets[SND_SOC_DAPM_DIR_OUT] = wsink;
-
 	path->connected = connected;
 	INIT_LIST_HEAD(&path->list);
 	INIT_LIST_HEAD(&path->list_kcontrol);
@@ -3557,7 +3570,7 @@ static int snd_soc_dai_link_event(struct snd_soc_dapm_widget *w,
 
 	default:
 		WARN(1, "Unknown event %d\n", event);
-		return -EINVAL;
+		ret = -EINVAL;
 	}
 
 out:

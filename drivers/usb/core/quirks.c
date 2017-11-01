@@ -78,6 +78,12 @@ static const struct usb_device_id usb_quirk_list[] = {
 	/* Philips PSC805 audio device */
 	{ USB_DEVICE(0x0471, 0x0155), .driver_info = USB_QUIRK_RESET_RESUME },
 
+	/* Plantronic Audio 655 DSP */
+	{ USB_DEVICE(0x047f, 0xc008), .driver_info = USB_QUIRK_RESET_RESUME },
+
+	/* Plantronic Audio 648 USB */
+	{ USB_DEVICE(0x047f, 0xc013), .driver_info = USB_QUIRK_RESET_RESUME },
+
 	/* Artisman Watchdog Dongle */
 	{ USB_DEVICE(0x04b4, 0x0526), .driver_info =
 			USB_QUIRK_CONFIG_INTF_STRINGS },
@@ -162,6 +168,9 @@ static const struct usb_device_id usb_quirk_list[] = {
 	{ USB_DEVICE(0x1532, 0x0116), .driver_info =
 			USB_QUIRK_LINEAR_UFRAME_INTR_BINTERVAL },
 
+	/* Google - Plankton */
+	{ USB_DEVICE(0x18d1, 0x501e), .driver_info = USB_QUIRK_NO_LPM },
+
 	/* BUILDWIN Photo Frame */
 	{ USB_DEVICE(0x1908, 0x1315), .driver_info =
 			USB_QUIRK_HONOR_BNUMINTERFACES },
@@ -175,6 +184,12 @@ static const struct usb_device_id usb_quirk_list[] = {
 	/* ASUS Base Station(T100) */
 	{ USB_DEVICE(0x0b05, 0x17e0), .driver_info =
 			USB_QUIRK_IGNORE_REMOTE_WAKEUP },
+
+	/* Blackmagic Design Intensity Shuttle */
+	{ USB_DEVICE(0x1edb, 0xbd3b), .driver_info = USB_QUIRK_NO_LPM },
+
+	/* Blackmagic Design UltraStudio SDI */
+	{ USB_DEVICE(0x1edb, 0xbd4f), .driver_info = USB_QUIRK_NO_LPM },
 
 	{ }  /* terminating entry must be last */
 };

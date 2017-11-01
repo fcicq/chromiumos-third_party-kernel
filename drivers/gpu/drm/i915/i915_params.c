@@ -53,6 +53,7 @@ struct i915_params i915 __read_mostly = {
 	.mmio_debug = 0,
 	.verbose_state_checks = 1,
 	.edp_vswing = 0,
+	.enable_dp_mst = true,
 };
 
 module_param_named(modeset, i915.modeset, int, 0400);
@@ -115,7 +116,7 @@ MODULE_PARM_DESC(enable_hangcheck,
 module_param_named_unsafe(enable_ppgtt, i915.enable_ppgtt, int, 0400);
 MODULE_PARM_DESC(enable_ppgtt,
 	"Override PPGTT usage. "
-	"(-1=auto [default], 0=disabled, 1=aliasing, 2=full)");
+	"(-1=auto [default], 0=disabled, 1=aliasing, 2=full, 3=full with extended address space)");
 
 module_param_named(enable_execlists, i915.enable_execlists, int, 0400);
 MODULE_PARM_DESC(enable_execlists,
@@ -193,3 +194,7 @@ MODULE_PARM_DESC(edp_vswing,
 		 "Ignore/Override vswing pre-emph table selection from VBT "
 		 "(0=use value from vbt [default], 1=low power swing(200mV),"
 		 "2=default swing(400mV))");
+
+module_param_named_unsafe(enable_dp_mst, i915.enable_dp_mst, bool, 0600);
+MODULE_PARM_DESC(enable_dp_mst,
+	"Enable multi-stream transport (MST) for new DisplayPort sinks. (default: true)");

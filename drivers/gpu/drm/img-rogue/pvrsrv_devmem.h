@@ -55,7 +55,7 @@ extern "C" {
 #include "pdumpdefs.h"
 #include "pvrsrv_error.h"
 #include "pvrsrv_memallocflags.h"
-#include "sync_external.h"
+#include <powervr/sync_external.h>
 #include "services_km.h" /* for PVRSRV_DEV_CONNECTION */
 
 
@@ -71,6 +71,10 @@ typedef DEVMEM_EXPORTCOOKIE PVRSRV_DEVMEM_EXPORTCOOKIE;     /*!< Device-Mem Clie
 typedef DEVMEM_FLAGS_T PVRSRV_MEMMAP_FLAGS_T;               /*!< Device-Mem Client-Side Interface: Typedef for Memory-Mapping Flags Enum */
 typedef IMG_HANDLE PVRSRV_REMOTE_DEVMEMCTX;                 /*!< Type to use with context export import */
 typedef struct _PVRSRV_EXPORT_DEVMEMCTX_ *PVRSRV_EXPORT_DEVMEMCTX;
+
+/* To use with PVRSRVSubAllocDeviceMem() as the default factor if no
+ * over-allocation is desired. */
+#define PVRSRV_DEVMEM_PRE_ALLOC_MULTIPLIER_NONE     DEVMEM_NO_PRE_ALLOCATE_MULTIPLIER
 
 /* N.B.  Flags are now defined in pvrsrv_memallocflags.h as they need
          to be omnipresent. */
@@ -108,9 +112,8 @@ typedef struct _PVRSRV_EXPORT_DEVMEMCTX_ *PVRSRV_EXPORT_DEVMEMCTX;
      
                 In order to derive the details of the MMU configuration for the
                 device, and for retrieving the "bridge handle" for communication
-                internally in services, is is necessary to pass in the
-                PVRSRV_DEV_DATA object as populated with a prior call to
-                PVRSRVAcquireDeviceData()
+                internally in services, it is necessary to pass in a
+                PVRSRV_DEV_CONNECTION.
 @Input          psDev           dev data
 @Output         phCtxOut        On success, the returned DevMem Context. The
                                 caller is responsible for providing storage
@@ -174,7 +177,7 @@ PVRSRVDevmemGetHeapBaseDevVAddr(PVRSRV_HEAP hHeap,
 			        IMG_DEV_VIRTADDR *pDevVAddr);
 
 /**************************************************************************/ /*!
-@Function       PVRSRVAllocDeviceMem
+@Function       PVRSRVSubAllocDeviceMem
 @Description    Allocate memory from the specified heap, acquiring physical
                 memory from OS as we go and mapping this into
                 the GPU (mandatorily) and CPU (optionally)
@@ -191,26 +194,38 @@ PVRSRVDevmemGetHeapBaseDevVAddr(PVRSRV_HEAP hHeap,
                 This is a general rule when suballocations are to
                 be avoided.
 
-@Input          hHeap               Handle to the heap from which memory will be
-                                    allocated
-@Input          uiSize              Amount of memory to be allocated.
-@Input          uiLog2Align         LOG2 of the required alignment
-@Input          uiMemAllocFlags     Allocation Flags
-@Input          pszText     		Text to describe the allocation
-@Output         phMemDescOut        On success, the resulting memory descriptor
+@Input          uiPreAllocMultiplier  Size factor for internal pre-allocation of
+                                      memory to make subsequent calls with the
+                                      same flags faster. Independently if a value
+                                      is set, the function will try to allocate
+                                      from any pre-allocated memory first and -if
+                                      successful- not pre-allocate anything more.
+                                      That means the factor can always be set and
+                                      the correct thing will be done internally.
+@Input          hHeap                 Handle to the heap from which memory will be
+                                      allocated
+@Input          uiSize                Amount of memory to be allocated.
+@Input          uiLog2Align           LOG2 of the required alignment
+@Input          uiMemAllocFlags       Allocation Flags
+@Input          pszText     		  Text to describe the allocation
+@Output         phMemDescOut          On success, the resulting memory descriptor
 @Return         PVRSRV_OK on success. Otherwise, a PVRSRV_ error code
 */ /***************************************************************************/
 extern IMG_IMPORT PVRSRV_ERROR
-PVRSRVAllocDeviceMem(PVRSRV_HEAP hHeap,
-                     IMG_DEVMEM_SIZE_T uiSize,
-                     IMG_DEVMEM_LOG2ALIGN_T uiLog2Align,
-                     PVRSRV_MEMALLOCFLAGS_T uiMemAllocFlags,
-                     IMG_PCHAR pszText,
-                     PVRSRV_MEMDESC *phMemDescOut);
+PVRSRVSubAllocDeviceMem(IMG_UINT8 uiPreAllocMultiplier,
+                        PVRSRV_HEAP hHeap,
+                        IMG_DEVMEM_SIZE_T uiSize,
+                        IMG_DEVMEM_LOG2ALIGN_T uiLog2Align,
+                        PVRSRV_MEMALLOCFLAGS_T uiMemAllocFlags,
+                        const IMG_CHAR *pszText,
+                        PVRSRV_MEMDESC *phMemDescOut);
+
+#define PVRSRVAllocDeviceMem(...) \
+    PVRSRVSubAllocDeviceMem(PVRSRV_DEVMEM_PRE_ALLOC_MULTIPLIER_NONE, __VA_ARGS__)
 
 /**************************************************************************/ /*!
 @Function       PVRSRVFreeDeviceMem
-@Description    Free that allocated by PVRSRVAllocDeviceMem (Memory descriptor 
+@Description    Free that allocated by PVRSRVSubAllocDeviceMem (Memory descriptor
                 will be destroyed)
 @Input          hMemDesc            Handle to the descriptor of the memory to be
                                     freed
@@ -358,14 +373,17 @@ PVRSRVReleaseDeviceMapping(PVRSRV_MEMDESC hMemDesc);
 
 @Output         puiSizePtr              Size of the created MemDesc
 
-@Return         PVRSRV_OK is succesful
+@Input          pszAnnotation           Annotation string for this allocation/import
+
+@Return         PVRSRV_OK is successful
 */
 /*****************************************************************************/
 PVRSRV_ERROR PVRSRVDevmemLocalImport(const PVRSRV_DEV_CONNECTION *psDevConnection,
 									 IMG_HANDLE hExtHandle,
 									 PVRSRV_MEMMAP_FLAGS_T uiFlags,
 									 PVRSRV_MEMDESC *phMemDescPtr,
-									 IMG_DEVMEM_SIZE_T *puiSizePtr);
+									 IMG_DEVMEM_SIZE_T *puiSizePtr,
+									 const IMG_CHAR *pszAnnotation);
 
 /*************************************************************************/ /*!
 @Function       PVRSRVDevmemGetImportUID
@@ -378,7 +396,7 @@ PVRSRV_ERROR PVRSRVDevmemLocalImport(const PVRSRV_DEV_CONNECTION *psDevConnectio
 */
 /*****************************************************************************/
 PVRSRV_ERROR PVRSRVDevmemGetImportUID(PVRSRV_MEMDESC hMemDesc,
-									  IMG_UINT64 *pui64UID);
+                                      IMG_UINT64 *pui64UID);
 
 /**************************************************************************/ /*!
 @Function       PVRSRVAllocExportableDevMem
@@ -394,57 +412,60 @@ PVRSRV_ERROR PVRSRVDevmemGetImportUID(PVRSRV_MEMDESC hMemDesc,
 
                 Size must be a positive integer multiple of the page size
 @Input          uiLog2Align         Log2 of the alignment required
+@Input          uiLog2HeapPageSize  The page size to allocate. Must be a
+                                    multiple of the heap that this is going
+                                    to be mapped into.
 @Input          uiSize              the amount of memory to be allocated
 @Input          uiFlags             Allocation flags
-@Input          pszText     		Text to describe the allocation
+@Input          pszText             Text to describe the allocation
 @Output         hMemDesc
 @Return         PVRSRV_OK on success. Otherwise, a PVRSRV_ error code
 */ /***************************************************************************/
 PVRSRV_ERROR
 PVRSRVAllocExportableDevMem(const PVRSRV_DEV_CONNECTION *psDevConnection,
-							IMG_DEVMEM_SIZE_T uiSize,
-							IMG_DEVMEM_LOG2ALIGN_T uiLog2Align,
-							PVRSRV_MEMALLOCFLAGS_T uiFlags,
-							IMG_PCHAR pszText,
-							PVRSRV_MEMDESC *hMemDesc);
+                            IMG_DEVMEM_SIZE_T uiSize,
+                            IMG_DEVMEM_LOG2ALIGN_T uiLog2Align,
+                            IMG_UINT32 uiLog2HeapPageSize,
+                            PVRSRV_MEMALLOCFLAGS_T uiFlags,
+                            const IMG_CHAR *pszText,
+                            PVRSRV_MEMDESC *hMemDesc);
 
 /**************************************************************************/ /*!
 @Function       PVRSRVChangeSparseDevMem
-@Description	This function alters the underlying memory layout of the given
-				allocation by allocating/removing pages as requested
-				This function also re-writes the GPU & CPU Maps accordingly
-				The specific actions can be controlled by corresponding flags
-@Input			psMemDesc 			The memory layout that needs to be modified
-@Input			ui32AllocPageCount	New page allocation count
-@Input			pai32AllocIndices   New page allocation indices (page granularity)
-@Input			ui32FreePageCount   Number of pages that need to be freed
-@Input			pai32FreeIndices	Indices of the pages that need to be freed
-@Input			uiFlags				Flags that control the behaviour of the call
-@Output			pui32Status			Status out for minor tolerable errors
+@Description    This function alters the underlying memory layout of the given
+                allocation by allocating/removing pages as requested
+                This function also re-writes the GPU & CPU Maps accordingly
+                The specific actions can be controlled by corresponding flags
+
+@Input          psMemDesc           The memory layout that needs to be modified
+@Input          ui32AllocPageCount	New page allocation count
+@Input          pai32AllocIndices   New page allocation indices (page granularity)
+@Input          ui32FreePageCount   Number of pages that need to be freed
+@Input          pai32FreeIndices    Indices of the pages that need to be freed
+@Input          uiFlags             Flags that control the behaviour of the call
 @Return         PVRSRV_OK on success. Otherwise, a PVRSRV_ error code
 */ /***************************************************************************/
 PVRSRV_ERROR
 PVRSRVChangeSparseDevMem(PVRSRV_MEMDESC psMemDesc,
-					IMG_UINT32 ui32AllocPageCount,
-					IMG_UINT32 *pai32AllocIndices,
-					IMG_UINT32 ui32FreePageCount,
-					IMG_UINT32 *pai32FreeIndices,
-					SPARSE_MEM_RESIZE_FLAGS uiFlags,
-					IMG_UINT32 *pui32Status);
+                         IMG_UINT32 ui32AllocPageCount,
+                         IMG_UINT32 *pai32AllocIndices,
+                         IMG_UINT32 ui32FreePageCount,
+                         IMG_UINT32 *pai32FreeIndices,
+                         SPARSE_MEM_RESIZE_FLAGS uiFlags);
 
 /**************************************************************************/ /*!
 @Function       PVRSRVAllocSparseDevMem2
 @Description    Allocate sparse memory without mapping into device memory context.
-				Sparse memory is used where you have an allocation that has a
-				logical size (i.e. the amount of VM space it will need when
-				mapping it into a device) that is larger than the amount of
-				physical memory that allocation will use. An example of this
-				is a NPOT texture where the twiddling algorithm requires you
-				to round the width and height to next POT and so you know there
-				will be pages that are never accessed.
+                Sparse memory is used where you have an allocation that has a
+                logical size (i.e. the amount of VM space it will need when
+                mapping it into a device) that is larger than the amount of
+                physical memory that allocation will use. An example of this
+                is a NPOT texture where the twiddling algorithm requires you
+                to round the width and height to next POT and so you know there
+                will be pages that are never accessed.
 
-				This memory is can to be exported and mapped into the device
-				memory context of other processes, or to CPU.
+                This memory is can to be exported and mapped into the device
+                memory context of other processes, or to CPU.
 
                 Size must be a positive integer multiple of the page size
 @Input          psDevConnection     Device to allocation the memory for
@@ -452,38 +473,40 @@ PVRSRVChangeSparseDevMem(PVRSRV_MEMDESC psMemDesc,
 @Input          uiChunkSize         The size of the chunk
 @Input          ui32NumPhysChunks   The number of physical chunks required
 @Input          ui32NumVirtChunks   The number of virtual chunks required
-@Input			pui32MappingTable	index based Mapping table
+@Input          pui32MappingTable	index based Mapping table
 @Input          uiLog2Align         Log2 of the required alignment
+@Input          uiLog2HeapPageSize  Log2 of the heap we map this into
 @Input          uiFlags             Allocation flags
-@Input          pszText     		Text to describe the allocation
+@Input          pszText             Text to describe the allocation
 @Output         hMemDesc
 @Return         PVRSRV_OK on success. Otherwise, a PVRSRV_ error code
 */ /***************************************************************************/
 PVRSRV_ERROR
 PVRSRVAllocSparseDevMem2(const PVRSRV_DEVMEMCTX psDevMemCtx,
-						IMG_DEVMEM_SIZE_T uiSize,
-						IMG_DEVMEM_SIZE_T uiChunkSize,
-						IMG_UINT32 ui32NumPhysChunks,
-						IMG_UINT32 ui32NumVirtChunks,
-						IMG_UINT32 *pui32MappingTable,
-						IMG_DEVMEM_LOG2ALIGN_T uiLog2Align,
-						PVRSRV_MEMMAP_FLAGS_T uiFlags,
-						IMG_PCHAR pszText,
-						PVRSRV_MEMDESC *hMemDesc);
+                         IMG_DEVMEM_SIZE_T uiSize,
+                         IMG_DEVMEM_SIZE_T uiChunkSize,
+                         IMG_UINT32 ui32NumPhysChunks,
+                         IMG_UINT32 ui32NumVirtChunks,
+                         IMG_UINT32 *pui32MappingTable,
+                         IMG_DEVMEM_LOG2ALIGN_T uiLog2Align,
+                         IMG_UINT32 uiLog2HeapPageSize,
+                         PVRSRV_MEMMAP_FLAGS_T uiFlags,
+                         const IMG_CHAR *pszText,
+                         PVRSRV_MEMDESC *hMemDesc);
 
 /**************************************************************************/ /*!
 @Function       PVRSRVAllocSparseDevMem (DEPRECATED and will be removed in future)
 @Description    Allocate sparse memory without mapping into device memory context.
-				Sparse memory is used where you have an allocation that has a
-				logical size (i.e. the amount of VM space it will need when
-				mapping it into a device) that is larger than the amount of
-				physical memory that allocation will use. An example of this
-				is a NPOT texture where the twiddling algorithm requires you
-				to round the width and height to next POT and so you know there
-				will be pages that are never accessed.
+                Sparse memory is used where you have an allocation that has a
+                logical size (i.e. the amount of VM space it will need when
+                mapping it into a device) that is larger than the amount of
+                physical memory that allocation will use. An example of this
+                is a NPOT texture where the twiddling algorithm requires you
+                to round the width and height to next POT and so you know there
+                will be pages that are never accessed.
 
-				This memory is can to be exported and mapped into the device
-				memory context of other processes, or to CPU.
+                This memory is can to be exported and mapped into the device
+                memory context of other processes, or to CPU.
 
                 Size must be a positive integer multiple of the page size
                 This function is deprecated and should not be used in any new code
@@ -493,36 +516,37 @@ PVRSRVAllocSparseDevMem2(const PVRSRV_DEVMEMCTX psDevMemCtx,
 @Input          uiChunkSize         The size of the chunk
 @Input          ui32NumPhysChunks   The number of physical chunks required
 @Input          ui32NumVirtChunks   The number of virtual chunks required
-@Input			pabMappingTable		boolean based Mapping table
+@Input          pabMappingTable     boolean based Mapping table
 @Input          uiLog2Align         Log2 of the required alignment
+@Input          uiLog2HeapPageSize  Log2 of the heap we map this into
 @Input          uiFlags             Allocation flags
-@Input          pszText     		Text to describe the allocation
+@Input          pszText             Text to describe the allocation
 @Output         hMemDesc
 @Return         PVRSRV_OK on success. Otherwise, a PVRSRV_ error code
 */ /***************************************************************************/
 PVRSRV_ERROR
 PVRSRVAllocSparseDevMem(const PVRSRV_DEVMEMCTX psDevMemCtx,
-						IMG_DEVMEM_SIZE_T uiSize,
-						IMG_DEVMEM_SIZE_T uiChunkSize,
-						IMG_UINT32 ui32NumPhysChunks,
-						IMG_UINT32 ui32NumVirtChunks,
-						IMG_BOOL *pabMappingTable,
-						IMG_DEVMEM_LOG2ALIGN_T uiLog2Align,
-						DEVMEM_FLAGS_T uiFlags,
-						IMG_PCHAR pszText,
-						PVRSRV_MEMDESC *hMemDesc);
+                        IMG_DEVMEM_SIZE_T uiSize,
+                        IMG_DEVMEM_SIZE_T uiChunkSize,
+                        IMG_UINT32 ui32NumPhysChunks,
+                        IMG_UINT32 ui32NumVirtChunks,
+                        IMG_BOOL *pabMappingTable,
+                        IMG_DEVMEM_LOG2ALIGN_T uiLog2Align,
+                        IMG_UINT32 uiLog2HeapPageSize,
+                        DEVMEM_FLAGS_T uiFlags,
+                        const IMG_CHAR *pszText,
+                        PVRSRV_MEMDESC *hMemDesc);
 
 /**************************************************************************/ /*!
-@Function       PVRSRVGetLog2PageSize
+@Function       PVRSRVGetOSLog2PageSize
 @Description    Just call AFTER setting up the connection to the kernel module
                 otherwise it will run into an assert.
-                Gives the log2 of the page size that is currently utilised by
-                devmem.
+                Gives the log2 of the page size that is utilised by the OS.
 
 @Return         The page size
 */ /***************************************************************************/
 
-IMG_UINT32 PVRSRVGetLog2PageSize(void);
+IMG_UINT32 PVRSRVGetOSLog2PageSize(void);
 
 /**************************************************************************/ /*!
 @Function       PVRSRVGetHeapLog2PageSize
@@ -537,18 +561,23 @@ PVRSRV_ERROR
 PVRSRVGetHeapLog2PageSize(PVRSRV_HEAP hHeap, IMG_UINT32* puiLog2PageSize);
 
 /**************************************************************************/ /*!
-@Function       PVRSRVGetHeapLog2ImportAlignment
-@Description    Queries the import alignment of a passed heap.
+@Function       PVRSRVGetHeapTilingProperties
+@Description    Queries the import alignment and tiling stride conversion
+                factor of a passed heap.
 
-@Input          hHeap                   Heap that is queried
-@Output         puiLog2ImportAlignment  Log2 import alignment will be
-                                        returned in this
+@Input          hHeap                      Heap that is queried
+@Output         puiLog2ImportAlignment     Log2 import alignment will be
+                                           returned in this
+@Output         puiLog2TilingStrideFactor  Log2 alignment to tiling stride
+                                           conversion factor will be returned
+                                           in this
 
 @Return         PVRSRV_OK on success. Otherwise, a PVRSRV error code
 */ /***************************************************************************/
 PVRSRV_ERROR
-PVRSRVGetHeapLog2ImportAlignment(PVRSRV_HEAP hHeap,
-                                 IMG_UINT32* puiLog2ImportAlignment);
+PVRSRVGetHeapTilingProperties(PVRSRV_HEAP hHeap,
+                              IMG_UINT32* puiLog2ImportAlignment,
+                              IMG_UINT32* puiLog2TilingStrideFactor);
 
 /**************************************************************************/ /*!
 @Function PVRSRVMakeLocalImportHandle
@@ -734,9 +763,6 @@ PVRSRVDevmemPin(PVRSRV_MEMDESC hMemDesc);
 
 @Return         PVRSRV_ERROR:   PVRSRV_OK on success.
 
-                                PVRSRV_ERROR_NOT_SUPPORTED if the PMR
-                                factory does not allow unpinning.
-
                                 PVRSRV_ERROR_INVALID_PARAMS if the passed
                                 allocation is not a multiple of the heap page
                                 size but was allocated with
@@ -752,6 +778,19 @@ PVRSRVDevmemPin(PVRSRV_MEMDESC hMemDesc);
 */ /***************************************************************************/
 extern PVRSRV_ERROR
 PVRSRVDevmemUnpin(PVRSRV_MEMDESC hMemDesc);
+
+
+/**************************************************************************/ /*!
+@Function       PVRSRVDevmemGetSize
+@Description    Returns the allocated size for this device-memory.
+
+@Input          hMemDesc handle to memory allocation
+@Output         puiSize return value for size
+@Return         PVRSRV_OK on success or
+                PVRSRV_ERROR_INVALID_PARAMS
+*/ /***************************************************************************/
+extern PVRSRV_ERROR
+PVRSRVDevmemGetSize(PVRSRV_MEMDESC hMemDesc, IMG_DEVMEM_SIZE_T* puiSize);
 
 
 /**************************************************************************/ /*!
@@ -826,6 +865,26 @@ PVRSRVAcquireRemoteDevMemContext(PVRSRV_DEVMEMCTX hDevmemCtx,
 */ /***************************************************************************/
 extern void
 PVRSRVReleaseRemoteDevMemContext(PVRSRV_REMOTE_DEVMEMCTX hRemoteCtx);
+
+/*************************************************************************/ /*!
+@Function       PVRSRVRegisterDevmemPageFaultNotify
+@Description    Registers to be notified when a page fault occurs on a
+                specific device memory context.
+@Input          psDevmemCtx     The context to be notified about.
+@Return         PVRSRV_ERROR.
+*/ /**************************************************************************/
+extern PVRSRV_ERROR
+PVRSRVRegisterDevmemPageFaultNotify(PVRSRV_DEVMEMCTX psDevmemCtx);
+
+/*************************************************************************/ /*!
+@Function       PVRSRVUnregisterDevmemPageFaultNotify
+@Description    Unegisters to be notified when a page fault occurs on a
+                specific device memory context.
+@Input          psDevmemCtx     The context to be unregistered from.
+@Return         PVRSRV_ERROR.
+*/ /**************************************************************************/
+extern PVRSRV_ERROR
+PVRSRVUnregisterDevmemPageFaultNotify(PVRSRV_DEVMEMCTX psDevmemCtx);
 
 #if defined __cplusplus
 };

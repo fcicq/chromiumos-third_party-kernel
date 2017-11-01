@@ -250,6 +250,7 @@ TRACE_EVENT(ath10k_wmi_dbglog,
 	TP_STRUCT__entry(
 		__string(device, dev_name(ar->dev))
 		__string(driver, dev_driver_string(ar->dev))
+		__field(u8, hw_type);
 		__field(size_t, buf_len)
 		__dynamic_array(u8, buf, buf_len)
 	),
@@ -257,14 +258,16 @@ TRACE_EVENT(ath10k_wmi_dbglog,
 	TP_fast_assign(
 		__assign_str(device, dev_name(ar->dev));
 		__assign_str(driver, dev_driver_string(ar->dev));
+		__entry->hw_type = ar->hw_rev;
 		__entry->buf_len = buf_len;
 		memcpy(__get_dynamic_array(buf), buf, buf_len);
 	),
 
 	TP_printk(
-		"%s %s len %zu",
+		"%s %s %d len %zu",
 		__get_str(driver),
 		__get_str(device),
+		__entry->hw_type,
 		__entry->buf_len
 	)
 );
@@ -277,6 +280,7 @@ TRACE_EVENT(ath10k_htt_pktlog,
 	TP_STRUCT__entry(
 		__string(device, dev_name(ar->dev))
 		__string(driver, dev_driver_string(ar->dev))
+		__field(u8, hw_type);
 		__field(u16, buf_len)
 		__dynamic_array(u8, pktlog, buf_len)
 	),
@@ -284,14 +288,16 @@ TRACE_EVENT(ath10k_htt_pktlog,
 	TP_fast_assign(
 		__assign_str(device, dev_name(ar->dev));
 		__assign_str(driver, dev_driver_string(ar->dev));
+		__entry->hw_type = ar->hw_rev;
 		__entry->buf_len = buf_len;
 		memcpy(__get_dynamic_array(pktlog), buf, buf_len);
 	),
 
 	TP_printk(
-		"%s %s size %hu",
+		"%s %s %d size %hu",
 		__get_str(driver),
 		__get_str(device),
+		__entry->hw_type,
 		__entry->buf_len
 	 )
 );
@@ -440,6 +446,7 @@ TRACE_EVENT(ath10k_htt_rx_desc,
 	TP_STRUCT__entry(
 		__string(device, dev_name(ar->dev))
 		__string(driver, dev_driver_string(ar->dev))
+		__field(u8, hw_type);
 		__field(u16, len)
 		__dynamic_array(u8, rxdesc, len)
 	),
@@ -447,14 +454,16 @@ TRACE_EVENT(ath10k_htt_rx_desc,
 	TP_fast_assign(
 		__assign_str(device, dev_name(ar->dev));
 		__assign_str(driver, dev_driver_string(ar->dev));
+		__entry->hw_type = ar->hw_rev;
 		__entry->len = len;
 		memcpy(__get_dynamic_array(rxdesc), data, len);
 	),
 
 	TP_printk(
-		"%s %s rxdesc len %d",
+		"%s %s %d rxdesc len %d",
 		__get_str(driver),
 		__get_str(device),
+		__entry->hw_type,
 		__entry->len
 	 )
 );
@@ -527,6 +536,314 @@ TRACE_EVENT(ath10k_wmi_diag,
 	)
 );
 
+TRACE_EVENT(ath10k_update_delay_stats,
+	    TP_PROTO(struct ath10k *ar, struct sk_buff *skb, u32 now,
+		     u32 enqueue_time, u32 delay, u8 ac),
+
+	TP_ARGS(ar, skb, now, enqueue_time, delay, ac),
+
+	TP_STRUCT__entry(
+		__string(device, dev_name(ar->dev))
+		__field(void *, skb)
+		__field(u32, now)
+		__field(u32, enqueue_time)
+		__field(u32, delay)
+		__field(u8, ac)
+	),
+
+	TP_fast_assign(
+		__assign_str(device, dev_name(ar->dev));
+		__entry->skb = skb;
+		__entry->now = now;
+		__entry->enqueue_time = enqueue_time;
+		__entry->delay = delay;
+		__entry->ac = ac;
+	),
+
+	TP_printk(
+		"%s: skb:%p enq:%u tx_done:%u, delay:%u ms ac:%d",
+		__get_str(device),
+		__entry->skb,
+		__entry->enqueue_time,
+		__entry->now,
+		__entry->delay,
+		__entry->ac
+	)
+);
+
+#define MAC_ENTRY(entry_mac) __array(u8, entry_mac, ETH_ALEN)
+#define MAC_ASSIGN(entry_mac, given_mac) do {			     \
+	if (given_mac)						     \
+		memcpy(__entry->entry_mac, given_mac, ETH_ALEN);     \
+	else							     \
+		eth_zero_addr(__entry->entry_mac);		     \
+	} while (0)
+#define MAC_PR_FMT "%pMF"
+#define MAC_PR_ARG(entry_mac) (__entry->entry_mac)
+
+TRACE_EVENT(ath10k_atf_upd,
+	    TP_PROTO(struct ath10k *ar, u32 airtime, struct sk_buff *skb,
+		     struct ieee80211_txq *txq),
+
+	TP_ARGS(ar, airtime, skb, txq),
+
+	TP_STRUCT__entry(
+		__string(device, dev_name(ar->dev))
+		MAC_ENTRY(mac_addr)
+		__field(u32, len)
+		__field(u32, airtime)
+		__field(u32, bitrate)
+		__field(int, deficit)
+		__field(int, total_airtime_pending)
+		__field(int, total_frames)
+		__field(void *, skb)
+		__field(int, txq_airtime)
+		__field(int, txq_frames)
+		__field(u8, tid)
+	),
+
+	TP_fast_assign(
+		struct atf_scheduler *atf;
+		struct ath10k_txq *artxq;
+
+		artxq = (void *)txq->drv_priv;
+		atf = &artxq->atf;
+		__assign_str(device, dev_name(ar->dev));
+		__entry->len = skb->len;
+		__entry->airtime = airtime;
+
+		__entry->deficit = atf->deficit;
+		__entry->tid = txq->tid;
+		__entry->txq_airtime = atf->airtime_inflight;
+		__entry->txq_frames = atf->frames_inflight;
+		__entry->total_airtime_pending  = ar->airtime_inflight;
+		__entry->total_frames = ar->htt.num_pending_tx;
+
+		__entry->skb = skb;
+		if (txq->sta) {
+			__entry->bitrate = txq->sta->last_tx_bitrate;
+			MAC_ASSIGN(mac_addr, txq->sta->addr);
+		} else {
+			__entry->bitrate = 0;
+			MAC_ASSIGN(mac_addr, txq->sta);
+		}
+	),
+
+	TP_printk(
+		"%s: sta mac: " MAC_PR_FMT " tid:%d skb:%p len:%d AT:%u rate:%u"
+		" deficit:%d TOT:%d %d TXQ:%d %d",
+		__get_str(device),
+		MAC_PR_ARG(mac_addr),
+		__entry->tid,
+		__entry->skb,
+		__entry->len,
+		__entry->airtime,
+		__entry->bitrate,
+		__entry->deficit,
+		__entry->total_airtime_pending,
+		__entry->total_frames,
+		__entry->txq_airtime,
+		__entry->txq_frames
+	)
+);
+
+TRACE_EVENT(ath10k_atf_tx_complete,
+	    TP_PROTO(struct ath10k *ar, struct sk_buff *skb, u32 airtime,
+		     struct ieee80211_txq *txq),
+
+	TP_ARGS(ar, skb, airtime, txq),
+
+	TP_STRUCT__entry(
+		__string(device, dev_name(ar->dev))
+		MAC_ENTRY(mac_addr)
+		__field(u32, airtime)
+		__field(u32, len)
+		__field(int, deficit)
+		__field(int, total_airtime_pending)
+		__field(int, total_frames)
+		__field(void *, skb)
+		__field(int, txq_airtime)
+		__field(int, txq_frames)
+		__field(u8, tid)
+	),
+
+	TP_fast_assign(
+		struct atf_scheduler *atf;
+		struct ath10k_txq *artxq;
+
+		artxq = (void *)txq->drv_priv;
+		atf = &artxq->atf;
+		__assign_str(device, dev_name(ar->dev));
+		__entry->airtime = airtime;
+
+		__entry->deficit = atf->deficit;
+		__entry->tid = txq->tid;
+		__entry->txq_airtime = atf->airtime_inflight;
+		__entry->txq_frames = atf->frames_inflight;
+
+		__entry->total_airtime_pending  = ar->airtime_inflight;
+		__entry->total_frames = ar->htt.num_pending_tx;
+		__entry->skb = skb;
+		if (skb)
+			__entry->len = skb->len;
+
+		if (txq->sta)
+			MAC_ASSIGN(mac_addr, txq->sta->addr);
+		else
+			MAC_ASSIGN(mac_addr, txq->sta);
+	),
+
+	TP_printk(
+		"%s: sta mac: " MAC_PR_FMT " tid:%d skb:%p len:%d AT:%u"
+		" deficit:%d TOT:%d %d  TXQ:%d %d",
+		__get_str(device),
+		MAC_PR_ARG(mac_addr),
+		__entry->tid,
+		__entry->skb,
+		__entry->len,
+		__entry->airtime,
+		__entry->deficit,
+		__entry->total_airtime_pending,
+		__entry->total_frames,
+		__entry->txq_airtime,
+		__entry->txq_frames
+	)
+);
+
+TRACE_EVENT(ath10k_atf_refill_deficit,
+	    TP_PROTO(struct ath10k *ar, struct ieee80211_txq *txq, bool reset),
+
+	TP_ARGS(ar, txq, reset),
+
+	TP_STRUCT__entry(
+		__string(device, dev_name(ar->dev))
+		MAC_ENTRY(mac_addr)
+		__field(int, deficit)
+		__field(int, total_airtime_pending)
+		__field(u32, total_frames)
+		__field(int, txq_airtime)
+		__field(u32, txq_frames)
+		__field(u32, txq_bytes_send)
+		__field(u32, total_bytes_send)
+		__field(u8, tid)
+		__field(bool, reset)
+	),
+	TP_fast_assign(
+		struct atf_scheduler *atf;
+		struct ath10k_txq *artxq;
+
+		artxq = (void *)txq->drv_priv;
+		atf = &artxq->atf;
+		__assign_str(device, dev_name(ar->dev));
+		__entry->deficit = atf->deficit;
+		__entry->tid = txq->tid;
+		__entry->txq_airtime = atf->airtime_inflight;
+		__entry->txq_frames = atf->frames_inflight;
+		__entry->txq_bytes_send = atf->bytes_send_last_interval;
+		__entry->total_bytes_send = ar->atf_bytes_send_last_interval;
+		__entry->reset = reset;
+
+		__entry->total_airtime_pending  = ar->airtime_inflight;
+		__entry->total_frames = ar->htt.num_pending_tx;
+		if (txq->sta)
+			MAC_ASSIGN(mac_addr, txq->sta->addr);
+		else
+			MAC_ASSIGN(mac_addr, txq->sta);
+	),
+
+	TP_printk(
+		"%s: sta mac: " MAC_PR_FMT " tid:%d deficit:%d TOT:%d %d"
+		" TXQ:%d %d reset:%d bytes_send:%u %u",
+		__get_str(device),
+		MAC_PR_ARG(mac_addr),
+		__entry->tid,
+		__entry->deficit,
+		__entry->total_airtime_pending,
+		__entry->total_frames,
+		__entry->txq_airtime,
+		__entry->txq_frames,
+		__entry->reset,
+		__entry->total_bytes_send,
+		__entry->txq_bytes_send
+	)
+);
+
+TRACE_EVENT(ath10k_htt_rx_tx_fetch_ind,
+	    TP_PROTO(struct ath10k *ar, int i, u16 peer_id, u32 max_num_msdus,
+		     u32 max_bytes, u32 num_msdus, u32 bytes,
+		     struct ieee80211_txq *txq),
+
+	TP_ARGS(ar, i, peer_id, max_num_msdus, max_bytes, num_msdus, bytes,
+		txq),
+
+	TP_STRUCT__entry(
+		__string(device, dev_name(ar->dev))
+		MAC_ENTRY(mac_addr)
+		__field(int, i)
+		__field(u16, peer_id)
+		__field(u8, tid)
+		__field(u32, max_num_msdus)
+		__field(u32, max_bytes)
+		__field(u32, num_msdus)
+		__field(u32, bytes)
+		__field(int, deficit)
+		__field(int, total_airtime_pending)
+		__field(int, total_frames)
+		__field(int, txq_airtime)
+		__field(int, txq_frames)
+		__field(u32, txq_bytes_send)
+		__field(u32, total_bytes_send)
+	),
+
+	TP_fast_assign(
+		struct atf_scheduler *atf;
+		struct ath10k_txq *artxq;
+
+		artxq = (void *)txq->drv_priv;
+		atf = &artxq->atf;
+		__assign_str(device, dev_name(ar->dev));
+		__entry->i = i;
+		__entry->peer_id = peer_id;
+		__entry->tid = txq->tid;
+		__entry->max_num_msdus  = max_num_msdus;
+		__entry->max_bytes  = max_bytes;
+		__entry->num_msdus  = num_msdus;
+		__entry->bytes  = bytes;
+		__entry->deficit = atf->deficit;
+		__entry->txq_frames = atf->frames_inflight;
+		__entry->txq_airtime = atf->airtime_inflight;
+		__entry->txq_bytes_send = atf->bytes_send_last_interval;
+		__entry->total_bytes_send = ar->atf_bytes_send_last_interval;
+		__entry->total_airtime_pending  = ar->airtime_inflight;
+		__entry->total_frames = ar->htt.num_pending_tx;
+		if (txq->sta)
+			MAC_ASSIGN(mac_addr, txq->sta->addr);
+		else
+			MAC_ASSIGN(mac_addr, txq->sta);
+	),
+
+	TP_printk(
+		"%s record %d sta mac: " MAC_PR_FMT "peer_id %hu tid %hhu "
+		"max_msdus %zu max_bytes %zu msdus %zu bytes %zu deficit:%d "
+		"TOT:%d %d TXQ:%d %d bytes_send:%u %u\n",
+		__get_str(device),
+		__entry->i,
+		MAC_PR_ARG(mac_addr),
+		__entry->peer_id,
+		__entry->tid,
+		__entry->max_num_msdus,
+		__entry->max_bytes,
+		__entry->num_msdus,
+		__entry->bytes,
+		__entry->deficit,
+		__entry->total_airtime_pending,
+		__entry->total_frames,
+		__entry->txq_airtime,
+		__entry->txq_frames,
+		__entry->total_bytes_send,
+		__entry->txq_bytes_send
+	)
+);
 #endif /* _TRACE_H_ || TRACE_HEADER_MULTI_READ*/
 
 /* we don't want to use include/trace/events */

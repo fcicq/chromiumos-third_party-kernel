@@ -43,15 +43,17 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include "img_defs.h"
 #include "img_types.h"
+#include "device.h"
 #include "pvrsrv_memallocflags.h"
 #include "pvrsrv.h"
 
-static INLINE IMG_UINT32 DevmemCPUCacheMode(PVRSRV_MEMALLOCFLAGS_T ulFlags)
+static INLINE IMG_UINT32 DevmemCPUCacheMode(PVRSRV_DEVICE_NODE *psDeviceNode,
+											PVRSRV_MEMALLOCFLAGS_T ulFlags)
 {
-	IMG_UINT32 ui32CPUCacheMode = ulFlags & PVRSRV_MEMALLOCFLAG_CPU_CACHE_MODE_MASK;
+	IMG_UINT32 ui32CPUCacheMode = PVRSRV_CPU_CACHE_MODE(ulFlags);
 	IMG_UINT32 ui32Ret;
 
-	PVR_ASSERT(ui32CPUCacheMode == (ulFlags & PVRSRV_MEMALLOCFLAG_CPU_CACHE_MODE_MASK));
+	PVR_ASSERT(ui32CPUCacheMode == PVRSRV_CPU_CACHE_MODE(ulFlags));
 
 	switch (ui32CPUCacheMode)
 	{
@@ -68,25 +70,26 @@ static INLINE IMG_UINT32 DevmemCPUCacheMode(PVRSRV_MEMALLOCFLAGS_T ulFlags)
 			break;
 
 		case PVRSRV_MEMALLOCFLAG_CPU_CACHE_COHERENT:
-			/* Fall through */
-		case PVRSRV_MEMALLOCFLAG_CPU_CACHED_CACHE_COHERENT:
+
 			/*
-				If the allocation needs to be coherent what we end up doing
-				depends on the snooping features of the system
+			 * If system has no coherency but coherency has been requested for CPU
+			 * and GPU we currently have to fall back to uncached.
+			 *
+			 * Usually the first case here should return an error but as long as a lot
+			 * of services allocations using both CPU/GPU coherency flags and rely on
+			 * the UNCACHED fallback we have to leave it here.
 			*/
-			if (PVRSRVSystemSnoopingOfCPUCache())
+			if ( (PVRSRV_GPU_CACHE_MODE(ulFlags) == PVRSRV_MEMALLOCFLAG_GPU_CACHE_COHERENT) &&
+				!(PVRSRVSystemSnoopingOfCPUCache(psDeviceNode->psDevConfig) && PVRSRVSystemSnoopingOfDeviceCache(psDeviceNode->psDevConfig)) )
 			{
-				/*
-					If the system has CPU cache snooping (tested above)
-					then the allocation should be cached ...
-				*/
-				ui32Ret = PVRSRV_MEMALLOCFLAG_CPU_CACHED;
+				ui32Ret = PVRSRV_MEMALLOCFLAG_CPU_UNCACHED;
 			}
 			else
 			{
-				/* ... otherwise it should be uncached */
-				ui32Ret = PVRSRV_MEMALLOCFLAG_CPU_UNCACHED;
+				ui32Ret = PVRSRV_MEMALLOCFLAG_CPU_CACHED;
 			}
+
+			break;
 			break;
 
 		default:
@@ -103,12 +106,13 @@ static INLINE IMG_UINT32 DevmemCPUCacheMode(PVRSRV_MEMALLOCFLAGS_T ulFlags)
 	return ui32Ret;
 }
 
-static INLINE IMG_UINT32 DevmemDeviceCacheMode(PVRSRV_MEMALLOCFLAGS_T ulFlags)
+static INLINE IMG_UINT32 DevmemDeviceCacheMode(PVRSRV_DEVICE_NODE *psDeviceNode,
+											   PVRSRV_MEMALLOCFLAGS_T ulFlags)
 {
-	IMG_UINT32 ui32DeviceCacheMode = ulFlags & PVRSRV_MEMALLOCFLAG_GPU_CACHE_MODE_MASK;
+	IMG_UINT32 ui32DeviceCacheMode = PVRSRV_GPU_CACHE_MODE(ulFlags);
 	IMG_UINT32 ui32Ret;
 
-	PVR_ASSERT(ui32DeviceCacheMode == (ulFlags & PVRSRV_MEMALLOCFLAG_GPU_CACHE_MODE_MASK));
+	PVR_ASSERT(ui32DeviceCacheMode == PVRSRV_GPU_CACHE_MODE(ulFlags));
 
 	switch (ui32DeviceCacheMode)
 	{
@@ -125,25 +129,25 @@ static INLINE IMG_UINT32 DevmemDeviceCacheMode(PVRSRV_MEMALLOCFLAGS_T ulFlags)
 			break;
 
 		case PVRSRV_MEMALLOCFLAG_GPU_CACHE_COHERENT:
-			/* Fall through */
-		case PVRSRV_MEMALLOCFLAG_GPU_CACHED_CACHE_COHERENT:
+
 			/*
-				If the allocation needs to be coherent what we end up doing
-				depends on the snooping features of the system
+			 * If system has no coherency but coherency has been requested for CPU
+			 * and GPU we currently have to fall back to uncached.
+			 *
+			 * Usually the first case here should return an error but as long as a lot
+			 * of services allocations using both CPU/GPU coherency flags and rely on
+			 * the UNCACHED fallback we have to leave it here.
 			*/
-			if (PVRSRVSystemSnoopingOfDeviceCache())
+			if ( (PVRSRV_CPU_CACHE_MODE(ulFlags) == PVRSRV_MEMALLOCFLAG_CPU_CACHE_COHERENT) &&
+				!(PVRSRVSystemSnoopingOfCPUCache(psDeviceNode->psDevConfig) && PVRSRVSystemSnoopingOfDeviceCache(psDeviceNode->psDevConfig)) )
 			{
-				/*
-					If the system has GPU cache snooping (tested above)
-					then the allocation should be cached ...
-				*/
-				ui32Ret = PVRSRV_MEMALLOCFLAG_GPU_CACHED;
+				ui32Ret = PVRSRV_MEMALLOCFLAG_GPU_UNCACHED;
 			}
 			else
 			{
-				/* ... otherwise it should be uncached */
-				ui32Ret = PVRSRV_MEMALLOCFLAG_GPU_UNCACHED;
+				ui32Ret = PVRSRV_MEMALLOCFLAG_GPU_CACHED;
 			}
+
 			break;
 
 		default:
@@ -160,32 +164,32 @@ static INLINE IMG_UINT32 DevmemDeviceCacheMode(PVRSRV_MEMALLOCFLAGS_T ulFlags)
 	return ui32Ret;
 }
 
-static INLINE IMG_BOOL DevmemCPUCacheCoherency(PVRSRV_MEMALLOCFLAGS_T ulFlags)
+static INLINE IMG_BOOL DevmemCPUCacheCoherency(PVRSRV_DEVICE_NODE *psDeviceNode,
+											   PVRSRV_MEMALLOCFLAGS_T ulFlags)
 {
-	IMG_UINT32 ui32CPUCacheMode = ulFlags & PVRSRV_MEMALLOCFLAG_CPU_CACHE_MODE_MASK;
+	IMG_UINT32 ui32CPUCacheMode = PVRSRV_CPU_CACHE_MODE(ulFlags);
 	IMG_BOOL bRet = IMG_FALSE;
 
-	PVR_ASSERT(ui32CPUCacheMode == (ulFlags & PVRSRV_MEMALLOCFLAG_CPU_CACHE_MODE_MASK));
+	PVR_ASSERT(ui32CPUCacheMode == PVRSRV_CPU_CACHE_MODE(ulFlags));
 
-	if ((ui32CPUCacheMode == PVRSRV_MEMALLOCFLAG_CPU_CACHE_COHERENT) ||
-		(ui32CPUCacheMode == PVRSRV_MEMALLOCFLAG_CPU_CACHED_CACHE_COHERENT))
+	if (ui32CPUCacheMode == PVRSRV_MEMALLOCFLAG_CPU_CACHE_COHERENT)
 	{
-		bRet = PVRSRVSystemSnoopingOfDeviceCache();
+		bRet = PVRSRVSystemSnoopingOfDeviceCache(psDeviceNode->psDevConfig);
 	}
 	return bRet;
 }
 
-static INLINE IMG_BOOL DevmemDeviceCacheCoherency(PVRSRV_MEMALLOCFLAGS_T ulFlags)
+static INLINE IMG_BOOL DevmemDeviceCacheCoherency(PVRSRV_DEVICE_NODE *psDeviceNode,
+												  PVRSRV_MEMALLOCFLAGS_T ulFlags)
 {
-	IMG_UINT32 ui32DeviceCacheMode = ulFlags & PVRSRV_MEMALLOCFLAG_GPU_CACHE_MODE_MASK;
+	IMG_UINT32 ui32DeviceCacheMode = PVRSRV_GPU_CACHE_MODE(ulFlags);
 	IMG_BOOL bRet = IMG_FALSE;
 
-	PVR_ASSERT(ui32DeviceCacheMode == (ulFlags & PVRSRV_MEMALLOCFLAG_GPU_CACHE_MODE_MASK));
+	PVR_ASSERT(ui32DeviceCacheMode == PVRSRV_GPU_CACHE_MODE(ulFlags));
 
-	if ((ui32DeviceCacheMode == PVRSRV_MEMALLOCFLAG_GPU_CACHE_COHERENT) ||
-		(ui32DeviceCacheMode == PVRSRV_MEMALLOCFLAG_GPU_CACHED_CACHE_COHERENT))
+	if (ui32DeviceCacheMode == PVRSRV_MEMALLOCFLAG_GPU_CACHE_COHERENT)
 	{
-		bRet = PVRSRVSystemSnoopingOfCPUCache();
+		bRet = PVRSRVSystemSnoopingOfCPUCache(psDeviceNode->psDevConfig);
 	}
 	return bRet;
 }

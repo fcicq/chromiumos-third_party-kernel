@@ -44,14 +44,15 @@ struct mtk_mfg {
 	/* for gpu device freq/volt update */
 	struct regulator *vgpu;
 	struct clk *mmpll;
+	struct clk *top_mfg;
+	struct clk *top_mmpll;
+	struct clk *clk26m;
 
 	struct thermal_zone_device *tz;
 };
 
-
-/* used in mtk_module.c  */
-int MTKMFGBaseInit(struct device *dev);
-void MTKMFGBaseDeInit(struct device *dev);
+struct mtk_mfg *mtk_mfg_create(struct device *dev);
+void mtk_mfg_destroy(struct mtk_mfg *mfg);
 
 int mtk_mfg_enable(struct mtk_mfg *mfg);
 void mtk_mfg_disable(struct mtk_mfg *mfg);

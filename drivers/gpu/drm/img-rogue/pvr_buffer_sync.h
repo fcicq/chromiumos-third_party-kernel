@@ -3,6 +3,7 @@
 /*************************************************************************/ /*!
 @File
 @Title          PowerVR Linux buffer sync interface
+@Codingstyle    LinuxKernel
 @Copyright      Copyright (c) Imagination Technologies Ltd. All Rights Reserved
 @License        Dual MIT/GPLv2
 
@@ -45,35 +46,40 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #if !defined(__PVR_BUFFER_SYNC_H__)
 #define __PVR_BUFFER_SYNC_H__
 
-#include "pmr.h"
-#include "rgx_fwif_shared.h"
-
+struct _RGXFWIF_DEV_VIRTADDR_;
+struct _PMR_;
+struct pvr_buffer_sync_context;
 struct pvr_buffer_sync_append_data;
 
-int pvr_buffer_sync_append_start(u32 nr_pmrs,
-				 PMR **pmrs,
+struct pvr_buffer_sync_context *
+pvr_buffer_sync_context_create(void *dev_cookie);
+void pvr_buffer_sync_context_destroy(struct pvr_buffer_sync_context *ctx);
+
+int pvr_buffer_sync_append_start(struct pvr_buffer_sync_context *ctx,
+				 u32 nr_pmrs,
+				 struct _PMR_ **pmrs,
 				 u32 *pmr_flags,
 				 u32 nr_checks,
-				 PRGXFWIF_UFO_ADDR *check_ufo_addresses,
+				 struct _RGXFWIF_DEV_VIRTADDR_ *check_ufo_addrs,
 				 u32 *check_values,
 				 u32 nr_updates,
-				 PRGXFWIF_UFO_ADDR *update_ufo_addresses,
+				 struct _RGXFWIF_DEV_VIRTADDR_ *update_ufo_addrs,
 				 u32 *update_values,
 				 struct pvr_buffer_sync_append_data **data_out);
 void pvr_buffer_sync_append_finish(struct pvr_buffer_sync_append_data *data);
 void pvr_buffer_sync_append_abort(struct pvr_buffer_sync_append_data *data);
 void pvr_buffer_sync_append_checks_get(struct pvr_buffer_sync_append_data *data,
 				       u32 *nr_checks_out,
-				       PRGXFWIF_UFO_ADDR **check_ufo_addresses_out,
+				       struct _RGXFWIF_DEV_VIRTADDR_ **check_ufo_addrs_out,
 				       u32 **check_values_out);
 void pvr_buffer_sync_append_updates_get(struct pvr_buffer_sync_append_data *data,
 					u32 *nr_updates_out,
-					PRGXFWIF_UFO_ADDR **update_ufo_addresses_out,
+					struct _RGXFWIF_DEV_VIRTADDR_ **update_ufo_addrs_out,
 					u32 **update_values_out);
 
-int pvr_buffer_sync_wait(PMR *pmr, bool intr, unsigned long timeout);
-
-int pvr_buffer_sync_init(void);
-void pvr_buffer_sync_deinit(void);
+int pvr_buffer_sync_wait(struct pvr_buffer_sync_context *ctx,
+			 struct _PMR_ *pmr,
+			 bool intr,
+			 unsigned long timeout);
 
 #endif /* !defined(__PVR_BUFFER_SYNC_H__) */

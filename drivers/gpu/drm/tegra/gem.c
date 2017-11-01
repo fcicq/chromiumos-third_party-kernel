@@ -78,6 +78,12 @@ static void *tegra_bo_kmap(struct host1x_bo *bo, unsigned int page)
 {
 	struct tegra_bo *obj = host1x_to_tegra_bo(bo);
 
+	if (page >= obj->num_pages) {
+		WARN(1, "kmap pages beyonds bo's size: (%u : %lu).\n",
+			page, obj->num_pages);
+		return NULL;
+	}
+
 	if (obj->vaddr)
 		return obj->vaddr + page * PAGE_SIZE;
 	else if (obj->gem.import_attach)
@@ -195,7 +201,10 @@ static struct tegra_bo *tegra_bo_alloc_object(struct drm_device *drm,
 
 	host1x_bo_init(&bo->base, &tegra_bo_ops);
 	size = round_up(size, PAGE_SIZE);
-
+	if (!size) {
+		err = -EINVAL;
+		goto free;
+	}
 	err = drm_gem_object_init(drm, &bo->gem, size);
 	if (err < 0)
 		goto free;

@@ -1098,10 +1098,10 @@ static inline int nested_cpu_has_ept(struct vmcs12 *vmcs12)
 	return nested_cpu_has2(vmcs12, SECONDARY_EXEC_ENABLE_EPT);
 }
 
-static inline bool is_exception(u32 intr_info)
+static inline bool is_nmi(u32 intr_info)
 {
 	return (intr_info & (INTR_INFO_INTR_TYPE_MASK | INTR_INFO_VALID_MASK))
-		== (INTR_TYPE_HARD_EXCEPTION | INTR_INFO_VALID_MASK);
+		== (INTR_TYPE_NMI_INTR | INTR_INFO_VALID_MASK);
 }
 
 static void nested_vmx_vmexit(struct kvm_vcpu *vcpu, u32 exit_reason,
@@ -2741,7 +2741,7 @@ static int hardware_enable(void)
 	u64 phys_addr = __pa(per_cpu(vmxarea, cpu));
 	u64 old, test_bits;
 
-	if (read_cr4() & X86_CR4_VMXE)
+	if (cr4_read_shadow() & X86_CR4_VMXE)
 		return -EBUSY;
 
 	INIT_LIST_HEAD(&per_cpu(loaded_vmcss_on_cpu, cpu));
@@ -2768,7 +2768,7 @@ static int hardware_enable(void)
 		/* enable and lock */
 		wrmsrl(MSR_IA32_FEATURE_CONTROL, old | test_bits);
 	}
-	write_cr4(read_cr4() | X86_CR4_VMXE); /* FIXME: not cpu hotplug safe */
+	cr4_set_bits(X86_CR4_VMXE);
 
 	if (vmm_exclusive) {
 		kvm_cpu_vmxon(phys_addr);
@@ -2805,7 +2805,7 @@ static void hardware_disable(void)
 		vmclear_local_loaded_vmcss();
 		kvm_cpu_vmxoff();
 	}
-	write_cr4(read_cr4() & ~X86_CR4_VMXE);
+	cr4_clear_bits(X86_CR4_VMXE);
 }
 
 static __init int adjust_vmx_controls(u32 ctl_min, u32 ctl_opt,
@@ -4277,7 +4277,7 @@ static void vmx_set_constant_host_state(struct vcpu_vmx *vmx)
 	vmcs_writel(HOST_CR3, read_cr3());  /* 22.2.3  FIXME: shadow tables */
 
 	/* Save the most likely value for this task's CR4 in the VMCS. */
-	cr4 = read_cr4();
+	cr4 = cr4_read_shadow();
 	vmcs_writel(HOST_CR4, cr4);			/* 22.2.3, 22.2.5 */
 	vmx->host_state.vmcs_host_cr4 = cr4;
 
@@ -4871,7 +4871,7 @@ static int handle_exception(struct kvm_vcpu *vcpu)
 	if (is_machine_check(intr_info))
 		return handle_machine_check(vcpu);
 
-	if ((intr_info & INTR_INFO_INTR_TYPE_MASK) == INTR_TYPE_NMI_INTR)
+	if (is_nmi(intr_info))
 		return 1;  /* already handled by vmx_vcpu_run() */
 
 	if (is_no_device(intr_info)) {
@@ -6999,8 +6999,8 @@ static bool nested_vmx_exit_handled(struct kvm_vcpu *vcpu)
 
 	switch (exit_reason) {
 	case EXIT_REASON_EXCEPTION_NMI:
-		if (!is_exception(intr_info))
-			return 0;
+		if (is_nmi(intr_info))
+			return false;
 		else if (is_page_fault(intr_info))
 			return enable_ept;
 		else if (is_no_device(intr_info) &&
@@ -7340,8 +7340,7 @@ static void vmx_complete_atomic_exit(struct vcpu_vmx *vmx)
 		kvm_machine_check();
 
 	/* We need to handle NMIs before interrupts are enabled */
-	if ((exit_intr_info & INTR_INFO_INTR_TYPE_MASK) == INTR_TYPE_NMI_INTR &&
-	    (exit_intr_info & INTR_INFO_VALID_MASK)) {
+	if (is_nmi(exit_intr_info)) {
 		kvm_before_handle_nmi(&vmx->vcpu);
 		asm("int $2");
 		kvm_after_handle_nmi(&vmx->vcpu);
@@ -7560,7 +7559,7 @@ static void __noclone vmx_vcpu_run(struct kvm_vcpu *vcpu)
 	if (test_bit(VCPU_REGS_RIP, (unsigned long *)&vcpu->arch.regs_dirty))
 		vmcs_writel(GUEST_RIP, vcpu->arch.regs[VCPU_REGS_RIP]);
 
-	cr4 = read_cr4();
+	cr4 = cr4_read_shadow();
 	if (unlikely(cr4 != vmx->host_state.vmcs_host_cr4)) {
 		vmcs_writel(HOST_CR4, cr4);
 		vmx->host_state.vmcs_host_cr4 = cr4;
@@ -8234,6 +8233,11 @@ static void prepare_vmcs02(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12)
 		vmcs_write64(VIRTUAL_APIC_PAGE_ADDR,
 				page_to_phys(vmx->nested.virtual_apic_page));
 		vmcs_write32(TPR_THRESHOLD, vmcs12->tpr_threshold);
+	} else {
+#ifdef CONFIG_X86_64
+		exec_control |= CPU_BASED_CR8_LOAD_EXITING |
+				CPU_BASED_CR8_STORE_EXITING;
+#endif
 	}
 
 	/*

@@ -19,8 +19,8 @@
 
 #include "htt.h"
 
-void ath10k_txrx_tx_unref(struct ath10k_htt *htt,
-			  const struct htt_tx_done *tx_done);
+int ath10k_txrx_tx_unref(struct ath10k_htt *htt,
+			 const struct htt_tx_done *tx_done);
 
 struct ath10k_peer *ath10k_peer_find(struct ath10k *ar, int vdev_id,
 				     const u8 *addr);
@@ -35,4 +35,5 @@ void ath10k_peer_map_event(struct ath10k_htt *htt,
 void ath10k_peer_unmap_event(struct ath10k_htt *htt,
 			     struct htt_peer_unmap_event *ev);
 
+void ath10k_atf_tx_complete(struct ath10k *ar, struct sk_buff *skb);
 #endif

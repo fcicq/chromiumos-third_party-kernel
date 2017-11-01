@@ -203,9 +203,11 @@ struct bdb_general_features {
 #define DEVICE_PORT_DVOB	0x01
 #define DEVICE_PORT_DVOC	0x02
 
-/* We used to keep this struct but without any version control. We should avoid
+/*
+ * We used to keep this struct but without any version control. We should avoid
  * using it in the future, but it should be safe to keep using it in the old
- * code. */
+ * code. Do not change; we rely on its size.
+ */
 struct old_child_dev_config {
 	u16 handle;
 	u16 device_type;
@@ -231,6 +233,10 @@ struct old_child_dev_config {
 /* This one contains field offsets that are known to be common for all BDB
  * versions. Notice that the meaning of the contents contents may still change,
  * but at least the offsets are consistent. */
+
+/* Definitions for flags_1 */
+#define IBOOST_ENABLE (1<<3)
+
 struct common_child_dev_config {
 	u16 handle;
 	u16 device_type;
@@ -239,7 +245,12 @@ struct common_child_dev_config {
 	u8 not_common2[2];
 	u8 ddc_pin;
 	u16 edid_ptr;
+	u8 obsolete;
+	u8 flags_1;
+	u8 not_common3[13];
+	u8 iboost_level;
 } __packed;
+
 
 /* This field changes depending on the BDB version, so the most reliable way to
  * read it is by checking the BDB version and reading the raw pointer. */
@@ -577,7 +588,6 @@ struct bdb_psr {
 	struct psr_table psr_table[16];
 } __packed;
 
-void intel_setup_bios(struct drm_device *dev);
 int intel_parse_bios(struct drm_device *dev);
 
 /*

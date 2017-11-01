@@ -516,7 +516,7 @@ static int skl_set_module_format(struct skl_sst *ctx,
 
 	dev_dbg(ctx->dev, "Module type=%d config size: %d bytes\n",
 			module_config->id.module_id, param_size);
-	print_hex_dump(KERN_DEBUG, "Module params:", DUMP_PREFIX_OFFSET, 8, 4,
+	print_hex_dump_debug("Module params:", DUMP_PREFIX_OFFSET, 8, 4,
 			*param_data, param_size, false);
 	return 0;
 }
@@ -603,7 +603,7 @@ static void skl_clear_module_state(struct skl_module_pin *mpin, int max,
 	}
 
 	if (!found)
-		mcfg->m_state = SKL_MODULE_UNINIT;
+		mcfg->m_state = SKL_MODULE_INIT_DONE;
 	return;
 }
 
@@ -688,14 +688,14 @@ int skl_unbind_modules(struct skl_sst *ctx,
 	/* get src queue index */
 	src_index = skl_get_queue_index(src_mcfg->m_out_pin, dst_id, out_max);
 	if (src_index < 0)
-		return -EINVAL;
+		return 0;
 
 	msg.src_queue = src_index;
 
 	/* get dst queue index */
 	dst_index  = skl_get_queue_index(dst_mcfg->m_in_pin, src_id, in_max);
 	if (dst_index < 0)
-		return -EINVAL;
+		return 0;
 
 	msg.dst_queue = dst_index;
 
@@ -747,7 +747,7 @@ int skl_bind_modules(struct skl_sst *ctx,
 
 	skl_dump_bind_info(ctx, src_mcfg, dst_mcfg);
 
-	if (src_mcfg->m_state < SKL_MODULE_INIT_DONE &&
+	if (src_mcfg->m_state < SKL_MODULE_INIT_DONE ||
 		dst_mcfg->m_state < SKL_MODULE_INIT_DONE)
 		return 0;
 

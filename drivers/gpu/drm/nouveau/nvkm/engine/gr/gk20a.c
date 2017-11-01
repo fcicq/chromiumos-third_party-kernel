@@ -285,6 +285,29 @@ error:
 	return err;
 }
 
+static int
+gk20a_gr_halt_fecs(struct nvkm_gr *gr)
+{
+	struct gf100_gr_priv *priv = (void *)gr;
+	struct fecs_method_op_gk20a op;
+	int ret;
+
+	op.mailbox.id = FECS_CTX_MAILBOX_1;
+	op.mailbox.data = ~0;
+	op.mailbox.clr = ~0;
+	op.mailbox.ret = NULL;
+	op.mailbox.ok = 1; /* PASS*/
+	op.mailbox.fail = 2; /* FAIL */
+	op.cond.ok = GR_IS_UCODE_OP_EQUAL;
+	op.cond.fail = GR_IS_UCODE_OP_EQUAL;
+	op.method.data = ~0;
+	op.method.addr = 0x00000004; /* HALT_PIPELINE */
+
+	ret = gk20a_gr_submit_fecs_method_op(priv, &op);
+	nv_error(priv, "FECS halted(%d)\n", ret);
+	return ret;
+}
+
 static void
 gk20a_gr_init_dtor(struct gf100_gr_pack *pack)
 {
@@ -414,7 +437,7 @@ gk20a_gr_ctor(struct nvkm_object *parent, struct nvkm_object *engine,
 	struct gf100_gr_priv *priv;
 	struct gf100_gr_fuc fuc;
 
-	err = gf100_gr_ctor(parent, engine, oclass, data, size, pobject);
+	err = gf110_gr_ctor(parent, engine, oclass, data, size, pobject);
 	if (err)
 		return err;
 
@@ -514,6 +537,7 @@ gk20a_gr_init(struct nvkm_object *object)
 	gf100_gr_mmio(priv, priv->fuc_sw_nonctx);
 
 	gr->wait_idle = gk20a_gr_engine_wait_idle;
+	gr->halt_fecs = gk20a_gr_halt_fecs;
 
 	ret = gk20a_gr_wait_mem_scrubbing(priv);
 	if (ret)
@@ -590,6 +614,7 @@ gk20a_gr_init(struct nvkm_object *object)
 	nv_wr32(priv, 0x400134, 0xffffffff);
 
 	gf100_gr_zbc_init(priv);
+	gf100_gr_zcull_info_init(priv);
 
 	/* Missing LTC CBC init? */
 

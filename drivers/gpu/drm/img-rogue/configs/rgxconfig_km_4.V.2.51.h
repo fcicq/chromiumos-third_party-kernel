@@ -42,8 +42,8 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #ifndef _RGXCONFIG_KM_4_V_2_51_H_
 #define _RGXCONFIG_KM_4_V_2_51_H_
 
-/***** Automatically generated file (23/07/2015 12:44:37): Do not edit manually ********************/
-/***** Timestamp:  (23/07/2015 12:44:37)************************************************************/
+/***** Automatically generated file (22/02/2016 07:00:34): Do not edit manually ********************/
+/***** Timestamp:  (22/02/2016 07:00:34)************************************************************/
 
 #define RGX_BNC_KM_B 4
 #define RGX_BNC_KM_N 2
@@ -72,6 +72,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #define RGX_FEATURE_FBCDC_ARCHITECTURE (2)
 #define RGX_FEATURE_META_COREMEM_SIZE (32)
 #define RGX_FEATURE_COMPUTE 
+#define RGX_FEATURE_COMPUTE_OVERLAP 
 
 
 #endif /* _RGXCONFIG_4_V_2_51_H_ */

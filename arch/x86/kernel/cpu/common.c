@@ -20,6 +20,7 @@
 #include <asm/hypervisor.h>
 #include <asm/processor.h>
 #include <asm/virtext.h>
+#include <asm/tlbflush.h>
 #include <asm/debugreg.h>
 #include <asm/sections.h>
 #include <asm/vsyscall.h>
@@ -172,6 +173,40 @@ static int __init x86_xsaves_setup(char *s)
 }
 __setup("noxsaves", x86_xsaves_setup);
 
+#ifdef CONFIG_X86_64
+static int __init x86_pcid_setup(char *s)
+{
+	/* require an exact match without trailing characters */
+	if (strlen(s))
+		return 0;
+
+	/* do not emit a message if the feature is not present */
+	if (!boot_cpu_has(X86_FEATURE_PCID))
+		return 1;
+
+	setup_clear_cpu_cap(X86_FEATURE_PCID);
+	pr_info("nopcid: PCID feature disabled\n");
+	return 1;
+}
+__setup("nopcid", x86_pcid_setup);
+#endif
+
+static int __init x86_noinvpcid_setup(char *s)
+{
+	/* noinvpcid doesn't accept parameters */
+	if (s)
+		return -EINVAL;
+
+	/* do not emit a message if the feature is not present */
+	if (!boot_cpu_has(X86_FEATURE_INVPCID))
+		return 0;
+
+	setup_clear_cpu_cap(X86_FEATURE_INVPCID);
+	pr_info("noinvpcid: INVPCID feature disabled\n");
+	return 0;
+}
+early_param("noinvpcid", x86_noinvpcid_setup);
+
 #ifdef CONFIG_X86_32
 static int cachesize_override = -1;
 static int disable_x86_serial_nr = 1;
@@ -279,7 +314,7 @@ __setup("nosmep", setup_disable_smep);
 static __always_inline void setup_smep(struct cpuinfo_x86 *c)
 {
 	if (cpu_has(c, X86_FEATURE_SMEP))
-		set_in_cr4(X86_CR4_SMEP);
+		cr4_set_bits(X86_CR4_SMEP);
 }
 
 static __init int setup_disable_smap(char *arg)
@@ -299,10 +334,29 @@ static __always_inline void setup_smap(struct cpuinfo_x86 *c)
 
 	if (cpu_has(c, X86_FEATURE_SMAP)) {
 #ifdef CONFIG_X86_SMAP
-		set_in_cr4(X86_CR4_SMAP);
+		cr4_set_bits(X86_CR4_SMAP);
 #else
-		clear_in_cr4(X86_CR4_SMAP);
+		cr4_clear_bits(X86_CR4_SMAP);
 #endif
+	}
+}
+
+static void setup_pcid(struct cpuinfo_x86 *c)
+{
+	if (cpu_has(c, X86_FEATURE_PCID)) {
+		if (cpu_has(c, X86_FEATURE_PGE)) {
+			cr4_set_bits(X86_CR4_PCIDE);
+		} else {
+			/*
+			 * flush_tlb_all(), as currently implemented, won't
+			 * work if PCID is on but PGE is not.  Since that
+			 * combination doesn't exist on real hardware, there's
+			 * no reason to try to fully support it, but it's
+			 * polite to avoid corrupting data if we're on
+			 * an improperly configured VM.
+			 */
+			clear_cpu_cap(c, X86_FEATURE_PCID);
+		}
 	}
 }
 
@@ -896,6 +950,9 @@ static void identify_cpu(struct cpuinfo_x86 *c)
 	setup_smep(c);
 	setup_smap(c);
 
+	/* Set up PCID */
+	setup_pcid(c);
+
 	/*
 	 * The vendor-specific functions might have changed features.
 	 * Now we do "generic changes."
@@ -1384,6 +1441,12 @@ void cpu_init(void)
 	wait_for_master_cpu(cpu);
 
 	/*
+	 * Initialize the CR4 shadow before doing anything that could
+	 * try to read it.
+	 */
+	cr4_init_shadow();
+
+	/*
 	 * Load microcode on this cpu if a valid microcode is available.
 	 * This is early microcode loading procedure.
 	 */
@@ -1402,7 +1465,7 @@ void cpu_init(void)
 
 	pr_debug("Initializing CPU#%d\n", cpu);
 
-	clear_in_cr4(X86_CR4_VME|X86_CR4_PVI|X86_CR4_TSD|X86_CR4_DE);
+	cr4_clear_bits(X86_CR4_VME|X86_CR4_PVI|X86_CR4_TSD|X86_CR4_DE);
 
 	/*
 	 * Initialize the per-CPU GDT with the boot GDT,
@@ -1456,7 +1519,7 @@ void cpu_init(void)
 	load_sp0(t, &current->thread);
 	set_tss_desc(cpu, t);
 	load_TR_desc();
-	load_LDT(&init_mm.context);
+	load_mm_ldt(&init_mm);
 
 	clear_all_debug_regs();
 	dbg_restore_debug_regs();
@@ -1485,7 +1548,7 @@ void cpu_init(void)
 	pr_info("Initializing CPU#%d\n", cpu);
 
 	if (cpu_feature_enabled(X86_FEATURE_VME) || cpu_has_tsc || cpu_has_de)
-		clear_in_cr4(X86_CR4_VME|X86_CR4_PVI|X86_CR4_TSD|X86_CR4_DE);
+		cr4_clear_bits(X86_CR4_VME|X86_CR4_PVI|X86_CR4_TSD|X86_CR4_DE);
 
 	load_current_idt();
 	switch_to_new_gdt(cpu);
@@ -1501,7 +1564,7 @@ void cpu_init(void)
 	load_sp0(t, thread);
 	set_tss_desc(cpu, t);
 	load_TR_desc();
-	load_LDT(&init_mm.context);
+	load_mm_ldt(&init_mm);
 
 	t->x86_tss.io_bitmap_base = offsetof(struct tss_struct, io_bitmap);
 

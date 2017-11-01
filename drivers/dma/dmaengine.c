@@ -816,8 +816,6 @@ int dma_async_device_register(struct dma_device *device)
 		!device->device_prep_dma_sg);
 	BUG_ON(dma_has_cap(DMA_CYCLIC, device->cap_mask) &&
 		!device->device_prep_dma_cyclic);
-	BUG_ON(dma_has_cap(DMA_SLAVE, device->cap_mask) &&
-		!device->device_control);
 	BUG_ON(dma_has_cap(DMA_INTERLEAVE, device->cap_mask) &&
 		!device->device_prep_interleaved_dma);
 
@@ -980,12 +978,14 @@ static struct dmaengine_unmap_pool *__get_unmap_pool(int nr)
 	switch (order) {
 	case 0 ... 1:
 		return &unmap_pool[0];
+#if IS_ENABLED(CONFIG_DMA_ENGINE_RAID)
 	case 2 ... 4:
 		return &unmap_pool[1];
 	case 5 ... 7:
 		return &unmap_pool[2];
 	case 8:
 		return &unmap_pool[3];
+#endif
 	default:
 		BUG();
 		return NULL;

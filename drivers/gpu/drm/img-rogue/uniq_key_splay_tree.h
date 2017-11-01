@@ -45,21 +45,14 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #define UNIQ_KEY_SPLAY_TREE_H_
 
 #include "img_types.h"
+#include "pvr_intrinsics.h"
 
-#if defined(__GNUC__) && defined(__x86_64__)
-  /* note, the 64 bits requirements should not be necessary.
-     Unfortunately, linking against the __ctzdi function (in 32bits) failed.  */
-
-  #define HAS_BUILTIN_CTZLL
-#endif
-
-#if defined(HAS_BUILTIN_CTZLL)
-  /* if the compiler can provide this builtin, then map the is_bucket_n_free?
-     into an int. This way, the driver can find the first non empty without loop */
-
+#if defined(PVR_CTZLL)
+  /* map the is_bucket_n_free to an int.
+   * This way, the driver can find the first non empty without loop
+   */
   typedef IMG_UINT64 IMG_ELTS_MAPPINGS;
 #endif
-
 
 /* head of list of free boundary tags for indexed by pvr_log2 of the
    boundary tag size */
@@ -77,13 +70,11 @@ typedef struct img_splay_tree
 
     /* Flags to match on this span, used as the key. */
     IMG_UINT32 ui32Flags;
-
-#if defined(HAS_BUILTIN_CTZLL)
+#if defined(PVR_CTZLL)
 	/* each bit of this int is a boolean telling if the corresponding
 	   bucket is empty or not */
     IMG_ELTS_MAPPINGS bHasEltsMapping;
 #endif
-	
 	struct _BT_ * buckets[FREE_TABLE_LIMIT];
 } IMG_SPLAY_TREE, *IMG_PSPLAY_TREE;
 

@@ -1,3 +1,5 @@
+/* -*- mode: c; indent-tabs-mode: t; c-basic-offset: 8; tab-width: 8 -*- */
+/* vi: set ts=8 sw=8 sts=8: */
 /*************************************************************************/ /*!
 @File           services_kernel_client.h
 @Copyright      Copyright (c) Imagination Technologies Ltd. All Rights Reserved
@@ -38,7 +40,6 @@ COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */ /**************************************************************************/
-/* vi: set ts=8: */
 
 /* This file contains a partial redefinition of the PowerVR Services 5
  * interface for use by components which are checkpatch clean. This
@@ -49,17 +50,16 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #ifndef __SERVICES_KERNEL_CLIENT__
 #define __SERVICES_KERNEL_CLIENT__
 
-#include "debug_request_ids.h"
 #include "pvrsrv_error.h"
 
 #include <linux/types.h>
 
 #ifndef __pvrsrv_defined_struct_enum__
 
-/* pvrsrv_device_types.h */
+/* rgx_fwif_shared.h */
 
-enum PVRSRV_DEVICE_TYPE {
-	PVRSRV_DEVICE_TYPE_RGX = 10,
+struct _RGXFWIF_DEV_VIRTADDR_ {
+	__u32 ui32Addr;
 };
 
 /* sync_external.h */
@@ -77,55 +77,78 @@ struct PVRSRV_CLIENT_SYNC_PRIM_OP {
 
 #else /* __pvrsrv_defined_struct_enum__ */
 
-enum PVRSRV_DEVICE_TYPE;
+struct _RGXFWIF_DEV_VIRTADDR_;
+
 struct PVRSRV_CLIENT_SYNC_PRIM;
 struct PVRSRV_CLIENT_SYNC_PRIM_OP;
 
 #endif /* __pvrsrv_defined_struct_enum__ */
 
+struct _PMR_;
 struct _PVRSRV_DEVICE_NODE_;
+struct dma_buf;
 struct SYNC_PRIM_CONTEXT;
 
-/* pvrsrv.h */
-
-#define DEBUG_REQUEST_VERBOSITY_LOW    0
-#define DEBUG_REQUEST_VERBOSITY_MEDIUM 1
-#define DEBUG_REQUEST_VERBOSITY_HIGH   2
-#define DEBUG_REQUEST_VERBOSITY_MAX    (DEBUG_REQUEST_VERBOSITY_HIGH)
-
-typedef void (DUMPDEBUG_PRINTF_FUNC)(const char *fmt, ...) __printf(1, 2);
-
-extern DUMPDEBUG_PRINTF_FUNC *g_pfnDumpDebugPrintf;
+/* pvr_notifier.h */
 
 typedef void (*PFN_CMDCOMP_NOTIFY)(void *hCmdCompHandle);
 enum PVRSRV_ERROR PVRSRVRegisterCmdCompleteNotify(void **phNotify,
 	PFN_CMDCOMP_NOTIFY pfnCmdCompleteNotify, void *hPrivData);
 enum PVRSRV_ERROR PVRSRVUnregisterCmdCompleteNotify(void *hNotify);
+void PVRSRVCheckStatus(void *hCmdCompCallerHandle);
+
+#define DEBUG_REQUEST_DC               0
+#define DEBUG_REQUEST_SERVERSYNC       1
+#define DEBUG_REQUEST_SYS              2
+#define DEBUG_REQUEST_ANDROIDSYNC      3
+#define DEBUG_REQUEST_LINUXFENCE       4
+#define DEBUG_REQUEST_SYNCCHECKPOINT   5
+#define DEBUG_REQUEST_HTB              6
+#define DEBUG_REQUEST_APPHINT          7
+
+#define DEBUG_REQUEST_VERBOSITY_LOW    0
+#define DEBUG_REQUEST_VERBOSITY_MEDIUM 1
+#define DEBUG_REQUEST_VERBOSITY_HIGH   2
+#define DEBUG_REQUEST_VERBOSITY_MAX    DEBUG_REQUEST_VERBOSITY_HIGH
+
+typedef void (DUMPDEBUG_PRINTF_FUNC)(void *pvDumpDebugFile,
+	const char *fmt, ...) __printf(2, 3);
 
 typedef void (*PFN_DBGREQ_NOTIFY) (void *hDebugRequestHandle,
-	__u32 ui32VerbLevel);
+	__u32 ui32VerbLevel,
+	DUMPDEBUG_PRINTF_FUNC *pfnDumpDebugPrintf,
+	void *pvDumpDebugFile);
 enum PVRSRV_ERROR PVRSRVRegisterDbgRequestNotify(void **phNotify,
+	struct _PVRSRV_DEVICE_NODE_ *psDevNode,
 	PFN_DBGREQ_NOTIFY pfnDbgRequestNotify,
-	__u32 ui32RequesterID, void *hDbgReqeustHandle);
+	__u32 ui32RequesterID,
+	void *hDbgRequestHandle);
 enum PVRSRV_ERROR PVRSRVUnregisterDbgRequestNotify(void *hNotify);
 
-enum PVRSRV_ERROR PVRSRVAcquireDeviceDataKM(__u32 ui32DevIndex,
-	enum PVRSRV_DEVICE_TYPE eDeviceType, void **phDevCookie);
-enum PVRSRV_ERROR PVRSRVReleaseDeviceDataKM(void *hDevCookie);
-void PVRSRVCheckStatus(void *hCmdCompCallerHandle);
-enum PVRSRV_ERROR AcquireGlobalEventObjectServer(void **phGlobalEventObject);
-enum PVRSRV_ERROR ReleaseGlobalEventObjectServer(void *hGlobalEventObject);
+/* physmem_dmabuf.h */
+
+struct dma_buf *PhysmemGetDmaBuf(struct _PMR_ *psPMR);
+
+/* pvrsrv.h */
+
+enum PVRSRV_ERROR PVRSRVAcquireGlobalEventObjectKM(void **phGlobalEventObject);
+enum PVRSRV_ERROR PVRSRVReleaseGlobalEventObjectKM(void *hGlobalEventObject);
 
 /* sync.h */
 
-enum PVRSRV_ERROR SyncPrimContextCreate(struct _PVRSRV_DEVICE_NODE_ *psDevConnection,
+enum PVRSRV_ERROR SyncPrimContextCreate(
+	struct _PVRSRV_DEVICE_NODE_ *psDevConnection,
 	struct SYNC_PRIM_CONTEXT **phSyncPrimContext);
 void SyncPrimContextDestroy(struct SYNC_PRIM_CONTEXT *hSyncPrimContext);
 
 enum PVRSRV_ERROR SyncPrimAlloc(struct SYNC_PRIM_CONTEXT *hSyncPrimContext,
-	struct PVRSRV_CLIENT_SYNC_PRIM **ppsSync, const char * pszClassName);
-void SyncPrimFree(struct PVRSRV_CLIENT_SYNC_PRIM *psSync);
-__u32 SyncPrimGetFirmwareAddr(struct PVRSRV_CLIENT_SYNC_PRIM *psSync);
+	struct PVRSRV_CLIENT_SYNC_PRIM **ppsSync, const char *pszClassName);
+enum PVRSRV_ERROR SyncPrimFree(struct PVRSRV_CLIENT_SYNC_PRIM *psSync);
+enum PVRSRV_ERROR SyncPrimGetFirmwareAddr(
+	struct PVRSRV_CLIENT_SYNC_PRIM *psSync,
+	__u32 *sync_addr);
+enum PVRSRV_ERROR SyncPrimSet(struct PVRSRV_CLIENT_SYNC_PRIM *psSync,
+	__u32 ui32Value);
 
 /* pdump_km.h */
 
@@ -142,14 +165,16 @@ static inline enum PVRSRV_ERROR __printf(1, 2) PDumpComment(char *fmt, ...)
 
 void OSAcquireBridgeLock(void);
 void OSReleaseBridgeLock(void);
-void PMRLock(void);
-void PMRUnlock(void);
 enum PVRSRV_ERROR OSEventObjectWait(void *hOSEventKM);
 enum PVRSRV_ERROR OSEventObjectOpen(void *hEventObject, void **phOSEventKM);
 enum PVRSRV_ERROR OSEventObjectClose(void *hOSEventKM);
 
 /* srvkm.h */
 
+enum PVRSRV_ERROR PVRSRVDeviceCreate(void *pvOSDevice,
+	struct _PVRSRV_DEVICE_NODE_ **ppsDeviceNode);
+enum PVRSRV_ERROR PVRSRVDeviceDestroy(
+	struct _PVRSRV_DEVICE_NODE_ *psDeviceNode);
 const char *PVRSRVGetErrorStringKM(enum PVRSRV_ERROR eError);
 
 #endif /* __SERVICES_KERNEL_CLIENT__ */

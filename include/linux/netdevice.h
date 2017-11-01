@@ -753,6 +753,16 @@ struct netdev_phys_port_id {
 typedef u16 (*select_queue_fallback_t)(struct net_device *dev,
 				       struct sk_buff *skb);
 
+#ifdef CONFIG_RFS_ACCEL
+typedef int (*set_rfs_filter_callback_t)(struct net_device *dev,
+                                     __be32 src,
+                                     __be32 dst,
+                                     __be16 sport,
+                                     __be16 dport,
+                                     u8 proto,
+                                     u16 rxq_index,
+                                     u32 action);
+#endif
 /*
  * This structure defines the management hooks for network devices.
  * The following hooks can be defined; unless noted otherwise, they are
@@ -998,12 +1008,15 @@ typedef u16 (*select_queue_fallback_t)(struct net_device *dev,
  *	Callback to use for xmit over the accelerated station. This
  *	is used in place of ndo_start_xmit on accelerated net
  *	devices.
- * bool	(*ndo_gso_check) (struct sk_buff *skb,
- *			  struct net_device *dev);
+ * netdev_features_t (*ndo_features_check) (struct sk_buff *skb,
+ *					    struct net_device *dev
+ *					    netdev_features_t features);
  *	Called by core transmit path to determine if device is capable of
- *	performing GSO on a packet. The device returns true if it is
- *	able to GSO the packet, false otherwise. If the return value is
- *	false the stack will do software GSO.
+ *	performing offload operations on a given packet. This is to give
+ *	the device an opportunity to implement any restrictions that cannot
+ *	be otherwise expressed by feature flags. The check is called with
+ *	the set of features that the stack has calculated and it returns
+ *	those the driver believes to be appropriate.
  */
 struct net_device_ops {
 	int			(*ndo_init)(struct net_device *dev);
@@ -1098,6 +1111,9 @@ struct net_device_ops {
 						     const struct sk_buff *skb,
 						     u16 rxq_index,
 						     u32 flow_id);
+        int                     (*ndo_register_rfs_filter)(struct net_device *dev,
+                                                              set_rfs_filter_callback_t set_filter);
+        int                     (*ndo_get_default_vlan_tag)(struct net_device *net);
 #endif
 	int			(*ndo_add_slave)(struct net_device *dev,
 						 struct net_device *slave_dev);
@@ -1153,8 +1169,9 @@ struct net_device_ops {
 							struct net_device *dev,
 							void *priv);
 	int			(*ndo_get_lock_subclass)(struct net_device *dev);
-	bool			(*ndo_gso_check) (struct sk_buff *skb,
-						  struct net_device *dev);
+	netdev_features_t	(*ndo_features_check) (struct sk_buff *skb,
+						       struct net_device *dev,
+						       netdev_features_t features);
 };
 
 /**
@@ -1191,6 +1208,7 @@ struct net_device_ops {
  * @IFF_LIVE_ADDR_CHANGE: device supports hardware address
  *	change when it's running
  * @IFF_MACVLAN: Macvlan device
+ * @IFF_NO_QUEUE: device can run without qdisc attached
  */
 enum netdev_priv_flags {
 	IFF_802_1Q_VLAN			= 1<<0,
@@ -1218,6 +1236,7 @@ enum netdev_priv_flags {
 	IFF_XMIT_DST_RELEASE_PERM	= 1<<22,
 	IFF_IPVLAN_MASTER		= 1<<23,
 	IFF_IPVLAN_SLAVE		= 1<<24,
+	IFF_NO_QUEUE			= 1<<26,
 };
 
 #define IFF_802_1Q_VLAN			IFF_802_1Q_VLAN
@@ -1245,6 +1264,7 @@ enum netdev_priv_flags {
 #define IFF_XMIT_DST_RELEASE_PERM	IFF_XMIT_DST_RELEASE_PERM
 #define IFF_IPVLAN_MASTER		IFF_IPVLAN_MASTER
 #define IFF_IPVLAN_SLAVE		IFF_IPVLAN_SLAVE
+#define IFF_NO_QUEUE			IFF_NO_QUEUE
 
 /**
  *	struct net_device - The DEVICE structure.
@@ -1894,8 +1914,8 @@ struct napi_gro_cb {
 	/* Used in ipv6_gro_receive() and foo-over-udp */
 	u16	proto;
 
-	/* Used in udp_gro_receive */
-	u8	udp_mark:1;
+	/* Used in tunnel GRO receive */
+	u8	encap_mark:1;
 
 	/* GRO checksum is valid */
 	u8	csum_valid:1;
@@ -1906,6 +1926,9 @@ struct napi_gro_cb {
 	/* Used in foo-over-udp, set in udp[46]_gro_receive */
 	u8	is_ipv6:1;
 
+	/* Number of gro_receive callbacks this packet already went through */
+	u8 recursion_counter:4;
+
 	/* used to support CHECKSUM_COMPLETE for tunneling protocols */
 	__wsum	csum;
 
@@ -1914,6 +1937,40 @@ struct napi_gro_cb {
 };
 
 #define NAPI_GRO_CB(skb) ((struct napi_gro_cb *)(skb)->cb)
+
+#define GRO_RECURSION_LIMIT 15
+static inline int gro_recursion_inc_test(struct sk_buff *skb)
+{
+	return ++NAPI_GRO_CB(skb)->recursion_counter == GRO_RECURSION_LIMIT;
+}
+
+typedef struct sk_buff **(*gro_receive_t)(struct sk_buff **, struct sk_buff *);
+static inline struct sk_buff **call_gro_receive(gro_receive_t cb,
+						struct sk_buff **head,
+						struct sk_buff *skb)
+{
+	if (unlikely(gro_recursion_inc_test(skb))) {
+		NAPI_GRO_CB(skb)->flush |= 1;
+		return NULL;
+	}
+
+	return cb(head, skb);
+}
+
+typedef struct sk_buff **(*gro_receive_sk_t)(struct sock *, struct sk_buff **,
+					     struct sk_buff *);
+static inline struct sk_buff **call_gro_receive_sk(gro_receive_sk_t cb,
+						   struct sock *sk,
+						   struct sk_buff **head,
+						   struct sk_buff *skb)
+{
+	if (unlikely(gro_recursion_inc_test(skb))) {
+		NAPI_GRO_CB(skb)->flush |= 1;
+		return NULL;
+	}
+
+	return cb(sk, head, skb);
+}
 
 struct packet_type {
 	__be16			type;	/* This is really htons(ether_type). */
@@ -3588,8 +3645,6 @@ static inline bool netif_needs_gso(struct net_device *dev, struct sk_buff *skb,
 				   netdev_features_t features)
 {
 	return skb_is_gso(skb) && (!skb_gso_ok(skb, features) ||
-		(dev->netdev_ops->ndo_gso_check &&
-		 !dev->netdev_ops->ndo_gso_check(skb, dev)) ||
 		unlikely((skb->ip_summed != CHECKSUM_PARTIAL) &&
 			 (skb->ip_summed != CHECKSUM_UNNECESSARY)));
 }
