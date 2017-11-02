@@ -64,10 +64,7 @@ static int esdfs_d_revalidate(struct dentry *dentry, unsigned int flags)
 
 	spin_lock(&dentry->d_lock);
 
-	if (lower_dentry->d_name.len != dentry->d_name.len ||
-	    strncasecmp(lower_dentry->d_name.name,
-			dentry->d_name.name,
-			dentry->d_name.len) != 0) {
+	if (!qstr_case_eq(&lower_dentry->d_name, &dentry->d_name)) {
 		err = 0;
 		__d_drop(dentry);	/* already holding spin lock */
 	}
@@ -136,7 +133,7 @@ static int esdfs_d_compare(const struct dentry *parent,
 	alen = vfat_striptail_len(name);
 	blen = __vfat_striptail_len(len, str);
 	if (alen == blen) {
-		if (strncasecmp(name->name, str, alen) == 0)
+		if (str_n_case_eq(name->name, str, alen))
 			return 0;
 	}
 	return 1;
