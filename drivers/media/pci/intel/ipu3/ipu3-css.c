@@ -2072,6 +2072,9 @@ int ipu3_css_set_parameters(struct ipu3_css *css,
 
 	/* Get a new gdc only if a new gdc is given, or none yet */
 	if (bi->info.isp.sp.enable.dvs_6axis) {
+		unsigned int a = IPU3_CSS_AUX_FRAME_REF;
+		unsigned int g = IPU3_CSS_RECT_GDC;
+		unsigned int e = IPU3_CSS_RECT_ENVELOPE;
 		if (set_params && !set_params->use.gdc)
 			set_gdc = NULL;
 		if (set_gdc || !ipu3_css_pool_last(&css->pool.gdc, 0)->vaddr) {
@@ -2080,14 +2083,16 @@ int ipu3_css_set_parameters(struct ipu3_css *css,
 
 			map = ipu3_css_pool_last(&css->pool.gdc, 0);
 			gdc =  map->vaddr;
-			s = IPU3_CSS_AUX_FRAME_REF;
 			/* Config geometric distortion correction table (gdc) */
 			ipu3_css_cfg_gdc_table(gdc,
-				css->aux_frames[s].bytesperline /
-				css->aux_frames[s].bytesperpixel,
-				css->aux_frames[s].height,
-				css->rect[IPU3_CSS_RECT_GDC].width,
-				css->rect[IPU3_CSS_RECT_GDC].height);
+					       css->aux_frames[a].bytesperline /
+					       css->aux_frames[a].bytesperpixel,
+					       css->aux_frames[a].height,
+					       css->rect[g].width,
+					       css->rect[g].height,
+					       css->rect[e].width + FILTER_SIZE,
+					       css->rect[e].height +
+					       FILTER_SIZE);
 		}
 	}
 

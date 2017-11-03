@@ -101,5 +101,6 @@ int ipu3_css_cfg_dmem0(struct ipu3_css *css, struct ipu3_uapi_flags *use,
 			struct ipu3_uapi_params *user);
 
 void ipu3_css_cfg_gdc_table(struct ipu3_uapi_gdc_warp_param *gdc,
-				int frame_in_x, int frame_in_y,
-				int frame_out_x, int frame_out_y);
+			    int frame_in_x, int frame_in_y,
+			    int frame_out_x, int frame_out_y,
+			    int env_w, int env_h);

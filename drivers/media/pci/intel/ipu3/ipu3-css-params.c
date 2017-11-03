@@ -3069,15 +3069,16 @@ int ipu3_css_cfg_dmem0(struct ipu3_css *css, struct ipu3_uapi_flags *use,
 /* Generate unity morphing table without morphing effect */
 void ipu3_css_cfg_gdc_table(struct ipu3_uapi_gdc_warp_param *gdc,
 			    int frame_in_x, int frame_in_y,
-			    int frame_out_x, int frame_out_y)
+			    int frame_out_x, int frame_out_y,
+			    int env_w, int env_h)
 {
 	static const unsigned int S = IPU3_UAPI_GDC_FRAC_BITS;
-	static const unsigned int XMEM_ALIGN = 4;
+	static const unsigned int XMEM_ALIGN = 1 << 4;
 	const unsigned int XMEM_ALIGN_MASK = ~(XMEM_ALIGN - 1);
 	static const unsigned int BCI_ENV = 4;
 	static const unsigned int BYP = 2;	/* Bytes per pixel */
-	const unsigned int OFFSET_X = 2 * IMGU_DVS_BLOCK_W + 1;
-	const unsigned int OFFSET_Y = IMGU_DVS_BLOCK_H + 1;
+	const unsigned int OFFSET_X = 2 * IMGU_DVS_BLOCK_W + env_w + 1;
+	const unsigned int OFFSET_Y = IMGU_DVS_BLOCK_H + env_h + 1;
 
 	struct ipu3_uapi_gdc_warp_param gdc_luma, gdc_chroma;
 
@@ -3110,7 +3111,8 @@ void ipu3_css_cfg_gdc_table(struct ipu3_uapi_gdc_warp_param *gdc,
 
 	/* Global chroma settings */
 	gdc_chroma.origin_x = gdc_chroma.origin_y = 0;
-	gdc_chroma.p0_x = 0;
+	gdc_chroma.p0_x = (OFFSET_X / 2 -
+			   ((OFFSET_X / 2) & XMEM_ALIGN_MASK)) << S;
 	gdc_chroma.p0_y = 0;
 	gdc_chroma.p1_x = gdc_chroma.p0_x + (IMGU_DVS_BLOCK_W << S);
 	gdc_chroma.p1_y = gdc_chroma.p0_y;
