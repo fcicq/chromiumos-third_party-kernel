@@ -84,6 +84,7 @@ obj-$(CONFIG_DRM_STI) += sti/
 obj-$(CONFIG_DRM_IMX) += imx/
 obj-$(CONFIG_DRM_MEDIATEK) += mediatek/
 obj-$(CONFIG_DRM_POWERVR_ROGUE_1_8) += img-rogue/1.8/
+obj-$(CONFIG_DRM_POWERVR_ROGUE_1_9) += img-rogue/1.9/
 obj-y			+= i2c/
 obj-y			+= panel/
 obj-y			+= bridge/
