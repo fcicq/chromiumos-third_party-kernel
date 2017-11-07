@@ -34,7 +34,9 @@
 #define RT5514_CLK_CTRL1			0x2104
 #define RT5514_CLK_CTRL2			0x2108
 #define RT5514_PLL3_CALIB_CTRL1			0x2110
+#define RT5514_PLL3_CALIB_CTRL4			0x2120
 #define RT5514_PLL3_CALIB_CTRL5			0x2124
+#define RT5514_PLL3_CALIB_CTRL6			0x2128
 #define RT5514_DELAY_BUF_CTRL1			0x2140
 #define RT5514_DELAY_BUF_CTRL3			0x2148
 #define RT5514_DOWNFILTER0_CTRL1		0x2190
@@ -254,7 +256,7 @@ struct rt5514_priv {
 	struct rt5514_platform_data pdata;
 	struct snd_soc_codec *codec;
 	struct regmap *i2c_regmap, *regmap;
-	struct clk *mclk;
+	struct clk *mclk, *dsp_calib_clk;
 	int sysclk;
 	int sysclk_src;
 	int lrck;
@@ -265,6 +267,7 @@ struct rt5514_priv {
 	int dsp_enabled;
 	u8 *model_buf;
 	unsigned int model_len;
+	unsigned int pll3_cal_value;
 };
 
 #endif /* __RT5514_H__ */
