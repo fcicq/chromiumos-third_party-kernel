@@ -1016,6 +1016,10 @@ static struct sst_codecs kbl_5663_5514_codecs = {
 	.codecs = {"10EC5663", "10EC5514"}
 };
 
+static struct sst_codecs kbl_7219_98357_codecs = {
+        .num_codecs = 1,
+        .codecs = {"MX98357A"}
+};
 
 static struct sst_acpi_mach sst_skl_devdata[] = {
 	{
@@ -1099,6 +1103,14 @@ static struct sst_acpi_mach sst_kbl_devdata[] = {
 		.id = "10EC5663",
 		.drv_name = "kbl_rt5663",
 		.fw_filename = "intel/dsp_fw_kbl.bin",
+	},
+	{
+		.id = "DLGS7219",
+		.drv_name = "kbl_da7219_max98357a",
+		.fw_filename = "intel/dsp_fw_kbl.bin",
+		.machine_quirk = sst_acpi_codec_list,
+		.quirk_data = &kbl_7219_98357_codecs,
+                .pdata = &skl_dmic_data
 	},
 
 	{}
