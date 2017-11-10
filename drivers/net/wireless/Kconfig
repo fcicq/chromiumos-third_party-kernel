@@ -113,4 +113,5 @@ config USB_NET_RNDIS_WLAN
 
 	  If you choose to build a module, it'll be called rndis_wlan.
 
+source "drivers/net/wireless/iwl7000/Kconfig"
 endif # WLAN
