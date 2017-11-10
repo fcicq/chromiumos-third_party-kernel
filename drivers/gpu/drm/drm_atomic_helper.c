@@ -34,6 +34,7 @@
 #include <linux/dma-fence.h>
 #include <linux/dma-fence-array.h>
 
+#include "drm_crtc_helper_internal.h"
 #include "drm_crtc_internal.h"
 
 /**
@@ -444,6 +445,69 @@ mode_fixup(struct drm_atomic_state *state)
 	return 0;
 }
 
+static enum drm_mode_status mode_valid_path(struct drm_connector *connector,
+					    struct drm_encoder *encoder,
+					    struct drm_crtc *crtc,
+					    struct drm_display_mode *mode)
+{
+	enum drm_mode_status ret;
+
+	ret = drm_encoder_mode_valid(encoder, mode);
+	if (ret != MODE_OK) {
+		DRM_DEBUG_ATOMIC("[ENCODER:%d:%s] mode_valid() failed\n",
+				encoder->base.id, encoder->name);
+		return ret;
+	}
+
+	ret = drm_bridge_mode_valid(encoder->bridge, mode);
+	if (ret != MODE_OK) {
+		DRM_DEBUG_ATOMIC("[BRIDGE] mode_valid() failed\n");
+		return ret;
+	}
+
+	ret = drm_crtc_mode_valid(crtc, mode);
+	if (ret != MODE_OK) {
+		DRM_DEBUG_ATOMIC("[CRTC:%d:%s] mode_valid() failed\n",
+				crtc->base.id, crtc->name);
+		return ret;
+	}
+
+	return ret;
+}
+
+static int
+mode_valid(struct drm_atomic_state *state)
+{
+	struct drm_connector_state *conn_state;
+	struct drm_connector *connector;
+	int i;
+
+	for_each_connector_in_state(state, connector, conn_state, i) {
+		struct drm_encoder *encoder = conn_state->best_encoder;
+		struct drm_crtc *crtc = conn_state->crtc;
+		struct drm_crtc_state *crtc_state;
+		enum drm_mode_status mode_status;
+		struct drm_display_mode *mode;
+
+		if (!crtc || !encoder)
+			continue;
+
+		crtc_state = drm_atomic_get_crtc_state(state, crtc);
+		if (!crtc_state)
+			continue;
+		if (!crtc_state->mode_changed && !crtc_state->connectors_changed)
+			continue;
+
+		mode = &crtc_state->mode;
+
+		mode_status = mode_valid_path(connector, encoder, crtc, mode);
+		if (mode_status != MODE_OK)
+			return -EINVAL;
+	}
+
+	return 0;
+}
+
 /**
  * drm_atomic_helper_check_modeset - validate state object for modeset changes
  * @dev: DRM device
@@ -567,6 +631,10 @@ drm_atomic_helper_check_modeset(struct drm_device *dev,
 			return -EINVAL;
 		}
 	}
+
+	ret = mode_valid(state);
+	if (ret)
+		return ret;
 
 	return mode_fixup(state);
 }
