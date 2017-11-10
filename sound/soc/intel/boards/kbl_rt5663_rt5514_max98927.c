@@ -175,12 +175,12 @@ static const struct snd_soc_dapm_route kabylake_map[] = {
 	/* CODEC BE connections */
 	{ "Left HiFi Playback", NULL, "ssp0 Tx" },
 	{ "Right HiFi Playback", NULL, "ssp0 Tx" },
-	{ "ssp0 Tx", NULL, "spk_out" },
+	{ "ssp0 Tx", NULL, "codec0_out" },
 
 	{ "AIF Playback", NULL, "ssp1 Tx" },
 	{ "ssp1 Tx", NULL, "codec1_out" },
 
-	{ "hs_in", NULL, "ssp1 Rx" },
+	{ "codec0_in", NULL, "ssp1 Rx" },
 	{ "ssp1 Rx", NULL, "AIF Capture" },
 
 	{ "codec1_in", NULL, "ssp0 Rx" },
