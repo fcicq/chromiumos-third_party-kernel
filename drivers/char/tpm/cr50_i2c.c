@@ -435,7 +435,9 @@ static int cr50_i2c_tis_recv(struct tpm_chip *chip, u8 *buf, size_t buf_len)
 	/* Determine expected data in the return buffer */
 	expected = be32_to_cpup((__be32 *)(buf + 2));
 	if (expected > buf_len) {
-		dev_err(&chip->dev, "Too much data in FIFO\n");
+		dev_err(&chip->dev, "Too much data in FIFO: %zu > %zu\n",
+			expected, buf_len);
+		rc = -EIO;
 		goto out_err;
 	}
 
