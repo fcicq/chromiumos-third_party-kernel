@@ -93,10 +93,12 @@ static int hammer_input_configured(struct hid_device *hdev,
 {
 	struct usb_interface *intf = to_usb_interface(hdev->dev.parent);
 
-	if (intf->cur_altsetting->desc.bInterfaceProtocol ==
-	    USB_INTERFACE_PROTOCOL_KEYBOARD) {
-		int err = hammer_register_leds(hdev);
+	struct list_head *report_list =
+		&hdev->report_enum[HID_OUTPUT_REPORT].report_list;
 
+	if (intf->cur_altsetting->desc.bInterfaceProtocol ==
+	    USB_INTERFACE_PROTOCOL_KEYBOARD && !list_empty(report_list)) {
+		int err = hammer_register_leds(hdev);
 		if (err)
 			hid_warn(hdev,
 				 "Failed to register keyboard backlight: %d\n",
