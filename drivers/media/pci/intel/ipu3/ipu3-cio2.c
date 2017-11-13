@@ -1363,7 +1363,7 @@ static int cio2_notifier_complete(struct v4l2_async_notifier *notifier)
 		ret = media_entity_create_link(
 				&q->sensor->entity, pad,
 				&q->subdev.entity, CIO2_PAD_SINK,
-				0);
+				MEDIA_LNK_FL_ENABLED);
 		if (ret) {
 			dev_err(&cio2->pci_dev->dev,
 				"failed to create link for %s\n",
