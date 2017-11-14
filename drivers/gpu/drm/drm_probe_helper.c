@@ -222,6 +222,13 @@ void drm_kms_helper_poll_enable_locked(struct drm_device *dev)
 }
 EXPORT_SYMBOL(drm_kms_helper_poll_enable_locked);
 
+static enum drm_connector_status
+drm_connector_detect(struct drm_connector *connector, bool force)
+{
+	return connector->funcs->detect ?
+		connector->funcs->detect(connector, force) :
+		connector_status_connected;
+}
 
 static int drm_helper_probe_single_connector_modes_merge_bits(struct drm_connector *connector,
 							      uint32_t maxX, uint32_t maxY, bool merge_type_bits)
@@ -254,7 +261,7 @@ static int drm_helper_probe_single_connector_modes_merge_bits(struct drm_connect
 	} else {
 		old_status = connector->status;
 
-		connector->status = connector->funcs->detect(connector, true);
+		connector->status = drm_connector_detect(connector, true);
 
 		/*
 		 * Normally either the driver's hpd code or the poll loop should
@@ -462,7 +469,7 @@ static void output_poll_execute(struct work_struct *work)
 
 		repoll = true;
 
-		connector->status = connector->funcs->detect(connector, false);
+		connector->status = drm_connector_detect(connector, false);
 		if (old_status != connector->status) {
 			const char *old, *new;
 
@@ -622,7 +629,7 @@ bool drm_helper_hpd_irq_event(struct drm_device *dev)
 
 		old_status = connector->status;
 
-		connector->status = connector->funcs->detect(connector, false);
+		connector->status = drm_connector_detect(connector, false);
 		DRM_DEBUG_KMS("[CONNECTOR:%d:%s] status updated from %s to %s\n",
 			      connector->base.id,
 			      connector->name,

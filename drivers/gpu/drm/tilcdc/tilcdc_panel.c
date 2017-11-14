@@ -162,13 +162,6 @@ static void panel_connector_destroy(struct drm_connector *connector)
 	kfree(panel_connector);
 }
 
-static enum drm_connector_status panel_connector_detect(
-		struct drm_connector *connector,
-		bool force)
-{
-	return connector_status_connected;
-}
-
 static int panel_connector_get_modes(struct drm_connector *connector)
 {
 	struct drm_device *dev = connector->dev;
@@ -215,7 +208,6 @@ static struct drm_encoder *panel_connector_best_encoder(
 static const struct drm_connector_funcs panel_connector_funcs = {
 	.destroy            = panel_connector_destroy,
 	.dpms               = drm_helper_connector_dpms,
-	.detect             = panel_connector_detect,
 	.fill_modes         = drm_helper_probe_single_connector_modes,
 };
 
