@@ -94,4 +94,6 @@ config DRM_ANALOGIX_ANX7688
 	  smartphone and tablets.
 	  This driver only supports the HDMI to DP component of the chip.
 
+source "drivers/gpu/drm/bridge/synopsys/Kconfig"
+
 endmenu
