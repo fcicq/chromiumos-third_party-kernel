@@ -413,6 +413,13 @@ static void cros_ec_accel_legacy_register(struct cros_ec_dev *ec)
 		sensor_platforms[CROS_EC_SENSOR_LEGACY_NUM];
 
 	/*
+	 * EC that need legacy support are the main EC, directly connected to
+	 * the AP.
+	 */
+	if (ec->cmd_offset != 0)
+		return;
+
+	/*
 	 * Check if EC supports direct memory reads and if EC has
 	 * accelerometers.
 	 */
