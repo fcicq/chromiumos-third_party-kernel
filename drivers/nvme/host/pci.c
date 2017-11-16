@@ -2783,7 +2783,7 @@ static int __nvme_alloc_host_mem(struct nvme_dev *dev, u64 preferred,
 	init_dma_attrs(&dev->host_mem_dma_attrs);
 	dma_set_attr(DMA_ATTR_NO_KERNEL_MAPPING, &dev->host_mem_dma_attrs);
 
-	for (size = 0; size < preferred; size += len) {
+	for (size = 0; size < preferred && i < max_entries; size += len) {
 		dma_addr_t dma_addr;
 
 		len = min_t(u64, chunk_size, preferred - size);
