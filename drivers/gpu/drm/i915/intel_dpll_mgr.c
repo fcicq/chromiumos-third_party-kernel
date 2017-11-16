@@ -2366,9 +2366,17 @@ cnl_get_dpll(struct intel_crtc *crtc, struct intel_crtc_state *crtc_state,
 		return NULL;
 	}
 
-	pll = intel_find_shared_dpll(crtc, crtc_state,
-				     DPLL_ID_SKL_DPLL0,
-				     DPLL_ID_SKL_DPLL2);
+	if (intel_crtc_has_type(crtc_state, INTEL_OUTPUT_HDMI) ||
+	    intel_crtc_has_type(crtc_state, INTEL_OUTPUT_DP)) {
+			pll = intel_find_shared_dpll(crtc, crtc_state,
+						     DPLL_ID_SKL_DPLL1,
+						     DPLL_ID_SKL_DPLL2);
+	} else {
+		pll = intel_find_shared_dpll(crtc, crtc_state,
+					     DPLL_ID_SKL_DPLL0,
+					     DPLL_ID_SKL_DPLL2);
+	}
+
 	if (!pll) {
 		DRM_DEBUG_KMS("No PLL selected\n");
 		return NULL;
