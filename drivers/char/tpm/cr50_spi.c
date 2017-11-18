@@ -171,6 +171,7 @@ static int cr50_spi_xfer_bytes(struct tpm_tis_data *data, u32 addr,
 		.len = 4,
 		.cs_change = 1,
 	};
+	struct spi_transfer spi_cs_deassert = {};
 	int ret;
 
 	if (len > MAX_SPI_FRAMESIZE)
@@ -195,11 +196,11 @@ static int cr50_spi_xfer_bytes(struct tpm_tis_data *data, u32 addr,
 	spi_bus_lock(phy->spi_device->master);
 	ret = spi_sync_locked(phy->spi_device, &m);
 	if (ret < 0)
-		goto exit;
+		goto err;
 
 	ret = cr50_spi_flow_control(phy);
 	if (ret < 0)
-		goto exit;
+		goto err;
 
 	spi_xfer.cs_change = 0;
 	spi_xfer.len = len;
@@ -214,10 +215,21 @@ static int cr50_spi_xfer_bytes(struct tpm_tis_data *data, u32 addr,
 	spi_message_add_tail(&spi_xfer, &m);
 	reinit_completion(&phy->tpm_ready);
 	ret = spi_sync_locked(phy->spi_device, &m);
+	if (ret < 0)
+		goto err;
 	if (!do_write)
 		memcpy(buf, phy->rx_buf, len);
+	goto done;
 
-exit:
+err:
+	/* Send an empty message to deassert CS - it could have been
+	 * left asserted if we exited before the payload transmission.
+	 */
+	spi_message_init(&m);
+	spi_message_add_tail(&spi_cs_deassert, &m);
+	spi_sync_locked(phy->spi_device, &m);
+
+done:
 	spi_bus_unlock(phy->spi_device->master);
 	phy->last_access_jiffies = jiffies;
 	mutex_unlock(&phy->time_track_mutex);
