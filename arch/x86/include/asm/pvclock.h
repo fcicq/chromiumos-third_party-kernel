@@ -99,4 +99,6 @@ int __init pvclock_init_vsyscall(struct pvclock_vsyscall_time_info *i,
 				 int size);
 struct pvclock_vcpu_time_info *pvclock_get_vsyscall_time_info(int cpu);
 
+void __init pvclock_init_vsyscall_kaiser(void);
+
 #endif /* _ASM_X86_PVCLOCK_H */

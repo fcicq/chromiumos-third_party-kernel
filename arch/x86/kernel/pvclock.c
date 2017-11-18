@@ -22,6 +22,7 @@
 #include <linux/gfp.h>
 #include <linux/bootmem.h>
 #include <asm/fixmap.h>
+#include <asm/kaiser.h>
 #include <asm/pvclock.h>
 
 static u8 valid_flags __read_mostly = 0;
@@ -167,4 +168,18 @@ int __init pvclock_init_vsyscall(struct pvclock_vsyscall_time_info *i,
 
 	return 0;
 }
-#endif
+
+void __init pvclock_init_vsyscall_kaiser() {
+#ifdef CONFIG_KAISER
+	int idx;
+
+	for (idx = 0; idx <= (PVCLOCK_FIXMAP_END-PVCLOCK_FIXMAP_BEGIN); idx++) {
+		int ret = kaiser_add_mapping(
+				__fix_to_virt(PVCLOCK_FIXMAP_BEGIN + idx),
+				PAGE_SIZE,
+				__PAGE_KERNEL_VVAR);
+		WARN_ON(ret);
+	}
+#endif	/* CONFIG_KAISER */
+}
+#endif	/* CONFIG_X86_64 */
