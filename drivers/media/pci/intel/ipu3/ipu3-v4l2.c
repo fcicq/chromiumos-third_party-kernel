@@ -92,6 +92,74 @@ static int ipu3_subdev_set_fmt(struct v4l2_subdev *sd,
 	return 0;
 }
 
+static int ipu3_subdev_get_selection(struct v4l2_subdev *sd,
+				     struct v4l2_subdev_pad_config *cfg,
+				     struct v4l2_subdev_selection *sel)
+{
+	struct ipu3_mem2mem2_device *m2m2 =
+		container_of(sd, struct ipu3_mem2mem2_device, subdev);
+	struct imgu_device *imgu =
+		container_of(m2m2, struct imgu_device, mem2mem2);
+	struct v4l2_rect *try_sel, *rect;
+
+	if (sel->pad != IMGU_NODE_IN)
+		return -EINVAL;
+
+	switch (sel->target) {
+	case V4L2_SEL_TGT_CROP:
+		try_sel = v4l2_subdev_get_try_crop(sd, cfg, sel->pad);
+		rect = &imgu->rect.eff;
+		break;
+	case V4L2_SEL_TGT_COMPOSE:
+		try_sel = v4l2_subdev_get_try_compose(sd, cfg, sel->pad);
+		rect = &imgu->rect.bds;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	if (sel->which == V4L2_SUBDEV_FORMAT_TRY)
+		sel->r = *try_sel;
+	else
+		sel->r = *rect;
+
+	return 0;
+}
+
+static int ipu3_subdev_set_selection(struct v4l2_subdev *sd,
+				     struct v4l2_subdev_pad_config *cfg,
+				     struct v4l2_subdev_selection *sel)
+{
+	struct ipu3_mem2mem2_device *m2m2 =
+		container_of(sd, struct ipu3_mem2mem2_device, subdev);
+	struct imgu_device *imgu =
+		container_of(m2m2, struct imgu_device, mem2mem2);
+	struct v4l2_rect *try_sel, *rect;
+
+	if (sel->pad != IMGU_NODE_IN)
+		return -EINVAL;
+
+	switch (sel->target) {
+	case V4L2_SEL_TGT_CROP:
+		try_sel = v4l2_subdev_get_try_crop(sd, cfg, sel->pad);
+		rect = &imgu->rect.eff;
+		break;
+	case V4L2_SEL_TGT_COMPOSE:
+		try_sel = v4l2_subdev_get_try_compose(sd, cfg, sel->pad);
+		rect = &imgu->rect.bds;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	if (sel->which == V4L2_SUBDEV_FORMAT_TRY)
+		*try_sel = sel->r;
+	else
+		*rect = sel->r;
+
+	return 0;
+}
+
 /******************** media_entity_operations ********************/
 
 static int ipu3_link_setup(struct media_entity *entity,
@@ -422,55 +490,6 @@ static int mem2mem2_fmt(struct ipu3_mem2mem2_device *m2m2_dev,
 	return r < 0 ? r : 0;
 }
 
-static int mem2mem2_s_selection(struct ipu3_mem2mem2_device *m2m2_dev,
-				     int node, struct v4l2_selection *s)
-{
-	struct imgu_device *const imgu =
-		container_of(m2m2_dev, struct imgu_device, mem2mem2);
-	struct v4l2_rect *rect = NULL;
-
-	if (node != IPU3_CSS_QUEUE_IN)
-		return -ENOIOCTLCMD;
-
-	switch (s->target) {
-	case V4L2_SEL_TGT_CROP:
-		rect = &imgu->rect.eff;
-		break;
-	case V4L2_SEL_TGT_COMPOSE:
-		rect = &imgu->rect.bds;
-		break;
-	default:
-		return -EINVAL;
-	}
-
-	*rect = s->r;
-
-	return 0;
-}
-
-static int mem2mem2_g_selection(struct ipu3_mem2mem2_device *m2m2_dev,
-				     int node, struct v4l2_selection *s)
-{
-	struct imgu_device *const imgu =
-		container_of(m2m2_dev, struct imgu_device, mem2mem2);
-
-	if (node != IPU3_CSS_QUEUE_IN)
-		return -ENOIOCTLCMD;
-
-	switch (s->target) {
-	case V4L2_SEL_TGT_CROP:
-		s->r = imgu->rect.eff;
-		break;
-	case V4L2_SEL_TGT_COMPOSE:
-		s->r = imgu->rect.bds;
-		break;
-	default:
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
 static int ipu3_videoc_try_fmt(struct file *file, void *fh,
 				 struct v4l2_format *f)
 {
@@ -492,38 +511,6 @@ static int ipu3_videoc_s_fmt(struct file *file, void *fh,
 		f->fmt = node->vdev_fmt.fmt;
 
 	return r;
-}
-
-static int ipu3_videoc_s_selection(struct file *file, void *fh,
-				     struct v4l2_selection *s)
-{
-	struct ipu3_mem2mem2_device *m2m2 = video_drvdata(file);
-	struct imgu_video_device *node = file_to_intel_ipu3_node(file);
-
-	if (!m2m2->ops)
-		return -ENOIOCTLCMD;
-
-	if (s->type != node->vdev_fmt.type)
-		return -EINVAL;
-
-	return mem2mem2_s_selection(m2m2, node - m2m2->nodes, s);
-
-}
-
-static int ipu3_videoc_g_selection(struct file *file, void *fh,
-				     struct v4l2_selection *s)
-{
-	struct ipu3_mem2mem2_device *m2m2 = video_drvdata(file);
-	struct imgu_video_device *node = file_to_intel_ipu3_node(file);
-
-	if (!m2m2->ops)
-		return -ENOIOCTLCMD;
-
-	if (s->type != node->vdev_fmt.type)
-		return -EINVAL;
-
-	return mem2mem2_g_selection(m2m2, node - m2m2->nodes, s);
-
 }
 
 static int ipu3_meta_enum_format(struct file *file, void *fh,
@@ -563,6 +550,9 @@ static const struct v4l2_subdev_pad_ops ipu3_subdev_pad_ops = {
 	.link_validate = v4l2_subdev_link_validate_default,
 	.get_fmt = ipu3_subdev_get_fmt,
 	.set_fmt = ipu3_subdev_set_fmt,
+
+	.get_selection = ipu3_subdev_get_selection,
+	.set_selection = ipu3_subdev_set_selection,
 };
 
 static const struct v4l2_subdev_ops ipu3_subdev_ops = {
@@ -604,9 +594,6 @@ static const struct v4l2_ioctl_ops ipu3_v4l2_ioctl_ops = {
 	.vidioc_g_fmt_vid_cap_mplane = ipu3_videoc_g_fmt,
 	.vidioc_s_fmt_vid_cap_mplane = ipu3_videoc_s_fmt,
 	.vidioc_try_fmt_vid_cap_mplane = ipu3_videoc_try_fmt,
-
-	.vidioc_s_selection = ipu3_videoc_s_selection,
-	.vidioc_g_selection = ipu3_videoc_g_selection,
 
 	.vidioc_g_fmt_vid_out_mplane = ipu3_videoc_g_fmt,
 	.vidioc_s_fmt_vid_out_mplane = ipu3_videoc_s_fmt,
