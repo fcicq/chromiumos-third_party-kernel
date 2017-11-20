@@ -424,6 +424,8 @@
 #define NAU8825_POWER_DOWN_DACL	(1 << 8)
 #define NAU8825_CHANRGE_PUMP_EN	(1 << 5)
 
+/* Number of registers to backup in crosstalk */
+#define NAU8825_NUM_XTALK_BAK_REG 4
 
 /* System Clock Source */
 enum {
@@ -477,6 +479,13 @@ struct nau8825 {
 	bool xtalk_protect;
 	int imp_rms[NAU8825_XTALK_IMM];
 	int xtalk_bypass;
+	/* True if xtalk_baktab has been initialized. */
+	bool xtalk_baktab_initialized;
+	/*
+	 * The backup values of registers in crosstalk. The ith element is the
+	 * backup of register nau8825_xtalk_bak_reg[i].
+	 */
+	unsigned int xtalk_baktab[NAU8825_NUM_XTALK_BAK_REG];
 };
 
 int nau8825_enable_jack_detect(struct snd_soc_codec *codec,
