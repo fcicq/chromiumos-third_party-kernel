@@ -30,6 +30,7 @@
 #include <linux/export.h>
 #include <linux/notifier.h>
 #include <linux/reboot.h>
+#include <media/cec.h>
 #include <drm/drmP.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_crtc.h>
@@ -4423,6 +4424,7 @@ intel_dp_set_edid(struct intel_dp *intel_dp)
 		intel_dp->has_audio = intel_dp->force_audio == HDMI_AUDIO_ON;
 	else
 		intel_dp->has_audio = drm_detect_monitor_audio(edid);
+	cec_s_phys_addr_from_edid(intel_dp->aux.cec_adap, edid);
 }
 
 static void
@@ -4432,6 +4434,7 @@ intel_dp_unset_edid(struct intel_dp *intel_dp)
 
 	kfree(intel_connector->detect_edid);
 	intel_connector->detect_edid = NULL;
+	cec_phys_addr_invalidate(intel_dp->aux.cec_adap);
 
 	intel_dp->has_audio = false;
 }
@@ -4506,6 +4509,14 @@ intel_dp_long_pulse(struct intel_connector *intel_connector)
 		 * with EDID on it
 		 */
 		status = connector_status_disconnected;
+		if (connector->registered) {
+			/*
+			 * CEC is not supported for an MST device, unregister
+			 * the existing CEC adapter, if any.
+			 */
+			cec_unregister_adapter(intel_dp->aux.cec_adap);
+			intel_dp->aux.cec_adap = NULL;
+		}
 		goto out;
 	} else if (connector->status == connector_status_connected) {
 		/*
@@ -4550,6 +4561,25 @@ intel_dp_long_pulse(struct intel_connector *intel_connector)
 out:
 	if (status != connector_status_connected && !intel_dp->is_mst)
 		intel_dp_unset_edid(intel_dp);
+
+	if (status == connector_status_connected && connector->registered) {
+		/*
+		 * A new DP-to-HDMI adapter could have been plugged in, so
+		 * call drm_dp_cec_configure_adapter to check if a CEC device
+		 * should be unregistered and/or registered, depending on the
+		 * CEC capabilities of the adapter.
+		 *
+		 * The CEC device is associated with the connector, so it
+		 * sticks around when the adapter is unplugged and is only
+		 * unregistered if the connector is unregistered or if another
+		 * adapter is plugged in with no or different CEC capabilities.
+		 *
+		 * This is what CEC applications expect.
+		 */
+		drm_dp_cec_configure_adapter(&intel_dp->aux,
+					     connector->name, dev->dev,
+					     intel_connector->detect_edid);
+	}
 
 	intel_display_power_put(to_i915(dev), power_domain);
 	return status;
@@ -4741,6 +4771,7 @@ static int
 intel_dp_connector_register(struct drm_connector *connector)
 {
 	struct intel_dp *intel_dp = intel_attached_dp(connector);
+	struct drm_device *dev = connector->dev;
 	int ret;
 
 	ret = intel_connector_register(connector);
@@ -4752,6 +4783,15 @@ intel_dp_connector_register(struct drm_connector *connector)
 	DRM_DEBUG_KMS("registering %s bus for %s\n",
 		      intel_dp->aux.name, connector->kdev->kobj.name);
 
+	if (connector->status == connector_status_connected &&
+	    !intel_dp->is_mst && !intel_dp->aux.cec_adap) {
+		struct intel_connector *intel_connector =
+			intel_dp->attached_connector;
+
+		drm_dp_cec_configure_adapter(&intel_dp->aux,
+					     connector->name, dev->dev,
+					     intel_connector->detect_edid);
+	}
 	intel_dp->aux.dev = connector->kdev;
 	return drm_dp_aux_register(&intel_dp->aux);
 }
@@ -4759,7 +4799,11 @@ intel_dp_connector_register(struct drm_connector *connector)
 static void
 intel_dp_connector_unregister(struct drm_connector *connector)
 {
-	drm_dp_aux_unregister(&intel_attached_dp(connector)->aux);
+	struct intel_dp *intel_dp = intel_attached_dp(connector);
+
+	cec_unregister_adapter(intel_dp->aux.cec_adap);
+	intel_dp->aux.cec_adap = NULL;
+	drm_dp_aux_unregister(&intel_dp->aux);
 	intel_connector_unregister(connector);
 }
 
@@ -5189,6 +5233,7 @@ intel_dp_hpd_pulse(struct intel_digital_port *intel_dig_port, bool long_hpd)
 	}
 
 	if (!intel_dp->is_mst) {
+		drm_dp_cec_irq(&intel_dp->aux);
 		if (!intel_dp_short_pulse(intel_dp)) {
 			intel_dp->detect_done = false;
 			goto put_power;
