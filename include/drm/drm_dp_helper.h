@@ -811,6 +811,9 @@ struct drm_dp_aux_msg {
 	size_t size;
 };
 
+struct cec_adapter;
+struct edid;
+
 /**
  * struct drm_dp_aux - DisplayPort AUX channel
  * @name: user-visible name of this AUX channel and the I2C-over-AUX adapter
@@ -856,6 +859,10 @@ struct drm_dp_aux {
 	ssize_t (*transfer)(struct drm_dp_aux *aux,
 			    struct drm_dp_aux_msg *msg);
 	unsigned i2c_nack_count, i2c_defer_count;
+	/**
+	 * @cec_adap: the CEC adapter for CEC-Tunneling-over-AUX support.
+	 */
+	struct cec_adapter *cec_adap;
 };
 
 ssize_t drm_dp_dpcd_read(struct drm_dp_aux *aux, unsigned int offset,
@@ -974,5 +981,25 @@ drm_dp_has_quirk(const struct drm_dp_desc *desc, enum drm_dp_quirk quirk)
 {
 	return desc->quirks & BIT(quirk);
 }
+
+#ifdef CONFIG_DRM_DP_CEC
+bool drm_dp_cec_irq(struct drm_dp_aux *aux);
+int drm_dp_cec_configure_adapter(struct drm_dp_aux *aux, const char *name,
+				 struct device *parent,
+				 const struct edid *edid);
+#else
+static inline bool drm_dp_cec_irq(struct drm_dp_aux *aux)
+{
+	return false;
+}
+
+static inline int drm_dp_cec_configure_adapter(struct drm_dp_aux *aux,
+					       const char *name,
+					       struct device *parent,
+					       const struct edid *edid)
+{
+	return -ENODEV;
+}
+#endif
 
 #endif /* _DRM_DP_HELPER_H_ */
