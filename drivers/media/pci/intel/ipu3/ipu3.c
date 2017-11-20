@@ -479,7 +479,7 @@ static int imgu_mem2mem2_init(struct imgu_device *imgu)
 
 	int r, i;
 
-	imgu->mem2mem2.name = IMGU_NAME ":0";
+	imgu->mem2mem2.name = IMGU_NAME;
 	imgu->mem2mem2.model = IMGU_NAME;
 	imgu->mem2mem2.num_nodes = IMGU_NODE_NUM;
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 5, 0)

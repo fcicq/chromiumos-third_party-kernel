@@ -1506,7 +1506,7 @@ static int cio2_queue_init(struct cio2_device *cio2, struct cio2_queue *q)
 	subdev->flags = V4L2_SUBDEV_FL_HAS_DEVNODE | V4L2_SUBDEV_FL_HAS_EVENTS;
 	subdev->owner = THIS_MODULE;
 	snprintf(subdev->name, sizeof(subdev->name),
-		 CIO2_ENTITY_NAME ":%li", q - cio2->queue);
+		 CIO2_ENTITY_NAME " %td", q - cio2->queue);
 	v4l2_set_subdevdata(subdev, cio2);
 	r = v4l2_device_register_subdev(&cio2->v4l2_dev, subdev);
 	if (r) {
@@ -1534,7 +1534,7 @@ static int cio2_queue_init(struct cio2_device *cio2, struct cio2_queue *q)
 
 	/* Initialize vdev */
 	snprintf(vdev->name, sizeof(vdev->name),
-		 "%s:%li", CIO2_NAME, q - cio2->queue);
+		 "%s %td", CIO2_NAME, q - cio2->queue);
 	vdev->release = video_device_release_empty;
 	vdev->fops = &cio2_v4l2_fops;
 	vdev->ioctl_ops = &cio2_v4l2_ioctl_ops;
