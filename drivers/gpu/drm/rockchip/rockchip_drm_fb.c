@@ -473,8 +473,12 @@ void rockchip_drm_mode_config_init(struct drm_device *dev)
 	 * set max width and height as default value(4096x4096).
 	 * this value would be used to check framebuffer size limitation
 	 * at drm_mode_addfb().
+	 *
+	 * We don't deal well with modes wider than 3840, so let's
+	 * lower max_width a bit.
+	 * https://bugs.chromium.org/p/chromium/issues/detail?id=761104
 	 */
-	dev->mode_config.max_width = 4096;
+	dev->mode_config.max_width = 3840;
 	dev->mode_config.max_height = 4096;
 
 	dev->mode_config.allow_fb_modifiers = true;
