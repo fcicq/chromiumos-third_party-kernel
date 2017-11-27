@@ -193,11 +193,11 @@ static const struct reg_default nau8825_reg_defaults[] = {
 };
 
 /* register backup table when cross talk detection */
-static const unsigned int nau8825_xtalk_bak_reg[NAU8825_NUM_XTALK_BAK_REG] = {
-	NAU8825_REG_ADC_DGAIN_CTRL,
-	NAU8825_REG_HSVOL_CTRL,
-	NAU8825_REG_DACL_CTRL,
-	NAU8825_REG_DACR_CTRL
+static struct reg_default nau8825_xtalk_baktab[] = {
+	{ NAU8825_REG_ADC_DGAIN_CTRL, 0 },
+	{ NAU8825_REG_HSVOL_CTRL, 0 },
+	{ NAU8825_REG_DACL_CTRL, 0 },
+	{ NAU8825_REG_DACR_CTRL, 0 },
 };
 
 static const unsigned short logtable[256] = {
@@ -444,8 +444,8 @@ static int nau8825_xtalk_baktab_index_by_reg(unsigned int reg)
 {
 	int index;
 
-	for (index = 0; index < ARRAY_SIZE(nau8825_xtalk_bak_reg); index++)
-		if (nau8825_xtalk_bak_reg[index] == reg)
+	for (index = 0; index < ARRAY_SIZE(nau8825_xtalk_baktab); index++)
+		if (nau8825_xtalk_baktab[index].reg == reg)
 			return index;
 	return -EINVAL;
 }
@@ -455,32 +455,29 @@ static void nau8825_xtalk_backup(struct nau8825 *nau8825)
 	int i;
 
 	/* Backup some register values to backup table */
-	for (i = 0; i < ARRAY_SIZE(nau8825->xtalk_baktab); i++)
-		regmap_read(nau8825->regmap, nau8825_xtalk_bak_reg[i],
-				&nau8825->xtalk_baktab[i]);
-	nau8825->xtalk_baktab_initialized = true;
+	for (i = 0; i < ARRAY_SIZE(nau8825_xtalk_baktab); i++)
+		regmap_read(nau8825->regmap, nau8825_xtalk_baktab[i].reg,
+				&nau8825_xtalk_baktab[i].def);
 }
 
 static void nau8825_xtalk_restore(struct nau8825 *nau8825)
 {
 	int i, volume;
 
-	if (!nau8825->xtalk_baktab_initialized)
-		return;
 	/* Restore register values from backup table; When the driver restores
 	 * the headphone volumem, it needs recover to original level gradually
 	 * with 3dB per step for less pop noise.
 	 */
-	for (i = 0; i < ARRAY_SIZE(nau8825->xtalk_baktab); i++) {
-		if (nau8825_xtalk_bak_reg[i] == NAU8825_REG_HSVOL_CTRL) {
+	for (i = 0; i < ARRAY_SIZE(nau8825_xtalk_baktab); i++) {
+		if (nau8825_xtalk_baktab[i].reg == NAU8825_REG_HSVOL_CTRL) {
 			/* Ramping up the volume change to reduce pop noise */
-			volume = nau8825->xtalk_baktab[i] &
+			volume = nau8825_xtalk_baktab[i].def &
 				NAU8825_HPR_VOL_MASK;
 			nau8825_hpvol_ramp(nau8825, 0, volume, 3);
 			continue;
 		}
-		regmap_write(nau8825->regmap, nau8825_xtalk_bak_reg[i],
-				nau8825->xtalk_baktab[i]);
+		regmap_write(nau8825->regmap, nau8825_xtalk_baktab[i].reg,
+				nau8825_xtalk_baktab[i].def);
 	}
 }
 
@@ -572,7 +569,7 @@ static void nau8825_xtalk_prepare(struct nau8825 *nau8825)
 	 */
 	index = nau8825_xtalk_baktab_index_by_reg(NAU8825_REG_HSVOL_CTRL);
 	if (index != -EINVAL) {
-		volume = nau8825->xtalk_baktab[index] &
+		volume = nau8825_xtalk_baktab[index].def &
 				NAU8825_HPR_VOL_MASK;
 		nau8825_hpvol_ramp(nau8825, volume, 0, 3);
 	}
@@ -822,7 +819,7 @@ static void nau8825_xtalk_cancel(struct nau8825 *nau8825)
 	 * on going. The driver forces to cancel the cross talk task and
 	 * restores the configuration to original status.
 	 */
-	if (!nau8825->xtalk_bypass && nau8825->xtalk_protect) {
+	if (nau8825->xtalk_protect) {
 		cancel_work_sync(&nau8825->xtalk_work);
 		nau8825_xtalk_clean(nau8825);
 	}
@@ -2571,8 +2568,6 @@ static int nau8825_i2c_probe(struct i2c_client *i2c,
 	 */
 	nau8825->xtalk_state = NAU8825_XTALK_DONE;
 	nau8825->xtalk_protect = false;
-	nau8825->xtalk_baktab_initialized = false;
-	memset(nau8825->xtalk_baktab, 0, sizeof(nau8825->xtalk_baktab));
 	sema_init(&nau8825->xtalk_sem, 1);
 	INIT_WORK(&nau8825->xtalk_work, nau8825_xtalk_work);
 
