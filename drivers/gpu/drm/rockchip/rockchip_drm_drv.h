@@ -111,7 +111,7 @@ void rockchip_drm_set_win_enabled(struct drm_crtc *ctrc, bool enabled);
 
 extern struct platform_driver cdn_dp_driver;
 extern struct platform_driver dw_hdmi_rockchip_pltfm_driver;
-extern struct platform_driver dw_mipi_dsi_driver;
+extern struct platform_driver dw_mipi_dsi_rockchip_driver;
 extern struct platform_driver inno_hdmi_driver;
 extern struct platform_driver rockchip_dp_driver;
 extern struct platform_driver vop_platform_driver;
