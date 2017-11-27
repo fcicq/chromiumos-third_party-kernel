@@ -280,7 +280,13 @@ enum chromiumos_symlink_traversal_policy
 chromiumos_get_symlink_traversal_policy(struct dentry *dentry)
 {
 	struct chromiumos_super_block_mark *sbm;
-	enum chromiumos_symlink_traversal_policy policy;
+	/* Initializes policy to CHROMIUM_SYMLINK_TRAVERSAL_INHERIT, which is
+	 * the value that will be returned if neither |dentry| nor any
+	 * directory in its path has been asigned a symlink traversal policy
+	 * value.
+	 */
+	enum chromiumos_symlink_traversal_policy policy =
+			CHROMIUMOS_SYMLINK_TRAVERSAL_INHERIT;
 
 	if (!dentry || !dentry->d_inode)
 		return CHROMIUMOS_SYMLINK_TRAVERSAL_INHERIT;
