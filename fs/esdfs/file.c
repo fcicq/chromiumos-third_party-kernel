@@ -337,73 +337,6 @@ static int esdfs_fasync(int fd, struct file *file, int flag)
 	return err;
 }
 
-static ssize_t esdfs_aio_read(struct kiocb *iocb, const struct iovec *iov,
-			       unsigned long nr_segs, loff_t pos)
-{
-	int err = -EINVAL;
-	struct file *file = iocb->ki_filp;
-	struct file *lower_file;
-	struct esdfs_sb_info *sbi = ESDFS_SB(file->f_path.dentry->d_sb);
-	const struct cred *creds = esdfs_override_creds(sbi, NULL);
-	if (!creds)
-		return -ENOMEM;
-
-	lower_file = esdfs_lower_file(file);
-	if (!lower_file->f_op->aio_read)
-		goto out;
-	/*
-	 * It appears safe to rewrite this iocb, because in
-	 * do_io_submit@fs/aio.c, iocb is a just copy from user.
-	 */
-	get_file(lower_file); /* prevent lower_file from being released */
-	iocb->ki_filp = lower_file;
-	err = lower_file->f_op->aio_read(iocb, iov, nr_segs, pos);
-	iocb->ki_filp = file;
-	fput(lower_file);
-	/* update upper inode atime as needed */
-	if (err >= 0 || err == -EIOCBQUEUED)
-		fsstack_copy_attr_atime(file->f_path.dentry->d_inode,
-					file_inode(lower_file));
-out:
-	esdfs_revert_creds(creds, NULL);
-	return err;
-}
-
-static ssize_t esdfs_aio_write(struct kiocb *iocb, const struct iovec *iov,
-				unsigned long nr_segs, loff_t pos)
-{
-	int err = -EINVAL;
-	struct file *file = iocb->ki_filp;
-	struct file *lower_file;
-	struct esdfs_sb_info *sbi = ESDFS_SB(file->f_path.dentry->d_sb);
-	const struct cred *creds = esdfs_override_creds(sbi, NULL);
-	if (!creds)
-		return -ENOMEM;
-
-	lower_file = esdfs_lower_file(file);
-	if (!lower_file->f_op->aio_write)
-		goto out;
-	/*
-	 * It appears safe to rewrite this iocb, because in
-	 * do_io_submit@fs/aio.c, iocb is a just copy from user.
-	 */
-	get_file(lower_file); /* prevent lower_file from being released */
-	iocb->ki_filp = lower_file;
-	err = lower_file->f_op->aio_write(iocb, iov, nr_segs, pos);
-	iocb->ki_filp = file;
-	fput(lower_file);
-	/* update upper inode times/sizes as needed */
-	if (err >= 0 || err == -EIOCBQUEUED) {
-		fsstack_copy_inode_size(file->f_path.dentry->d_inode,
-					file_inode(lower_file));
-		fsstack_copy_attr_times(file->f_path.dentry->d_inode,
-					file_inode(lower_file));
-	}
-out:
-	esdfs_revert_creds(creds, NULL);
-	return err;
-}
-
 /*
  * Wrapfs cannot use generic_file_llseek as ->llseek, because it would
  * only set the offset of the upper file.  So we have to implement our
@@ -504,8 +437,6 @@ const struct file_operations esdfs_main_fops = {
 	.release	= esdfs_file_release,
 	.fsync		= esdfs_fsync,
 	.fasync		= esdfs_fasync,
-	.aio_read	= esdfs_aio_read,
-	.aio_write	= esdfs_aio_write,
 	.read_iter	= esdfs_read_iter,
 	.write_iter	= esdfs_write_iter,
 };

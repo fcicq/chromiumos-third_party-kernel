@@ -20,10 +20,10 @@ struct esdfs_name_data {
 	bool found;
 };
 
-static int esdfs_name_match(void *__buf, const char *name, int namelen,
+static int esdfs_name_match(struct dir_context *ctx, const char *name, int namelen,
 		loff_t offset, u64 ino, unsigned int d_type)
 {
-	struct esdfs_name_data *buf = (struct esdfs_name_data *) __buf;
+	struct esdfs_name_data *buf = container_of(ctx, struct esdfs_name_data, ctx);
 	struct qstr candidate = QSTR_INIT(name, namelen);
 
 	if (qstr_case_eq(buf->to_find, &candidate)) {
