@@ -49,6 +49,7 @@
 
 #define IA_CSS_BINARY_MODE_PRIMARY	2
 #define IA_CSS_BINARY_MODE_VIDEO	3
+#define IPU3_CSS_DEFAULT_BINARY		3	/* default binary index */
 
 /*
  * The pipe id type, distinguishes the kind of pipes that
@@ -133,7 +134,7 @@ struct ipu3_css {
 	int iomem_length;
 	int fw_bl, fw_sp[IMGU_NUM_SP];	/* Indices of bl and SP binaries */
 	struct ipu3_css_map *binary;	/* fw binaries mapped to device */
-	int current_binary;	/* Currently selected binary or -1 */
+	unsigned int current_binary;	/* Currently selected binary */
 	bool streaming;		/* true when streaming is enabled */
 	long frame;	/* Latest frame not yet processed */
 	enum ipu3_css_pipe_id pipe_id;  /* CSS pipe ID. */

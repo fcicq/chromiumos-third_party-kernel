@@ -638,9 +638,6 @@ static void ipu3_css_pipeline_cleanup(struct ipu3_css *css)
 	int pipe = 0;
 	int i;
 
-	if (css->current_binary < 0)
-		return;
-
 	ipu3_css_pool_cleanup(css->dma_dev, &css->pool.parameter_set_info);
 	ipu3_css_pool_cleanup(css->dma_dev, &css->pool.acc);
 	ipu3_css_pool_cleanup(css->dma_dev, &css->pool.gdc);
@@ -695,9 +692,6 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 
 	enum imgu_abi_param_class c = IMGU_ABI_PARAM_CLASS_CONFIG;
 	enum imgu_abi_memories m = IMGU_ABI_MEM_ISP_DMEM0;
-
-	if (css->current_binary == -1)
-		return -EAGAIN;
 
 	/* Configure iterator */
 
@@ -1200,8 +1194,6 @@ static void ipu3_css_binary_cleanup(struct ipu3_css *css)
 		ipu3_css_dma_free(
 			css->dma_dev,
 			&css->aux_frames[IPU3_CSS_AUX_FRAME_TNR].mem[i]);
-
-	css->current_binary = -1;
 }
 
 /* allocate binary-specific resources */
@@ -1213,9 +1205,6 @@ static int ipu3_css_binary_setup(struct ipu3_css *css)
 	unsigned int w, h;
 
 	/* Allocate parameter memory blocks for this binary */
-	if (css->current_binary < 0)
-		return -EINVAL;
-
 	for (j = IMGU_ABI_PARAM_CLASS_CONFIG; j < IMGU_ABI_PARAM_CLASS_NUM; j++)
 		for (i = 0; i < IMGU_ABI_NUM_MEMORIES; i++)
 			if (ipu3_css_dma_alloc(
@@ -1404,7 +1393,7 @@ int ipu3_css_init(struct device *dev, struct ipu3_css *css,
 	css->dma_dev = dma_dev;
 	css->base = base;
 	css->iomem_length = length;
-	css->current_binary = -1;
+	css->current_binary = IPU3_CSS_DEFAULT_BINARY;
 	css->pipe_id = IPU3_CSS_PIPE_ID_NUM;
 
 	for (q = 0; q < IPU3_CSS_QUEUES; q++) {
@@ -1756,7 +1745,7 @@ int ipu3_css_fmt_set(struct ipu3_css *css,
 	r = ipu3_css_fmt_try(css, fmts, all_rects);
 	if (r < 0)
 		return r;
-	css->current_binary = r;
+	css->current_binary = (unsigned int)r;
 
 	for (i = 0; i < IPU3_CSS_QUEUES; i++)
 		if (ipu3_css_queue_init(&css->queue[i], fmts[i],
