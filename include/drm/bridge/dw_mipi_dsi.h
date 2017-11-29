@@ -28,6 +28,8 @@ struct dw_mipi_dsi_plat_data {
 
 	const struct dw_mipi_dsi_phy_ops *phy_ops;
 
+	bool is_slave;
+	struct dw_mipi_dsi *slave;
 	void *priv_data;
 };
 

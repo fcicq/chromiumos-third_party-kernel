@@ -31,6 +31,24 @@
 #include "rockchip_drm_drv.h"
 #include "rockchip_drm_vop.h"
 
+#define DSI_PHY_RSTZ			0xa0
+#define PHY_DISFORCEPLL			0
+#define PHY_ENFORCEPLL			BIT(3)
+#define PHY_DISABLECLK			0
+#define PHY_ENABLECLK			BIT(2)
+#define PHY_RSTZ			0
+#define PHY_UNRSTZ			BIT(1)
+#define PHY_SHUTDOWNZ			0
+#define PHY_UNSHUTDOWNZ			BIT(0)
+
+#define DSI_PHY_IF_CFG			0xa4
+#define N_LANES(n)			((((n) - 1) & 0x3) << 0)
+#define PHY_STOP_WAIT_TIME(cycle)	(((cycle) & 0xff) << 8)
+
+#define DSI_PHY_STATUS			0xb0
+#define LOCK				BIT(0)
+#define STOP_STATE_CLK_LANE		BIT(2)
+
 #define DSI_PHY_TST_CTRL0		0xb4
 #define PHY_TESTCLK			BIT(1)
 #define PHY_UNTESTCLK			0
@@ -42,6 +60,14 @@
 #define PHY_UNTESTEN			0
 #define PHY_TESTDOUT(n)			(((n) & 0xff) << 8)
 #define PHY_TESTDIN(n)			(((n) & 0xff) << 0)
+
+#define DSI_INT_ST0			0xbc
+#define DSI_INT_ST1			0xc0
+#define DSI_INT_MSK0			0xc4
+#define DSI_INT_MSK1			0xc8
+
+#define PHY_STATUS_TIMEOUT_US		10000
+#define CMD_PKT_STATUS_TIMEOUT_US	20000
 
 #define BYPASS_VCO_RANGE	BIT(7)
 #define VCO_RANGE_CON_SEL(val)	(((val) & 0x7) << 3)
@@ -132,6 +158,17 @@
 #define RK3399_GRF_SOC_CON22		0x6258
 #define RK3399_GRF_DSI_MODE		0xffff0000
 
+/* disable turndisable, forcetxstopmode, forcerxmode, enable */
+#define RK3399_GRF_SOC_CON23           0x625c
+#define RK3399_GRF_DSI1_MODE1          0xffff0000
+#define RK3399_GRF_DSI1_ENABLE         0x000f000f
+/* disable basedir and enable clk */
+#define RK3399_GRF_SOC_CON24           0x6260
+#define RK3399_TXRX_MASTERSLAVEZ       BIT(7)
+#define RK3399_TXRX_ENABLECLK          BIT(6)
+#define RK3399_TXRX_BASEDIR            BIT(5)
+#define RK3399_GRF_DSI1_MODE2          0x00e00080
+
 #define to_dsi(nm)	container_of(nm, struct dw_mipi_dsi_rockchip, nm)
 
 enum {
@@ -162,6 +199,14 @@ struct rockchip_dw_dsi_chip_data {
 	u32 grf_switch_reg;
 	u32 grf_dsi0_mode;
 	u32 grf_dsi0_mode_reg;
+
+	u32 grf_dsi1_mode;
+	u32 grf_dsi1_mode_reg1;
+	u32 dsi1_basedir;
+	u32 dsi1_masterslavez;
+	u32 dsi1_enableclk;
+	u32 grf_dsi1_mode_reg2;
+
 	unsigned int flags;
 	unsigned int max_data_lanes;
 };
@@ -175,6 +220,10 @@ struct dw_mipi_dsi_rockchip {
 	struct clk *pllref_clk;
 	struct clk *grf_clk;
 	struct clk *phy_cfg_clk;
+
+	/* dual-channel */
+	bool is_slave;
+	struct dw_mipi_dsi_rockchip *slave;
 
 	unsigned int lane_mbps; /* per lane */
 	u16 input_div;
@@ -540,13 +589,34 @@ static void dw_mipi_dsi_encoder_mode_set(struct drm_encoder *encoder,
 	}
 
 	val = cdata->dsi0_en_bit << 16;
-	if (mux)
+	if (dsi->slave)
+		val |= cdata->dsi1_en_bit << 16;
+	if (mux) {
 		val |= cdata->dsi0_en_bit;
+		if (dsi->slave)
+			val |= cdata->dsi1_en_bit;
+	}
 	regmap_write(dsi->grf_regmap, cdata->grf_switch_reg, val);
 
 	if (cdata->grf_dsi0_mode_reg)
 		regmap_write(dsi->grf_regmap, cdata->grf_dsi0_mode_reg,
 			     cdata->grf_dsi0_mode);
+
+	if (dsi->slave) {
+		if (cdata->grf_dsi1_mode_reg1)
+			regmap_write(dsi->grf_regmap, cdata->grf_dsi1_mode_reg1,
+				     cdata->grf_dsi1_mode);
+		if (cdata->grf_dsi1_mode_reg2) {
+			val = cdata->dsi1_masterslavez |
+			      (cdata->dsi1_masterslavez << 16) |
+			      (cdata->dsi1_basedir << 16);
+			regmap_write(dsi->grf_regmap, cdata->grf_dsi1_mode_reg2,
+				     val);
+		}
+		if (cdata->grf_dsi1_mode_reg1)
+			regmap_write(dsi->grf_regmap, cdata->grf_dsi1_mode_reg1,
+				     RK3399_GRF_DSI1_ENABLE);
+	}
 
 	clk_disable_unprepare(dsi->grf_clk);
 }
@@ -575,6 +645,8 @@ dw_mipi_dsi_encoder_atomic_check(struct drm_encoder *encoder,
 	}
 
 	s->output_type = DRM_MODE_CONNECTOR_DSI;
+	if (dsi->slave)
+		s->output_flags = ROCKCHIP_OUTPUT_DSI_DUAL_CHANNEL;
 
 	return 0;
 }
@@ -610,6 +682,25 @@ static int rockchip_dsi_drm_create_encoder(struct dw_mipi_dsi_rockchip *dsi,
 	return 0;
 }
 
+static int rockchip_dsi_dual_channel_probe(struct dw_mipi_dsi_rockchip *dsi)
+{
+	struct device_node *np;
+	struct platform_device *secondary;
+
+	np = of_parse_phandle(dsi->dev->of_node, "rockchip,dual-channel", 0);
+	if (np) {
+		secondary = of_find_device_by_node(np);
+		dsi->slave = platform_get_drvdata(secondary);
+		of_node_put(np);
+		if (!dsi->slave)
+			return -EPROBE_DEFER;
+
+		dsi->slave->is_slave = true;
+	}
+
+	return 0;
+}
+
 static int dw_mipi_dsi_rockchip_bind(struct device *dev,
 				     struct device *master,
 				     void *data)
@@ -617,30 +708,43 @@ static int dw_mipi_dsi_rockchip_bind(struct device *dev,
 	struct dw_mipi_dsi_rockchip *dsi = dev_get_drvdata(dev);
 	struct platform_device *pdev = to_platform_device(dev);
 	struct drm_device *drm_dev = data;
+	struct platform_device *pdev1;
 	int ret;
-
-	dsi->pdata.base = dsi->base;
-	dsi->pdata.max_data_lanes = dsi->cdata->max_data_lanes;
-	dsi->pdata.phy_ops = &dw_mipi_dsi_rockchip_phy_ops;
-	dsi->pdata.priv_data = dsi;
 
 	ret = clk_prepare_enable(dsi->pllref_clk);
 	if (ret) {
-		DRM_DEV_ERROR(dev,
-			      "%s: Failed to enable pllref_clk\n", __func__);
+		DRM_DEV_ERROR(dev, "Failed to enable pllref_clk: %d\n", ret);
 		return ret;
+	}
+
+	/*
+	 * If we're in a dual configuration, the slave defers to the master for
+	 * most functions.
+	 */
+	if (dsi->is_slave)
+		return 0;
+
+	ret = rockchip_dsi_dual_channel_probe(dsi);
+	if (ret)
+		return ret;
+
+	if (dsi->slave) {
+		pdev1 = to_platform_device(dsi->slave->dev);
+		dsi->slave->pdata.is_slave = true;
+		dsi->pdata.slave = dw_mipi_dsi_probe(pdev1, &dsi->slave->pdata);
 	}
 
 	ret = rockchip_dsi_drm_create_encoder(dsi, drm_dev);
 	if (ret) {
 		DRM_ERROR("Failed to create drm encoder\n");
-		goto err_pllref;
+		clk_disable_unprepare(dsi->pllref_clk);
+		return ret;
 	}
 
 	dsi->dmd = dw_mipi_dsi_bind(pdev, &dsi->encoder, &dsi->pdata);
 	if (IS_ERR(dsi->dmd)) {
-		DRM_ERROR("Failed to bind\n");
 		ret = PTR_ERR(dsi->dmd);
+		DRM_ERROR("Failed to bind: %d\n", ret);
 		goto err_pllref;
 	}
 	return 0;
@@ -720,12 +824,18 @@ static int dw_mipi_dsi_rockchip_probe(struct platform_device *pdev)
 
 	dsi->grf_regmap = syscon_regmap_lookup_by_phandle(np, "rockchip,grf");
 	if (IS_ERR(dsi->grf_regmap)) {
-		DRM_DEV_ERROR(dsi->dev, "Unable to get rockchip,grf\n");
+		DRM_DEV_ERROR(dsi->dev, "Unable to get rockchip,grf: %d\n",
+			      (int)PTR_ERR(dsi->grf_regmap));
 		return PTR_ERR(dsi->grf_regmap);
 	}
 
 	dsi->cdata = cdata;
 	dsi->dev = dev;
+	dsi->pdata.base = dsi->base;
+	dsi->pdata.priv_data = dsi;
+	dsi->pdata.max_data_lanes = cdata->max_data_lanes;
+	dsi->pdata.phy_ops = &dw_mipi_dsi_rockchip_phy_ops;
+
 	dev_set_drvdata(dev, dsi);
 
 	return component_add(&pdev->dev, &dw_mipi_dsi_rockchip_ops);
@@ -751,6 +861,12 @@ static struct rockchip_dw_dsi_chip_data rk3399_chip_data = {
 	.grf_switch_reg = RK3399_GRF_SOC_CON20,
 	.grf_dsi0_mode = RK3399_GRF_DSI_MODE,
 	.grf_dsi0_mode_reg = RK3399_GRF_SOC_CON22,
+	.grf_dsi1_mode = RK3399_GRF_DSI1_MODE1,
+	.grf_dsi1_mode_reg1 = RK3399_GRF_SOC_CON23,
+	.dsi1_basedir = RK3399_TXRX_BASEDIR,
+	.dsi1_masterslavez = RK3399_TXRX_MASTERSLAVEZ,
+	.dsi1_enableclk = RK3399_TXRX_ENABLECLK,
+	.grf_dsi1_mode_reg2 = RK3399_GRF_SOC_CON24,
 	.flags = DW_MIPI_NEEDS_PHY_CFG_CLK | DW_MIPI_NEEDS_GRF_CLK,
 	.max_data_lanes = 4,
 };

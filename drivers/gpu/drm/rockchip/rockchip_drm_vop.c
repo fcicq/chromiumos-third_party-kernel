@@ -1240,6 +1240,7 @@ static void vop_crtc_enable(struct drm_crtc *crtc)
 	pin_pol |= (adjusted_mode->flags & DRM_MODE_FLAG_PVSYNC) ?
 		   BIT(VSYNC_POSITIVE) : 0;
 	VOP_REG_SET(vop, output, pin_pol, pin_pol);
+	VOP_REG_SET(vop, output, mipi_dual_channel_en, 0);
 
 	switch (s->output_type) {
 	case DRM_MODE_CONNECTOR_LVDS:
@@ -1257,6 +1258,8 @@ static void vop_crtc_enable(struct drm_crtc *crtc)
 	case DRM_MODE_CONNECTOR_DSI:
 		VOP_REG_SET(vop, output, mipi_pin_pol, pin_pol);
 		VOP_REG_SET(vop, output, mipi_en, 1);
+		VOP_REG_SET(vop, output, mipi_dual_channel_en,
+			   !!(s->output_flags & ROCKCHIP_OUTPUT_DSI_DUAL_CHANNEL));
 		break;
 	case DRM_MODE_CONNECTOR_DisplayPort:
 		pin_pol &= ~BIT(DCLK_INVERT);
