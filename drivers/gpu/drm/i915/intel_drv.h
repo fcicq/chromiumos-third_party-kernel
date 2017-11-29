@@ -1238,6 +1238,8 @@ uint32_t ddi_signal_levels(struct intel_dp *intel_dp);
 struct intel_shared_dpll *intel_ddi_get_link_dpll(struct intel_dp *intel_dp,
 						  int clock);
 u8 intel_ddi_dp_voltage_max(struct intel_encoder *encoder);
+int intel_ddi_toggle_hdcp_signalling(struct intel_encoder *intel_encoder,
+				     bool enable);
 
 unsigned int intel_fb_align_height(const struct drm_framebuffer *fb,
 				   int plane, unsigned int height);
