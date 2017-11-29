@@ -99,6 +99,8 @@ struct rkisp1_device {
 	void __iomem *base_addr;
 	int irq;
 	struct device *dev;
+	struct devfreq *devfreq;
+	struct devfreq_event_dev *devfreq_event_dev;
 	struct clk *clks[RKISP1_MAX_BUS_CLK];
 	int clk_size;
 	struct v4l2_device v4l2_dev;
