@@ -187,6 +187,7 @@ ap_i2c_cam: &i2c2 {
 
 &isp0 {
 	status = "okay";
+	devfreq = <&dmc>;
 
 	port {
 		#address-cells = <1>;

@@ -461,6 +461,7 @@ camera: &i2c7 {
 
 &isp0 {
 	status = "okay";
+	devfreq = <&dmc>;
 
 	port {
 		#address-cells = <1>;
