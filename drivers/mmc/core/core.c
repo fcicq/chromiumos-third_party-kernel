@@ -2615,6 +2615,9 @@ int mmc_cache_ctrl(struct mmc_host *host, u8 enable)
 	unsigned int timeout;
 	int err = 0;
 
+	if (card->quirks & MMC_QUIRK_DISABLE_BROKEN_EMMC)
+		return err;
+
 	if (!(host->caps2 & MMC_CAP2_CACHE_CTRL) ||
 			mmc_card_is_removable(host))
 		return err;

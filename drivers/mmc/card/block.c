@@ -1906,7 +1906,10 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 		/* claim host only for the first request */
 		mmc_get_card(card);
 
-	ret = mmc_blk_part_switch(card, md);
+	if (card->quirks & MMC_QUIRK_DISABLE_BROKEN_EMMC)
+		ret = -ENODEV;
+	else
+		ret = mmc_blk_part_switch(card, md);
 	if (ret) {
 		if (req) {
 			blk_end_request_all(req, -EIO);

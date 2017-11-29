@@ -267,6 +267,7 @@ struct mmc_card {
 #define MMC_QUIRK_LONG_READ_TIME (1<<9)		/* Data read time > CSD says */
 #define MMC_QUIRK_SEC_ERASE_TRIM_BROKEN (1<<10)	/* Skip secure for erase/trim */
 						/* byte mode */
+#define MMC_QUIRK_DISABLE_BROKEN_EMMC  (1<<11) /* Disable tunning and read/write IO */
 
 	unsigned int		erase_size;	/* erase size in sectors */
  	unsigned int		erase_shift;	/* if erase unit is power 2 */
@@ -337,18 +338,22 @@ struct mmc_fixup {
 	/* SDIO-specfic fields. You can use SDIO_ANY_ID here of course */
 	u16 cis_vendor, cis_device;
 
+	/* Match any product revision less or equal. */
+	unsigned short prv_end;
+
 	void (*vendor_fixup)(struct mmc_card *card, int data);
 	int data;
 };
 
 #define CID_MANFID_ANY (-1u)
 #define CID_OEMID_ANY ((unsigned short) -1)
+#define CID_PRV_ANY ((unsigned short) -1)
 #define CID_NAME_ANY (NULL)
 
 #define END_FIXUP { 0 }
 
 #define _FIXUP_EXT(_name, _manfid, _oemid, _rev_start, _rev_end,	\
-		   _cis_vendor, _cis_device,				\
+		   _prv, _cis_vendor, _cis_device,			\
 		   _fixup, _data)					\
 	{						   \
 		.name = (_name),			   \
@@ -356,6 +361,7 @@ struct mmc_fixup {
 		.oemid = (_oemid),			   \
 		.rev_start = (_rev_start),		   \
 		.rev_end = (_rev_end),			   \
+		.prv_end = (_prv),			   \
 		.cis_vendor = (_cis_vendor),		   \
 		.cis_device = (_cis_device),		   \
 		.vendor_fixup = (_fixup),		   \
@@ -366,7 +372,14 @@ struct mmc_fixup {
 		      _fixup, _data)					\
 	_FIXUP_EXT(_name, _manfid,					\
 		   _oemid, _rev_start, _rev_end,			\
-		   SDIO_ANY_ID, SDIO_ANY_ID,				\
+		   CID_PRV_ANY, SDIO_ANY_ID, SDIO_ANY_ID,		\
+		   _fixup, _data)					\
+
+#define MMC_FIXUP_PRV(_name, _manfid, _oemid, _prv,			\
+		      _fixup, _data)					\
+	_FIXUP_EXT(_name, _manfid,					\
+		   _oemid, 0, -1ull,					\
+		   _prv, SDIO_ANY_ID, SDIO_ANY_ID,			\
 		   _fixup, _data)					\
 
 #define MMC_FIXUP(_name, _manfid, _oemid, _fixup, _data) \
@@ -374,7 +387,7 @@ struct mmc_fixup {
 
 #define SDIO_FIXUP(_vendor, _device, _fixup, _data)			\
 	_FIXUP_EXT(CID_NAME_ANY, CID_MANFID_ANY,			\
-		    CID_OEMID_ANY, 0, -1ull,				\
+		    CID_OEMID_ANY, 0, -1ull, CID_PRV_ANY,		\
 		   _vendor, _device,					\
 		   _fixup, _data)					\
 

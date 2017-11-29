@@ -23,6 +23,14 @@
 #include "mmc_ops.h"
 #include "sd_ops.h"
 
+#define CID_MANFID_SANDISK_2	0x45
+static const struct mmc_fixup early_fixups[] = {
+	MMC_FIXUP_PRV("SEM16G", CID_MANFID_SANDISK_2, CID_OEMID_ANY, 0x21,
+		      add_quirk_mmc, MMC_QUIRK_DISABLE_BROKEN_EMMC),
+	END_FIXUP
+};
+
+
 static const unsigned int tran_exp[] = {
 	10000,		100000,		1000000,	10000000,
 	0,		0,		0,		0
@@ -243,6 +251,9 @@ static void mmc_select_card_type(struct mmc_card *card)
 	u32 caps = host->caps, caps2 = host->caps2;
 	unsigned int hs_max_dtr = 0;
 
+	if (card->quirks & MMC_QUIRK_DISABLE_BROKEN_EMMC)
+		goto end_select_card_type;
+
 	if (card_type & EXT_CSD_CARD_TYPE_26)
 		hs_max_dtr = MMC_HIGH_26_MAX_DTR;
 
@@ -262,6 +273,7 @@ static void mmc_select_card_type(struct mmc_card *card)
 			card_type & EXT_CSD_CARD_TYPE_SDR_1_2V))
 		hs_max_dtr = MMC_HS200_MAX_DTR;
 
+end_select_card_type:
 	card->ext_csd.hs_max_dtr = hs_max_dtr;
 	card->ext_csd.card_type = card_type;
 }
@@ -960,6 +972,7 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 		err = mmc_decode_cid(card);
 		if (err)
 			goto free_card;
+		mmc_fixup_device(card, early_fixups);
 	}
 
 	/*
@@ -995,6 +1008,11 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 		mmc_set_erase_size(card);
 	}
 
+	if (card->quirks & MMC_QUIRK_DISABLE_BROKEN_EMMC) {
+		pr_warning("%s: ext_csd extraction skipped.\n",
+		       mmc_hostname(card->host));
+		goto good_card;
+	}
 	/*
 	 * If enhanced_area_en is TRUE, host needs to enable ERASE_GRP_DEF
 	 * bit.  This bit will be lost every time after a reset or power off.
@@ -1332,6 +1350,7 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 		}
 	}
 
+good_card:
 	if (!oldcard)
 		host->card = card;
 
@@ -1357,6 +1376,9 @@ static int mmc_sleep(struct mmc_host *host)
 	struct mmc_command cmd = {0};
 	struct mmc_card *card = host->card;
 	int err;
+
+	if (card->quirks & MMC_QUIRK_DISABLE_BROKEN_EMMC)
+		return 0;
 
 	if (host->caps2 & MMC_CAP2_NO_SLEEP_CMD)
 		return 0;
@@ -1390,6 +1412,7 @@ static int mmc_can_poweroff_notify(const struct mmc_card *card)
 {
 	return card &&
 		mmc_card_mmc(card) &&
+		!(card->quirks & MMC_QUIRK_DISABLE_BROKEN_EMMC) &&
 		(card->ext_csd.power_off_notification == EXT_CSD_POWER_ON);
 }
 
