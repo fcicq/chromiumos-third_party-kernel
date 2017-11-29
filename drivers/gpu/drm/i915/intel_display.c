@@ -12741,12 +12741,17 @@ static int intel_atomic_check(struct drm_device *dev,
 	struct intel_atomic_state *intel_state = to_intel_atomic_state(state);
 	struct drm_crtc *crtc;
 	struct drm_crtc_state *crtc_state;
+	struct drm_connector *conn;
+	struct drm_connector_state *conn_state;
 	int ret, i;
 	bool any_ms = false;
 
 	ret = drm_atomic_helper_check_modeset(dev, state);
 	if (ret)
 		return ret;
+
+	for_each_connector_in_state(state, conn, conn_state, i)
+		intel_hdcp_atomic_check(conn, conn->state, conn_state);
 
 	for_each_crtc_in_state(state, crtc, crtc_state, i) {
 		struct intel_crtc_state *pipe_config =

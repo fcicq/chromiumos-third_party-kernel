@@ -1866,6 +1866,11 @@ static void intel_enable_ddi(struct intel_encoder *intel_encoder,
 		intel_display_power_get(dev_priv, POWER_DOMAIN_AUDIO);
 		intel_audio_codec_enable(intel_encoder);
 	}
+
+	/* Enable hdcp if it's desired */
+	if (conn_state->content_protection ==
+	    DRM_MODE_CONTENT_PROTECTION_DESIRED)
+		intel_hdcp_enable(to_intel_connector(conn_state->connector));
 }
 
 static void intel_disable_ddi(struct intel_encoder *intel_encoder,
@@ -1878,6 +1883,8 @@ static void intel_disable_ddi(struct intel_encoder *intel_encoder,
 	int type = intel_encoder->type;
 	struct drm_device *dev = encoder->dev;
 	struct drm_i915_private *dev_priv = to_i915(dev);
+
+	intel_hdcp_disable(to_intel_connector(old_conn_state->connector));
 
 	if (intel_crtc->config->has_audio) {
 		intel_audio_codec_disable(intel_encoder);
