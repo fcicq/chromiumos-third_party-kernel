@@ -142,12 +142,28 @@ ap_i2c_cam: &i2c2 {
 
 &mipi_dsi {
 	status = "okay";
-	panel {
+
+	ports {
+		mipi_out: port@1 {
+			reg = <1>;
+
+			mipi_out_panel: endpoint {
+				remote-endpoint = <&mipi_in_panel>;
+			};
+		};
+	};
+
+	panel@0 {
 		compatible = "innolux,p079zca";
 		reg = <0>;
 		backlight = <&backlight>;
 		power-supply = <&pp3300_disp>;
-		status = "okay";
+
+		port {
+			mipi_in_panel: endpoint {
+				remote-endpoint = <&mipi_out_panel>;
+			};
+		};
 	};
 };
 
