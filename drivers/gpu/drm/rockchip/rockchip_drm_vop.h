@@ -64,6 +64,7 @@ struct vop_output {
 	struct vop_reg edp_en;
 	struct vop_reg hdmi_en;
 	struct vop_reg mipi_en;
+	struct vop_reg mipi_dual_channel_en;
 	struct vop_reg rgb_en;
 };
 
@@ -239,6 +240,8 @@ struct vop_data {
 #define ROCKCHIP_OUT_MODE_P565	2
 /* for use special outface */
 #define ROCKCHIP_OUT_MODE_AAAA	15
+
+#define ROCKCHIP_OUTPUT_DSI_DUAL_CHANNEL	BIT(0)
 
 enum alpha_mode {
 	ALPHA_STRAIGHT,

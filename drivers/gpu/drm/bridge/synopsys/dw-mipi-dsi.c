@@ -232,8 +232,21 @@ struct dw_mipi_dsi {
 	u32 format;
 	unsigned long mode_flags;
 
+	/* Pointer from a master DSI to its slave. Used for dual DSI */
+	struct dw_mipi_dsi *slave;
+	/*
+	 * True if this DSI is a slave and should defer most configuration to
+	 * the master. Used for dual DSI.
+	 */
+	bool is_slave;
+
 	const struct dw_mipi_dsi_plat_data *plat_data;
 };
+
+static inline bool dw_mipi_is_dual_mode(struct dw_mipi_dsi *dsi)
+{
+	return dsi->slave || dsi->is_slave;
+}
 
 /*
  * The controller should generate 2 frames before
@@ -275,17 +288,28 @@ static int dw_mipi_dsi_host_attach(struct mipi_dsi_host *host,
 	struct drm_bridge *bridge;
 	struct drm_panel *panel;
 	int ret;
+	int lanes = device->lanes;
 
-	if (device->lanes > dsi->plat_data->max_data_lanes) {
+	if (dw_mipi_is_dual_mode(dsi))
+		lanes = device->lanes / 2;
+
+	if (lanes > dsi->plat_data->max_data_lanes) {
 		dev_err(dsi->dev, "the number of data lanes(%u) is too many\n",
 			device->lanes);
 		return -EINVAL;
 	}
 
-	dsi->lanes = device->lanes;
+	dsi->lanes = lanes;
 	dsi->channel = device->channel;
 	dsi->format = device->format;
 	dsi->mode_flags = device->mode_flags;
+
+	if (dsi->slave) {
+		dsi->slave->lanes = lanes;
+		dsi->slave->channel = device->channel;
+		dsi->slave->format = device->format;
+		dsi->slave->mode_flags = device->mode_flags;
+	}
 
 	ret = drm_of_find_panel_or_bridge(host->dev->of_node, 1, 0,
 					  &panel, &bridge);
@@ -436,15 +460,22 @@ static ssize_t dw_mipi_dsi_host_transfer(struct mipi_dsi_host *host,
 	 * and use packet.header...
 	 */
 	dw_mipi_message_config(dsi, msg);
+	if (dsi->slave)
+		dw_mipi_message_config(dsi->slave, msg);
 
 	switch (msg->type) {
 	case MIPI_DSI_DCS_SHORT_WRITE:
 	case MIPI_DSI_DCS_SHORT_WRITE_PARAM:
 	case MIPI_DSI_SET_MAXIMUM_RETURN_PACKET_SIZE:
+	case MIPI_DSI_GENERIC_SHORT_WRITE_2_PARAM:
 		ret = dw_mipi_dsi_dcs_short_write(dsi, msg);
+		if (dsi->slave)
+			ret = dw_mipi_dsi_dcs_short_write(dsi->slave, msg);
 		break;
 	case MIPI_DSI_DCS_LONG_WRITE:
 		ret = dw_mipi_dsi_dcs_long_write(dsi, msg);
+		if (dsi->slave)
+			ret = dw_mipi_dsi_dcs_long_write(dsi->slave, msg);
 		break;
 	default:
 		dev_err(dsi->dev, "unsupported message type 0x%02x\n",
@@ -580,7 +611,15 @@ static void dw_mipi_dsi_video_packet_config(struct dw_mipi_dsi *dsi,
 	 * DSI_VNPCR.NPSIZE... especially because this driver supports
 	 * non-burst video modes, see dw_mipi_dsi_video_mode_config()...
 	 */
-	dsi_write(dsi, DSI_VID_PKT_SIZE, VID_PKT_SIZE(mode->hdisplay));
+
+	int pkt_size;
+
+	if (dw_mipi_is_dual_mode(dsi))
+		pkt_size = VID_PKT_SIZE(mode->hdisplay / 2);
+	else
+		pkt_size = VID_PKT_SIZE(mode->hdisplay);
+
+	dsi_write(dsi, DSI_VID_PKT_SIZE, pkt_size);
 }
 
 static void dw_mipi_dsi_command_mode_config(struct dw_mipi_dsi *dsi)
@@ -742,23 +781,32 @@ static void dw_mipi_dsi_bridge_post_disable(struct drm_bridge *bridge)
 	dsi->panel_bridge->funcs->post_disable(dsi->panel_bridge);
 
 	dw_mipi_dsi_disable(dsi);
+	if (dsi->slave) {
+		dw_mipi_dsi_disable(dsi->slave);
+		clk_disable_unprepare(dsi->slave->pclk);
+		pm_runtime_put(dsi->slave->dev);
+	}
 	clk_disable_unprepare(dsi->pclk);
 	pm_runtime_put(dsi->dev);
 }
 
-void dw_mipi_dsi_bridge_mode_set(struct drm_bridge *bridge,
-				 struct drm_display_mode *mode,
-				 struct drm_display_mode *adjusted_mode)
+static void dw_mipi_dsi_mode_set(struct dw_mipi_dsi *dsi,
+				 struct drm_display_mode *mode)
 {
-	struct dw_mipi_dsi *dsi = bridge_to_dsi(bridge);
 	const struct dw_mipi_dsi_phy_ops *phy_ops = dsi->plat_data->phy_ops;
 	void *priv_data = dsi->plat_data->priv_data;
 	int ret;
+	u32 lanes;
 
 	clk_prepare_enable(dsi->pclk);
 
+	if (dw_mipi_is_dual_mode(dsi))
+		lanes = dsi->lanes * 2;
+	else
+		lanes = dsi->lanes;
+
 	ret = phy_ops->get_lane_mbps(priv_data, mode, dsi->mode_flags,
-				     dsi->lanes, dsi->format, &dsi->lane_mbps);
+				     lanes, dsi->format, &dsi->lane_mbps);
 	if (ret)
 		DRM_DEBUG_DRIVER("Phy get_lane_mbps() failed\n");
 
@@ -790,12 +838,25 @@ void dw_mipi_dsi_bridge_mode_set(struct drm_bridge *bridge,
 	dw_mipi_dsi_set_mode(dsi, 0);
 }
 
+static void dw_mipi_dsi_bridge_mode_set(struct drm_bridge *bridge,
+					struct drm_display_mode *mode,
+					struct drm_display_mode *adjusted_mode)
+{
+	struct dw_mipi_dsi *dsi = bridge_to_dsi(bridge);
+
+	dw_mipi_dsi_mode_set(dsi, mode);
+	if (dsi->slave)
+		dw_mipi_dsi_mode_set(dsi->slave, mode);
+}
+
 static void dw_mipi_dsi_bridge_enable(struct drm_bridge *bridge)
 {
 	struct dw_mipi_dsi *dsi = bridge_to_dsi(bridge);
 
 	/* Switch to video mode for panel-bridge enable & panel enable */
 	dw_mipi_dsi_set_mode(dsi, MIPI_DSI_MODE_VIDEO);
+	if (dsi->slave)
+		dw_mipi_dsi_set_mode(dsi->slave, MIPI_DSI_MODE_VIDEO);
 }
 
 static enum drm_mode_status
@@ -908,6 +969,16 @@ __dw_mipi_dsi_probe(struct platform_device *pdev,
 	}
 
 	pm_runtime_enable(dev);
+
+	dsi->slave = plat_data->slave;
+	dsi->is_slave = plat_data->is_slave;
+
+	/*
+	 * If we're in a dual configuration, the slave defers to the master for
+	 * most functions.
+	 */
+	if (dsi->is_slave)
+		return dsi;
 
 	dsi->dsi_host.ops = &dw_mipi_dsi_host_ops;
 	dsi->dsi_host.dev = dev;
