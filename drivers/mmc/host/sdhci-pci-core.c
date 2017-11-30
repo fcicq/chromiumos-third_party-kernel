@@ -392,6 +392,9 @@ static int byt_sd_probe_slot(struct sdhci_pci_slot *slot)
 {
 	slot->host->mmc->caps |= MMC_CAP_WAIT_WHILE_BUSY |
 				 MMC_CAP_AGGRESSIVE_PM;
+
+	slot->host->mmc->pm_flags |= MMC_PM_KEEP_POWER |
+				     MMC_PM_WAKE_SDIO_IRQ;
 	slot->cd_con_id = NULL;
 	slot->cd_idx = 0;
 	slot->cd_override_level = true;
@@ -1593,14 +1596,6 @@ static int sdhci_pci_suspend(struct device *dev)
 			goto err_pci_suspend;
 	}
 
-	if (pm_flags & MMC_PM_KEEP_POWER) {
-		if (pm_flags & MMC_PM_WAKE_SDIO_IRQ)
-			device_init_wakeup(dev, true);
-		else
-			device_init_wakeup(dev, false);
-	} else
-		device_init_wakeup(dev, false);
-
 	return 0;
 
 err_pci_suspend:
@@ -1925,6 +1920,7 @@ static int sdhci_pci_probe(struct pci_dev *pdev,
 
 	u8 slots, first_bar;
 	int ret, i;
+	mmc_pm_flag_t pm_flags = 0;
 
 	BUG_ON(pdev == NULL);
 	BUG_ON(ent == NULL);
@@ -1993,7 +1989,12 @@ static int sdhci_pci_probe(struct pci_dev *pdev,
 		}
 
 		chip->slots[i] = slot;
+		pm_flags |= slot->host->mmc->pm_flags;
 	}
+
+	device_init_wakeup(&chip->pdev->dev,
+                                  (pm_flags & MMC_PM_KEEP_POWER) &&
+                                  (pm_flags & MMC_PM_WAKE_SDIO_IRQ));
 
 	if (chip->allow_runtime_pm)
 		sdhci_pci_runtime_pm_allow(&pdev->dev);

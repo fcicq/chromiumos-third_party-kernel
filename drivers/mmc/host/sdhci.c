@@ -2679,6 +2679,7 @@ int sdhci_suspend_host(struct sdhci_host *host)
 		free_irq(host->irq, host);
 	} else {
 		sdhci_enable_irq_wakeups(host);
+		enable_irq_wake(host->mmc->slot.cd_irq);
 		enable_irq_wake(host->irq);
 	}
 	return 0;
@@ -2714,6 +2715,7 @@ int sdhci_resume_host(struct sdhci_host *host)
 		if (ret)
 			return ret;
 	} else {
+		disable_irq_wake(host->mmc->slot.cd_irq);
 		sdhci_disable_irq_wakeups(host);
 		disable_irq_wake(host->irq);
 	}
