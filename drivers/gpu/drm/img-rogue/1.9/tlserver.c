@@ -73,8 +73,8 @@ TLServerOpenStreamKM(const IMG_CHAR*  	   pszName,
 {
 	PVRSRV_ERROR 	eError = PVRSRV_OK;
 	PVRSRV_ERROR 	eErrorEO = PVRSRV_OK;
-	PTL_SNODE		psNode = 0;
-	PTL_STREAM		psStream = 0;
+	PTL_SNODE		psNode;
+	PTL_STREAM		psStream;
 	TL_STREAM_DESC *psNewSD = NULL;
 	IMG_HANDLE 		hEvent;
 	IMG_BOOL		bIsWriteOnly = ui32Mode & PVRSRV_STREAM_FLAG_OPEN_WO ?
@@ -270,7 +270,7 @@ TLServerCloseStreamKM(PTL_STREAM_DESC psSD)
 {
 	PVRSRV_ERROR    eError = PVRSRV_OK;
 	PTL_GLOBAL_DATA psGD = TLGGD();
-	PTL_SNODE		psNode = 0;
+	PTL_SNODE		psNode;
 	PTL_STREAM	psStream;
 	IMG_BOOL	bDestroyStream;
 	IMG_BOOL	bIsWriteOnly = psSD->ui32Flags & PVRSRV_STREAM_FLAG_OPEN_WO ?
@@ -361,7 +361,7 @@ TLServerReserveStreamKM(PTL_STREAM_DESC psSD,
                         IMG_UINT32* pui32Available)
 {
 	TL_GLOBAL_DATA* psGD = TLGGD();
-	PTL_SNODE psNode = 0;
+	PTL_SNODE psNode;
 	IMG_UINT8* pui8Buffer = NULL;
 	PVRSRV_ERROR eError;
 
@@ -427,7 +427,7 @@ TLServerCommitStreamKM(PTL_STREAM_DESC psSD,
                        IMG_UINT32 ui32Size)
 {
 	TL_GLOBAL_DATA*	psGD = TLGGD();
-	PTL_SNODE psNode = 0;
+	PTL_SNODE psNode;
 	PVRSRV_ERROR eError;
 
 	PVR_DPF_ENTERED;
@@ -521,7 +521,7 @@ TLServerAcquireDataKM(PTL_STREAM_DESC psSD,
 	TL_GLOBAL_DATA*		psGD = TLGGD();
 	IMG_UINT32		    uiTmpOffset = NO_ACQUIRE;
 	IMG_UINT32  		uiTmpLen = 0;
-	PTL_SNODE			psNode = 0;
+	PTL_SNODE			psNode;
 
 	PVR_DPF_ENTERED;
 
@@ -595,7 +595,7 @@ TLServerReleaseDataKM(PTL_STREAM_DESC psSD,
 		 	 		  IMG_UINT32  	  uiReadLen)
 {
 	TL_GLOBAL_DATA*		psGD = TLGGD();
-	PTL_SNODE			psNode = 0;
+	PTL_SNODE			psNode;
 
 	PVR_DPF_ENTERED;
 
@@ -635,7 +635,7 @@ TLServerWriteDataKM(PTL_STREAM_DESC psSD,
                     IMG_BYTE* pui8Data)
 {
 	TL_GLOBAL_DATA* psGD = TLGGD();
-	PTL_SNODE psNode = 0;
+	PTL_SNODE psNode;
 	PVRSRV_ERROR eError;
 
 	PVR_DPF_ENTERED;
