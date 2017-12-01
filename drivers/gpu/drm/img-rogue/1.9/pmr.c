@@ -1694,7 +1694,7 @@ PMRUnrefPMR(PMR *psPMR)
     return PVRSRV_OK;
 }
 
-extern PVRSRV_ERROR
+PVRSRV_ERROR
 PMRUnrefUnlockPMR(PMR *psPMR)
 {
 	PMRUnlockSysPhysAddresses(psPMR);
@@ -2659,7 +2659,7 @@ PMRPDumpSaveToFile(const PMR *psPMR,
 	return PVRSRV_OK;
 }
 
-extern PVRSRV_ERROR
+PVRSRV_ERROR
 PMRPDumpPol32(const PMR *psPMR,
               IMG_DEVMEM_OFFSET_T uiLogicalOffset,
               IMG_UINT32 ui32Value,
