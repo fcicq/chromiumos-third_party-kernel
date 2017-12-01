@@ -14,7 +14,8 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3399-gru-rainier-r0.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3399-gru-scarlet-r0.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3399-gru-scarlet-r1.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3399-gru-scarlet-r2.dtb
-dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3399-gru-scarlet-r3.dtb
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3399-gru-scarlet-r3-sku7.dtb
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3399-gru-scarlet-r4-sku6.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3399-sapphire-excavator.dtb
 
 always		:= $(dtb-y)
