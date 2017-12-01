@@ -40,21 +40,24 @@
 #include <drm/drm_atomic.h>
 
 /**
- * _wait_for - magic (register) wait macro
+ * __wait_for - magic wait macro
  *
- * Does the right thing for modeset paths when run under kdgb or similar atomic
- * contexts. Note that it's important that we check the condition again after
- * having timed out, since the timeout could be due to preemption or similar and
- * we've never had a chance to check the condition before the timeout.
+ * Macro to help avoid open coding check/wait/timeout patterns. Note that it's
+ * important that we check the condition again after having timed out, since the
+ * timeout could be due to preemption or similar and we've never had a chance to
+ * check the condition before the timeout.
  *
  * TODO: When modesetting has fully transitioned to atomic, the below
  * drm_can_sleep() can be removed and in_atomic()/!in_atomic() asserts
  * added.
  */
-#define _wait_for(COND, US, W) ({ \
+#define __wait_for(OP, COND, US, W) ({ \
 	unsigned long timeout__ = jiffies + usecs_to_jiffies(US) + 1;	\
 	int ret__ = 0;							\
-	while (!(COND)) {						\
+	for (;;) {							\
+		OP;							\
+		if (COND)						\
+			break;						\
 		if (time_after(jiffies, timeout__)) {			\
 			if (!(COND))					\
 				ret__ = -ETIMEDOUT;			\
@@ -69,6 +72,7 @@
 	ret__;								\
 })
 
+#define _wait_for(COND, US, W)		__wait_for(,(COND), (US), (W))
 #define wait_for(COND, MS)	  	_wait_for((COND), (MS) * 1000, 1000)
 #define wait_for_us(COND, US)	  	_wait_for((COND), (US), 1)
 

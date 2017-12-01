@@ -2996,11 +2996,22 @@ u64 intel_uncore_edram_size(struct drm_i915_private *dev_priv);
 
 void assert_forcewakes_inactive(struct drm_i915_private *dev_priv);
 
+int __intel_wait_for_register(struct drm_i915_private *dev_priv,
+			      i915_reg_t reg,
+			      const u32 mask,
+			      const u32 value,
+			      const unsigned long timeout_ms,
+			      u32 *out_value);
+static inline
 int intel_wait_for_register(struct drm_i915_private *dev_priv,
 			    i915_reg_t reg,
 			    const u32 mask,
 			    const u32 value,
-			    const unsigned long timeout_ms);
+			    const unsigned long timeout_ms)
+{
+	return __intel_wait_for_register(dev_priv, reg, mask, value, timeout_ms,
+					 NULL);
+}
 int intel_wait_for_register_fw(struct drm_i915_private *dev_priv,
 			       i915_reg_t reg,
 			       const u32 mask,
