@@ -106,7 +106,7 @@ static_assert((sizeof(DBG_STREAM) * 4) < HOST_PAGESIZE, "DBG_STREAM is too large
  Global variables
 ******************************************************************************/
 
-static PDBG_STREAM          g_psStreamList = 0;
+static PDBG_STREAM          g_psStreamList;
 
 /* Mutex used to prevent UM threads (via the dbgdrv ioctl interface) and KM
  * threads (from pvrsrvkm via the ExtDBG API) entering the debug driver core

@@ -208,7 +208,7 @@ TLStreamCreate(IMG_HANDLE *phStream,
 	PTL_STREAM     psTmp;
 	PVRSRV_ERROR   eError;
 	IMG_HANDLE     hEventList;
-	PTL_SNODE      psn = 0;
+	PTL_SNODE      psn;
 	TL_OPMODE      eOpMode;
 
 	PVR_DPF_ENTERED;
