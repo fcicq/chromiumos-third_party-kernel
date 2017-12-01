@@ -118,7 +118,7 @@ static IMG_UINT32 g_uiMaxOrder = 0;
 #define DMA_GET_ALIGN_ADJUSTMENT(x)		((x>>2) & ((dma_addr_t)0x3ff))
 #define DMA_SET_ALIGN_ADJUSTMENT(x,y)	((x) | (((dma_addr_t)y)<<0x02))
 #define DMA_GET_ADDR(x)					(((dma_addr_t)x) & ((dma_addr_t)~0xfff))
-#define DMA_VADDR_NOT_IN_USE			0xCAFEF00DDEADBEEF
+#define DMA_VADDR_NOT_IN_USE			0xCAFEF00DDEADBEEFULL
 
 #define INVALID_PAGE_ADDR 0ULL
 
@@ -1467,7 +1467,7 @@ _ApplyCacheMaintenance(PVRSRV_DEVICE_NODE *psDevNode,
 				IMG_UINT32 uiToClean = (uiNumToClean >= PVR_LINUX_PHYSMEM_MAX_KMAP_PAGES) ?
 											PVR_LINUX_PHYSMEM_MAX_KMAP_PAGES :
 											uiNumToClean;
-				IMG_CPU_PHYADDR sUnused = {(uintptr_t)0xCAFEF00DDEADBEEF};
+				IMG_CPU_PHYADDR sUnused = {(uintptr_t)0xCAFEF00DDEADBEEFULL};
 
 				pvAddr = vm_map_ram(ppsCleanArray, uiToClean, -1, pgprot);
 				if (!pvAddr)
