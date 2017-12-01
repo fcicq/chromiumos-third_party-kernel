@@ -120,8 +120,6 @@ static IMG_UINT32 g_uiMaxOrder = 0;
 #define DMA_GET_ADDR(x)					(((dma_addr_t)x) & ((dma_addr_t)~0xfff))
 #define DMA_VADDR_NOT_IN_USE			0xCAFEF00DDEADBEEFULL
 
-#define INVALID_PAGE_ADDR 0ULL
-
 typedef struct _PMR_OSPAGEARRAY_DATA_ {
 	/* Device for which this allocation has been made */
 	PVRSRV_DEVICE_NODE *psDevNode;
@@ -2029,7 +2027,7 @@ e_free_pages:
 								ppsPageArray[ui32PageToFree]);
 				psPageArrayData->dmaphysarray[ui32PageToFree]= (dma_addr_t)0;
 				psPageArrayData->dmavirtarray[ui32PageToFree] = NULL;
-				ppsPageArray[ui32PageToFree] = INVALID_PAGE_ADDR;
+				ppsPageArray[ui32PageToFree] = NULL;
 			}
 		}
 		else
@@ -2040,13 +2038,13 @@ e_free_pages:
 				_FreeOSPage(ui32MinOrder,
 							psPageArrayData->bUnsetMemoryType,
 							ppsPageArray[ui32PageToFree]);
-				ppsPageArray[ui32PageToFree] = INVALID_PAGE_ADDR;
+				ppsPageArray[ui32PageToFree] = NULL;
 			}
 
 			for (ui32PageToFree = uiPagesFromPool; ui32PageToFree < uiArrayIndex; ui32PageToFree++)
 			{
 				_FreeOSPage(ui32MinOrder, IMG_FALSE, ppsPageArray[ui32PageToFree]);
-				ppsPageArray[ui32PageToFree] = INVALID_PAGE_ADDR;
+				ppsPageArray[ui32PageToFree] = NULL;
 			}
 		}
 
@@ -2133,7 +2131,7 @@ _AllocOSPages_Sparse(PMR_OSPAGEARRAY_DATA *psPageArrayData,
 		}
 
 		/* Check if there is not already a page allocated at this position */
-		if (INVALID_PAGE_ADDR != ppsPageArray[puiAllocIndices[i]])
+		if (NULL != ppsPageArray[puiAllocIndices[i]])
 		{
 			PVR_DPF((PVR_DBG_ERROR,
 					 "%s: Mapping number %u at page array index %u already exists. "
@@ -2270,7 +2268,7 @@ e_free_pages:
 								ppsPageArray[puiAllocIndices[ui32PageToFree]]);
 				psPageArrayData->dmaphysarray[puiAllocIndices[ui32PageToFree]]= (dma_addr_t)0;
 				psPageArrayData->dmavirtarray[puiAllocIndices[ui32PageToFree]] = NULL;
-				ppsPageArray[puiAllocIndices[ui32PageToFree]] = (struct page *) INVALID_PAGE_ADDR;
+				ppsPageArray[puiAllocIndices[ui32PageToFree]] = NULL;
 			}
 		}
 		else
@@ -2294,7 +2292,7 @@ e_free_pages:
 			/* Reset all page array entries that have been set so far*/
 			for(ui32PageToFree = 0; ui32PageToFree < i; ui32PageToFree++)
 			{
-				ppsPageArray[puiAllocIndices[ui32PageToFree]] = (struct page *) INVALID_PAGE_ADDR;
+				ppsPageArray[puiAllocIndices[ui32PageToFree]] = NULL;
 			}
 		}
 	}
@@ -2572,7 +2570,7 @@ _FreeOSPages_Sparse(PMR_OSPAGEARRAY_DATA *psPageArrayData,
 		for (i  = 0; i  < uiNumPages; i ++)
 		{
 			IMG_UINT32 idx = pai32FreeIndices ? pai32FreeIndices[i] : i;
-			if (INVALID_PAGE_ADDR != ppsPageArray[idx])
+			if (NULL != ppsPageArray[idx])
 			{
 				_PoisonPages(psPageArrayData->psDevNode,
 				             ppsPageArray[idx],
@@ -2591,7 +2589,7 @@ _FreeOSPages_Sparse(PMR_OSPAGEARRAY_DATA *psPageArrayData,
 		for (i = 0; i < uiDevNumPages; i++)
 		{
 			IMG_UINT32 idx = pai32FreeIndices ? pai32FreeIndices[i] : i;
-			if (INVALID_PAGE_ADDR != ppsPageArray[idx])
+			if (NULL != ppsPageArray[idx])
 			{
 				_FreeOSPage_CMA(psPageArrayData->psDevNode->psDevConfig->pvOSDevice,
 								uiDevPageSize,
@@ -2601,7 +2599,7 @@ _FreeOSPages_Sparse(PMR_OSPAGEARRAY_DATA *psPageArrayData,
 								ppsPageArray[idx]);
 				psPageArrayData->dmaphysarray[idx] = (dma_addr_t)0;
 				psPageArrayData->dmavirtarray[idx] = NULL;
-				ppsPageArray[idx] = INVALID_PAGE_ADDR;
+				ppsPageArray[idx] = NULL;
 				uiTempIdx++;
 			}
 		}
@@ -2621,7 +2619,7 @@ _FreeOSPages_Sparse(PMR_OSPAGEARRAY_DATA *psPageArrayData,
 		for (i = 0; i < uiNumPages; i++)
 		{
 			uiPageIndex = pai32FreeIndices ? pai32FreeIndices[i] : i;
-			if (INVALID_PAGE_ADDR != ppsPageArray[uiPageIndex])
+			if (NULL != ppsPageArray[uiPageIndex])
 			{
 				struct page *psPage = ppsPageArray[uiPageIndex];
 
@@ -2632,7 +2630,7 @@ _FreeOSPages_Sparse(PMR_OSPAGEARRAY_DATA *psPageArrayData,
 					psPage++;
 				}
 
-				ppsPageArray[uiPageIndex] = (struct page *) INVALID_PAGE_ADDR;
+				ppsPageArray[uiPageIndex] = NULL;
 			}
 		}
 
@@ -2734,7 +2732,7 @@ _FreeOSPages_Fast(PMR_OSPAGEARRAY_DATA *psPageArrayData)
 							ppsPageArray[i]);
   			psPageArrayData->dmaphysarray[i] = (dma_addr_t)0;
 			psPageArrayData->dmavirtarray[i] = NULL;
-			ppsPageArray[i] = INVALID_PAGE_ADDR;
+			ppsPageArray[i] = NULL;
 		}
 	}
 	else
@@ -2755,7 +2753,7 @@ _FreeOSPages_Fast(PMR_OSPAGEARRAY_DATA *psPageArrayData)
 		for (i = 0; i < uiNumPages; i++)
 		{
 			_FreeOSPage(uiOrder, IMG_FALSE, ppsPageArray[i]);
-			ppsPageArray[i] = INVALID_PAGE_ADDR;
+			ppsPageArray[i] = NULL;
 		}
 	}
 
@@ -3342,7 +3340,7 @@ PMRChangeSparseMemOSMem(PMR_IMPL_PRIVDATA pPriv,
 					goto e0;
 				}
 
-				if (INVALID_PAGE_ADDR == psPageArray[uiFreepgidx])
+				if (NULL == psPageArray[uiFreepgidx])
 				{
 					eError = PVRSRV_ERROR_INVALID_PARAMS;
 					PVR_DPF((PVR_DBG_ERROR,
@@ -3375,7 +3373,7 @@ PMRChangeSparseMemOSMem(PMR_IMPL_PRIVDATA pPriv,
 
 		if (SPARSE_REMAP_MEM != (uiFlags & SPARSE_REMAP_MEM))
 		{
-			if ((INVALID_PAGE_ADDR != psPageArray[uiAllocpgidx]) ||
+			if ((NULL != psPageArray[uiAllocpgidx]) ||
 			    (TRANSLATION_INVALID != psPMRMapTable->aui32Translation[uiAllocpgidx]))
 			{
 				eError = PVRSRV_ERROR_INVALID_PARAMS;
@@ -3387,7 +3385,7 @@ PMRChangeSparseMemOSMem(PMR_IMPL_PRIVDATA pPriv,
 		}
 		else
 		{
-			if ((INVALID_PAGE_ADDR == psPageArray[uiAllocpgidx]) ||
+			if ((NULL == psPageArray[uiAllocpgidx]) ||
 			    (TRANSLATION_INVALID == psPMRMapTable->aui32Translation[uiAllocpgidx]) )
 			{
 				eError = PVRSRV_ERROR_INVALID_PARAMS;
@@ -3448,7 +3446,7 @@ PMRChangeSparseMemOSMem(PMR_IMPL_PRIVDATA pPriv,
 		{
 			psPMRMapTable->aui32Translation[uiFreepgidx] = TRANSLATION_INVALID;
 			psPMRMapTable->aui32Translation[uiAllocpgidx] = uiAllocpgidx;
-			psPageArray[uiFreepgidx] = (struct page *)INVALID_PAGE_ADDR;
+			psPageArray[uiFreepgidx] = NULL;
 			if (bCMA)
 			{
 				psDMAVirtArray[uiFreepgidx] = NULL;
