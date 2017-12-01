@@ -1175,7 +1175,7 @@ static INLINE void CacheOpExecRangeBasedVA(PVRSRV_DEVICE_NODE *psDevNode,
 										 IMG_DEVMEM_SIZE_T uiSize,
 										 PVRSRV_CACHE_OP uiCacheOp)
 {
-	IMG_CPU_PHYADDR sCpuPhyAddrUnused = {(uintptr_t)0xCAFEF00DDEADBEEF};
+	IMG_CPU_PHYADDR sCpuPhyAddrUnused = {(uintptr_t)0xCAFEF00DDEADBEEFULL};
 	IMG_BYTE *pbEnd = (IMG_BYTE*)((uintptr_t)pvAddress + (uintptr_t)uiSize);
 	IMG_BYTE *pbStart = (IMG_BYTE*)((uintptr_t)pvAddress & ~((uintptr_t)gsCwq.uiLineSize-1));
 
