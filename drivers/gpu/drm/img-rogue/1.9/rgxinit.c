@@ -137,8 +137,8 @@ static PVRSRV_ERROR RGXSoftReset(PVRSRV_DEVICE_NODE *psDeviceNode, IMG_UINT64  u
 #define RGXBVNC_BUFFER_SIZE (((PVRSRV_MAX_DEVICES)*(MAX_BVNC_LEN))+1)
 
 /* List of BVNC strings given as module param & count*/
-IMG_PCHAR gazRGXBVNCList[PVRSRV_MAX_DEVICES];
-IMG_UINT32 gui32RGXLoadTimeDevCount;
+static IMG_PCHAR gazRGXBVNCList[PVRSRV_MAX_DEVICES];
+static IMG_UINT32 gui32RGXLoadTimeDevCount;
 
 static void RGXDeInitHeaps(DEVICE_MEMORY_INFO *psDevMemoryInfo);
 

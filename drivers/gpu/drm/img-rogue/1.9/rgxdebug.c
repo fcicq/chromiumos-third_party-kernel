@@ -167,7 +167,7 @@ typedef struct _IMG_FLAGS2DESC_
 	IMG_CHAR	*pszLabel;
 } IMG_FLAGS2DESC;
 
-const IMG_FLAGS2DESC asCSW2Description[] =
+static const IMG_FLAGS2DESC asCSW2Description[] =
 {
 	{RGXFWIF_INICFG_CTXSWITCH_TA_EN, "TA; "},
 	{RGXFWIF_INICFG_CTXSWITCH_3D_EN, "3D; "},
@@ -183,7 +183,7 @@ const IMG_FLAGS2DESC asCSW2Description[] =
 	{RGXFWIF_INICFG_CTXSWITCH_PROFILE_NODELAY, "No Delay CSW profile; "}
 };
 
-const IMG_FLAGS2DESC asMisc2Description[] =
+static const IMG_FLAGS2DESC asMisc2Description[] =
 {
 	{RGXFWIF_INICFG_USE_EXTENDED, "Use extended; "},
 	{RGXFWIF_INICFG_POW_RASCALDUST, "Power Rascal/Dust; "},
@@ -209,7 +209,7 @@ const IMG_FLAGS2DESC asMisc2Description[] =
 	{RGXFWIF_INICFG_PDVFS_V2, "PDVFS v2; "}
 };
 
-const IMG_FLAGS2DESC asHwrState2Description[] =
+static const IMG_FLAGS2DESC asHwrState2Description[] =
 {
 	{RGXFWIF_HWR_HARDWARE_OK, "HWR OK; "},
 	{RGXFWIF_HWR_ANALYSIS_DONE, "Analysis done; "},
@@ -218,7 +218,7 @@ const IMG_FLAGS2DESC asHwrState2Description[] =
 	{RGXFWIF_HWR_DM_STALLING, "DM stalling; "},
 };
 
-const IMG_FLAGS2DESC asDmState2Description[] =
+static const IMG_FLAGS2DESC asDmState2Description[] =
 {
 		{RGXFWIF_DM_STATE_WORKING, "working; "},
 		{RGXFWIF_DM_STATE_READY_FOR_HWR, "ready for hwr; "},
