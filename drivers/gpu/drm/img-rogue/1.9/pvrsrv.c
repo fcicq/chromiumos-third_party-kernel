@@ -544,7 +544,7 @@ static void DevicesWatchdogThread(void *pvData)
 }
 
 
-PVRSRV_DATA *PVRSRVGetPVRSRVData()
+PVRSRV_DATA *PVRSRVGetPVRSRVData(void)
 {
 	return gpsPVRSRVData;
 }
