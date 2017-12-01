@@ -383,7 +383,7 @@ ap_i2c_dig: &i2c2 {
 		};
 	};
 
-	panel@0 {
+	mipi_panel: panel@0 {
 		compatible = "kingdisplay,kd097d04";
 		reg = <0>;
 		backlight = <&backlight>;
