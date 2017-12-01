@@ -114,6 +114,12 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 /* Up to 3 commands for the 3D (partial render fence, partial render, and render) */
 #define CCB_CMD_HELPER_NUM_3D_COMMANDS 3
 
+#if defined(SUPPORT_WORKLOAD_ESTIMATION)
+#define WORKEST_CYCLES_PREDICTION_GET(x) ((x).ui64CyclesPrediction)
+#else
+#define WORKEST_CYCLES_PREDICTION_GET(x) (NO_CYCEST)
+#endif
+
 typedef struct _DEVMEM_REF_LOOKUP_
 {
 	IMG_UINT32 ui32ZSBufferID;
@@ -4318,12 +4324,7 @@ PVRSRV_ERROR PVRSRVRGXKickTA3DKM(RGX_SERVER_RENDER_CONTEXT	*psRenderContext,
 		                    uiCheckFenceUID,
 		                    uiUpdateFenceUID,
 		                    ui64DeadlineInus,
-#if defined(SUPPORT_WORKLOAD_ESTIMATION)
-		                    sWorkloadKickDataTA.ui64CyclesPrediction
-#else
-		                    NO_CYCEST
-#endif
-		                    );
+		                    WORKEST_CYCLES_PREDICTION_GET(sWorkloadKickDataTA));
 
 		LOOP_UNTIL_TIMEOUT(MAX_HW_TIME_US)
 		{
@@ -4398,12 +4399,7 @@ PVRSRV_ERROR PVRSRVRGXKickTA3DKM(RGX_SERVER_RENDER_CONTEXT	*psRenderContext,
 		                    uiCheckFenceUID,
 		                    uiUpdateFenceUID,
 		                    ui64DeadlineInus,
-#if defined(SUPPORT_WORKLOAD_ESTIMATION)
-		                    sWorkloadKickData3D.ui64CyclesPrediction
-#else
-		                    NO_CYCEST
-#endif
-		                    );
+		                    WORKEST_CYCLES_PREDICTION_GET(sWorkloadKickData3D));
 
 		LOOP_UNTIL_TIMEOUT(MAX_HW_TIME_US)
 		{

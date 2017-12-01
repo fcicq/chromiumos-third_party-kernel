@@ -1841,16 +1841,29 @@ static PVRSRV_ERROR CacheOpQListExecRangeBased(void)
 		if (eError != PVRSRV_OK)
 		{
 #if defined(CACHEOP_DEBUG)
-			PVR_LOG(("Deferred CacheOpPMRExec failed: PID:%d PMR:%p Offset:%" IMG_UINT64_FMTSPECX " Size:%" IMG_UINT64_FMTSPECX " CacheOp:%d, error: %d",
-					(IMG_UINT32)psCacheOpWorkItem->pid,
+#define PID_FMTSPEC " PID:%u"
+#define CACHE_OP_WORK_PID psCacheOpWorkItem->pid
 #else
-			PVR_LOG(("Deferred CacheOpPMRExec failed: PMR:%p Offset: %" IMG_UINT64_FMTSPECX "Size:%" IMG_UINT64_FMTSPECX " CacheOp:%d, error: %d",
+#define PID_FMTSPEC "%s"
+#define CACHE_OP_WORK_PID ""
 #endif
+
+			PVR_LOG(("Deferred CacheOpPMRExec failed:"
+					 PID_FMTSPEC
+					 " PMR:%p"
+					 " Offset:%" IMG_UINT64_FMTSPECX
+					 " Size:%" IMG_UINT64_FMTSPECX
+					 " CacheOp:%d,"
+					 " error: %d",
+					CACHE_OP_WORK_PID,
 					psCacheOpWorkItem->psPMR,
 					psCacheOpWorkItem->uiOffset,
 					psCacheOpWorkItem->uiSize,
 					psCacheOpWorkItem->uiCacheOp,
 					eError));
+
+#undef PID_FMTSPEC
+#undef CACHE_OP_WORK_PID
 		}
 		else if (bUsedGlobalFlush)
 		{
