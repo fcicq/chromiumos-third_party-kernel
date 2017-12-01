@@ -58,7 +58,7 @@ extern "C" {
 #include "htbuffer_init.h"
 
 #if defined(__KERNEL__)
-#define HTBLOGK(SF, args...) do { if (HTB_GROUP_ENABLED(SF)) HTBLogSimple(0, SF, ## args); } while (0)
+#define HTBLOGK(SF, args...) do { if (HTB_GROUP_ENABLED(SF)) HTBLogSimple(NULL, SF, ## args); } while (0)
 #else
 #define HTBLOG(handle, SF, args...) do { if (HTB_GROUP_ENABLED(SF)) HTBLogSimple(handle, SF, ## args); } while (0)
 #endif

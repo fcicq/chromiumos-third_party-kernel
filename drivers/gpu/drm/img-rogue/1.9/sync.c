@@ -1830,7 +1830,7 @@ IMG_HANDLE SyncPrimGetServerHandle(PVRSRV_CLIENT_SYNC_PRIM *psSync)
 		goto e0;
 	}
 e0:
-	return 0;
+	return NULL;
 }
 
 IMG_INTERNAL

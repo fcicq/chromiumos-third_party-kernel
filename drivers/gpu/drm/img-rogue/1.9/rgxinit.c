@@ -2368,7 +2368,7 @@ static void RGXDebugRequestNotify(PVRSRV_DBGREQ_HANDLE hDbgReqestHandle,
 static const RGX_MIPS_ADDRESS_TRAMPOLINE sNullTrampoline =
 {
 #if defined(PDUMP)
-	.hPdumpPages = 0,
+	.hPdumpPages = NULL,
 #endif
 	.sPages = {{0}},
 	.sPhysAddr = {0}

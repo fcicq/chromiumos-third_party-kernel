@@ -46,7 +46,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include "km_apphint_defs.h"
 
-#define SrvInitParamOpen() 0
+#define SrvInitParamOpen() NULL
 #define SrvInitParamClose(pvState) ((void)(pvState))
 
 #define	SrvInitParamGetBOOL(state, name, value) \

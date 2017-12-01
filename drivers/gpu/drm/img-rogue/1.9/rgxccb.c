@@ -1181,8 +1181,8 @@ PVRSRV_ERROR RGXCmdHelperAcquireCmdCCB(IMG_UINT32 ui32CmdCount,
 	{
 		RGX_CCB_CMD_HELPER_DATA *psCmdHelperData = & asCmdHelperData[i];
 		IMG_UINT8 *pui8CmdPtr;
-		IMG_UINT8 *pui8ServerFenceStart = 0;
-		IMG_UINT8 *pui8ServerUpdateStart = 0;
+		IMG_UINT8 *pui8ServerFenceStart = NULL;
+		IMG_UINT8 *pui8ServerUpdateStart = NULL;
 #if defined(PDUMP)
 		IMG_UINT32 ui32CtxAddr = FWCommonContextGetFWAddress(asCmdHelperData->psClientCCB->psServerCommonContext).ui32Addr;
 		IMG_UINT32 ui32CcbWoff = RGXGetHostWriteOffsetCCB(FWCommonContextGetClientCCB(asCmdHelperData->psClientCCB->psServerCommonContext));
@@ -1526,7 +1526,7 @@ void RGXCmdHelperReleaseCmdCCB(IMG_UINT32 ui32CmdCount,
 			}
 			if (bFence)
 			{
-				PVR_ASSERT(pui8ServerFenceStart != 0);
+				PVR_ASSERT(pui8ServerFenceStart != NULL);
 
 				psUFOPtr = (RGXFWIF_UFO *) pui8ServerFenceStart;
 				psUFOPtr->puiAddrUFO.ui32Addr = ui32SyncAddr;
@@ -1552,7 +1552,7 @@ void RGXCmdHelperReleaseCmdCCB(IMG_UINT32 ui32CmdCount,
 			{
 				if (bUnfencedUpdate)
 				{
-					PVR_ASSERT(pui8ServerUnfencedUpdateStart != 0);
+					PVR_ASSERT(pui8ServerUnfencedUpdateStart != NULL);
 
 					psUFOPtr = (RGXFWIF_UFO *) pui8ServerUnfencedUpdateStart;
 					psUFOPtr->puiAddrUFO.ui32Addr = ui32SyncAddr;
@@ -1562,7 +1562,7 @@ void RGXCmdHelperReleaseCmdCCB(IMG_UINT32 ui32CmdCount,
 				else
 				{
 					/* fenced update */
-					PVR_ASSERT(pui8ServerUpdateStart != 0);
+					PVR_ASSERT(pui8ServerUpdateStart != NULL);
 
 					psUFOPtr = (RGXFWIF_UFO *) pui8ServerUpdateStart;
 					psUFOPtr->puiAddrUFO.ui32Addr = ui32SyncAddr;
@@ -1620,14 +1620,14 @@ void RGXCmdHelperReleaseCmdCCB(IMG_UINT32 ui32CmdCount,
 			/*
 				Do some sanity checks to ensure we did the point math right
 			*/
-			if (pui8ServerFenceStart != 0)
+			if (pui8ServerFenceStart != NULL)
 			{
 				PVR_ASSERT(pui8ServerFenceStart ==
 						   (psCmdHelperData->pui8StartPtr +
 						   psCmdHelperData->ui32FenceCmdSize));
 			}
 
-			if (pui8ServerUpdateStart != 0)
+			if (pui8ServerUpdateStart != NULL)
 			{
 				PVR_ASSERT(pui8ServerUpdateStart ==
 				           psCmdHelperData->pui8StartPtr             +
@@ -1639,7 +1639,7 @@ void RGXCmdHelperReleaseCmdCCB(IMG_UINT32 ui32CmdCount,
 				           psCmdHelperData->ui32UpdateCmdSize);
 			}
 
-			if (pui8ServerUnfencedUpdateStart != 0)
+			if (pui8ServerUnfencedUpdateStart != NULL)
 			{
 				PVR_ASSERT(pui8ServerUnfencedUpdateStart ==
 				           psCmdHelperData->pui8StartPtr             +

@@ -75,7 +75,7 @@ TLServerOpenStreamKM(const IMG_CHAR*  	   pszName,
 	PVRSRV_ERROR 	eErrorEO = PVRSRV_OK;
 	PTL_SNODE		psNode = 0;
 	PTL_STREAM		psStream = 0;
-	TL_STREAM_DESC* psNewSD = 0;
+	TL_STREAM_DESC *psNewSD = NULL;
 	IMG_HANDLE 		hEvent;
 	IMG_BOOL		bIsWriteOnly = ui32Mode & PVRSRV_STREAM_FLAG_OPEN_WO ?
 	                               IMG_TRUE : IMG_FALSE;

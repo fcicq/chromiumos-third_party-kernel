@@ -514,8 +514,8 @@ PVRSRV_ERROR PDumpMMUDumpPxEntries(MMU_LEVEL eMMULevel,
     IMG_BOOL   bPxEValid;
     IMG_UINT32 uiPxEIdx;
     IMG_INT32  iShiftAmount;
-    IMG_CHAR   *pszWrwSuffix = 0;
-    void *pvRawBytes = 0;
+    IMG_CHAR   *pszWrwSuffix = NULL;
+    void *pvRawBytes = NULL;
     IMG_CHAR aszPxSymbolicAddr[PHYSMEM_PDUMP_SYMNAME_MAX_LENGTH];
     IMG_UINT64 ui64PxE64;
     IMG_UINT64 ui64Protflags64;
@@ -611,7 +611,7 @@ PVRSRV_ERROR PDumpMMUDumpPxEntries(MMU_LEVEL eMMULevel,
         if(bPxEValid)
         {
             _ContiguousPDumpBytes(aszPxSymbolicAddr, ui32SymAddrOffset, IMG_TRUE,
-                                  0, 0,
+                                  0, NULL,
                                   ui32Flags | PDUMP_FLAGS_CONTINUOUS);
 
             iShiftAmount = (IMG_INT32)(uiLog2Align - uiAddrShift);
@@ -834,7 +834,7 @@ PVRSRV_ERROR PDumpMMUDumpPxEntries(MMU_LEVEL eMMULevel,
 
     /* flush out any partly accumulated stuff for LDB */
     _ContiguousPDumpBytes(aszPxSymbolicAddr, ui32SymAddrOffset, IMG_TRUE,
-                          0, 0,
+                          0, NULL,
                           ui32Flags | PDUMP_FLAGS_CONTINUOUS);
 
 ErrUnlock:

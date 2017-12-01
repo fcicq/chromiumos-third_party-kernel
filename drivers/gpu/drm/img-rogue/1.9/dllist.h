@@ -168,7 +168,7 @@ void dllist_add_to_tail(PDLLIST_NODE psListHead, PDLLIST_NODE psNewNode)
 static INLINE
 IMG_BOOL dllist_node_is_in_list(PDLLIST_NODE psNode)
 {
-	return (IMG_BOOL) (psNode->psNextNode != 0);
+	return (IMG_BOOL) (psNode->psNextNode != NULL);
 }
 
 /*************************************************************************/ /*!
@@ -211,8 +211,8 @@ void dllist_remove_node(PDLLIST_NODE psListNode)
 	psListNode->psPrevNode->psNextNode = psListNode->psNextNode;
 
 	/* Clear the node to show it's not on a list */
-	psListNode->psPrevNode = 0;
-	psListNode->psNextNode = 0;
+	psListNode->psPrevNode = NULL;
+	psListNode->psNextNode = NULL;
 }
 
 /*************************************************************************/ /*!

@@ -383,7 +383,7 @@ _OnTLReaderOpenCallback( void *pvArg )
 	{
 		PVRSRV_ERROR eError;
 		IMG_UINT32 ui32Time = OSClockus();
-		eError = HTBLog(0, 0, ui32Time, HTB_SF_CTRL_FWSYNC_SCALE,
+		eError = HTBLog(NULL, 0, ui32Time, HTB_SF_CTRL_FWSYNC_SCALE,
 		                ((IMG_UINT32)((g_sCtrl.ui64SyncOSTS>>32)&0xffffffff)),
 		                ((IMG_UINT32)(g_sCtrl.ui64SyncOSTS&0xffffffff)),
 		                ((IMG_UINT32)((g_sCtrl.ui64SyncCRTS>>32)&0xffffffff)),
@@ -496,26 +496,26 @@ HTBControlKM(
 	}
 
 	/* Dump the current configuration state */
-	eError = HTBLog(0, 0, ui32Time, HTB_SF_CTRL_OPMODE, g_sCtrl.eOpMode);
+	eError = HTBLog(NULL, 0, ui32Time, HTB_SF_CTRL_OPMODE, g_sCtrl.eOpMode);
 	PVR_LOG_IF_ERROR( eError, "HTBLog");
-	eError = HTBLog(0, 0, ui32Time, HTB_SF_CTRL_ENABLE_GROUP, g_auiHTBGroupEnable[0]);
+	eError = HTBLog(NULL, 0, ui32Time, HTB_SF_CTRL_ENABLE_GROUP, g_auiHTBGroupEnable[0]);
 	PVR_LOG_IF_ERROR( eError, "HTBLog");
-	eError = HTBLog(0, 0, ui32Time, HTB_SF_CTRL_LOG_LEVEL, g_sCtrl.ui32LogLevel);
+	eError = HTBLog(NULL, 0, ui32Time, HTB_SF_CTRL_LOG_LEVEL, g_sCtrl.ui32LogLevel);
 	PVR_LOG_IF_ERROR( eError, "HTBLog");
-	eError = HTBLog(0, 0, ui32Time, HTB_SF_CTRL_LOGMODE, g_sCtrl.eLogMode);
+	eError = HTBLog(NULL, 0, ui32Time, HTB_SF_CTRL_LOGMODE, g_sCtrl.eLogMode);
 	PVR_LOG_IF_ERROR( eError, "HTBLog");
 	for (i = 0; i < g_sCtrl.ui32PIDCount; i++)
 	{
-		eError = HTBLog(0, 0, ui32Time, HTB_SF_CTRL_ENABLE_PID, g_sCtrl.aui32EnablePID[i]);
+		eError = HTBLog(NULL, 0, ui32Time, HTB_SF_CTRL_ENABLE_PID, g_sCtrl.aui32EnablePID[i]);
 		PVR_LOG_IF_ERROR( eError, "HTBLog");
 	}
 
 	if (0 != g_sCtrl.ui32SyncMarker && 0 != g_sCtrl.ui32SyncCalcClkSpd)
 	{
-		eError = HTBLog(0, 0, ui32Time, HTB_SF_CTRL_FWSYNC_MARK_RPT,
+		eError = HTBLog(NULL, 0, ui32Time, HTB_SF_CTRL_FWSYNC_MARK_RPT,
 				g_sCtrl.ui32SyncMarker);
 		PVR_LOG_IF_ERROR( eError, "HTBLog");
-		eError = HTBLog(0, 0, ui32Time, HTB_SF_CTRL_FWSYNC_SCALE_RPT, 
+		eError = HTBLog(NULL, 0, ui32Time, HTB_SF_CTRL_FWSYNC_SCALE_RPT,
 				((IMG_UINT32)((g_sCtrl.ui64SyncOSTS>>32)&0xffffffff)), ((IMG_UINT32)(g_sCtrl.ui64SyncOSTS&0xffffffff)),
 				((IMG_UINT32)((g_sCtrl.ui64SyncCRTS>>32)&0xffffffff)), ((IMG_UINT32)(g_sCtrl.ui64SyncCRTS&0xffffffff)),
 				g_sCtrl.ui32SyncCalcClkSpd);
@@ -560,14 +560,14 @@ HTBSyncPartitionMarker(
 	{
 		PVRSRV_ERROR eError;
 		IMG_UINT32 ui32Time = OSClockus();
-		eError = HTBLog(0, 0, ui32Time, HTB_SF_CTRL_FWSYNC_MARK, ui32Marker);
+		eError = HTBLog(NULL, 0, ui32Time, HTB_SF_CTRL_FWSYNC_MARK, ui32Marker);
 		if (PVRSRV_OK != eError)
 		{
 			PVR_DPF((PVR_DBG_WARNING, "%s() failed (%s) in %s()", "HTBLog", PVRSRVGETERRORSTRING(eError), __func__));
 		}
 		if (0 != g_sCtrl.ui32SyncCalcClkSpd)
 		{
-			eError = HTBLog(0, 0, ui32Time, HTB_SF_CTRL_FWSYNC_SCALE,
+			eError = HTBLog(NULL, 0, ui32Time, HTB_SF_CTRL_FWSYNC_SCALE,
 					((IMG_UINT32)((g_sCtrl.ui64SyncOSTS>>32)&0xffffffff)), ((IMG_UINT32)(g_sCtrl.ui64SyncOSTS&0xffffffff)),
 					((IMG_UINT32)((g_sCtrl.ui64SyncCRTS>>32)&0xffffffff)), ((IMG_UINT32)(g_sCtrl.ui64SyncCRTS&0xffffffff)),
 					g_sCtrl.ui32SyncCalcClkSpd);
@@ -610,7 +610,7 @@ HTBSyncScale(
 	{
 		PVRSRV_ERROR eError;
 		IMG_UINT32 ui32Time = OSClockus();
-		eError = HTBLog(0, 0, ui32Time, HTB_SF_CTRL_FWSYNC_SCALE,
+		eError = HTBLog(NULL, 0, ui32Time, HTB_SF_CTRL_FWSYNC_SCALE,
 				((IMG_UINT32)((ui64OSTS>>32)&0xffffffff)), ((IMG_UINT32)(ui64OSTS&0xffffffff)),
 				((IMG_UINT32)((ui64CRTS>>32)&0xffffffff)), ((IMG_UINT32)(ui64CRTS&0xffffffff)),
 				ui32CalcClkSpd);

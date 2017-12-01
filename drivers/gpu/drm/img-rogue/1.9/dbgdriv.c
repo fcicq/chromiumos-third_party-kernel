@@ -748,7 +748,7 @@ IMG_BOOL IMG_CALLCONV DBGDrivCreateStream(IMG_CHAR *pszName,
 	/*
 		Setup debug buffer state.
 	*/
-	psStream->psNext = 0;
+	psStream->psNext = NULL;
 	psStream->pvBase = pvBase;
 	psStream->ui32Flags = ui32Flags | DEBUG_FLAGS_CIRCULAR;
 	psStream->ui32Size = ui32Size * HOST_PAGESIZE;
@@ -882,7 +882,7 @@ void IMG_CALLCONV DBGDrivDestroyStream(IMG_HANDLE hInit,IMG_HANDLE hMain, IMG_HA
 		Remove from linked list.
 	*/
 	psStreamThis = g_psStreamList;
-	psStreamPrev = 0;
+	psStreamPrev = NULL;
 
 	while (psStreamThis)
 	{
@@ -897,7 +897,7 @@ void IMG_CALLCONV DBGDrivDestroyStream(IMG_HANDLE hInit,IMG_HANDLE hMain, IMG_HA
 				g_psStreamList = psStreamThis->psNext;
 			}
 
-			psStreamThis = 0;
+			psStreamThis = NULL;
 		}
 		else
 		{
@@ -926,7 +926,7 @@ void IMG_CALLCONV DBGDrivDestroyStream(IMG_HANDLE hInit,IMG_HANDLE hMain, IMG_HA
 	HostNonPageablePageFree(psStream);
 	psStream = psStreamInit = psStreamDeinit = NULL;
 
-	if (g_psStreamList == 0)
+	if (g_psStreamList == NULL)
 	{
 		PVR_DPF((PVR_DBG_MESSAGE,"DBGDriv: Stream list now empty" ));
 	}
@@ -943,12 +943,10 @@ void IMG_CALLCONV DBGDrivDestroyStream(IMG_HANDLE hInit,IMG_HANDLE hMain, IMG_HA
 *****************************************************************************/
 void * IMG_CALLCONV DBGDrivFindStream(IMG_CHAR * pszName, IMG_BOOL bResetStream)
 {
-	PDBG_STREAM	psStream;
+	PDBG_STREAM	psStream = NULL;
 	PDBG_STREAM	psThis;
 	IMG_UINT32	ui32Off;
 	IMG_BOOL	bAreSame;
-
-	psStream = 0;
 
 	PVR_DPF((PVR_DBGDRIV_MESSAGE, "PDump client connecting to %s %s",
 			pszName,
