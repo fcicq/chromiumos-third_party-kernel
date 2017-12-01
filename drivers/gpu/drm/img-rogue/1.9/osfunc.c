@@ -132,7 +132,7 @@ PVRSRV_ERROR OSPhyContigPagesAlloc(PVRSRV_DEVICE_NODE *psDevNode, size_t uiSize,
 	IMG_CPU_PHYADDR sCpuPAddr;
 	struct page *psPage;
 	IMG_UINT32	ui32Order=0;
-	unsigned int gfp_flags;
+	gfp_t gfp_flags;
 
 	PVR_ASSERT(uiSize != 0);
 	/*Align the size to the page granularity */

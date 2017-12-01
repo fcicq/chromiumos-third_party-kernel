@@ -1210,13 +1210,12 @@ eExitFalse:
 }
 
 /* Get the GFP flags that we pass to the page allocator */
-static inline unsigned int
+static inline gfp_t
 _GetGFPFlags(IMG_BOOL bZero,
              PVRSRV_DEVICE_NODE *psDevNode)
 {
 	struct device *psDev = psDevNode->psDevConfig->pvOSDevice;
-	unsigned int gfp_flags = 0;
-	gfp_flags = GFP_USER | __GFP_NOWARN | __GFP_NOMEMALLOC;
+	gfp_t gfp_flags = GFP_USER | __GFP_NOWARN | __GFP_NOMEMALLOC;
 
 #if defined(PVR_LINUX_PHYSMEM_USE_HIGHMEM)
 	/* Force use of HIGHMEM */
@@ -1604,7 +1603,7 @@ _ApplyOSPagesAttribute(PVRSRV_DEVICE_NODE *psDevNode,
  * uiPageIndex is expected to be the pagearray index where to store the higher order page.  */
 static PVRSRV_ERROR
 _AllocOSPage_CMA(PMR_OSPAGEARRAY_DATA *psPageArrayData,
-				unsigned int gfp_flags,
+				gfp_t gfp_flags,
 				IMG_UINT32 ui32AllocOrder,
 				IMG_UINT32 ui32MinOrder,
 				IMG_UINT32 uiPageIndex)
@@ -1740,7 +1739,7 @@ _AllocOSPage_CMA(PMR_OSPAGEARRAY_DATA *psPageArrayData,
  * This function is supposed to be used for uiMinOrder == 0 only! */
 static PVRSRV_ERROR
 _AllocOSPage(PMR_OSPAGEARRAY_DATA *psPageArrayData,
-			unsigned int gfp_flags,
+			gfp_t gfp_flags,
 			IMG_UINT32 uiAllocOrder,
 			IMG_UINT32 uiMinOrder,
 			IMG_UINT32 uiPageIndex)
@@ -1805,10 +1804,10 @@ _AllocOSPages_Fast(PMR_OSPAGEARRAY_DATA *psPageArrayData)
 	IMG_UINT32 uiPagesToAlloc;
 	IMG_UINT32 uiPagesFromPool = 0;
 
-	unsigned int gfp_flags = _GetGFPFlags(ui32MinOrder ? psPageArrayData->bZero : IMG_FALSE, /* Zero all pages later as batch */
+	gfp_t gfp_flags = _GetGFPFlags(ui32MinOrder ? psPageArrayData->bZero : IMG_FALSE, /* Zero all pages later as batch */
 	                                      psPageArrayData->psDevNode);
-	IMG_UINT32 ui32GfpFlags;
-	IMG_UINT32 ui32HighOrderGfpFlags = ((gfp_flags & ~__GFP_RECLAIM) | __GFP_NORETRY);
+	gfp_t ui32GfpFlags;
+	gfp_t ui32HighOrderGfpFlags = ((gfp_flags & ~__GFP_RECLAIM) | __GFP_NORETRY);
 
 	struct page **ppsPageArray = psPageArrayData->pagearray;
 	struct page **ppsPageAttributeArray = NULL;
@@ -2068,9 +2067,9 @@ _AllocOSPages_Sparse(PMR_OSPAGEARRAY_DATA *psPageArrayData,
 	IMG_UINT32 uiPagesFromPool = 0;
 	IMG_UINT32 uiNumOSPagesToAlloc = uiPagesToAlloc * (1 << uiOrder);
 	IMG_UINT32 uiTotalNumAllocPages = psPageArrayData->uiTotalNumOSPages >> uiOrder;
-	unsigned int ui32GfpFlags = _GetGFPFlags(uiOrder ? psPageArrayData->bZero :
-	                                         IMG_FALSE, /* Zero pages later as batch */
-	                                         psPageArrayData->psDevNode);
+	gfp_t ui32GfpFlags = _GetGFPFlags(uiOrder ? psPageArrayData->bZero :
+									  IMG_FALSE, /* Zero pages later as batch */
+									  psPageArrayData->psDevNode);
 
 	 /* We use this page array to receive pages from the pool and then reuse it afterwards to
 	  * store pages that need their cache attribute changed on x86*/
