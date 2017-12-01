@@ -101,7 +101,7 @@ static IMG_UINT16 g_BridgeDispatchTableStartOffsets[BRIDGE_DISPATCH_TABLE_START_
 /* a lock used for protecting bridge call timing calculations
  * for calls which do not acquire a lock
  */
-POS_LOCK g_hStatsLock;
+static POS_LOCK g_hStatsLock;
 PVRSRV_BRIDGE_GLOBAL_STATS g_BridgeGlobalStats;
 #endif
 

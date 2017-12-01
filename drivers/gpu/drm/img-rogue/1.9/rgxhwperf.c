@@ -2153,7 +2153,7 @@ cleanup:
 /* Saved value of the clock source before the trace was enabled. We're keeping
  * it here so that we know which clock should be selected after we disable the
  * gpu ftrace. */
-RGXTIMECORR_CLOCK_TYPE  geLastTimeCorrClock = PVRSRV_APPHINT_TIMECORRCLOCK;
+static RGXTIMECORR_CLOCK_TYPE geLastTimeCorrClock = PVRSRV_APPHINT_TIMECORRCLOCK;
 
 /* This lock ensures that the reference counting operation on the FTrace UFO
  * events and enable/disable operation on firmware event are performed as
@@ -2161,7 +2161,7 @@ RGXTIMECORR_CLOCK_TYPE  geLastTimeCorrClock = PVRSRV_APPHINT_TIMECORRCLOCK;
  * between reference counting and firmware event state change.
  * See below comment for guiUfoEventRef.
  */
-POS_LOCK    ghLockFTraceEventLock;
+static POS_LOCK ghLockFTraceEventLock;
 
 /* Multiple FTrace UFO events are reflected in the firmware as only one event. When
  * we enable FTrace UFO event we want to also at the same time enable it in
@@ -2169,7 +2169,7 @@ POS_LOCK    ghLockFTraceEventLock;
  * we count how many FTrace UFO events is enabled. If at least one event is
  * enabled we enabled the firmware event. When all FTrace UFO events are disabled
  * we disable firmware event. */
-IMG_UINT    guiUfoEventRef;
+static IMG_UINT guiUfoEventRef;
 
 static void RGXHWPerfFTraceCmdCompleteNotify(PVRSRV_CMDCOMP_HANDLE);
 
