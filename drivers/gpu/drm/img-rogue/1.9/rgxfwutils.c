@@ -3085,10 +3085,10 @@ void RGXFreeFirmware(PVRSRV_RGXDEV_INFO	*psDevInfo)
 		psDevInfo->psPowSyncPrim = NULL;
 	}
 
-	if (psDevInfo->hSyncPrimContext != 0)
+	if (psDevInfo->hSyncPrimContext != NULL)
 	{
 		SyncPrimContextDestroy(psDevInfo->hSyncPrimContext);
-		psDevInfo->hSyncPrimContext = 0;
+		psDevInfo->hSyncPrimContext = NULL;
 	}
 
 	if (psDevInfo->psRGXFWIfGpuUtilFWCbCtlMemDesc)

@@ -123,7 +123,7 @@ PVRSRV_ERROR SysDmaRegisterForIoRemapping(DMA_ALLOC *psDmaAlloc)
 
 	if (psDmaAlloc == NULL ||
 		psDmaAlloc->ui64Size == 0 ||
-		psDmaAlloc->pvVirtAddr == 0 ||
+		psDmaAlloc->pvVirtAddr == NULL ||
 		psDmaAlloc->sBusAddr.uiAddr == 0)
 	{
 		return PVRSRV_ERROR_INVALID_PARAMS;
@@ -201,7 +201,7 @@ void SysDmaDeregisterForIoRemapping(DMA_ALLOC *psDmaAlloc)
 
 	if (psDmaAlloc == NULL ||
 		psDmaAlloc->ui64Size == 0 ||
-		psDmaAlloc->pvVirtAddr == 0 ||
+		psDmaAlloc->pvVirtAddr == NULL ||
 		psDmaAlloc->sBusAddr.uiAddr == 0)
 	{
 		return;

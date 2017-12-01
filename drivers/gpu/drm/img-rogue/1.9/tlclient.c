@@ -107,7 +107,7 @@ PVRSRV_ERROR TLClientOpenStream(IMG_HANDLE hSrvHandle,
 		IMG_HANDLE*  phSD)
 {
 	PVRSRV_ERROR 				eError = PVRSRV_OK;
-	TL_STREAM_DESC* 			psSD = 0;
+	TL_STREAM_DESC *psSD = NULL;
 	IMG_HANDLE hTLPMR;
 	IMG_HANDLE hTLImportHandle;
 	IMG_DEVMEM_SIZE_T uiImportSize;
@@ -385,7 +385,7 @@ PVRSRV_ERROR TLClientAcquireData(IMG_HANDLE hSrvHandle,
 	{
 		/* On non-blocking, zero length data could be returned from server
 		 * Which is basically a no-acquire operation */
-		*ppPacketBuf = 0;
+		*ppPacketBuf = NULL;
 		*pui32BufLen = 0;
 	}
 

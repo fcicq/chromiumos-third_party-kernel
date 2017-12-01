@@ -229,7 +229,7 @@ DeviceMemChangeSparse(DEVMEM_MEMDESC *psMemDesc,
 		goto e0;
 	}
 
-	if ((uiSparseFlags & SPARSE_MAP_CPU_ADDR) && (0 == sCpuVAddr))
+	if ((uiSparseFlags & SPARSE_MAP_CPU_ADDR) && (NULL == sCpuVAddr))
 	{
 		PVR_DPF((PVR_DBG_ERROR, "%s: Invalid CPU Virtual Map", __func__));
 		goto e0;

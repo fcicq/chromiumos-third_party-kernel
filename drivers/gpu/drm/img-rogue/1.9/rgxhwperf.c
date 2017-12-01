@@ -380,7 +380,7 @@ PVRSRV_ERROR RGXHWPerfDataStoreCB(PVRSRV_DEVICE_NODE *psDevInfo)
 	 */
 	OSLockAcquire(psRgxDevInfo->hHWPerfLock);
 
-	if (psRgxDevInfo->hHWPerfStream != 0)
+	if (psRgxDevInfo->hHWPerfStream != NULL)
 	{
 		ui32BytesCopied = RGXHWPerfDataStore(psRgxDevInfo);
 		if ( ui32BytesCopied )
@@ -440,7 +440,7 @@ static PVRSRV_ERROR RGXHWPerfTLCB(IMG_HANDLE hStream,
 			return PVRSRV_OK;
 		}
 
-		if (psRgxDevInfo->hHWPerfStream != 0)
+		if (psRgxDevInfo->hHWPerfStream != NULL)
 		{
 			(void) RGXHWPerfDataStore(psRgxDevInfo);
 		}
@@ -500,7 +500,7 @@ PVRSRV_ERROR RGXHWPerfInit(PVRSRV_RGXDEV_INFO *psRgxDevInfo)
 	PVR_LOGR_IF_ERROR(eError, "OSLockCreate");
 
 	/* avoid uninitialised data */
-	psRgxDevInfo->hHWPerfStream = 0;
+	psRgxDevInfo->hHWPerfStream = NULL;
 	psRgxDevInfo->psRGXFWIfHWPerfBufMemDesc = NULL;
 
 	PVR_DPF_RETURN_OK;
@@ -527,7 +527,7 @@ static INLINE IMG_BOOL RGXHWPerfIsInitRequired(PVRSRV_RGXDEV_INFO *psRgxDevInfo)
 	/* Both L1 and L2 buffers are required (for HWPerf functioning) on driver
 	 * built for actual hardware (TC, EMU, etc.)
 	 */
-	if (psRgxDevInfo->hHWPerfStream == 0)
+	if (psRgxDevInfo->hHWPerfStream == NULL)
 	{
 		/* The allocation API (RGXHWPerfInitOnDemandResources) allocates
 		 * device memory for both L1 and L2 without any checks. Hence,
@@ -2277,7 +2277,7 @@ err_out:
 err_close_stream:
 	TLClientCloseStream(DIRECT_BRIDGE_HANDLE,
 						psFtraceData->hGPUTraceTLStream);
-	psFtraceData->hGPUTraceTLStream = 0;
+	psFtraceData->hGPUTraceTLStream = NULL;
 	goto err_out;
 }
 

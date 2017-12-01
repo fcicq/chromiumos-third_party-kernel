@@ -322,7 +322,7 @@ TLStreamCreate(IMG_HANDLE *phStream,
 	}
 
 	/* Now remember the stream in the global TL structures */
-	psn = TLMakeSNode(hEventList, (TL_STREAM *)psTmp, 0);
+	psn = TLMakeSNode(hEventList, (TL_STREAM *)psTmp, NULL);
 	if (psn == NULL)
 	{
 		eError=PVRSRV_ERROR_OUT_OF_MEMORY;

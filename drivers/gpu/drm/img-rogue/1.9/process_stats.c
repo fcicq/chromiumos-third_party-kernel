@@ -1397,7 +1397,7 @@ PVRSRVStatsRegisterProcess(IMG_HANDLE* phProcessStats)
 	psProcessStats = OSAllocZMemNoStats(sizeof(PVRSRV_PROCESS_STATS));
 	if (psProcessStats == NULL)
 	{
-		*phProcessStats = 0;
+		*phProcessStats = NULL;
 		return PVRSRV_ERROR_OUT_OF_MEMORY;
 	}
 
@@ -1478,7 +1478,7 @@ PVRSRVStatsRegisterProcess(IMG_HANDLE* phProcessStats)
 
 e0:
 	OSFreeMemNoStats(psProcessStats);
-	*phProcessStats = 0;
+	*phProcessStats = NULL;
 	return PVRSRV_ERROR_OUT_OF_MEMORY;
 } /* PVRSRVStatsRegisterProcess */
 
@@ -1492,7 +1492,7 @@ PVRSRVStatsDeregisterProcess(IMG_HANDLE hProcessStats)
 {
 	IMG_BOOL    bMoveProcess = IMG_FALSE;
 
-	if (hProcessStats != 0)
+	if (hProcessStats != NULL)
 	{
 		PVRSRV_PROCESS_STATS*  psProcessStats = (PVRSRV_PROCESS_STATS*) hProcessStats;
 
