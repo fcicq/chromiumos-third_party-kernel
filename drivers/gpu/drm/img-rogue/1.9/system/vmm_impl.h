@@ -259,7 +259,7 @@ typedef struct _VMM_PVZ_CONNECTION_
 
 		PVRSRV_ERROR (*pfnOnVmOffline)(IMG_UINT32 ui32OSID);
 
-		PVRSRV_ERROR (*pfnVMMConfigure)(IMG_UINT32 ui32VMMParamType, IMG_UINT32 ui32ParamValue);
+		PVRSRV_ERROR (*pfnVMMConfigure)(VMM_CONF_PARAM eVMMParamType, IMG_UINT32 ui32ParamValue);
 
 	} sVmmFuncTab;
 } VMM_PVZ_CONNECTION;
