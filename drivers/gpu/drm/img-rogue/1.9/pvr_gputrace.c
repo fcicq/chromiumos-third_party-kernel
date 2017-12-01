@@ -291,7 +291,7 @@ void PVRGpuTraceEventsLost(
 	trace_rogue_events_lost(eStreamId, ui32LastOrdinal, ui32CurrOrdinal);
 }
 
-PVRSRV_ERROR PVRGpuTraceSupportInit()
+PVRSRV_ERROR PVRGpuTraceSupportInit(void)
 {
 	PVRSRV_ERROR eError;
 
@@ -310,7 +310,7 @@ PVRSRV_ERROR PVRGpuTraceSupportInit()
 	return PVRSRV_OK;
 }
 
-void PVRGpuTraceSupportDeInit()
+void PVRGpuTraceSupportDeInit(void)
 {
 	/* Can be NULL if driver startup failed */
 	if (gpsPVRDebugFSGpuTracingOnEntry)

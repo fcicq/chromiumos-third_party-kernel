@@ -3403,7 +3403,7 @@ MultiPage_Error:
 }
 
 PVRSRV_ERROR
-PMRInit()
+PMRInit(void)
 {
 	PVRSRV_ERROR eError;
 
@@ -3435,7 +3435,7 @@ out:
 }
 
 PVRSRV_ERROR
-PMRDeInit()
+PMRDeInit(void)
 {
 	PVRSRV_DATA *psPVRSRVData = PVRSRVGetPVRSRVData();
 	PVRSRV_ERROR eError = PVRSRV_OK;

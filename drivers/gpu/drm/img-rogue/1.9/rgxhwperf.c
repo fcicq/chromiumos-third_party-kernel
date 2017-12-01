@@ -2816,7 +2816,7 @@ out:
 	PVR_DPF_RETURN;
 }
 
-inline PVRSRV_ERROR RGXHWPerfFTraceGPUInitSupport()
+inline PVRSRV_ERROR RGXHWPerfFTraceGPUInitSupport(void)
 {
 	PVRSRV_ERROR eError;
 
@@ -2833,7 +2833,7 @@ inline PVRSRV_ERROR RGXHWPerfFTraceGPUInitSupport()
 	return PVRSRV_OK;
 }
 
-inline void RGXHWPerfFTraceGPUDeInitSupport()
+inline void RGXHWPerfFTraceGPUDeInitSupport(void)
 {
 	if (ghLockFTraceEventLock)
 	{
