@@ -1961,7 +1961,7 @@ static INLINE IMG_BOOL _CheckIfMaxTimeExpired(IMG_UINT64 ui64TimeStart, IMG_UINT
 	else
 	{
 		/* time has wrapped around */
-		ui64Diff = (0xFFFFFFFFFFFFFFFF - ui64TimeStart) + ui64Now;
+		ui64Diff = (UINT64_MAX - ui64TimeStart) + ui64Now;
 	}
 
 	return ui64Diff >= ui64MaxBridgeTime;
