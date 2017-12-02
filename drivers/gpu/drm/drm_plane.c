@@ -786,6 +786,10 @@ static int drm_mode_cursor_universal(struct drm_crtc *crtc,
 				DRM_DEBUG_KMS("failed to wrap cursor buffer in drm framebuffer\n");
 				return PTR_ERR(fb);
 			}
+
+			mutex_lock(&file_priv->fbs_lock);
+			list_add(&fb->filp_head, &file_priv->fbs);
+			mutex_unlock(&file_priv->fbs_lock);
 		} else {
 			fb = NULL;
 		}
