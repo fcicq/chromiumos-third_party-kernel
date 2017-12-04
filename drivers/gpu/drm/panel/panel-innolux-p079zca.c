@@ -221,6 +221,34 @@ static const struct panel_desc_dsi innolux_p079zca_panel_desc = {
 	.lanes = 4,
 };
 
+static const struct drm_display_mode innolux_p097pfg_mode = {
+	.clock = 220000,
+	.hdisplay = 1536,
+	.hsync_start = 1536 + 100,
+	.hsync_end = 1536 + 100 + 24,
+	.htotal = 1536 + 100 + 24 + 100,
+	.vdisplay = 2048,
+	.vsync_start = 2048 + 18,
+	.vsync_end = 2048 + 18 + 2,
+	.vtotal = 2048 + 18 + 2 + 18,
+	.vrefresh = 60,
+};
+
+static const struct panel_desc_dsi innolux_p097pfg_panel_desc = {
+	.desc = {
+		.modes = &innolux_p097pfg_mode,
+		.bpc = 8,
+		.size = {
+			.width = 147,
+			.height = 196,
+		},
+	},
+	.flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_SYNC_PULSE |
+		 MIPI_DSI_MODE_LPM,
+	.format = MIPI_DSI_FMT_RGB888,
+	.lanes = 8,
+};
+
 static int innolux_panel_get_modes(struct drm_panel *panel)
 {
 	struct drm_display_mode *mode;
@@ -259,6 +287,9 @@ static const struct of_device_id innolux_of_match[] = {
 	{ .compatible = "innolux,p079zca",
 	  .data = &innolux_p079zca_panel_desc
 	},
+	{ .compatible = "innolux,p097pfg",
+	  .data = &innolux_p097pfg_panel_desc
+	}
 };
 MODULE_DEVICE_TABLE(of, innolux_of_match);
 
