@@ -2546,6 +2546,7 @@ enum skl_disp_power_wells {
 # define GPIO_DATA_PULLUP_DISABLE	(1 << 13)
 
 #define GMBUS0			_MMIO(dev_priv->gpio_mmio_base + 0x5100) /* clock/port select */
+#define   GMBUS_AKSV_SELECT	(1<<11)
 #define   GMBUS_RATE_100KHZ	(0<<8)
 #define   GMBUS_RATE_50KHZ	(1<<8)
 #define   GMBUS_RATE_400KHZ	(2<<8) /* reserved on Pineview */
