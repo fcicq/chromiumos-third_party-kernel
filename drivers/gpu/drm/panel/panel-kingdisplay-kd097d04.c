@@ -309,11 +309,11 @@ static int kingdisplay_panel_enable(struct drm_panel *panel)
 }
 
 static const struct drm_display_mode default_mode = {
-	.clock = 213000,
+	.clock = 216000,
 	.hdisplay = 1536,
-	.hsync_start = 1536 + 70,
-	.hsync_end = 1536 + 70 + 24,
-	.htotal = 1536 + 70 + 24 + 70,
+	.hsync_start = 1536 + 81,
+	.hsync_end = 1536 + 81 + 24,
+	.htotal = 1536 + 81 + 24 + 81,
 	.vdisplay = 2048,
 	.vsync_start = 2048 + 17,
 	.vsync_end = 2048 + 17 + 2,
