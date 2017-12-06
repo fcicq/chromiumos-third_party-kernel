@@ -20,6 +20,7 @@
 #include <linux/math64.h>
 #include <linux/module.h>
 #include <linux/of_device.h>
+#include <linux/pm_runtime.h>
 #include <drm/drmP.h>
 #include <drm/drm_mipi_dsi.h>
 #include <drm/bridge/dw_mipi_dsi.h>
@@ -588,6 +589,10 @@ static void dw_mipi_dsi_encoder_mode_set(struct drm_encoder *encoder,
 		return;
 	}
 
+	pm_runtime_get_sync(dsi->dev);
+	if (dsi->slave)
+		pm_runtime_get_sync(dsi->slave->dev);
+
 	val = cdata->dsi0_en_bit << 16;
 	if (dsi->slave)
 		val |= cdata->dsi1_en_bit << 16;
@@ -651,10 +656,20 @@ dw_mipi_dsi_encoder_atomic_check(struct drm_encoder *encoder,
 	return 0;
 }
 
+static void dw_mipi_dsi_encoder_disable(struct drm_encoder *encoder)
+{
+	struct dw_mipi_dsi_rockchip *dsi = to_dsi(encoder);
+
+	pm_runtime_put(dsi->dev);
+	if (dsi->slave)
+		pm_runtime_put(dsi->slave->dev);
+}
+
 static const struct drm_encoder_helper_funcs
 dw_mipi_dsi_encoder_helper_funcs = {
 	.mode_set = dw_mipi_dsi_encoder_mode_set,
 	.atomic_check = dw_mipi_dsi_encoder_atomic_check,
+	.disable = dw_mipi_dsi_encoder_disable,
 };
 
 static const struct drm_encoder_funcs dw_mipi_dsi_encoder_funcs = {
