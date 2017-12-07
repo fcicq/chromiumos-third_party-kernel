@@ -191,6 +191,7 @@ static PVRSRV_ERROR MTKSysDevPostPowerState(
 {
 	struct mtk_mfg *mfg = hSysData;
 	PVRSRV_ERROR ret;
+	int retmfg = 0;
 
 	mtk_mfg_debug("MTKSysDevPostPowerState (%d->%d)\n",
 		      eCurrentPowerState, eNewPowerState);
@@ -199,7 +200,10 @@ static PVRSRV_ERROR MTKSysDevPostPowerState(
 
 	if ((PVRSRV_DEV_POWER_STATE_ON == eNewPowerState) &&
 	    (PVRSRV_DEV_POWER_STATE_OFF == eCurrentPowerState)) {
-		if (mtk_mfg_enable(mfg)) {
+		retmfg = mtk_mfg_enable(mfg);
+
+		if (retmfg) {
+			PVR_DPF((PVR_DBG_ERROR, "mtk_mfg_enable failed with error (%d)", retmfg));
 			ret = PVRSRV_ERROR_DEVICE_POWER_CHANGE_FAILURE;
 			goto done;
 		}

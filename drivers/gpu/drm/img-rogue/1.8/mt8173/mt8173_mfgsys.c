@@ -13,6 +13,7 @@
 */
 
 #include <linux/clk.h>
+#include <linux/clk-provider.h>
 #include <linux/io.h>
 #include <linux/mutex.h>
 #include <linux/of.h>
@@ -89,11 +90,19 @@ static int mtk_mfg_enable_clock(struct mtk_mfg *mfg)
 	for (i = 0; i < MAX_TOP_MFG_CLK; i++) {
 		ret = clk_enable(mfg->top_clk[i]);
 		if (ret)
+		{
+			dev_warn(mfg->dev, "Enabling %s failed with error %d\n",
+				__clk_get_name(mfg->top_clk[i]), ret);
 			goto unwind;
+		}
 	}
 	ret = clk_enable(mfg->top_mfg);
 	if (ret)
+	{
+		dev_warn(mfg->dev, "Enabling %s failed with error %d\n",
+			__clk_get_name(mfg->top_mfg), ret);
 		goto unwind;
+	}
 	mtk_mfg_clr_clock_gating(mfg->reg_base);
 
 	return 0;
@@ -130,15 +139,24 @@ int mtk_mfg_enable(struct mtk_mfg *mfg)
 
 	ret = regulator_enable(mfg->vgpu);
 	if (ret)
+	{
+		dev_err(mfg->dev, "Enable vgpu regulator failed with error %d\n", ret);
 		return ret;
+	}
 
 	ret = pm_runtime_get_sync(mfg->dev);
 	if (ret)
+	{
+		dev_err(mfg->dev, "pm_runtime_get_sync failed with error %d\n", ret);
 		goto err_regulator_disable;
+	}
 
 	ret = mtk_mfg_enable_clock(mfg);
 	if (ret)
+	{
+		dev_err(mfg->dev, "mtk_mfg_enable_clock failed with error %d\n", ret);
 		goto err_pm_runtime_put;
+	}
 
 	mtk_mfg_enable_hw_apm(mfg);
 

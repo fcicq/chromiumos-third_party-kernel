@@ -442,7 +442,8 @@ static void DevicesWatchdogThread_ForEachVaCb(PVRSRV_DEVICE_NODE *psDeviceNode,
 				  RGXKM_DEVICE_STATE_DISABLE_DW_LOGGING_EN))
 			{
 				PVR_DPF((PVR_DBG_ERROR, "DevicesWatchdogThread: "
-						 "Device not responding!!!"));
+						 "Device not responding! Health Status: %u -> %u",
+						 *pePreviousHealthStatus, eHealthStatus));
 				PVRSRVDebugRequest(psDeviceNode, DEBUG_REQUEST_VERBOSITY_MAX,
 								   NULL, NULL);
 			}

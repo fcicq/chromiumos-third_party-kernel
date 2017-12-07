@@ -767,11 +767,21 @@ PVRSRV_ERROR RGXForcedIdleRequest(IMG_HANDLE hDevHandle, IMG_BOOL bDeviceOffPerm
 	PVRSRV_RGXDEV_INFO	*psDevInfo = psDeviceNode->pvDevice;
 	RGXFWIF_KCCB_CMD	sPowCmd;
 	PVRSRV_ERROR		eError;
-	IMG_UINT32			ui32RetryCount = 0;
+	IMG_UINT32	    	ui32RetryCount = 0;
+	RGX_DATA		*psRGXData = psDeviceNode->psDevConfig->hDevData;
+	RGX_GPU_DVFS_TABLE *psGpuDVFSTable = psDevInfo->psGpuDVFSTable;
+	IMG_UINT64 ui64StartCRTimestamp, ui64StartOSTimestamp;
+	IMG_UINT32 ui32PowerEventCalibratedClockSpeed, ui32CoreClockSpeed;
 #if !defined(NO_HARDWARE)
 	RGXFWIF_TRACEBUF	*psFWTraceBuf;
 #endif
+
 	PVRSRV_VZ_RET_IF_MODE(DRIVER_MODE_GUEST, PVRSRV_OK);
+
+	ui64StartCRTimestamp               = RGXReadHWTimerReg(psDevInfo);
+	ui64StartOSTimestamp               = RGXGPUFreqCalibrateClockus64();
+	ui32CoreClockSpeed                 = psRGXData->psRGXTimingInfo->ui32CoreClockSpeed;
+	ui32PowerEventCalibratedClockSpeed = psGpuDVFSTable->aui32DVFSClock[psGpuDVFSTable->ui32CurrentDVFSId];
 
 #if !defined(NO_HARDWARE)
 	psFWTraceBuf = psDevInfo->psRGXFWIfTraceBuf;
@@ -817,13 +827,29 @@ PVRSRV_ERROR RGXForcedIdleRequest(IMG_HANDLE hDevHandle, IMG_BOOL bDeviceOffPerm
 
 	/* Wait for GPU to finish current workload */
 	do {
+		IMG_UINT64 ui64EndCRTimestamp, ui64EndOSTimestamp;
+		IMG_UINT32 ui32ForcedIdleCalibratedClockSpeed, ui32Remainder;
+
 		eError = PVRSRVPollForValueKM(psDevInfo->psPowSyncPrim->pui32LinAddr, 0x1, 0xFFFFFFFF);
 		if ((eError == PVRSRV_OK) || (ui32RetryCount == RGX_FORCED_IDLE_RETRY_COUNT))
 		{
 			break;
 		}
 		ui32RetryCount++;
-		PVR_DPF((PVR_DBG_WARNING,"RGXForcedIdleRequest: Request timeout. Retry %d of %d", ui32RetryCount, RGX_FORCED_IDLE_RETRY_COUNT));
+		PVR_DPF((PVR_DBG_WARNING,"RGXForcedIdleRequest: Request timeout. Retry %d of %d",
+			 ui32RetryCount, RGX_FORCED_IDLE_RETRY_COUNT));
+
+		ui64EndCRTimestamp = RGXReadHWTimerReg(psDevInfo);
+		ui64EndOSTimestamp = RGXGPUFreqCalibrateClockus64();
+
+		ui32ForcedIdleCalibratedClockSpeed =
+		    RGXFWIF_GET_GPU_CLOCK_FREQUENCY_HZ(ui64EndCRTimestamp - ui64StartCRTimestamp,
+		                                       ui64EndOSTimestamp - ui64StartOSTimestamp,
+		                                       ui32Remainder);
+
+		PVR_DPF((PVR_DBG_ERROR, "%s: system layer freq %u, freq calibrated on power events %u, "
+					"freq calibrated on latest forced idle req %u", __func__, ui32CoreClockSpeed,
+					ui32PowerEventCalibratedClockSpeed, ui32ForcedIdleCalibratedClockSpeed));
 	} while (IMG_TRUE);
 
 	if (eError != PVRSRV_OK)
