@@ -58,6 +58,10 @@
 		     "google,rainier-rev1",  "google,rainier-rev0",
 		     "google,rainier", "google,gru", "rockchip,rk3399";
 
+	/* Power Tree */
+
+	/* pp3300 children */
+
 	pp3300_disp: pp3300-disp {
 		compatible = "regulator-fixed";
 		regulator-name = "pp3300_disp";
@@ -70,6 +74,25 @@
 		startup-delay-us = <2000>;
 		vin-supply = <&pp3300>;
 	};
+
+	pp3300_ts: pp3300_ts {
+		compatible = "regulator-fixed";
+		regulator-name = "pp3300_ts";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pp3300_ts_en>;
+
+		/*
+		 * Wait for regulators to ramp and touchscreen controller to
+		 * initialize firmware.
+		 */
+		regulator-enable-ramp-delay = <100000>;
+
+		enable-active-high;
+		gpio = <&gpio4 30 GPIO_ACTIVE_HIGH>;
+		vin-supply = <&pp3300>;
+	};
+
+	/* END REGULATORS */
 
 	edp_panel: edp_panel {
 		compatible = "sharp,lq123p1jx32", "sharp,lq123p1jx31",
@@ -141,6 +164,8 @@ pp1800_edp: &pp1800_s0 {
 		pinctrl-names = "default";
 		pinctrl-0 = <&touch_int_l &touch_reset_l>;
 
+		power-supply = <&pp3300_ts>;
+
 		interrupt-parent = <&gpio1>;
 		interrupts = <4 IRQ_TYPE_LEVEL_LOW>;
 
@@ -151,5 +176,9 @@ pp1800_edp: &pp1800_s0 {
 &discrete_regulators {
 	pp3300_disp_en: pp3300-disp-en {
 		rockchip,pins = <RK_GPIO4 27 RK_FUNC_GPIO &pcfg_pull_down>;
+	};
+
+	pp3300_ts_en: pp3300-ts-en {
+		rockchip,pins = <4 30 RK_FUNC_GPIO &pcfg_pull_none>;
 	};
 };
