@@ -527,6 +527,11 @@ ap_i2c_dig: &i2c2 {
 		&wlan_rf_kill_1v8_l
 	>;
 
+	pcfg_pull_none_6ma: pcfg-pull-none-6ma {
+		bias-disable;
+		drive-strength = <6>;
+	};
+
 	digitizer {
 		pen_int_odl: pen-int-odl {
 			rockchip,pins = <1 0 RK_FUNC_GPIO &pcfg_pull_up>;
@@ -562,6 +567,16 @@ ap_i2c_dig: &i2c2 {
 	ppvarn_lcd_en: ppvarn-lcd-en {
 		rockchip,pins = <4 28 RK_FUNC_GPIO &pcfg_pull_none>;
 	};
+};
+
+&i2s0_8ch_bus {
+	rockchip,pins =
+		<3 24 RK_FUNC_1 &pcfg_pull_none_6ma>,
+		<3 25 RK_FUNC_1 &pcfg_pull_none_6ma>,
+		<3 26 RK_FUNC_1 &pcfg_pull_none_6ma>,
+		<3 27 RK_FUNC_1 &pcfg_pull_none_6ma>,
+		<3 31 RK_FUNC_1 &pcfg_pull_none_6ma>,
+		<4 0 RK_FUNC_1 &pcfg_pull_none_6ma>;
 };
 
 &wifi {
