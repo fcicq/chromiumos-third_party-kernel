@@ -69,6 +69,8 @@ enum tis_defaults {
 
 #define INTEL_LEGACY_BLK_BASE_ADDR	0xFED08000
 #define ILB_REMAP_SIZE			0x100
+#define LPC_CNTRL_OFFSET		0x84
+#define LPC_CLKRUN_EN			(1 << 2)
 
 #ifdef CONFIG_X86
 #define INTEL_FAM6_ATOM_AIRMONT		0x4C
@@ -77,7 +79,14 @@ enum tis_defaults {
 struct priv_data {
 	bool irq_tested;
 	void __iomem *ilb_base_addr;
+	unsigned int flags;
+	unsigned int clk_enabled;
 };
+
+enum tpm_tis_flags {
+	TPM_TIS_CLK_ENABLE	= BIT(1),
+};
+
 struct tis_vendor_timeout_override {
 	u32 did_vid;
 	unsigned long timeout_us[4];
@@ -95,6 +104,7 @@ u8 tpm_tis_status(struct tpm_chip *chip);
 void tpm_tis_ready(struct tpm_chip *chip);
 int tpm_tis_recv(struct tpm_chip *chip, u8 *buf, size_t count);
 int tpm_tis_send(struct tpm_chip *chip, u8 *buf, size_t len);
+void tpm_tis_clkrun_enable(struct tpm_chip *chip, bool value);
 bool tpm_tis_update_timeouts(struct tpm_chip *chip,
 				    unsigned long *timeout_cap);
 bool tpm_tis_req_canceled(struct tpm_chip *chip, u8 status);
