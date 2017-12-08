@@ -67,8 +67,16 @@ enum tis_defaults {
 #define	TPM_DID_VID(l)			(0x0F00 | ((l) << 12))
 #define	TPM_RID(l)			(0x0F04 | ((l) << 12))
 
+#define INTEL_LEGACY_BLK_BASE_ADDR	0xFED08000
+#define ILB_REMAP_SIZE			0x100
+
+#ifdef CONFIG_X86
+#define INTEL_FAM6_ATOM_AIRMONT		0x4C
+#endif
+
 struct priv_data {
 	bool irq_tested;
+	void __iomem *ilb_base_addr;
 };
 struct tis_vendor_timeout_override {
 	u32 did_vid;
@@ -129,6 +137,15 @@ static inline void write_tpm_dword(struct tpm_chip *chip, u32 addr, u32 value)
 	u32 tmp = value;
 
 	chip->ops->write_bytes(chip, addr, 1, 4, (u8 *)&tmp);
+}
+
+static inline bool is_bsw(void)
+{
+#ifdef CONFIG_X86
+	return ((boot_cpu_data.x86_model == INTEL_FAM6_ATOM_AIRMONT) ? 1 : 0);
+#else
+	return false;
+#endif
 }
 
 int tpm_tis_init_generic(struct device *dev, struct tpm_chip *chip, unsigned int irq, bool enable_interrupts, bool itpm);
