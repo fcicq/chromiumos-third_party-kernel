@@ -7,6 +7,9 @@ Required properties:
 -compatible : Should be "qcom,ath10k"
 
 Optional properties:
+- qcom,ath10k-calibration-variant: string to search for in the board-2.bin
+				   variant list with the same bus and device
+				   specific ids
 - qcom,ath10k-calibration-data : calibration data as an array, the
 				 length can vary between hw versions
 
