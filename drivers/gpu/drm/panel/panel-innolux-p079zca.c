@@ -20,6 +20,15 @@
 
 #include <video/mipi_display.h>
 
+struct panel_init_cmd {
+	int len;
+	const char data[10];
+};
+
+#define _INIT_CMD(...) { \
+	.len = sizeof((char[]){__VA_ARGS__}), \
+	.data = {__VA_ARGS__} }
+
 struct panel_desc {
 	const struct drm_display_mode *modes;
 	unsigned int bpc;
@@ -34,6 +43,7 @@ struct panel_desc_dsi {
 
 	unsigned long flags;
 	enum mipi_dsi_pixel_format format;
+	const struct panel_init_cmd *init_cmds;
 	unsigned int lanes;
 };
 
@@ -137,6 +147,36 @@ static int innolux_panel_prepare(struct drm_panel *panel)
 	/* T4: 15ms - 1000ms */
 	usleep_range(15000, 16000);
 
+	if (innolux->dsi_desc->init_cmds) {
+		const struct panel_init_cmd *cmds =
+					innolux->dsi_desc->init_cmds;
+		int i;
+
+		for (i = 0; cmds[i].len != 0; i++) {
+			const struct panel_init_cmd *cmd = &cmds[i];
+
+			err = mipi_dsi_generic_write(innolux->link, cmd->data,
+						     cmd->len);
+			if (err < 0) {
+				dev_err(panel->dev,
+					"failed to write command %d\n", i);
+				goto poweroff;
+			}
+
+			/*
+			 * Included by random guessing, because without this
+			 * (or at least, some delay), the panel sometimes
+			 * didn't appear to pick up the command sequence.
+			 */
+			err = mipi_dsi_dcs_nop(innolux->link);
+			if (err < 0) {
+				dev_err(panel->dev,
+					"failed to send DCS nop: %d\n", err);
+				goto poweroff;
+			}
+		}
+	}
+
 	err = mipi_dsi_dcs_exit_sleep_mode(innolux->link);
 	if (err < 0) {
 		DRM_DEV_ERROR(panel->dev, "failed to exit sleep mode: %d\n",
@@ -234,6 +274,10 @@ static const struct drm_display_mode innolux_p097pfg_mode = {
 	.vrefresh = 60,
 };
 
+static const struct panel_init_cmd innolux_p097pfg_init_cmds[] = {
+	{},
+};
+
 static const struct panel_desc_dsi innolux_p097pfg_panel_desc = {
 	.desc = {
 		.modes = &innolux_p097pfg_mode,
@@ -246,6 +290,7 @@ static const struct panel_desc_dsi innolux_p097pfg_panel_desc = {
 	.flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_SYNC_PULSE |
 		 MIPI_DSI_MODE_LPM,
 	.format = MIPI_DSI_FMT_RGB888,
+	.init_cmds = innolux_p097pfg_init_cmds,
 	.lanes = 8,
 };
 
