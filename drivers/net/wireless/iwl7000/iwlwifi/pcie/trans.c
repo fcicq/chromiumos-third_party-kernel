@@ -73,6 +73,7 @@
 #include <linux/gfp.h>
 #include <linux/vmalloc.h>
 #include <linux/pm_runtime.h>
+#include <linux/module.h>
 
 #include "iwl-drv.h"
 #include "iwl-trans.h"
@@ -2036,6 +2037,33 @@ static void iwl_trans_pcie_set_pmi(struct iwl_trans *trans, bool state)
 		clear_bit(STATUS_TPOWER_PMI, &trans->status);
 }
 
+struct iwl_trans_pcie_removal {
+	struct pci_dev *pdev;
+	struct work_struct work;
+};
+
+static void iwl_trans_pcie_removal_wk(struct work_struct *wk)
+{
+	struct iwl_trans_pcie_removal *removal =
+		container_of(wk, struct iwl_trans_pcie_removal, work);
+	char *prop[] = {"EVENT=INACCESSIBLE", NULL};
+	struct pci_dev *pdev = removal->pdev;
+
+#if LINUX_VERSION_IS_LESS(3, 14, 0)
+	dev_err(&pdev->dev, "Device gone - can't remove on old kernels.\n");
+#else
+	dev_err(&pdev->dev, "Device gone - attempting removal\n");
+	kobject_uevent_env(&pdev->dev.kobj, KOBJ_CHANGE, prop);
+	pci_lock_rescan_remove();
+	pci_dev_put(pdev);
+	pci_stop_and_remove_bus_device(pdev);
+	pci_unlock_rescan_remove();
+#endif /* LINUX_VERSION_IS_LESS(3,14,0) */
+
+	kfree(removal);
+	module_put(THIS_MODULE);
+}
+
 static bool iwl_trans_pcie_grab_nic_access(struct iwl_trans *trans,
 					   unsigned long *flags)
 {
@@ -2078,11 +2106,55 @@ static bool iwl_trans_pcie_grab_nic_access(struct iwl_trans *trans,
 			   (CSR_GP_CNTRL_REG_FLAG_MAC_CLOCK_READY |
 			    CSR_GP_CNTRL_REG_FLAG_GOING_TO_SLEEP), 15000);
 	if (unlikely(ret < 0)) {
-		iwl_trans_pcie_dump_regs(trans);
-		iwl_write32(trans, CSR_RESET, CSR_RESET_REG_FLAG_FORCE_NMI);
+		u32 cntrl = iwl_read32(trans, CSR_GP_CNTRL);
+
 		WARN_ONCE(1,
 			  "Timeout waiting for hardware access (CSR_GP_CNTRL 0x%08x)\n",
-			  iwl_read32(trans, CSR_GP_CNTRL));
+			  cntrl);
+
+		iwl_trans_pcie_dump_regs(trans);
+
+		if (iwlwifi_mod_params.remove_when_gone && cntrl == ~0U) {
+			struct iwl_trans_pcie_removal *removal;
+
+			if (trans_pcie->scheduled_for_removal)
+				goto err;
+
+			IWL_ERR(trans, "Device gone - scheduling removal!\n");
+
+			/*
+			 * get a module reference to avoid doing this
+			 * while unloading anyway and to avoid
+			 * scheduling a work with code that's being
+			 * removed.
+			 */
+			if (!try_module_get(THIS_MODULE)) {
+				IWL_ERR(trans,
+					"Module is being unloaded - abort\n");
+				goto err;
+			}
+
+			removal = kzalloc(sizeof(*removal), GFP_ATOMIC);
+			if (!removal) {
+				module_put(THIS_MODULE);
+				goto err;
+			}
+			/*
+			 * we don't need to clear this flag, because
+			 * the trans will be freed and reallocated.
+			*/
+			trans_pcie->scheduled_for_removal = true;
+
+			removal->pdev = to_pci_dev(trans->dev);
+			INIT_WORK(&removal->work, iwl_trans_pcie_removal_wk);
+			pci_dev_get(removal->pdev);
+			schedule_work(&removal->work);
+		} else {
+			iwl_write32(trans, CSR_RESET,
+				    CSR_RESET_REG_FLAG_FORCE_NMI);
+		}
+
+err:
 		spin_unlock_irqrestore(&trans_pcie->reg_lock, *flags);
 		return false;
 	}

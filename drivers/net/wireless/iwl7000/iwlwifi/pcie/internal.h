@@ -387,6 +387,7 @@ struct iwl_self_init_dram {
  * @hw_init_mask: initial unmasked hw causes
  * @fh_mask: current unmasked fh causes
  * @hw_mask: current unmasked hw causes
+ * @scheduled_for_removal: true if we have scheduled a device removal
  */
 struct iwl_trans_pcie {
 	struct iwl_rxq *rxq;
@@ -473,6 +474,7 @@ struct iwl_trans_pcie {
 	u32 fh_mask;
 	u32 hw_mask;
 	cpumask_t affinity_mask[IWL_MAX_RX_HW_QUEUES];
+	bool scheduled_for_removal;
 };
 
 static inline struct iwl_trans_pcie *
