@@ -427,8 +427,10 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 	struct mmc_data data = {0};
 	struct mmc_request mrq = {NULL};
 	struct scatterlist sg;
+	struct sg_table sgtable;
 	int err;
 	int is_rpmb = false;
+	int nents = 0;
 	u32 status = 0;
 
 	/*
@@ -462,13 +464,34 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 	cmd.arg = idata->ic.arg;
 	cmd.flags = idata->ic.flags;
 
+#define MAX_SG_LEN 65536
+
 	if (idata->buf_bytes) {
-		data.sg = &sg;
-		data.sg_len = 1;
+		nents = (idata->buf_bytes - 1) / MAX_SG_LEN + 1;
+		if (nents == 1) {
+			data.sg = &sg;
+			sg_init_one(data.sg, idata->buf, idata->buf_bytes);
+		} else {
+			int left_size = idata->buf_bytes;
+			struct scatterlist *sg_ptr;
+			int i;
+
+			if (sg_alloc_table(&sgtable, nents, GFP_KERNEL)) {
+				err = -ENOMEM;
+				goto cmd_done;
+			}
+
+			data.sg = sgtable.sgl;
+			for_each_sg(data.sg, sg_ptr, nents, i) {
+				sg_set_buf(sg_ptr, idata->buf + i * MAX_SG_LEN,
+						min(MAX_SG_LEN, left_size));
+				left_size -= MAX_SG_LEN;
+			}
+		}
+		data.sg_len = nents;
 		data.blksz = idata->ic.blksz;
 		data.blocks = idata->ic.blocks;
 
-		sg_init_one(data.sg, idata->buf, idata->buf_bytes);
 
 		if (idata->ic.write_flag)
 			data.flags = MMC_DATA_WRITE;
@@ -568,7 +591,8 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 
 cmd_rel_host:
 	mmc_put_card(card);
-
+	if (nents > 1)
+		sg_free_table(&sgtable);
 cmd_done:
 	mmc_blk_put(md);
 cmd_err:
