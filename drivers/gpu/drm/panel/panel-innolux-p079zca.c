@@ -115,7 +115,7 @@ static int innolux_panel_unprepare(struct drm_panel *panel)
 static int innolux_panel_prepare(struct drm_panel *panel)
 {
 	struct innolux_panel *innolux = to_innolux_panel(panel);
-	int err, regulator_err;
+	int err;
 
 	if (innolux->prepared)
 		return 0;
@@ -345,7 +345,8 @@ static const struct of_device_id innolux_of_match[] = {
 	},
 	{ .compatible = "innolux,p097pfg",
 	  .data = &innolux_p097pfg_panel_desc
-	}
+	},
+	{ }
 };
 MODULE_DEVICE_TABLE(of, innolux_of_match);
 
