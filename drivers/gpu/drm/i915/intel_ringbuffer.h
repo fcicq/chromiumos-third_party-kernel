@@ -485,6 +485,11 @@ static inline u32 intel_ring_get_tail(struct intel_ringbuffer *ringbuf)
  */
 #define MIN_SPACE_FOR_ADD_REQUEST	160
 
+static inline u32 intel_hws_seqno_address(struct intel_engine_cs *engine)
+{
+       return engine->status_page.gfx_addr + I915_GEM_HWS_INDEX_ADDR;
+}
+
 /*
  * Reserve space in the ring to guarantee that the i915_add_request() call
  * will always have sufficient room to do its stuff. The request creation
