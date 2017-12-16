@@ -66,6 +66,9 @@ MODULE_ALIAS("mmc:block");
 #define PACKED_CMD_VER	0x01
 #define PACKED_CMD_WR	0x02
 
+int mmc_init_card(struct mmc_host *host, u32 ocr,
+	struct mmc_card *oldcard);
+
 static DEFINE_MUTEX(block_mutex);
 
 /*
@@ -459,6 +462,16 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 		err = PTR_ERR(card);
 		goto cmd_done;
 	}
+
+	if (idata->ic.opcode == MMC_SW_RESET_OP) {
+		struct mmc_host *host = card->host;
+
+		mmc_get_card(card);
+		err = mmc_init_card(host, host->ocr, host->card);
+		mmc_put_card(card);
+		goto cmd_done;
+	}
+
 
 	cmd.opcode = idata->ic.opcode;
 	cmd.arg = idata->ic.arg;
