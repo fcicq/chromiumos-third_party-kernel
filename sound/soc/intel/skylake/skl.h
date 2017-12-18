@@ -93,6 +93,7 @@ struct skl {
 	int supend_active;
 
 	struct work_struct probe_work;
+	struct sst_acpi_mach *mach;
 };
 
 #define skl_to_ebus(s)	(&(s)->ebus)
