@@ -266,9 +266,9 @@ int cros_ec_register(struct cros_ec_device *ec_dev)
 	}
 
 	if (ec_dev->irq) {
-		err = request_threaded_irq(ec_dev->irq, NULL, ec_irq_thread,
-					   IRQF_TRIGGER_LOW | IRQF_ONESHOT,
-					   "chromeos-ec", ec_dev);
+		err = devm_request_threaded_irq(dev, ec_dev->irq, NULL,
+				ec_irq_thread, IRQF_TRIGGER_LOW | IRQF_ONESHOT,
+				"chromeos-ec", ec_dev);
 		if (err) {
 			dev_err(dev, "request irq %d: error %d\n",
 				ec_dev->irq, err);
@@ -282,7 +282,7 @@ int cros_ec_register(struct cros_ec_device *ec_dev)
 		dev_err(dev,
 			"Failed to register Embedded Controller subdevice %d\n",
 			err);
-		goto mfd_err;
+		return err;
 	}
 
 	if (ec_dev->max_passthru) {
@@ -300,7 +300,7 @@ int cros_ec_register(struct cros_ec_device *ec_dev)
 			dev_err(dev,
 				"Failed to register Power Delivery subdevice %d\n",
 				err);
-			goto mfd_err;
+			return err;
 		}
 	}
 
@@ -309,7 +309,7 @@ int cros_ec_register(struct cros_ec_device *ec_dev)
 		if (err) {
 			mfd_remove_devices(dev);
 			dev_err(dev, "Failed to register sub-devices\n");
-			goto mfd_err;
+			return err;
 		}
 	}
 
@@ -327,13 +327,7 @@ int cros_ec_register(struct cros_ec_device *ec_dev)
 #ifdef CONFIG_ACPI
 	cros_ec_install_handler(dev);
 #endif
-
 	return 0;
-
-mfd_err:
-      	if (ec_dev->irq)
-		free_irq(ec_dev->irq, ec_dev);
-	return err;
 }
 EXPORT_SYMBOL(cros_ec_register);
 
