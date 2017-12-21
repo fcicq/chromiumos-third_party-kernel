@@ -260,7 +260,7 @@ static struct snd_soc_dai_link_component max98927_codec_components[] = {
 	},
 };
 
-static int kabylake_rt5663_fe_init(struct snd_soc_pcm_runtime *rtd)
+static int kabylake_pb_fe_init(struct snd_soc_pcm_runtime *rtd)
 {
 	int ret;
 	struct snd_soc_dapm_context *dapm;
@@ -420,7 +420,7 @@ static int kbl_fe_startup(struct snd_pcm_substream *substream)
 	return 0;
 }
 
-static const struct snd_soc_ops kabylake_rt5663_fe_ops = {
+static const struct snd_soc_ops kabylake_fe_ops = {
 	.startup = kbl_fe_startup,
 };
 
@@ -595,11 +595,11 @@ static struct snd_soc_dai_link kabylake_dais[] = {
 		.codec_name = "snd-soc-dummy",
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.nonatomic = 1,
-		.init = kabylake_rt5663_fe_init,
+		.init = kabylake_pb_fe_init,
 		.trigger = {
 			SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
 		.dpcm_playback = 1,
-		.ops = &kabylake_rt5663_fe_ops,
+		.ops = &kabylake_fe_ops,
 	},
 	[KBL_DPCM_AUDIO_CP] = {
 		.name = "Kbl Audio Capture Port",
@@ -613,7 +613,7 @@ static struct snd_soc_dai_link kabylake_dais[] = {
 		.trigger = {
 			SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
 		.dpcm_capture = 1,
-		.ops = &kabylake_rt5663_fe_ops,
+		.ops = &kabylake_fe_ops,
 	},
 	[KBL_DPCM_AUDIO_HS_PB] = {
 		.name = "Kbl Audio Headset Playback",
@@ -625,6 +625,11 @@ static struct snd_soc_dai_link kabylake_dais[] = {
 		.dpcm_playback = 1,
 		.nonatomic = 1,
 		.dynamic = 1,
+                .init = kabylake_pb_fe_init,
+                .trigger = {
+                        SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
+                .ops = &kabylake_fe_ops,
+
 	},
 	[KBL_DPCM_AUDIO_ECHO_REF_CP] = {
 		.name = "Kbl Audio Echo Reference cap",
@@ -803,7 +808,7 @@ static struct snd_soc_dai_link kabylake_5663_dais[] = {
 		.trigger = {
 			SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
 		.dpcm_playback = 1,
-		.ops = &kabylake_rt5663_fe_ops,
+		.ops = &kabylake_fe_ops,
 	},
 	[KBL_DPCM_AUDIO_5663_CP] = {
 		.name = "Kbl Audio Capture Port",
@@ -817,7 +822,7 @@ static struct snd_soc_dai_link kabylake_5663_dais[] = {
 		.trigger = {
 			SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
 		.dpcm_capture = 1,
-		.ops = &kabylake_rt5663_fe_ops,
+		.ops = &kabylake_fe_ops,
 	},
 	[KBL_DPCM_AUDIO_5663_HDMI1_PB] = {
 		.name = "Kbl HDMI Port1",
