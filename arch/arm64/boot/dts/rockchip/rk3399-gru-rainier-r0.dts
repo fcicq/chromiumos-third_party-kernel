@@ -118,6 +118,9 @@
 /delete-node/ &vopl_out_mipi;
 /delete-node/ &vopb_out_mipi;
 /delete-node/ &mipi_dsi;
+/delete-node/ &vopl_out_mipi1;
+/delete-node/ &vopb_out_mipi1;
+/delete-node/ &mipi_dsi1;
 /delete-node/ &digitizer;
 
 /* Rainier uses different touch controller, which is defined below. */
