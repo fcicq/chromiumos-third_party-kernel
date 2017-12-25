@@ -34,10 +34,6 @@
 static void read_mem_bytes(struct tpm_chip *chip, u32 addr, u8 len, u8 size, u8 *result)
 {
 	int i;
-	struct priv_data *priv = chip->vendor.priv;
-
-	if (is_bsw() && !(priv->flags & TPM_TIS_CLK_ENABLE))
-		WARN(1, "CLKRUN not enabled!\n");
 
 	if (size == 4)
 		*(u32 *)result = ioread32(chip->vendor.iobase + addr);
@@ -55,10 +51,6 @@ static void read_mem_bytes(struct tpm_chip *chip, u32 addr, u8 len, u8 size, u8 
 static void write_mem_bytes(struct tpm_chip *chip, u32 addr, u8 len, u8 size, u8 *value)
 {
 	int i;
-	struct priv_data *priv = chip->vendor.priv;
-
-	if (is_bsw() && !(priv->flags & TPM_TIS_CLK_ENABLE))
-		WARN(1, "CLKRUN not enabled!\n");
 
 	if (size == 4)
 		iowrite32(*(u32 *)value, chip->vendor.iobase + addr);

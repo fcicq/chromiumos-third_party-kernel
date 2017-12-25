@@ -84,7 +84,7 @@ struct priv_data {
 };
 
 enum tpm_tis_flags {
-	TPM_TIS_CLK_ENABLE	= BIT(1),
+	TPM_TIS_ITPM_WORKAROUND	= BIT(0),
 };
 
 struct tis_vendor_timeout_override {

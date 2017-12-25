@@ -119,7 +119,6 @@ void tpm_tis_clkrun_enable(struct tpm_chip *chip, bool value)
 		return;
 
 	if (value) {
-		priv->flags |= TPM_TIS_CLK_ENABLE;
 		priv->clk_enabled++;
 		if (priv->clk_enabled > 1)
 			return;
@@ -151,7 +150,6 @@ void tpm_tis_clkrun_enable(struct tpm_chip *chip, bool value)
 		 * sure LPC clock is running before sending any TPM command.
 		 */
 		outb(0xCC, 0x80);
-		priv->flags &= ~TPM_TIS_CLK_ENABLE;
 	}
 }
 EXPORT_SYMBOL(tpm_tis_clkrun_enable);
