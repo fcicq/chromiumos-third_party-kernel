@@ -98,7 +98,7 @@
 		compatible = "sharp,lq123p1jx32", "sharp,lq123p1jx31",
 			     "simple-panel";
 		backlight = <&backlight>;
-		power-suppy = <&pp3300_disp>;
+		power-supply = <&pp3300_disp>;
 
 		ports {
 			panel_in_edp: endpoint {
