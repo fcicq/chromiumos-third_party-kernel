@@ -921,4 +921,6 @@ void ath10k_sta_add_debugfs(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 			    &fops_tx_success_bytes);
 	debugfs_create_file("peer_ps_state", S_IRUSR, dir, sta,
 			    &fops_peer_ps_state);
+	debugfs_create_file("tx_stats", 0444, dir, sta,
+			    &fops_tx_stats);
 }
