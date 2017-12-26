@@ -115,7 +115,7 @@ void tpm_tis_clkrun_enable(struct tpm_chip *chip, bool value)
 	struct priv_data *priv = chip->vendor.priv;
 	u32 clkrun_val;
 
-	if (!IS_ENABLED(CONFIG_X86) || !is_bsw())
+	if (!IS_ENABLED(CONFIG_X86) || !is_bsw() || !priv->ilb_base_addr)
 		return;
 
 	if (value) {

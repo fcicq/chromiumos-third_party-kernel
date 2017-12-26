@@ -125,6 +125,7 @@ static int tpm_tis_init(struct device *dev, acpi_handle acpi_dev_handle,
 	struct tpm_chip *chip;
 	struct priv_data *priv;
 	int rc;
+	u32 clkrun_val;
 
 	priv = devm_kzalloc(dev, sizeof(struct priv_data), GFP_KERNEL);
 	if (!priv)
@@ -149,8 +150,15 @@ static int tpm_tis_init(struct device *dev, acpi_handle acpi_dev_handle,
 		if (!priv->ilb_base_addr)
 			return -ENOMEM;
 	}
+	clkrun_val = ioread32(priv->ilb_base_addr + LPC_CNTRL_OFFSET);
+	/* Check if CLKRUN# is already not enabled in the LPC bus */
+	if (!(clkrun_val & LPC_CLKRUN_EN)) {
+		iounmap(priv->ilb_base_addr);
+		priv->ilb_base_addr = NULL;
+	}
+
 	rc = tpm_tis_init_generic(dev, chip, irq, interrupts, itpm);
-	if (rc && is_bsw())
+	if (rc && priv->ilb_base_addr)
 		iounmap(priv->ilb_base_addr);
 	return rc;
 }
