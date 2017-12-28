@@ -168,6 +168,8 @@ pp1800_edp: &pp1800_s0 {
 		pinctrl-0 = <&touch_int_l &touch_reset_l>;
 
 		power-supply = <&pp3300_ts>;
+		assert-reset-us = <40000>;
+		deassert-reset-us = <30000>;
 
 		interrupt-parent = <&gpio1>;
 		interrupts = <4 IRQ_TYPE_LEVEL_LOW>;
