@@ -33,6 +33,8 @@
  */
 
 #include <linux/clk.h>
+#include <linux/devfreq.h>
+#include <linux/devfreq-event.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/of.h>
@@ -499,6 +501,47 @@ err:
 	return ret;
 }
 
+#ifdef CONFIG_ARM_RK3399_DMC_DEVFREQ
+static int rockchip_initialize_devfreq(struct device *dev,
+				       struct rkisp1_device *isp_dev)
+{
+	struct devfreq *devfreq;
+	struct devfreq_event_dev *edev;
+	int ret;
+
+	devfreq = devfreq_get_devfreq_by_phandle(dev, 0);
+	if (IS_ERR(devfreq)) {
+		ret = PTR_ERR(devfreq);
+		if (ret == -ENODEV) {
+			dev_err(dev, "devfreq missing, skip\n");
+			return 0;
+		}
+		return ret;
+	}
+
+	edev = devfreq_event_get_edev_by_phandle(devfreq->dev.parent, 0);
+	if (IS_ERR(edev)) {
+		ret = PTR_ERR(edev);
+		if (ret == -ENODEV) {
+			dev_err(dev, "devfreq edev missing, skip\n");
+			return 0;
+		}
+		return ret;
+	}
+
+	isp_dev->devfreq = devfreq;
+	isp_dev->devfreq_event_dev = edev;
+
+	return 0;
+}
+#else
+static int rockchip_initialize_devfreq(struct device *dev,
+				       struct rockchip_drm_private *priv)
+{
+	return 0;
+}
+#endif
+
 static int rkisp1_plat_probe(struct platform_device *pdev)
 {
 	const struct of_device_id *match;
@@ -518,6 +561,12 @@ static int rkisp1_plat_probe(struct platform_device *pdev)
 
 	dev_set_drvdata(dev, isp_dev);
 	isp_dev->dev = dev;
+
+	ret = rockchip_initialize_devfreq(dev, isp_dev);
+	if (ret < 0) {
+		dev_err(dev, "can not get devfreq: %d\n", ret);
+		return ret;
+	}
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	isp_dev->base_addr = devm_ioremap_resource(dev, res);
