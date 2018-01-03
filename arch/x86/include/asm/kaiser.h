@@ -13,16 +13,13 @@
  * A minimalistic kernel mapping holds the parts needed to be mapped in user
  * mode, such as the entry/exit functions of the user space, or the stacks.
  */
-
-#define KAISER_SHADOW_PGD_OFFSET 0x1000
-
 #ifdef __ASSEMBLY__
 #ifdef CONFIG_KAISER
 
 .macro _SWITCH_TO_KERNEL_CR3 reg
 movq %cr3, \reg
 #ifdef CONFIG_KAISER_REAL_SWITCH
-andq $(~KAISER_SHADOW_PGD_OFFSET), \reg
+andq $(~0x1000), \reg
 #endif
 movq \reg, %cr3
 .endm
@@ -30,7 +27,7 @@ movq \reg, %cr3
 .macro _SWITCH_TO_USER_CR3 reg
 movq %cr3, \reg
 #ifdef CONFIG_KAISER_REAL_SWITCH
-orq $(KAISER_SHADOW_PGD_OFFSET), \reg
+orq $(0x1000), \reg
 #endif
 movq \reg, %cr3
 .endm
