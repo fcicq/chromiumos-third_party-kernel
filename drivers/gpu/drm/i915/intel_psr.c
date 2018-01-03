@@ -551,6 +551,9 @@ void intel_psr_enable(struct intel_dp *intel_dp,
 	if (!crtc_state->has_psr)
 		return;
 
+	if (WARN_ON(!CAN_PSR(dev_priv)))
+		return;
+
 	WARN_ON(dev_priv->drrs.dp);
 	mutex_lock(&dev_priv->psr.lock);
 	if (dev_priv->psr.enabled) {
@@ -679,6 +682,9 @@ void intel_psr_disable(struct intel_dp *intel_dp,
 	struct drm_i915_private *dev_priv = to_i915(dev);
 
 	if (!old_crtc_state->has_psr)
+		return;
+
+	if (WARN_ON(!CAN_PSR(dev_priv)))
 		return;
 
 	mutex_lock(&dev_priv->psr.lock);
@@ -960,6 +966,9 @@ void intel_psr_init(struct drm_i915_private *dev_priv)
 
 	dev_priv->psr_mmio_base = IS_HASWELL(dev_priv) ?
 		HSW_EDP_PSR_BASE : BDW_EDP_PSR_BASE;
+
+	if (!dev_priv->psr.sink_support)
+		return;
 
 	/* Per platform default */
 	if (i915.enable_psr == -1) {
