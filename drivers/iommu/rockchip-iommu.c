@@ -1446,6 +1446,9 @@ static int __init rk_iommu_of_setup(struct device_node *np)
 {
 	struct platform_device *pdev;
 
+	if (!of_device_is_available(np))
+		return 0;
+
 	atomic_inc(&rk_iommu_probes_pending);
 
 	pdev = of_platform_device_create(np, NULL, platform_bus_type.dev_root);
