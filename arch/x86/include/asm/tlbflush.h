@@ -12,7 +12,6 @@ static inline void __invpcid(unsigned long pcid, unsigned long addr,
 			     unsigned long type)
 {
 	struct { u64 d[2]; } desc = { { pcid, addr } };
-
 	/*
 	 * The memory clobber is because the whole point is to invalidate
 	 * stale TLB entries and, especially if we're flushing global
@@ -131,42 +130,27 @@ static inline void cr4_set_bits_and_update_boot(unsigned long mask)
 	cr4_set_bits(mask);
 }
 
-/*
- * Declare a couple of kaiser interfaces here for convenience,
- * to avoid the need for asm/kaiser.h in unexpected places.
- */
-#ifdef CONFIG_KAISER
-extern void kaiser_setup_pcid(void);
-extern void kaiser_flush_tlb_on_return_to_user(void);
-#else
-static inline void kaiser_setup_pcid(void)
-{
-}
-static inline void kaiser_flush_tlb_on_return_to_user(void)
-{
-}
-#endif
-
 static inline void __native_flush_tlb(void)
 {
-	if (this_cpu_has(X86_FEATURE_INVPCID)) {
-		/*
-		 * Note, this works with CR4.PCIDE=0 or 1.
+	if (!cpu_feature_enabled(X86_FEATURE_INVPCID)) {
+	 	/*
+		 * If current->mm == NULL then we borrow a mm which may change during a
+		 * task switch and therefore we must not be preempted while we write CR3
+		 * back:
 		 */
-		invpcid_flush_all_nonglobals();
+		preempt_disable();
+		native_write_cr3(native_read_cr3());
+		preempt_enable();
 		return;
 	}
-
 	/*
-	 * If current->mm == NULL then we borrow a mm which may change during a
-	 * task switch and therefore we must not be preempted while we write CR3
-	 * back:
+	 * We are no longer using globals with KAISER, so a
+	 * "nonglobals" flush would work too. But, this is more
+	 * conservative.
+	 *
+	 * Note, this works with CR4.PCIDE=0 or 1.
 	 */
-	preempt_disable();
-	if (this_cpu_has(X86_FEATURE_PCID))
-		kaiser_flush_tlb_on_return_to_user();
-	native_write_cr3(native_read_cr3());
-	preempt_enable();
+	invpcid_flush_all();
 }
 
 static inline void __native_flush_tlb_global_irq_disabled(void)
@@ -182,10 +166,6 @@ static inline void __native_flush_tlb_global_irq_disabled(void)
 
 static inline void __native_flush_tlb_global(void)
 {
-#ifdef CONFIG_KAISER
-	/* Globals are not used at all */
-	__native_flush_tlb();
-#else
 	unsigned long flags;
 
 	if (static_cpu_has(X86_FEATURE_INVPCID)) {
@@ -203,9 +183,10 @@ static inline void __native_flush_tlb_global(void)
 	 * be called from deep inside debugging code.)
 	 */
 	raw_local_irq_save(flags);
+
 	__native_flush_tlb_global_irq_disabled();
+
 	raw_local_irq_restore(flags);
-#endif
 }
 
 static inline void __native_flush_tlb_single(unsigned long addr)
@@ -216,12 +197,9 @@ static inline void __native_flush_tlb_single(unsigned long addr)
 	 *
 	 * The ASIDs used below are hard-coded.  But, we must not
 	 * call invpcid(type=1/2) before CR4.PCIDE=1.  Just call
-	 * invlpg in the case we are called early.
+	 * invpcid in the case we are called early.
 	 */
-
 	if (!this_cpu_has(X86_FEATURE_INVPCID_SINGLE)) {
-		if (this_cpu_has(X86_FEATURE_PCID))
-			kaiser_flush_tlb_on_return_to_user();
 		asm volatile("invlpg (%0)" ::"r" (addr) : "memory");
 		return;
 	}
