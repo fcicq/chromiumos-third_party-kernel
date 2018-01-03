@@ -269,5 +269,72 @@ static inline void __kvm_flush_dcache_pud(pud_t pud)
 void kvm_set_way_flush(struct kvm_vcpu *vcpu);
 void kvm_toggle_cache(struct kvm_vcpu *vcpu, bool was_enabled);
 
+static inline bool __kvm_cpu_uses_extended_idmap(void)
+{
+	return false;
+}
+
+static inline void __kvm_extend_hypmap(pgd_t *boot_hyp_pgd,
+				       pgd_t *hyp_pgd,
+				       pgd_t *merged_hyp_pgd,
+				       unsigned long hyp_idmap_start)
+{
+	int idmap_idx;
+
+	/*
+	 * Use the first entry to access the HYP mappings. It is
+	 * guaranteed to be free, otherwise we wouldn't use an
+	 * extended idmap.
+	 */
+	VM_BUG_ON(pgd_val(merged_hyp_pgd[0]));
+	merged_hyp_pgd[0] = __pgd(__pa(hyp_pgd) | PMD_TYPE_TABLE);
+
+	/*
+	 * Create another extended level entry that points to the boot HYP map,
+	 * which contains an ID mapping of the HYP init code. We essentially
+	 * merge the boot and runtime HYP maps by doing so, but they don't
+	 * overlap anyway, so this is fine.
+	 */
+	idmap_idx = hyp_idmap_start >> VA_BITS;
+	VM_BUG_ON(pgd_val(merged_hyp_pgd[idmap_idx]));
+	merged_hyp_pgd[idmap_idx] = __pgd(__pa(boot_hyp_pgd) | PMD_TYPE_TABLE);
+}
+
+#ifdef CONFIG_HARDEN_BRANCH_PREDICTOR
+#include <asm/mmu.h>
+
+static inline void *kvm_get_hyp_vector(void)
+{
+	struct bp_hardening_data *data = arm64_get_bp_hardening_data();
+	void *vect = __kvm_hyp_vector;
+
+	if (data->fn) {
+		vect = __bp_harden_hyp_vecs_start +
+		       data->hyp_vectors_slot * SZ_2K;
+
+		vect = lm_alias(vect);
+	}
+
+	return vect;
+}
+
+static inline int kvm_map_vectors(void)
+{
+	return create_hyp_mappings(__bp_harden_hyp_vecs_start,
+				   __bp_harden_hyp_vecs_end);
+}
+
+#else
+static inline void *kvm_get_hyp_vector(void)
+{
+	return __kvm_hyp_vector;
+}
+
+static inline int kvm_map_vectors(void)
+{
+	return 0;
+}
+#endif
+
 #endif /* __ASSEMBLY__ */
 #endif /* __ARM64_KVM_MMU_H__ */
