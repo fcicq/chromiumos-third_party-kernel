@@ -16,17 +16,13 @@
 
 .macro _SWITCH_TO_KERNEL_CR3 reg
 movq %cr3, \reg
-#ifdef CONFIG_KAISER_REAL_SWITCH
 andq $(~0x1000), \reg
-#endif
 movq \reg, %cr3
 .endm
 
 .macro _SWITCH_TO_USER_CR3 reg
 movq %cr3, \reg
-#ifdef CONFIG_KAISER_REAL_SWITCH
 orq $(0x1000), \reg
-#endif
 movq \reg, %cr3
 .endm
 
@@ -69,53 +65,48 @@ movq PER_CPU_VAR(unsafe_stack_register_backup), %rax
 .endm
 
 #endif /* CONFIG_KAISER */
-
 #else /* __ASSEMBLY__ */
 
 
 #ifdef CONFIG_KAISER
-/*
- * Upon kernel/user mode switch, it may happen that the address
- * space has to be switched before the registers have been
- * stored.  To change the address space, another register is
- * needed.  A register therefore has to be stored/restored.
-*/
-
+// Upon kernel/user mode switch, it may happen that
+// the address space has to be switched before the registers have been stored.
+// To change the address space, another register is needed.
+// A register therefore has to be stored/restored.
+//
 DECLARE_PER_CPU_USER_MAPPED(unsigned long, unsafe_stack_register_backup);
 
+#endif /* CONFIG_KAISER */
+
 /**
- *  kaiser_add_mapping - map a virtual memory part to the shadow (user) mapping
+ *  shadowmem_add_mapping - map a virtual memory part to the shadow mapping
  *  @addr: the start address of the range
  *  @size: the size of the range
  *  @flags: The mapping flags of the pages
  *
- *  The mapping is done on a global scope, so no bigger
- *  synchronization has to be done.  the pages have to be
- *  manually unmapped again when they are not needed any longer.
+ *  the mapping is done on a global scope, so no bigger synchronization has to be done.
+ *  the pages have to be manually unmapped again when they are not needed any longer.
  */
-extern int kaiser_add_mapping(unsigned long addr, unsigned long size, unsigned long flags);
+extern void kaiser_add_mapping(unsigned long addr, unsigned long size, unsigned long flags);
 
 
 /**
- *  kaiser_remove_mapping - unmap a virtual memory part of the shadow mapping
+ *  shadowmem_remove_mapping - unmap a virtual memory part of the shadow mapping
  *  @addr: the start address of the range
  *  @size: the size of the range
  */
 extern void kaiser_remove_mapping(unsigned long start, unsigned long size);
 
 /**
- *  kaiser_initialize_mapping - Initalize the shadow mapping
+ *  shadowmem_initialize_mapping - Initalize the shadow mapping
  *
- *  Most parts of the shadow mapping can be mapped upon boot
- *  time.  Only per-process things like the thread stacks
- *  or a new LDT have to be mapped at runtime.  These boot-
- *  time mappings are permanent and nevertunmapped.
+ *  most parts of the shadow mapping can be mapped upon boot time.
+ *  only the thread stacks have to be mapped on runtime.
+ *  the mapped regions are not unmapped at all.
  */
 extern void kaiser_init(void);
 
-#endif /* CONFIG_KAISER */
-
-#endif /* __ASSEMBLY */
+#endif
 
 
 
