@@ -356,7 +356,7 @@ static int execlists_update_context(struct drm_i915_gem_request *rq)
 	WARN_ON(!i915_gem_obj_is_pinned(ctx_obj));
 	WARN_ON(!i915_gem_obj_is_pinned(rb_obj));
 
-	page = i915_gem_object_get_page(ctx_obj, 1);
+	page = i915_gem_object_get_dirty_page(ctx_obj, 1);
 	reg_state = kmap_atomic(page);
 
 	reg_state[CTX_RING_TAIL+1] = rq->tail;
@@ -1396,7 +1396,7 @@ static int intel_init_workaround_bb(struct intel_engine_cs *ring)
 		return ret;
 	}
 
-	page = i915_gem_object_get_page(wa_ctx->obj, 0);
+	page = i915_gem_object_get_dirty_page(wa_ctx->obj, 0);
 	batch = kmap_atomic(page);
 	offset = 0;
 
@@ -2174,7 +2174,7 @@ populate_lr_context(struct intel_context *ctx, struct drm_i915_gem_object *ctx_o
 
 	/* The second page of the context object contains some fields which must
 	 * be set up prior to the first execution. */
-	page = i915_gem_object_get_page(ctx_obj, 1);
+	page = i915_gem_object_get_dirty_page(ctx_obj, 1);
 	reg_state = kmap_atomic(page);
 
 	/* A context is actually a big batch buffer with several MI_LOAD_REGISTER_IMM
@@ -2277,8 +2277,6 @@ populate_lr_context(struct intel_context *ctx, struct drm_i915_gem_object *ctx_o
 
 	kunmap_atomic(reg_state);
 
-	ctx_obj->dirty = 1;
-	set_page_dirty(page);
 	i915_gem_object_unpin_pages(ctx_obj);
 
 	return 0;
@@ -2486,7 +2484,7 @@ void intel_lr_context_reset(struct drm_device *dev,
 			WARN(1, "Failed get_pages for context obj\n");
 			continue;
 		}
-		page = i915_gem_object_get_page(ctx_obj, 1);
+		page = i915_gem_object_get_dirty_page(ctx_obj, 1);
 		reg_state = kmap_atomic(page);
 
 		reg_state[CTX_RING_HEAD+1] = 0;
