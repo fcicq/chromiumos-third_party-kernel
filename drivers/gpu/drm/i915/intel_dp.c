@@ -4724,6 +4724,10 @@ intel_dp_set_property(struct drm_connector *connector,
 		goto done;
 	}
 
+	if (property == connector->content_protection_property)
+		return drm_atomic_helper_connector_set_property(connector,
+								property, val);
+
 	return -EINVAL;
 
 done:
