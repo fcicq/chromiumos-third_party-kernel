@@ -15,7 +15,6 @@
 #include <asm/pgtable.h>
 #include <asm/pgalloc.h>
 #include <asm/desc.h>
-#include <asm/pvclock.h>
 
 #ifdef CONFIG_KAISER
 __visible
@@ -112,21 +111,12 @@ static pte_t *kaiser_pagetable_walk(unsigned long address, bool is_atomic)
 	pud_t *pud;
 	pgd_t *pgd = native_get_shadow_pgd(pgd_offset_k(address));
 	gfp_t gfp = (GFP_KERNEL | __GFP_NOTRACK | __GFP_ZERO);
-	unsigned long pte_prot = _KERNPG_TABLE;
 
 	if (is_atomic) {
 		gfp &= ~GFP_KERNEL;
 		gfp |= __GFP_HIGH | __GFP_ATOMIC;
 	} else
 		might_sleep();
-
-#ifdef CONFIG_PARAVIRT_CLOCK
-	/* Allow user-visible ptes in the pvclock fixmap range. */
-	if (address >= __fix_to_virt(PVCLOCK_FIXMAP_BEGIN) &&
-	    address <=__fix_to_virt(PVCLOCK_FIXMAP_END)) {
-		pte_prot |= _PAGE_USER;
-	}
-#endif
 
 	if (pgd_none(*pgd)) {
 		WARN_ONCE(1, "All shadow pgds should have been populated");
@@ -146,7 +136,7 @@ static pte_t *kaiser_pagetable_walk(unsigned long address, bool is_atomic)
 			return NULL;
 		spin_lock(&shadow_table_allocation_lock);
 		if (pud_none(*pud)) {
-			set_pud(pud, __pud(pte_prot | __pa(new_pmd_page)));
+			set_pud(pud, __pud(_KERNPG_TABLE | __pa(new_pmd_page)));
 			__inc_zone_page_state(virt_to_page((void *)
 						new_pmd_page), NR_KAISERTABLE);
 		} else
@@ -166,7 +156,7 @@ static pte_t *kaiser_pagetable_walk(unsigned long address, bool is_atomic)
 			return NULL;
 		spin_lock(&shadow_table_allocation_lock);
 		if (pmd_none(*pmd)) {
-			set_pmd(pmd, __pmd(pte_prot | __pa(new_pte_page)));
+			set_pmd(pmd, __pmd(_KERNPG_TABLE | __pa(new_pte_page)));
 			__inc_zone_page_state(virt_to_page((void *)
 						new_pte_page), NR_KAISERTABLE);
 		} else
@@ -232,7 +222,7 @@ static void __init kaiser_init_all_pgds(void)
 
 	pgd = native_get_shadow_pgd(pgd_offset_k((unsigned long )0));
 	for (i = PTRS_PER_PGD / 2; i < PTRS_PER_PGD; i++) {
-		pgdval_t new_pgdval;
+		pgd_t new_pgd;
 		pud_t *pud = pud_alloc_one(&init_mm,
 					   PAGE_OFFSET + i * PGDIR_SIZE);
 		if (!pud) {
@@ -240,16 +230,7 @@ static void __init kaiser_init_all_pgds(void)
 			break;
 		}
 		inc_zone_page_state(virt_to_page(pud), NR_KAISERTABLE);
-		new_pgdval = _KERNPG_TABLE |__pa(pud);
-#ifdef CONFIG_PARAVIRT_CLOCK
-		/*
-		 * Allow user-visible ptes in the pvclock fixmap.
-		 */
-		if (i >= pgd_index(__fix_to_virt(PVCLOCK_FIXMAP_BEGIN)) &&
-		    i <= pgd_index(__fix_to_virt(PVCLOCK_FIXMAP_END))) {
-			new_pgdval |= _PAGE_USER;
-		}
-#endif
+		new_pgd = __pgd(_KERNPG_TABLE |__pa(pud));
 		/*
 		 * Make sure not to stomp on some other pgd entry.
 		 */
@@ -257,7 +238,7 @@ static void __init kaiser_init_all_pgds(void)
 			WARN_ON(1);
 			continue;
 		}
-		set_pgd(pgd + i, __pgd(new_pgdval));
+		set_pgd(pgd + i, new_pgd);
 	}
 }
 
@@ -283,13 +264,6 @@ void __init kaiser_init(void)
 	int cpu;
 
 	kaiser_init_all_pgds();
-
-#ifdef CONFIG_PARAVIRT_CLOCK
-	/* kaiser_add_mapping() can add user-accessible ptes in the pvclock
-	 * address range, but must be the first to touch each pud/pmd in the
-	 * translation. Add the user-readable pvclock map first.*/
-	pvclock_init_vsyscall_kaiser();
-#endif
 
 	for_each_possible_cpu(cpu) {
 		void *percpu_vaddr = __per_cpu_user_mapped_start +
