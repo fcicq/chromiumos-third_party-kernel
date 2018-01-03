@@ -13,7 +13,6 @@
 #include <asm/irqflags.h>
 #include <asm/asm.h>
 #include <asm/smap.h>
-#include <asm/pgtable_types.h>
 #include <asm/kaiser.h>
 #include <linux/linkage.h>
 #include <linux/err.h>
