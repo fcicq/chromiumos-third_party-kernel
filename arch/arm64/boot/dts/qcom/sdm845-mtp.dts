@@ -440,3 +440,20 @@
 		bias-pull-up;
 	};
 };
+
+/* PINCTRL - board-specific pinctrl */
+
+/*
+ * TODO: the below isn't the right way to do this; this is all just hacks
+ * until we have patches to do this right.
+ */
+#include "pmi8998.dtsi"
+&labibb {
+	status = "okay";
+	qcom,qpnp-labibb-mode = "lcd";
+};
+
+&pmi8998_wled {
+	status = "okay";
+	qcom,led-strings-list = [01 02];
+};
