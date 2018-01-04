@@ -3677,18 +3677,24 @@ void ath10k_mgmt_over_wmi_tx_work(struct work_struct *work)
 	}
 }
 
-static void atf_scheduler_init(struct ieee80211_txq *txq)
+static void atf_scheduler_init(struct ath10k_vif *arvif,
+			       struct ieee80211_txq *txq)
 {
 	struct ath10k_txq *artxq = (void *)txq->drv_priv;
 	struct atf_scheduler *atf = &artxq->atf;
 
-	atf->quantum = IEEE80211_ATF_QUANTUM;
-	atf->deficit = IEEE80211_ATF_QUANTUM;
+	if (ieee80211_vif_is_mesh(arvif->vif))
+		atf->quantum = arvif->ar->atf_quantum_mesh;
+	else
+		atf->quantum = arvif->ar->atf_quantum;
+
+	atf->deficit = atf->quantum;
 	atf->deficit_max = atf->quantum + atf->quantum / 4;
 	atf->next_epoch = codel_get_time() + IEEE80211_ATF_TXQ_AIRTIME_MIN;
 }
 
-static void ath10k_mac_txq_init(struct ieee80211_txq *txq)
+static void ath10k_mac_txq_init(struct ath10k_vif *arvif,
+				struct ieee80211_txq *txq)
 {
 	struct ath10k_txq *artxq;
 
@@ -3697,7 +3703,7 @@ static void ath10k_mac_txq_init(struct ieee80211_txq *txq)
 
 	artxq = (void *)txq->drv_priv;
 	INIT_LIST_HEAD(&artxq->list);
-	atf_scheduler_init(txq);
+	atf_scheduler_init(arvif, txq);
 }
 
 static void ath10k_mac_txq_unref(struct ath10k *ar, struct ieee80211_txq *txq)
@@ -4960,10 +4966,10 @@ static int ath10k_add_interface(struct ieee80211_hw *hw,
 	mutex_lock(&ar->conf_mutex);
 
 	memset(arvif, 0, sizeof(*arvif));
-	ath10k_mac_txq_init(vif->txq);
 
 	arvif->ar = ar;
 	arvif->vif = vif;
+	ath10k_mac_txq_init(arvif, vif->txq);
 
 	INIT_LIST_HEAD(&arvif->list);
 	INIT_WORK(&arvif->ap_csa_work, ath10k_mac_vif_ap_csa_work);
@@ -6125,7 +6131,7 @@ static int ath10k_sta_state(struct ieee80211_hw *hw,
 		INIT_WORK(&arsta->update_wk, ath10k_sta_rc_update_wk);
 
 		for (i = 0; i < ARRAY_SIZE(sta->txq); i++)
-			ath10k_mac_txq_init(sta->txq[i]);
+			ath10k_mac_txq_init(arvif, sta->txq[i]);
 	}
 
 	/* cancel must be done outside the mutex to avoid deadlock */

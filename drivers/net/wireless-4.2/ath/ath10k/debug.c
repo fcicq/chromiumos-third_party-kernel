@@ -2305,6 +2305,78 @@ static const struct file_operations fops_atf_stats = {
 	.llseek = default_llseek,
 };
 
+static ssize_t ath10k_write_atf_quantum(struct file *file,
+					const char __user *user_buf,
+					size_t count, loff_t *ppos)
+{
+	struct ath10k *ar = file->private_data;
+	u32 val;
+
+	if (kstrtou32_from_user(user_buf, count, 0, &val))
+		return -EINVAL;
+	mutex_lock(&ar->conf_mutex);
+	ar->atf_quantum = val;
+	mutex_unlock(&ar->conf_mutex);
+	return count;
+}
+
+static ssize_t ath10k_read_atf_quantum(struct file *file,
+				       char __user *user_buf,
+				       size_t count, loff_t *ppos)
+{
+	struct ath10k *ar = file->private_data;
+	int len = 0;
+	char buf[32];
+
+	len = scnprintf(buf, sizeof(buf) - len, "%d\n",
+			ar->atf_quantum);
+	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
+}
+
+static const struct file_operations fops_atf_quantum = {
+	.read = ath10k_read_atf_quantum,
+	.write = ath10k_write_atf_quantum,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+	.llseek = default_llseek,
+};
+
+static ssize_t ath10k_write_atf_quantum_mesh(struct file *file,
+					     const char __user *user_buf,
+					     size_t count, loff_t *ppos)
+{
+	struct ath10k *ar = file->private_data;
+	u32 val;
+
+	if (kstrtou32_from_user(user_buf, count, 0, &val))
+		return -EINVAL;
+	mutex_lock(&ar->conf_mutex);
+	ar->atf_quantum_mesh = val;
+	mutex_unlock(&ar->conf_mutex);
+	return count;
+}
+
+static ssize_t ath10k_read_atf_quantum_mesh(struct file *file,
+					    char __user *user_buf,
+					    size_t count, loff_t *ppos)
+{
+	struct ath10k *ar = file->private_data;
+	int len = 0;
+	char buf[32];
+
+	len = scnprintf(buf, sizeof(buf) - len, "%d\n",
+			ar->atf_quantum_mesh);
+	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
+}
+
+static const struct file_operations fops_atf_quantum_mesh = {
+	.read = ath10k_read_atf_quantum_mesh,
+	.write = ath10k_write_atf_quantum_mesh,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+	.llseek = default_llseek,
+};
+
 int ath10k_debug_start(struct ath10k *ar)
 {
 	int ret;
@@ -3347,6 +3419,12 @@ int ath10k_debug_register(struct ath10k *ar)
 
 	debugfs_create_file("atf_stats", 0600, ar->debug.debugfs_phy, ar,
 			    &fops_atf_stats);
+
+	debugfs_create_file("atf_quantum", 0600,
+			    ar->debug.debugfs_phy, ar, &fops_atf_quantum);
+
+	debugfs_create_file("atf_quantum_mesh", 0600,
+			    ar->debug.debugfs_phy, ar, &fops_atf_quantum_mesh);
 
 #ifdef CONFIG_ATH10K_SMART_ANTENNA
 	ath10k_smart_ant_debugfs_init(ar);
