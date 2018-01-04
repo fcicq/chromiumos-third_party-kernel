@@ -573,6 +573,10 @@ camera: &i2c7 {
 	cd-gpios = <&gpio1 11 GPIO_ACTIVE_LOW>;
 };
 
+&soc_thermal {
+	sustainable-power = <2000>; /* milliwatts */
+};
+
 &sound {
 	rockchip,codec = <&max98357a &dmic &codec &cdn_dp>;
 };
@@ -594,8 +598,16 @@ camera: &i2c7 {
 	};
 };
 
+&target {
+	temperature = <71000>;
+};
+
 &tcphy1 {
 	status = "disabled";
+};
+
+&threshold {
+	temperature = <66000>;
 };
 
 &usbc_extcon1 {
