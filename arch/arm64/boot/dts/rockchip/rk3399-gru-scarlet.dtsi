@@ -159,7 +159,6 @@
 		brightness-levels-scale = <0x10000>;
 		default-brightness-level = <0x828f>; /* arbitrary, ~51% */
 		enable-gpios = <&gpio4 21 GPIO_ACTIVE_HIGH>;
-		backlight-boot-off;
 		pinctrl-names = "default";
 		pinctrl-0 = <&bl_en>;
 		pwms = <&pwm1 0 1000000 0>;
