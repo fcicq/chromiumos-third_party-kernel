@@ -471,7 +471,7 @@ struct imgu_abi_shd_grid_config {
 	s32 __reserved2:3;
 	s32 y_start:13;
 	s32 __reserved3:3;
-};
+} __packed;
 
 struct imgu_abi_shd_general_config {
 	u32 init_set_vrt_offst_ul:8;
@@ -479,7 +479,7 @@ struct imgu_abi_shd_general_config {
 	/* aka 'gf' */
 	u32 gain_factor:2;
 	u32 __reserved:21;
-};
+} __packed;
 
 struct imgu_abi_shd_black_level_config {
 	/* reg 0 */
@@ -494,53 +494,53 @@ struct imgu_abi_shd_black_level_config {
 	s32 __reserved2:4;
 	s32 bl_b:12;
 	s32 __reserved3:4;
-};
+} __packed;
 
 struct imgu_abi_shd_config_static {
 	/* B0: Fixed order: one transfer to GAC */
 	struct imgu_abi_shd_grid_config grid;
 	struct imgu_abi_shd_general_config general;
 	struct imgu_abi_shd_black_level_config black_level;
-};
+} __packed;
 
 struct imgu_abi_shd_lut_elem {
 	u16 factors[2];
-};
+} __packed;
 
 struct imgu_abi_shd_lut_set {
 	struct imgu_abi_shd_lut_elem elems[IMGU_ABI_SHD_MAX_CELLS_PER_SET]
 		IMGU_ABI_PAD;
-};
+} __packed;
 
 struct imgu_abi_shd_lut {
 	struct imgu_abi_shd_lut_set sets[IMGU_ABI_SHD_MAX_CFG_SETS];
-};
+} __packed;
 
 struct imgu_abi_shd_config {
 	struct imgu_abi_shd_config_static shd IMGU_ABI_PAD;
 	struct ipu3_uapi_shd_intra_frame_operations_data shd_ops IMGU_ABI_PAD;
 	struct imgu_abi_shd_lut shd_lut IMGU_ABI_PAD;
-};
+} __packed;
 
 struct imgu_abi_dpc_param0 {
 	u32 enable:1;
 	u32 __reserved0:15;
 	u32 grad_threshold:13;
 	u32 __reserved1:3;
-};
+} __packed;
 
 struct imgu_abi_dpc_num_of_dp {
 	u32 num_of_dp_gr:8;
 	u32 num_of_dp_bg:8;
 	u32 __reserved0:16;
-};
+} __packed;
 
 struct imgu_abi_dpc_params {
 	struct imgu_abi_dpc_param0 enable_and_threshold;
 	struct imgu_abi_dpc_num_of_dp num_of_dp_set0;
 	struct imgu_abi_dpc_num_of_dp num_of_dp_set1;
 	struct imgu_abi_dpc_num_of_dp num_of_dp_first_line_pair;
-};
+} __packed;
 
 /******************* Firmware ABI definitions *******************/
 
@@ -584,12 +584,12 @@ enum imgu_abi_buffer_type {
 struct imgu_abi_crop_pos {
 	u16 x;
 	u16 y;
-};
+} __packed;
 
 struct imgu_abi_sp_resolution {
 	u16 width;			/* Width of valid data in pixels */
 	u16 height;			/* Height of valid data in lines */
-};
+} __packed;
 
 /*
  * Frame info struct. This describes the contents of an image frame buffer.
@@ -617,7 +617,7 @@ struct imgu_abi_frame_sp_info {
 #define IMGU_ABI_RAW_TYPE_IR_ON_GR	1
 #define IMGU_ABI_RAW_TYPE_IR_ON_GB	2
 	u8 padding[2];			/* Extend to 32 bit multiple */
-};
+} __packed;
 
 struct imgu_abi_buffer_sp {
 	union {
@@ -625,27 +625,30 @@ struct imgu_abi_buffer_sp {
 		enum imgu_abi_queue_id queue_id;
 	} buf_src;
 	enum imgu_abi_buffer_type buf_type;
-};
+} __packed;
 
 struct imgu_abi_frame_sp_plane {
 	u32 offset;		/* offset in bytes to start of frame data */
 				/* offset is wrt data in imgu_abi_sp_sp_frame */
-};
+} __packed;
 
 struct imgu_abi_frame_sp_rgb_planes {
 	struct imgu_abi_frame_sp_plane r;
 	struct imgu_abi_frame_sp_plane g;
 	struct imgu_abi_frame_sp_plane b;
-};
+} __packed;
+
 struct imgu_abi_frame_sp_yuv_planes {
 	struct imgu_abi_frame_sp_plane y;
 	struct imgu_abi_frame_sp_plane u;
 	struct imgu_abi_frame_sp_plane v;
-};
+} __packed;
+
 struct imgu_abi_frame_sp_nv_planes {
 	struct imgu_abi_frame_sp_plane y;
 	struct imgu_abi_frame_sp_plane uv;
-};
+} __packed;
+
 struct imgu_abi_frame_sp_plane6 {
 	struct imgu_abi_frame_sp_plane r;
 	struct imgu_abi_frame_sp_plane r_at_b;
@@ -653,11 +656,12 @@ struct imgu_abi_frame_sp_plane6 {
 	struct imgu_abi_frame_sp_plane gb;
 	struct imgu_abi_frame_sp_plane b;
 	struct imgu_abi_frame_sp_plane b_at_r;
-};
+} __packed;
+
 struct imgu_abi_frame_sp_binary_plane {
 	u32 size;
 	struct imgu_abi_frame_sp_plane data;
-};
+} __packed;
 
 struct imgu_abi_frame_sp {
 	struct imgu_abi_frame_sp_info info;
@@ -672,12 +676,12 @@ struct imgu_abi_frame_sp {
 		struct imgu_abi_frame_sp_plane6 plane6;
 		struct imgu_abi_frame_sp_binary_plane binary;
 	} planes;
-};
+} __packed;
 
 struct imgu_abi_resolution {
 	u32 width;
 	u32 height;
-};
+} __packed;
 
 struct imgu_abi_frames_sp {
 	struct imgu_abi_frame_sp in;
@@ -688,14 +692,14 @@ struct imgu_abi_frames_sp {
 	struct imgu_abi_buffer_sp s3a_buf;
 	struct imgu_abi_buffer_sp dvs_buf;
 	struct imgu_abi_buffer_sp lace_buf;
-};
+} __packed;
 
 struct imgu_abi_uds_info {
 	u16 curr_dx;
 	u16 curr_dy;
 	u16 xc;
 	u16 yc;
-};
+} __packed;
 
 /* Information for a single pipeline stage */
 struct imgu_abi_sp_stage {
@@ -733,6 +737,7 @@ struct imgu_abi_sp_stage {
 	} enable;
 
 	struct imgu_abi_crop_pos sp_out_crop_pos;
+	u8 padding[2];
 	struct imgu_abi_frames_sp frames;
 	struct imgu_abi_resolution dvs_envelope;
 	struct imgu_abi_uds_info uds;
@@ -744,7 +749,8 @@ struct imgu_abi_sp_stage {
 	u16 row_stripes_height;
 	u16 row_stripes_overlap_lines;
 	u8 if_config_index;	/* Which should be applied by this stage. */
-};
+	u8 padding2;
+} __packed;
 
 /***** struct imgu_abi_isp_stage *****/
 
@@ -773,7 +779,7 @@ enum imgu_abi_param_class {
 
 struct imgu_abi_isp_param_memory_offsets {
 	u32 offsets[IMGU_ABI_PARAM_CLASS_NUM];	/* offset wrt hdr in bytes */
-};
+} __packed;
 
 /*
  * Blob descriptor.
@@ -810,7 +816,8 @@ struct imgu_abi_blob_info {
 					/* within fw, code = icache + text */
 	const void *data __aligned(8);	/* Data section absolute pointer */
 					/* within fw, data = data + bss */
-};
+} __packed;
+
 struct imgu_abi_binary_pipeline_info {
 	u32 mode;
 	u32 isp_pipe_version;
@@ -819,7 +826,7 @@ struct imgu_abi_binary_pipeline_info {
 	u32 top_cropping;
 	u32 left_cropping;
 	u32 variable_resolution;
-};
+} __packed;
 
 struct imgu_abi_binary_input_info {
 	u32 min_width;
@@ -830,7 +837,7 @@ struct imgu_abi_binary_input_info {
 #define IMGU_ABI_BINARY_INPUT_SOURCE_SENSOR	0
 #define IMGU_ABI_BINARY_INPUT_SOURCE_MEMORY	1
 #define IMGU_ABI_BINARY_INPUT_SOURCE_VARIABLE	2
-};
+} __packed;
 
 struct imgu_abi_binary_output_info {
 	u32 min_width;
@@ -839,12 +846,12 @@ struct imgu_abi_binary_output_info {
 	u32 max_height;
 	u32 num_chunks;
 	u32 variable_format;
-};
+} __packed;
 
 struct imgu_abi_binary_internal_info {
 	u32 max_width;
 	u32 max_height;
-};
+} __packed;
 
 struct imgu_abi_binary_bds_info {
 	u32 supported_bds_factors;
@@ -866,32 +873,32 @@ struct imgu_abi_binary_bds_info {
 #define IMGU_ABI_BDS_FACTOR_5_00		BIT(9)
 #define IMGU_ABI_BDS_FACTOR_6_00		BIT(10)
 #define IMGU_ABI_BDS_FACTOR_8_00		BIT(11)
-};
+} __packed;
 
 struct imgu_abi_binary_dvs_info {
 	u32 max_envelope_width;
 	u32 max_envelope_height;
-};
+} __packed;
 
 struct imgu_abi_binary_vf_dec_info {
 	u32 is_variable;
 	u32 max_log_downscale;
-};
+} __packed;
 
 struct imgu_abi_binary_s3a_info {
 	u32 s3atbl_use_dmem;
 	u32 fixed_s3a_deci_log;
-};
+} __packed;
 
 struct imgu_abi_binary_dpc_info {
 	u32 bnr_lite;			/* bnr lite enable flag */
-};
+} __packed;
 
 struct imgu_abi_binary_iterator_info {
 	u32 num_stripes;
 	u32 row_stripes_height;
 	u32 row_stripes_overlap_lines;
-};
+} __packed;
 
 struct imgu_abi_binary_address_info {
 	u32 isp_addresses;		/* Address in ISP dmem */
@@ -901,7 +908,7 @@ struct imgu_abi_binary_address_info {
 	u32 in_data;			/* Address in ISP dmem */
 	u32 out_data;			/* Address in ISP dmem */
 	u32 sh_dma_cmd_ptr;		/* In ISP dmem */
-};
+} __packed;
 
 struct imgu_abi_binary_uds_info {
 	u16 bpp;
@@ -916,23 +923,23 @@ struct imgu_abi_binary_uds_info {
 	u16 vectors_c_per_line_out;
 	u16 vmem_gdc_in_block_height_y;
 	u16 vmem_gdc_in_block_height_c;
-};
+} __packed;
 
 struct imgu_abi_binary_block_info {
 	u32 block_width;
 	u32 block_height;
 	u32 output_block_height;
-};
+} __packed;
 
 struct imgu_abi_isp_data {
 	imgu_addr_t address;		/* ISP address */
 	u32 size;			/* Disabled if 0 */
-};
+} __packed;
 
 struct imgu_abi_isp_param_segments {
 	struct imgu_abi_isp_data
 			params[IMGU_ABI_PARAM_CLASS_NUM][IMGU_ABI_NUM_MEMORIES];
-};
+} __packed;
 
 struct imgu_abi_binary_info {
 	u32 id __aligned(8);		/* IMGU_ABI_BINARY_ID_* */
@@ -1034,14 +1041,14 @@ struct imgu_abi_binary_info {
 		u8 claimed_by_isp;
 		u8 padding[2];
 	} dma;
-};
+} __packed;
 
 struct imgu_abi_isp_stage {
 	struct imgu_abi_blob_info blob_info;
 	struct imgu_abi_binary_info binary_info;
 	char binary_name[IMGU_ABI_MAX_BINARY_NAME];
 	struct imgu_abi_isp_param_segments mem_initializers;
-};
+} __packed;
 
 /***** struct imgu_abi_ddr_address_map and parameter set *****/
 
@@ -1055,7 +1062,7 @@ struct imgu_abi_ddr_address_map {
 	imgu_addr_t obgrid_tbl[IPU3_UAPI_MAX_STRIPES];
 	imgu_addr_t acc_cluster_params_for_sp;
 	imgu_addr_t dvs_6axis_params_y;
-};
+} __packed;
 
 struct imgu_abi_parameter_set_info {
 	/* Pointers to Parameters in ISP format IMPT */
@@ -1064,7 +1071,7 @@ struct imgu_abi_parameter_set_info {
 	u32 isp_parameters_id;
 	/* Output frame to which this config has to be applied (optional) */
 	imgu_addr_t output_frame_ptr;
-};
+} __packed;
 
 /***** struct imgu_abi_sp_group *****/
 
@@ -1077,7 +1084,8 @@ struct imgu_abi_sp_config {
 	u8 lock_all;
 	u8 disable_cont_vf;
 	u8 disable_preview_on_capture;
-};
+	u8 padding[3];
+} __packed;
 
 /* Information for a pipeline */
 struct imgu_abi_sp_pipeline {
@@ -1127,7 +1135,7 @@ struct imgu_abi_sp_pipeline {
 		/* Origin Y (bqs) of internal frame on shading table */
 		u32 internal_frame_origin_y_bqs_on_sctbl;
 	} shading;
-};
+} __packed;
 
 struct imgu_abi_sp_debug_command {
 	/*
@@ -1142,7 +1150,7 @@ struct imgu_abi_sp_debug_command {
 	 * through DMA channel 2 are both disabled. The others are enabled.
 	 */
 	u32 dma_sw_reg;
-};
+} __packed;
 
 #define IMGU_ABI_MAX_SP_THREADS	4
 
@@ -1155,7 +1163,7 @@ struct imgu_abi_sp_group {
 	struct imgu_abi_sp_config config;
 	struct imgu_abi_sp_pipeline pipe[IMGU_ABI_MAX_SP_THREADS];
 	struct imgu_abi_sp_debug_command debug;
-};
+} __packed;
 
 /***** parameter and state class binary configurations *****/
 
@@ -1169,13 +1177,13 @@ struct imgu_abi_isp_iterator_config {
 	struct imgu_abi_frame_sp_info output_info;
 	struct imgu_abi_frame_sp_info vf_info;
 	struct imgu_abi_sp_resolution dvs_envelope;
-};
+} __packed;
 
 struct imgu_abi_dma_port_config {
 	u8 crop, elems;
 	u16 width;
 	u32 stride;
-};
+} __packed;
 
 struct imgu_abi_isp_ref_config {
 	u32 width_a_over_b;
@@ -1183,17 +1191,17 @@ struct imgu_abi_isp_ref_config {
 	u32 ref_frame_addr_y[IMGU_ABI_FRAMES_REF];
 	u32 ref_frame_addr_c[IMGU_ABI_FRAMES_REF];
 	u32 dvs_frame_delay;
-};
+} __packed;
 
 struct imgu_abi_isp_ref_dmem_state {
 	u32 ref_in_buf_idx;
 	u32 ref_out_buf_idx;
-};
+} __packed;
 
 struct imgu_abi_isp_dvs_config {
 	u32 num_horizontal_blocks;
 	u32 num_vertical_blocks;
-};
+} __packed;
 
 struct imgu_abi_isp_tnr3_config {
 	u32 width_a_over_b;
@@ -1201,7 +1209,7 @@ struct imgu_abi_isp_tnr3_config {
 	struct imgu_abi_dma_port_config port_b;
 	u32 delay_frame;
 	u32 frame_addr[IMGU_ABI_FRAMES_TNR];
-};
+} __packed;
 
 struct imgu_abi_isp_tnr3_dmem_state {
 	u32 in_bufidx;
@@ -1209,7 +1217,7 @@ struct imgu_abi_isp_tnr3_dmem_state {
 	u32 total_frame_counter;
 	u32 buffer_frame_counter[IMGU_ABI_BUF_SETS_TNR];
 	u32 bypass_filter;
-};
+} __packed;
 
 /***** DVS statistics metadata *****/
 
@@ -1224,7 +1232,7 @@ struct imgu_abi_dvs_meta_data {
 		__aligned(IMGU_ABI_ISP_DDR_WORD_BYTES);
 	u32 dvs_prev_frame_fe_l2[IMGU_ABI_DVS_METADATA_L2_REGS]
 		__aligned(IMGU_ABI_ISP_DDR_WORD_BYTES);
-};
+} __packed;
 
 /***** Queues *****/
 
@@ -1293,7 +1301,7 @@ struct imgu_abi_queue_info {
 	u8 step;		/* number of bytes per element */
 	u8 start;		/* index of the oldest element */
 	u8 end;			/* index at which to write the new element */
-};
+} __packed;
 
 struct imgu_abi_queues {
 	/*
@@ -1315,7 +1323,7 @@ struct imgu_abi_queues {
 	u32 host2sp_evtq[IMGU_ABI_HOST2SP_EVTQ_SIZE];
 	struct imgu_abi_queue_info sp2host_evtq_info;
 	u32 sp2host_evtq[IMGU_ABI_SP2HOST_EVTQ_SIZE];
-};
+} __packed;
 
 /***** Buffer descriptor *****/
 
@@ -1323,7 +1331,7 @@ struct imgu_abi_metadata_info {
 	struct imgu_abi_resolution resolution;	/* Resolution */
 	u32 stride;				/* Stride in bytes */
 	u32 size;				/* Total size in bytes */
-};
+} __packed;
 
 struct imgu_abi_isp_3a_statistics {
 	union {
@@ -1345,7 +1353,7 @@ struct imgu_abi_isp_3a_statistics {
 	u32 dmem_size;
 	u32 vmem_size;			/* both lo and hi have this size */
 	u32 hmem_size;
-};
+} __packed;
 
 struct imgu_abi_isp_dvs_statistics {
 	imgu_addr_t hor_proj;
@@ -1355,18 +1363,18 @@ struct imgu_abi_isp_dvs_statistics {
 	u32 exp_id;
 	imgu_addr_t data_ptr;		/* base pointer containing all memory */
 	u32 size;			/* size of memory in data_ptr */
-};
+} __packed;
 
 struct imgu_abi_metadata {
 	struct imgu_abi_metadata_info info;	/* Layout info */
 	imgu_addr_t address;		/* CSS virtual address */
 	u32 exp_id;			/* Exposure ID */
-};
+} __packed;
 
 struct imgu_abi_time_meas {
 	u32 start_timer_value;		/* measured time in ticks */
 	u32 end_timer_value;		/* measured time in ticks */
-};
+} __packed;
 
 struct imgu_abi_buffer {
 	union {
@@ -1394,7 +1402,7 @@ struct imgu_abi_buffer {
 	u64 kernel_ptr;
 	struct imgu_abi_time_meas timing_data;
 	u32 isys_eof_clock_tick;
-};
+} __packed;
 
 #define IMGU_ABI_NUM_CONTINUOUS_FRAMES		10
 #define IMGU_ABI_SP_COMM_COMMAND		0x00
@@ -1429,7 +1437,7 @@ struct imgu_abi_bl_dma_cmd_entry {
 	u32 dst_type;
 #define IMGU_ABI_BL_DMACMD_TYPE_SP_PMEM	1	/* sp_pmem */
 	u32 dst_addr;			/* hmm address of xMEM or MMIO */
-};
+} __packed;
 
 struct imgu_abi_sp_init_dmem_cfg {
 	u32 ddr_data_addr;		/* data segment address in ddr  */
@@ -1438,7 +1446,7 @@ struct imgu_abi_sp_init_dmem_cfg {
 	u32 data_size;			/* data segment size            */
 	u32 bss_size;			/* bss segment size             */
 	u32 sp_id;			/* sp id */
-};
+} __packed;
 
 /***** For parameter computation *****/
 
@@ -1460,7 +1468,7 @@ struct imgu_abi_sp_init_dmem_cfg {
 
 #define IMGU_PS_SNR_PRESERVE_BITS		3
 #define IMGU_CNTX_BPP				11
-#define IMGU_SCALER_FILTER_TAPS_UV	(IMGU_SCALER_FILTER_TAPS_Y/2)
+#define IMGU_SCALER_FILTER_TAPS_UV	(IMGU_SCALER_FILTER_TAPS_Y / 2)
 
 #define IMGU_VMEM2_ELEMS_PER_VEC	(IMGU_SCALER_ELEMS_PER_VEC)
 #define IMGU_STRIDE_Y			(IMGU_SCALER_FILTER_TAPS_Y + 1)
@@ -1543,8 +1551,8 @@ struct imgu_abi_sp_init_dmem_cfg {
 #define IMGU_VMEM2_BUF_U_ADDR \
 	(IMGU_VMEM2_BUF_Y_ADDR + IMGU_VMEM2_BUF_SIZE)
 #define IMGU_VMEM2_BUF_V_ADDR \
-	(IMGU_VMEM2_BUF_U_ADDR + IMGU_VMEM2_BUF_SIZE/4)
-#define IMGU_VMEM2_BUF_UV_STRIDE	(IMGU_VMEM2_VECS_PER_LINE/2)
+	(IMGU_VMEM2_BUF_U_ADDR + IMGU_VMEM2_BUF_SIZE / 4)
+#define IMGU_VMEM2_BUF_UV_STRIDE	(IMGU_VMEM2_VECS_PER_LINE / 2)
 /* 1.5 x depth of intermediate buffer */
 #define IMGU_VMEM2_LINES_PER_BLOCK	192
 #define IMGU_VMEM3_HOR_Y_ADDR \
