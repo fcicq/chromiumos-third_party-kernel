@@ -123,10 +123,6 @@ static const struct {
 		IMGU_ABI_QUEUE_F_ID,
 		offsetof(struct imgu_abi_buffer, payload.s3a.data_ptr)
 	},
-	[IPU3_CSS_QUEUE_STAT_DVS] = {
-		IMGU_ABI_QUEUE_G_ID,
-		offsetof(struct imgu_abi_buffer, payload.skc_dvs_statistics)
-	}
 };
 
 /* Initialize queue based on given format, adjust format as needed */
@@ -1023,7 +1019,7 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	sp_stage->sp_enable_xnr = 0;
 	sp_stage->num_stripes = stripes;
 	sp_stage->enable.s3a = 1;
-	sp_stage->enable.dvs_stats = 1;
+	sp_stage->enable.dvs_stats = 0;
 
 	sp_stage->xmem_bin_addr = css->binary[css->current_binary].daddr;
 	sp_stage->xmem_map_addr = css->sp_ddr_ptrs.daddr;
@@ -1648,8 +1644,6 @@ int ipu3_css_fmt_try(struct ipu3_css *css,
 		[IPU3_CSS_QUEUE_OUT] = "out",
 		[IPU3_CSS_QUEUE_VF] = "vf",
 		[IPU3_CSS_QUEUE_STAT_3A]   = "3a",
-		[IPU3_CSS_QUEUE_STAT_DVS]  = "dvs",
-		[IPU3_CSS_QUEUE_STAT_LACE] = "lace",
 	};
 	static const char *rnames[IPU3_CSS_RECTS] = {
 		[IPU3_CSS_RECT_EFFECTIVE] = "effective resolution",
@@ -1825,12 +1819,6 @@ int ipu3_css_meta_fmt_set(struct v4l2_meta_format *fmt)
 	case V4L2_META_FMT_IPU3_STAT_3A:
 		fmt->buffersize = sizeof(struct ipu3_uapi_stats_3a);
 		break;
-	case V4L2_META_FMT_IPU3_STAT_DVS:
-		fmt->buffersize = sizeof(struct ipu3_uapi_stats_dvs);
-		break;
-	case V4L2_META_FMT_IPU3_STAT_LACE:
-		fmt->buffersize = sizeof(struct ipu3_uapi_stats_lace);
-		break;
 	default:
 		return -EINVAL;
 	}
@@ -1923,8 +1911,6 @@ struct ipu3_css_buffer *ipu3_css_buf_dequeue(struct ipu3_css *css)
 		[IMGU_ABI_EVTTYPE_OUT_FRAME_DONE] = IPU3_CSS_QUEUE_OUT,
 		[IMGU_ABI_EVTTYPE_VF_OUT_FRAME_DONE] = IPU3_CSS_QUEUE_VF,
 		[IMGU_ABI_EVTTYPE_3A_STATS_DONE] = IPU3_CSS_QUEUE_STAT_3A,
-		[IMGU_ABI_EVTTYPE_DIS_STATS_DONE] = IPU3_CSS_QUEUE_STAT_DVS,
-		[IMGU_ABI_EVTTYPE_LACE_STATS_DONE] = IPU3_CSS_QUEUE_STAT_LACE,
 	};
 	struct ipu3_css_buffer *b = ERR_PTR(-EAGAIN);
 	u32 event, daddr;
@@ -1944,9 +1930,7 @@ struct ipu3_css_buffer *ipu3_css_buf_dequeue(struct ipu3_css *css)
 	case IMGU_ABI_EVTTYPE_OUT_FRAME_DONE:
 	case IMGU_ABI_EVTTYPE_VF_OUT_FRAME_DONE:
 	case IMGU_ABI_EVTTYPE_3A_STATS_DONE:
-	case IMGU_ABI_EVTTYPE_DIS_STATS_DONE:
 	case IMGU_ABI_EVTTYPE_INPUT_FRAME_DONE:
-	case IMGU_ABI_EVTTYPE_LACE_STATS_DONE:
 		pipe = (event & IMGU_ABI_EVTTYPE_PIPE_MASK) >>
 		    IMGU_ABI_EVTTYPE_PIPE_SHIFT;
 		pipeid = (event & IMGU_ABI_EVTTYPE_PIPEID_MASK) >>

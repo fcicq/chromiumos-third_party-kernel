@@ -37,9 +37,7 @@
 #define IPU3_CSS_QUEUE_OUT		2
 #define IPU3_CSS_QUEUE_VF		3
 #define IPU3_CSS_QUEUE_STAT_3A		4
-#define IPU3_CSS_QUEUE_STAT_DVS		5
-#define IPU3_CSS_QUEUE_STAT_LACE	6
-#define IPU3_CSS_QUEUES			7
+#define IPU3_CSS_QUEUES			5
 
 #define IPU3_CSS_RECT_EFFECTIVE		0       /* Effective resolution */
 #define IPU3_CSS_RECT_BDS		1       /* Resolution after BDS */

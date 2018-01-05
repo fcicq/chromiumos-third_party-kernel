@@ -36,9 +36,7 @@
 #define IMGU_NODE_VF			3 /* Preview */
 #define IMGU_NODE_PV			4 /* Postview for still capture */
 #define IMGU_NODE_STAT_3A		5 /* 3A statistics */
-#define IMGU_NODE_STAT_DVS		6 /* DVS statistics */
-#define IMGU_NODE_STAT_LACE		7 /* Lace statistics */
-#define IMGU_NODE_NUM			8
+#define IMGU_NODE_NUM			6
 
 #define file_to_intel_ipu3_node(__file) \
 	container_of(video_devdata(__file), struct imgu_video_device, vdev)

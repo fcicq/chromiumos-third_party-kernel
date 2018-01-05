@@ -43,8 +43,6 @@
 #define CSS_QUEUE_OUT_BUF_SIZE		(4160 * 3120 * 12 / 8)
 #define CSS_QUEUE_VF_BUF_SIZE		(1920 * 1080 * 12 / 8)
 #define CSS_QUEUE_STAT_3A_BUF_SIZE	125664
-#define CSS_QUEUE_STAT_DVS_BUF_SIZE	10336
-#define CSS_QUEUE_STAT_LACE_BUF_SIZE	0
 
 static const size_t css_queue_buf_size_map[IPU3_CSS_QUEUES] = {
 		[IPU3_CSS_QUEUE_IN] = CSS_QUEUE_IN_BUF_SIZE,
@@ -52,8 +50,6 @@ static const size_t css_queue_buf_size_map[IPU3_CSS_QUEUES] = {
 		[IPU3_CSS_QUEUE_OUT] = CSS_QUEUE_OUT_BUF_SIZE,
 		[IPU3_CSS_QUEUE_VF] = CSS_QUEUE_VF_BUF_SIZE,
 		[IPU3_CSS_QUEUE_STAT_3A] = CSS_QUEUE_STAT_3A_BUF_SIZE,
-		[IPU3_CSS_QUEUE_STAT_DVS] = CSS_QUEUE_STAT_DVS_BUF_SIZE,
-		[IPU3_CSS_QUEUE_STAT_LACE] = CSS_QUEUE_STAT_LACE_BUF_SIZE,
 };
 
 static struct imgu_node_mapping const imgu_node_map[IMGU_NODE_NUM] = {
@@ -63,8 +59,6 @@ static struct imgu_node_mapping const imgu_node_map[IMGU_NODE_NUM] = {
 	[IMGU_NODE_VF] = {IPU3_CSS_QUEUE_VF, "viewfinder"},
 	[IMGU_NODE_PV] = {IPU3_CSS_QUEUE_VF, "postview"},
 	[IMGU_NODE_STAT_3A] = {IPU3_CSS_QUEUE_STAT_3A, "3a stat"},
-	[IMGU_NODE_STAT_DVS] = {IPU3_CSS_QUEUE_STAT_DVS, "dvs stat"},
-	[IMGU_NODE_STAT_LACE] = {IPU3_CSS_QUEUE_STAT_LACE, "lace stat"},
 };
 
 int imgu_node_to_queue(int node)
@@ -145,8 +139,7 @@ int imgu_dummybufs_init(struct imgu_device *imgu)
 
 		meta = &imgu->mem2mem2.nodes[node].vdev_fmt.fmt.meta;
 		mpix = &imgu->mem2mem2.nodes[node].vdev_fmt.fmt.pix_mp;
-		if (node == IMGU_NODE_STAT_3A || node == IMGU_NODE_STAT_DVS ||
-		    node == IMGU_NODE_STAT_LACE || node == IMGU_NODE_PARAMS)
+		if (node == IMGU_NODE_STAT_3A || node == IMGU_NODE_PARAMS)
 			size = meta->buffersize;
 		else
 			size = mpix->plane_fmt[0].sizeimage;
@@ -408,8 +401,6 @@ static int imgu_mem2mem2_s_stream(struct ipu3_mem2mem2_device *m2m2_dev,
 	imgu->queue_enabled[IMGU_NODE_VF] = true;
 	imgu->queue_enabled[IMGU_NODE_PV] = true;
 	imgu->queue_enabled[IMGU_NODE_STAT_3A] = true;
-	imgu->queue_enabled[IMGU_NODE_STAT_DVS] = true;
-	imgu->queue_enabled[IMGU_NODE_STAT_LACE] = false;
 
 	/* This is handled specially */
 	imgu->queue_enabled[IPU3_CSS_QUEUE_PARAMS] = false;
@@ -419,8 +410,6 @@ static int imgu_mem2mem2_s_stream(struct ipu3_mem2mem2_device *m2m2_dev,
 		node = imgu_map_node(imgu, i);
 		/* No need to reconfig meta nodes */
 		if (node < 0 || node == IMGU_NODE_STAT_3A ||
-		    node == IMGU_NODE_STAT_DVS ||
-		    node == IMGU_NODE_STAT_LACE ||
 		    node == IMGU_NODE_PARAMS)
 			continue;
 		fmts[i] = imgu->queue_enabled[node] ?
@@ -528,8 +517,7 @@ static int imgu_mem2mem2_init(struct imgu_device *imgu)
 		imgu->mem2mem2.nodes[i].output = i < IMGU_QUEUE_FIRST_INPUT;
 		imgu->mem2mem2.nodes[i].immutable = false;
 		imgu->mem2mem2.nodes[i].enabled = false;
-		if (!(i == IMGU_NODE_PARAMS || i == IMGU_NODE_STAT_3A ||
-		    i == IMGU_NODE_STAT_DVS || i == IMGU_NODE_STAT_LACE))
+		if (!(i == IMGU_NODE_PARAMS || i == IMGU_NODE_STAT_3A))
 			fmts[imgu_node_map[i].css_queue] =
 				&imgu->mem2mem2.nodes[i].vdev_fmt.fmt.pix_mp;
 		atomic_set(&imgu->mem2mem2.nodes[i].sequence, 0);

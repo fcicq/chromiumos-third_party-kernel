@@ -444,8 +444,7 @@ static int mem2mem2_fmt(struct ipu3_mem2mem2_device *m2m2_dev,
 			return -EINVAL;
 
 		/* Skip the meta node */
-		if (inode == IMGU_NODE_STAT_3A || inode == IMGU_NODE_STAT_DVS ||
-		    inode == IMGU_NODE_STAT_LACE || inode == IMGU_NODE_PARAMS)
+		if (inode == IMGU_NODE_STAT_3A || inode == IMGU_NODE_PARAMS)
 			continue;
 
 		if (try) {
@@ -665,20 +664,6 @@ static void ipu3_node_to_v4l2(u32 node, struct video_device *vdev,
 		cap = V4L2_CAP_META_CAPTURE;
 		f->type = V4L2_BUF_TYPE_META_CAPTURE;
 		f->fmt.meta.dataformat = V4L2_META_FMT_IPU3_STAT_3A;
-		vdev->ioctl_ops = &ipu3_v4l2_meta_ioctl_ops;
-		ipu3_css_meta_fmt_set(&f->fmt.meta);
-		break;
-	case IMGU_NODE_STAT_DVS:
-		cap = V4L2_CAP_META_CAPTURE;
-		f->type = V4L2_BUF_TYPE_META_CAPTURE;
-		f->fmt.meta.dataformat = V4L2_META_FMT_IPU3_STAT_DVS;
-		vdev->ioctl_ops = &ipu3_v4l2_meta_ioctl_ops;
-		ipu3_css_meta_fmt_set(&f->fmt.meta);
-		break;
-	case IMGU_NODE_STAT_LACE:
-		cap = V4L2_CAP_META_CAPTURE;
-		f->type = V4L2_BUF_TYPE_META_CAPTURE;
-		f->fmt.meta.dataformat = V4L2_META_FMT_IPU3_STAT_LACE;
 		vdev->ioctl_ops = &ipu3_v4l2_meta_ioctl_ops;
 		ipu3_css_meta_fmt_set(&f->fmt.meta);
 		break;
