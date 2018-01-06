@@ -29,6 +29,7 @@
 #include <linux/of_platform.h>
 #include <linux/percpu.h>
 #include <linux/slab.h>
+#include <linux/syscore_ops.h>
 
 #include <linux/irqchip.h>
 #include <linux/irqchip/arm-gic-v3.h>
@@ -42,6 +43,7 @@
 #define ITS_FLAGS_CMDQ_NEEDS_FLUSHING		(1ULL << 0)
 #define ITS_FLAGS_WORKAROUND_CAVIUM_22375	(1ULL << 1)
 #define ITS_FLAGS_WORKAROUND_CAVIUM_23144	(1ULL << 2)
+#define ITS_FLAGS_SAVE_SUSPEND_STATE		(1ULL << 3)
 
 #define RDIST_FLAGS_PROPBASE_NEEDS_FLUSHING	(1 << 0)
 
@@ -69,6 +71,9 @@ struct its_node {
 	struct its_cmd_block	*cmd_write;
 	void			*tables[GITS_BASER_NR_REGS];
 	struct its_collection	*collections;
+	u64			cbaser_save;
+	u64			baser_save[GITS_BASER_NR_REGS];
+	u32			ctlr_save;
 	struct list_head	its_device_list;
 	u64			flags;
 	u32			ite_size;
@@ -1464,6 +1469,105 @@ static void its_enable_quirks(struct its_node *its)
 	gic_enable_quirks(iidr, its_quirks, its);
 }
 
+static int its_save_disable(void)
+{
+	struct its_node *its;
+	int err = 0;
+
+	spin_lock(&its_lock);
+	list_for_each_entry(its, &its_nodes, entry) {
+		void __iomem *base;
+		int i;
+
+		if (!(its->flags & ITS_FLAGS_SAVE_SUSPEND_STATE))
+			continue;
+
+		base = its->base;
+		its->ctlr_save = readl_relaxed(base + GITS_CTLR);
+		err = its_force_quiescent(base);
+		if (err) {
+			pr_err("ITS failed to quiesce\n");
+			writel_relaxed(its->ctlr_save, base + GITS_CTLR);
+			goto err;
+		}
+
+		for (i = 0; i < GITS_BASER_NR_REGS; i++)
+			its->baser_save[i] = readq_relaxed(base + GITS_BASER +
+					i * sizeof(*its->baser_save));
+
+		its->cbaser_save = readq_relaxed(base + GITS_CBASER);
+	}
+
+err:
+	if (err) {
+		list_for_each_entry_continue_reverse(its, &its_nodes, entry) {
+			void __iomem *base;
+
+			if (!(its->flags & ITS_FLAGS_SAVE_SUSPEND_STATE))
+				continue;
+
+			base = its->base;
+			writel_relaxed(its->ctlr_save, base + GITS_CTLR);
+		}
+	}
+	spin_unlock(&its_lock);
+
+	return err;
+}
+
+static void its_restore_enable(void)
+{
+	struct its_node *its;
+
+	spin_lock(&its_lock);
+	list_for_each_entry(its, &its_nodes, entry) {
+		void __iomem *base;
+		int i;
+
+		if (!(its->flags & ITS_FLAGS_SAVE_SUSPEND_STATE))
+			continue;
+
+		base = its->base;
+
+		/*
+		 * Make sure that the ITS is disabled. If it fails to quiesce,
+		 * don't restore it since writing to CBASER or BASER<n>
+		 * registers is undefined according to the GIC v3 ITS
+		 * Specification.
+		 */
+		if (its_force_quiescent(base)) {
+			pr_err("ITS(%p): failed to quiesce on resume\n", base);
+			continue;
+		}
+
+		writeq_relaxed(its->cbaser_save, base + GITS_CBASER);
+
+		/*
+		 * Writing CBASER resets CREADR to 0, so make CWRITER and
+		 * cmd_write line up with it.
+		 */
+		its->cmd_write = its->cmd_base;
+		writeq_relaxed(0, base + GITS_CWRITER);
+
+		/* Restore GITS_BASER from the value cache. */
+		for (i = 0; i < GITS_BASER_NR_REGS; i++) {
+			if (!(its->baser_save[i] & GITS_BASER_VALID))
+				continue;
+
+			writeq_relaxed(its->baser_save[i],
+				       base + GITS_BASER +
+				       i * sizeof(*its->baser_save));
+		}
+		writel_relaxed(its->ctlr_save, base + GITS_CTLR);
+	}
+	spin_unlock(&its_lock);
+}
+
+static struct syscore_ops its_syscore_ops = {
+	.suspend = its_save_disable,
+	.resume = its_restore_enable,
+};
+
 static int its_probe(struct device_node *node, struct irq_domain *parent)
 {
 	struct resource res;
@@ -1584,6 +1688,9 @@ static int its_probe(struct device_node *node, struct irq_domain *parent)
 		inner_domain->host_data = info;
 	}
 
+	if (of_property_read_bool(node, "reset-on-suspend"))
+		its->flags |= ITS_FLAGS_SAVE_SUSPEND_STATE;
+
 	spin_lock(&its_lock);
 	list_add(&its->entry, &its_nodes);
 	spin_unlock(&its_lock);
@@ -1646,6 +1753,8 @@ int its_init(struct device_node *node, struct rdists *rdists,
 
 	its_alloc_lpi_tables();
 	its_lpi_init(rdists->id_bits);
+
+	register_syscore_ops(&its_syscore_ops);
 
 	return 0;
 }
