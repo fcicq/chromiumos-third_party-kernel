@@ -1064,6 +1064,28 @@ int snd_hdac_codec_write(struct hdac_device *hdac, hda_nid_t nid,
 	return codec_write(hdac, nid, flags, verb, parm);
 }
 EXPORT_SYMBOL_GPL(snd_hdac_codec_write);
+ /**
+ * snd_hdac_codec_write_nocached - send a single command with codec power
+sequence
+ * @hdac: the HDAC device
+ * @nid: NID to send the command
+ * @flags: optional bit flags
+ * @verb: the verb to send
+ * @parm: the parameter for the verb
+ *
+ * Send a single command and ensure that codec is powered up if it is not.
+ *
+ * Returns 0 if successful, or a negative error code.
+ */
+int snd_hdac_codec_write_nocached(struct hdac_device *hdac, hda_nid_t nid,
+			int flags, unsigned int verb, unsigned int parm)
+
+{
+	int cmd = snd_hdac_regmap_encode_verb(nid, verb);
+
+	return snd_hdac_regmap_write_raw(hdac, cmd, parm);
+}
+EXPORT_SYMBOL_GPL(snd_hdac_codec_write_nocached);
 
 /**
  * snd_hdac_check_power_state - check whether the actual power state matches

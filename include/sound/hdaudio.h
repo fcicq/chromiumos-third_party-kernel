@@ -144,6 +144,8 @@ int snd_hdac_codec_read(struct hdac_device *hdac, hda_nid_t nid,
 			int flags, unsigned int verb, unsigned int parm);
 int snd_hdac_codec_write(struct hdac_device *hdac, hda_nid_t nid,
 			int flags, unsigned int verb, unsigned int parm);
+int snd_hdac_codec_write_nocached(struct hdac_device *hdac, hda_nid_t nid,
+			int flags, unsigned int verb, unsigned int parm);
 bool snd_hdac_check_power_state(struct hdac_device *hdac,
 		hda_nid_t nid, unsigned int target_state);
 unsigned int snd_hdac_sync_power_state(struct hdac_device *hdac,
