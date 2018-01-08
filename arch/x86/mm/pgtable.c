@@ -340,26 +340,14 @@ static inline void _pgd_free(pgd_t *pgd)
 		kmem_cache_free(pgd_cache, pgd);
 }
 #else
-
-#ifdef CONFIG_KAISER
-/*
- * Instead of one pmd, we aquire two pmds.  Being order-1, it is
- * both 8k in size and 8k-aligned.  That lets us just flip bit 12
- * in a pointer to swap between the two 4k halves.
- */
-#define PGD_ALLOCATION_ORDER 1
-#else
-#define PGD_ALLOCATION_ORDER 0
-#endif
-
 static inline pgd_t *_pgd_alloc(void)
 {
-	return (pgd_t *)__get_free_pages(PGALLOC_GFP, PGD_ALLOCATION_ORDER);
+	return (pgd_t *)__get_free_page(PGALLOC_GFP);
 }
 
 static inline void _pgd_free(pgd_t *pgd)
 {
-	free_pages((unsigned long)pgd, PGD_ALLOCATION_ORDER);
+	free_page((unsigned long)pgd);
 }
 #endif /* CONFIG_X86_PAE */
 
