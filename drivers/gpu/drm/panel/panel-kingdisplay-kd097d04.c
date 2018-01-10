@@ -212,8 +212,8 @@ static int kingdisplay_panel_unprepare(struct drm_panel *panel)
 		return err;
 	}
 
-	/* T15: 100ms */
-	msleep(100);
+	/* T15: 120ms */
+	msleep(120);
 
 	gpiod_set_value_cansleep(kingdisplay->enable_gpio, 0);
 
