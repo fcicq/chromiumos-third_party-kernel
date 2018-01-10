@@ -1458,7 +1458,7 @@ static int __init rk_iommu_of_setup(struct device_node *np)
 		return PTR_ERR(pdev);
 	}
 
-	of_iommu_set_ops(np, &rk_iommu_ops);
+	iommu_register_instance(&np->fwnode, &rk_iommu_ops);
 
 	return 0;
 }
