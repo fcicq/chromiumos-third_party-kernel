@@ -331,6 +331,54 @@ int ipu3_css_set_powerdown(struct device *dev, void __iomem *base)
 	return 0;
 }
 
+static void ipu3_css_hw_enable_irq(struct ipu3_css *css)
+{
+	void __iomem *const base = css->base;
+	u32 val, i;
+
+	/* Set up interrupts */
+
+	/*
+	 * Enable IRQ on the SP which signals that SP goes to idle
+	 * (aka ready state) and set trigger to pulse
+	 */
+	val = readl(base + IMGU_REG_SP_CTRL(0)) | IMGU_CTRL_IRQ_READY;
+	writel(val, base + IMGU_REG_SP_CTRL(0));
+	writel(val | IMGU_CTRL_IRQ_CLEAR, base + IMGU_REG_SP_CTRL(0));
+
+	/* Enable IRQs from the IMGU wrapper */
+	writel(IMGU_REG_INT_CSS_IRQ, base + IMGU_REG_INT_ENABLE);
+	/* Clear */
+	writel(IMGU_REG_INT_CSS_IRQ, base + IMGU_REG_INT_STATUS);
+
+	/* Enable IRQs from main IRQ controller */
+	writel(~0, base + IMGU_REG_IRQCTRL_EDGE_NOT_PULSE(IMGU_IRQCTRL_MAIN));
+	writel(0, base + IMGU_REG_IRQCTRL_MASK(IMGU_IRQCTRL_MAIN));
+	writel(IMGU_IRQCTRL_IRQ_MASK,
+		base + IMGU_REG_IRQCTRL_EDGE(IMGU_IRQCTRL_MAIN));
+	writel(IMGU_IRQCTRL_IRQ_MASK,
+		base + IMGU_REG_IRQCTRL_ENABLE(IMGU_IRQCTRL_MAIN));
+	writel(IMGU_IRQCTRL_IRQ_MASK,
+		base + IMGU_REG_IRQCTRL_CLEAR(IMGU_IRQCTRL_MAIN));
+	writel(IMGU_IRQCTRL_IRQ_MASK,
+		base + IMGU_REG_IRQCTRL_MASK(IMGU_IRQCTRL_MAIN));
+	/* Wait for write complete */
+	readl(base + IMGU_REG_IRQCTRL_ENABLE(IMGU_IRQCTRL_MAIN));
+
+	/* Enable IRQs from SP0 and SP1 controllers */
+	for (i = IMGU_IRQCTRL_SP0; i <= IMGU_IRQCTRL_SP1; i++) {
+		writel(~0, base + IMGU_REG_IRQCTRL_EDGE_NOT_PULSE(i));
+		writel(0, base + IMGU_REG_IRQCTRL_MASK(i));
+		writel(IMGU_IRQCTRL_IRQ_MASK, base + IMGU_REG_IRQCTRL_EDGE(i));
+		writel(IMGU_IRQCTRL_IRQ_MASK,
+			base + IMGU_REG_IRQCTRL_ENABLE(i));
+		writel(IMGU_IRQCTRL_IRQ_MASK, base + IMGU_REG_IRQCTRL_CLEAR(i));
+		writel(IMGU_IRQCTRL_IRQ_MASK, base + IMGU_REG_IRQCTRL_MASK(i));
+		/* Wait for write complete */
+		readl(base + IMGU_REG_IRQCTRL_ENABLE(i));
+	}
+}
+
 static int ipu3_css_hw_init(struct ipu3_css *css)
 {
 	/* For checking that streaming monitor statuses are valid */
@@ -385,48 +433,6 @@ static int ipu3_css_hw_init(struct ipu3_css *css)
 	struct device *dev = css->dev;
 	void __iomem *const base = css->base;
 	u32 val, i;
-
-	/* Set up interrupts */
-
-	/*
-	 * Enable IRQ on the SP which signals that SP goes to idle
-	 * (aka ready state) and set trigger to pulse
-	 */
-	val = readl(base + IMGU_REG_SP_CTRL(0)) | IMGU_CTRL_IRQ_READY;
-	writel(val, base + IMGU_REG_SP_CTRL(0));
-	writel(val | IMGU_CTRL_IRQ_CLEAR, base + IMGU_REG_SP_CTRL(0));
-
-	/* Enable IRQs from the IMGU wrapper */
-	writel(IMGU_REG_INT_CSS_IRQ, base + IMGU_REG_INT_ENABLE);
-	/* Clear */
-	writel(IMGU_REG_INT_CSS_IRQ, base + IMGU_REG_INT_STATUS);
-
-	/* Enable IRQs from main IRQ controller */
-	writel(~0, base + IMGU_REG_IRQCTRL_EDGE_NOT_PULSE(IMGU_IRQCTRL_MAIN));
-	writel(0, base + IMGU_REG_IRQCTRL_MASK(IMGU_IRQCTRL_MAIN));
-	writel(IMGU_IRQCTRL_IRQ_MASK,
-		base + IMGU_REG_IRQCTRL_EDGE(IMGU_IRQCTRL_MAIN));
-	writel(IMGU_IRQCTRL_IRQ_MASK,
-		base + IMGU_REG_IRQCTRL_ENABLE(IMGU_IRQCTRL_MAIN));
-	writel(IMGU_IRQCTRL_IRQ_MASK,
-		base + IMGU_REG_IRQCTRL_CLEAR(IMGU_IRQCTRL_MAIN));
-	writel(IMGU_IRQCTRL_IRQ_MASK,
-		base + IMGU_REG_IRQCTRL_MASK(IMGU_IRQCTRL_MAIN));
-	/* Wait for write complete */
-	readl(base + IMGU_REG_IRQCTRL_ENABLE(IMGU_IRQCTRL_MAIN));
-
-	/* Enable IRQs from SP0 and SP1 controllers */
-	for (i = IMGU_IRQCTRL_SP0; i <= IMGU_IRQCTRL_SP1; i++) {
-		writel(~0, base + IMGU_REG_IRQCTRL_EDGE_NOT_PULSE(i));
-		writel(0, base + IMGU_REG_IRQCTRL_MASK(i));
-		writel(IMGU_IRQCTRL_IRQ_MASK, base + IMGU_REG_IRQCTRL_EDGE(i));
-		writel(IMGU_IRQCTRL_IRQ_MASK,
-			base + IMGU_REG_IRQCTRL_ENABLE(i));
-		writel(IMGU_IRQCTRL_IRQ_MASK, base + IMGU_REG_IRQCTRL_CLEAR(i));
-		writel(IMGU_IRQCTRL_IRQ_MASK, base + IMGU_REG_IRQCTRL_MASK(i));
-		/* Wait for write complete */
-		readl(base + IMGU_REG_IRQCTRL_ENABLE(i));
-	}
 
 	/* Set instruction cache address and inv bit for ISP, SP, and SP1 */
 	for (i = 0; i < IMGU_NUM_SP; i++) {
@@ -1330,6 +1336,8 @@ int ipu3_css_start_streaming(struct ipu3_css *css)
 
 	css->streaming = true;
 	css->frame = 0;
+
+	ipu3_css_hw_enable_irq(css);
 
 	/* Initialize parameters to default */
 	r = ipu3_css_set_parameters(css, NULL, NULL, 0, NULL, 0);
