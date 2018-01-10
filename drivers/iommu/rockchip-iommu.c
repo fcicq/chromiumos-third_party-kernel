@@ -105,8 +105,6 @@ struct rk_iommu {
 	bool is_powered; /* power domain is on */
 };
 
-static atomic_t rk_iommu_probes_pending = ATOMIC_INIT(0);
-
 static inline void rk_table_flush(struct rk_iommu_domain *dom, dma_addr_t dma,
 				  unsigned int count)
 {
@@ -1396,8 +1394,8 @@ static int rk_iommu_probe(struct platform_device *pdev)
 	iommu->reset_disabled = device_property_read_bool(dev,
 					"rockchip,disable-mmu-reset");
 
-	if (atomic_dec_and_test(&rk_iommu_probes_pending))
-		bus_set_iommu(&platform_bus_type, &rk_iommu_ops);
+	iommu_register_instance(dev->fwnode, &rk_iommu_ops);
+	bus_set_iommu(&platform_bus_type, &rk_iommu_ops);
 
 	return 0;
 }
@@ -1405,13 +1403,6 @@ static int rk_iommu_probe(struct platform_device *pdev)
 static int rk_iommu_remove(struct platform_device *pdev)
 {
 	struct rk_iommu *iommu = platform_get_drvdata(pdev);
-
-	/*
-	 * We need all physical IOMMUs to be able to set bus IOMMU, so if any
-	 * gets removed, we need to reset the IOMMU until it probes back.
-	 */
-	atomic_inc(&rk_iommu_probes_pending);
-	bus_set_iommu(&platform_bus_type, NULL);
 
 	pm_genpd_unregister_notifier(iommu->dev, &iommu->genpd_nb);
 	pm_runtime_disable(&pdev->dev);
@@ -1442,27 +1433,7 @@ static int __init rk_iommu_init(void)
 }
 subsys_initcall(rk_iommu_init);
 
-static int __init rk_iommu_of_setup(struct device_node *np)
-{
-	struct platform_device *pdev;
-
-	if (!of_device_is_available(np))
-		return 0;
-
-	atomic_inc(&rk_iommu_probes_pending);
-
-	pdev = of_platform_device_create(np, NULL, platform_bus_type.dev_root);
-	if (IS_ERR(pdev)) {
-		pr_err("Failed to create platform device for IOMMU %s\n",
-		       of_node_full_name(np));
-		return PTR_ERR(pdev);
-	}
-
-	iommu_register_instance(&np->fwnode, &rk_iommu_ops);
-
-	return 0;
-}
-IOMMU_OF_DECLARE(rk_iommu_of, "rockchip,iommu", rk_iommu_of_setup);
+IOMMU_OF_DECLARE(rk_iommu_of, "rockchip,iommu", NULL);
 
 MODULE_DESCRIPTION("IOMMU API for Rockchip");
 MODULE_AUTHOR("Simon Xue <xxm@rock-chips.com> and Daniel Kurtz <djkurtz@chromium.org>");
