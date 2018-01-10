@@ -925,7 +925,7 @@ int drm_noop(struct drm_device *dev, void *data,
 
 /* Cache management (drm_cache.c) */
 void drm_clflush_pages(struct page *pages[], unsigned long num_pages);
-void drm_clflush_sg(struct sg_table *st);
+void drm_clflush_sg(struct drm_device *drm, struct sg_table *st);
 void drm_clflush_virt_range(void *addr, unsigned long length);
 
 /*
