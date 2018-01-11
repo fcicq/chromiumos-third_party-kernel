@@ -1047,6 +1047,7 @@ static struct file_operations virtwl_fops =
 {
 	.open = virtwl_open,
 	.unlocked_ioctl = virtwl_ioctl,
+	.compat_ioctl = virtwl_ioctl,
 	.release = virtwl_release,
 };
 
@@ -1055,6 +1056,7 @@ static struct file_operations virtwl_vfd_fops =
 	.mmap = virtwl_vfd_mmap,
 	.poll = virtwl_vfd_poll,
 	.unlocked_ioctl = virtwl_ioctl,
+	.compat_ioctl = virtwl_ioctl,
 	.release = virtwl_vfd_release,
 };
 
