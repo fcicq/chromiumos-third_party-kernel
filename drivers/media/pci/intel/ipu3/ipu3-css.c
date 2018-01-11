@@ -1062,9 +1062,9 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	if (ipu3_css_pool_init(css->dma_dev, &css->pool.parameter_set_info,
 			       sizeof(struct imgu_abi_parameter_set_info)) ||
 	    ipu3_css_pool_init(css->dma_dev, &css->pool.acc,
-			       sizeof(struct ipu3_uapi_acc_param)) ||
+			       sizeof(struct imgu_abi_acc_param)) ||
 	    ipu3_css_pool_init(css->dma_dev, &css->pool.gdc,
-				sizeof(struct ipu3_uapi_gdc_warp_param) *
+				sizeof(struct imgu_abi_gdc_warp_param) *
 				3 * cfg_dvs->num_horizontal_blocks / 2 *
 				cfg_dvs->num_vertical_blocks) ||
 	    ipu3_css_pool_init(css->dma_dev, &css->pool.obgrid,
@@ -1336,7 +1336,7 @@ int ipu3_css_start_streaming(struct ipu3_css *css)
 	ipu3_css_hw_enable_irq(css);
 
 	/* Initialize parameters to default */
-	r = ipu3_css_set_parameters(css, NULL, NULL, 0, NULL, 0);
+	r = ipu3_css_set_parameters(css, NULL);
 	if (r < 0)
 		goto fail;
 
@@ -2023,11 +2023,7 @@ struct ipu3_css_buffer *ipu3_css_buf_dequeue(struct ipu3_css *css)
  * parameters or negative value on error.
  */
 int ipu3_css_set_parameters(struct ipu3_css *css,
-			    struct ipu3_uapi_params *set_params,
-			    struct ipu3_uapi_gdc_warp_param *set_gdc,
-			    unsigned int gdc_bytes,
-			    struct ipu3_uapi_obgrid_param *set_obgrid,
-			    unsigned int obgrid_bytes)
+			    struct ipu3_uapi_params *set_params)
 {
 	static const unsigned int queue_id = IMGU_ABI_QUEUE_A_ID;
 	const int stage = 0, thread = 0;
@@ -2039,8 +2035,8 @@ int ipu3_css_set_parameters(struct ipu3_css *css,
 
 	/* Destination buffers which are filled here */
 	struct imgu_abi_parameter_set_info *param_set;
-	struct ipu3_uapi_acc_param *acc = NULL;
-	struct ipu3_uapi_gdc_warp_param *gdc = NULL;
+	struct imgu_abi_acc_param *acc = NULL;
+	struct imgu_abi_gdc_warp_param *gdc = NULL;
 	struct ipu3_uapi_obgrid_param *obgrid = NULL;
 	const struct ipu3_css_map *map;
 	void *vmem0 = NULL;
@@ -2125,9 +2121,8 @@ int ipu3_css_set_parameters(struct ipu3_css *css,
 		unsigned int a = IPU3_CSS_AUX_FRAME_REF;
 		unsigned int g = IPU3_CSS_RECT_GDC;
 		unsigned int e = IPU3_CSS_RECT_ENVELOPE;
-		if (set_params && !set_params->use.gdc)
-			set_gdc = NULL;
-		if (set_gdc || !ipu3_css_pool_last(&css->pool.gdc, 0)->vaddr) {
+
+		if (!ipu3_css_pool_last(&css->pool.gdc, 0)->vaddr) {
 			if (ipu3_css_pool_get(&css->pool.gdc, css->frame) < 0)
 				goto fail;
 
@@ -2147,11 +2142,7 @@ int ipu3_css_set_parameters(struct ipu3_css *css,
 	}
 
 	/* Get a new obgrid only if a new obgrid is given, or none yet */
-	if (set_params && !set_params->use.obgrid)
-		set_obgrid = NULL;
-	if (set_obgrid && obgrid_bytes < obgrid_size / stripes)
-		goto fail;
-	if (set_obgrid || (set_params && set_params->use.obgrid_param) ||
+	if ((set_params && set_params->use.obgrid_param) ||
 		!ipu3_css_pool_last(&css->pool.obgrid, 0)->vaddr) {
 		if (ipu3_css_pool_get(&css->pool.obgrid, css->frame) < 0)
 			goto fail;
@@ -2159,13 +2150,7 @@ int ipu3_css_set_parameters(struct ipu3_css *css,
 		obgrid = map->vaddr;
 
 		/* Configure optical black level grid (obgrid) */
-		if (set_obgrid) {
-			for (s = 0; s < stripes; s++)
-				memcpy((void *)obgrid +
-					(obgrid_size / stripes) * s, set_obgrid,
-					obgrid_size / stripes);
-
-		} else if (set_params && set_params->use.obgrid_param) {
+		if (set_params && set_params->use.obgrid_param) {
 			for (s = 0; s < obgrid_size / sizeof(*obgrid); s++)
 				obgrid[s] = set_params->obgrid_param;
 		} else {

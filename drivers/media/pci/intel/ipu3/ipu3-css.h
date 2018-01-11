@@ -206,11 +206,7 @@ int ipu3_css_irq_ack(struct ipu3_css *css);
 
 /******************* set parameters ************/
 int ipu3_css_set_parameters(struct ipu3_css *css,
-		struct ipu3_uapi_params *set_params,
-		struct ipu3_uapi_gdc_warp_param *set_gdc,
-		unsigned int gdc_bytes,
-		struct ipu3_uapi_obgrid_param *set_obgrid,
-		unsigned int obgrid_bytes);
+			    struct ipu3_uapi_params *set_params);
 
 /******************* css misc *******************/
 static inline enum ipu3_css_buffer_state

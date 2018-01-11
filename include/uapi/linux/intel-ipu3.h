@@ -35,17 +35,17 @@
 #define IPU3_UAPI_AWB_MAX_SETS				60
 #define IPU3_UAPI_AWB_SET_SIZE				0x500
 #define IPU3_UAPI_AWB_SPARE_FOR_BUBBLES \
-		(IPU3_UAPI_MAX_BUBBLE_SIZE * IPU3_UAPI_MAX_STRIPES * \
-		 IPU3_UAPI_AWB_MD_ITEM_SIZE)
+	(IPU3_UAPI_MAX_BUBBLE_SIZE * IPU3_UAPI_MAX_STRIPES * \
+	 IPU3_UAPI_AWB_MD_ITEM_SIZE)
 #define IPU3_UAPI_AWB_MAX_BUFFER_SIZE \
-		(IPU3_UAPI_AWB_MAX_SETS * \
-		 (IPU3_UAPI_AWB_SET_SIZE + IPU3_UAPI_AWB_SPARE_FOR_BUBBLES))
+	(IPU3_UAPI_AWB_MAX_SETS * \
+	 (IPU3_UAPI_AWB_SET_SIZE + IPU3_UAPI_AWB_SPARE_FOR_BUBBLES))
 
 #define IPU3_UAPI_AF_MAX_SETS				24
 #define IPU3_UAPI_AF_MD_ITEM_SIZE			4
 #define IPU3_UAPI_AF_SPARE_FOR_BUBBLES \
-		(IPU3_UAPI_MAX_BUBBLE_SIZE * IPU3_UAPI_MAX_STRIPES * \
-		 IPU3_UAPI_AF_MD_ITEM_SIZE)
+	(IPU3_UAPI_MAX_BUBBLE_SIZE * IPU3_UAPI_MAX_STRIPES * \
+	 IPU3_UAPI_AF_MD_ITEM_SIZE)
 #define IPU3_UAPI_AF_Y_TABLE_SET_SIZE			0x80
 #define IPU3_UAPI_AF_Y_TABLE_MAX_SIZE \
 	(IPU3_UAPI_AF_MAX_SETS * \
@@ -56,25 +56,24 @@
 #define IPU3_UAPI_AWB_FR_MD_ITEM_SIZE			8
 #define IPU3_UAPI_AWB_FR_BAYER_TBL_SIZE			0x100
 #define IPU3_UAPI_AWB_FR_SPARE_FOR_BUBBLES \
-		(IPU3_UAPI_MAX_BUBBLE_SIZE * IPU3_UAPI_MAX_STRIPES * \
-		IPU3_UAPI_AWB_FR_MD_ITEM_SIZE)
+	(IPU3_UAPI_MAX_BUBBLE_SIZE * IPU3_UAPI_MAX_STRIPES * \
+	 IPU3_UAPI_AWB_FR_MD_ITEM_SIZE)
 #define IPU3_UAPI_AWB_FR_BAYER_TABLE_MAX_SIZE \
 	(IPU3_UAPI_AWB_FR_MAX_SETS * \
 	(IPU3_UAPI_AWB_FR_BAYER_TBL_SIZE + \
-	 IPU3_UAPI_AWB_FR_SPARE_FOR_BUBBLES) * \
-	IPU3_UAPI_MAX_STRIPES)
+	 IPU3_UAPI_AWB_FR_SPARE_FOR_BUBBLES) * IPU3_UAPI_MAX_STRIPES)
 
 struct ipu3_uapi_grid_config {
 	__u8 width;				/* 6 or 7 (rgbs_grd_cfg) bits */
 	__u8 height;
 	__u16 block_width_log2:3;
 	__u16 block_height_log2:3;
-	__u16 height_per_slice:8;			/* default value 1 */
-	__u16 x_start;					/* 12 bits */
+	__u16 height_per_slice:8;		/* default value 1 */
+	__u16 x_start;				/* 12 bits */
 	__u16 y_start;
-#define IPU3_UAPI_GRID_START_MASK			((1 << 12) - 1)
-#define IPU3_UAPI_GRID_Y_START_EN			(1 << 15)
-	__u16 x_end;					/* 12 bits */
+#define IPU3_UAPI_GRID_START_MASK		((1 << 12) - 1)
+#define IPU3_UAPI_GRID_Y_START_EN		(1 << 15)
+	__u16 x_end;				/* 12 bits */
 	__u16 y_end;
 } __packed;
 
@@ -188,14 +187,9 @@ struct ipu3_uapi_af_raw_buffer {
 	struct ipu3_uapi_af_meta_data meta_data IPU3_ALIGN;
 } __packed;
 
-struct ipu3_uapi_af_frame_size {
-	__u16 width;
-	__u16 height;
-} __packed;
-
 struct ipu3_uapi_af_config_s {
 	struct ipu3_uapi_af_filter_config filter_config IPU3_ALIGN;
-	struct ipu3_uapi_af_frame_size frame_size;
+	__u8 padding[4];
 	struct ipu3_uapi_grid_config grid_cfg IPU3_ALIGN;
 } __packed;
 
@@ -266,190 +260,6 @@ struct ipu3_uapi_stats_3a {
 	struct ipu3_uapi_ff_status stats_3a_status;
 } __packed;
 
-/******************* ipu3_uapi_stats_dvs *******************/
-
-#define IPU3_UAPI_DVS_STAT_LEVELS			3
-#define IPU3_UAPI_DVS_STAT_L0_MV_VEC_PER_SET		12
-#define IPU3_UAPI_DVS_STAT_L1_MV_VEC_PER_SET		11
-#define IPU3_UAPI_DVS_STAT_L2_MV_VEC_PER_SET		9
-#define IPU3_UAPI_DVS_STAT_STRIPE_ALIGN_GAP		IPU3_UAPI_MAX_STRIPES
-#define IPU3_UAPI_DVS_STAT_MAX_VERTICAL_FEATURES		16
-
-struct ipu3_uapi_dvs_stat_mv {
-	__u16 vec_fe_x_pos;		/* 12 bits */
-	__u16 vec_fe_y_pos;
-	__u16 vec_fm_x_pos;		/* 12 bits */
-	__u16 vec_fm_y_pos;
-	__u32 harris_grade;		/* 28 bits */
-	__u16 match_grade;		/* 15 bits */
-	__u16 level;			/* 3 bits */
-} __packed;
-
-struct ipu3_uapi_dvs_stat_mv_single_set_l0 {
-	struct ipu3_uapi_dvs_stat_mv
-		mv_entry[IPU3_UAPI_DVS_STAT_L0_MV_VEC_PER_SET +
-		IPU3_UAPI_DVS_STAT_STRIPE_ALIGN_GAP] IPU3_ALIGN;
-} __packed;
-
-struct ipu3_uapi_dvs_stat_mv_single_set_l1 {
-	struct ipu3_uapi_dvs_stat_mv
-		mv_entry[IPU3_UAPI_DVS_STAT_L1_MV_VEC_PER_SET +
-		IPU3_UAPI_DVS_STAT_STRIPE_ALIGN_GAP] IPU3_ALIGN;
-	__u8 padding[16];
-} __packed;
-
-struct ipu3_uapi_dvs_stat_mv_single_set_l2 {
-	struct ipu3_uapi_dvs_stat_mv
-		mv_entry[IPU3_UAPI_DVS_STAT_L2_MV_VEC_PER_SET +
-		IPU3_UAPI_DVS_STAT_STRIPE_ALIGN_GAP] IPU3_ALIGN;
-	__u8 padding[16];
-} __packed;
-
-struct ipu3_uapi_dvs_stat_motion_vec {
-	struct ipu3_uapi_dvs_stat_mv_single_set_l0
-		dvs_mv_output_l0[IPU3_UAPI_DVS_STAT_MAX_VERTICAL_FEATURES]
-		IPU3_ALIGN;
-	struct ipu3_uapi_dvs_stat_mv_single_set_l1
-		dvs_mv_output_l1[IPU3_UAPI_DVS_STAT_MAX_VERTICAL_FEATURES];
-	struct ipu3_uapi_dvs_stat_mv_single_set_l2
-		dvs_mv_output_l2[IPU3_UAPI_DVS_STAT_MAX_VERTICAL_FEATURES];
-} __packed;
-
-struct ipu3_uapi_dvs_stat_stripe_data {
-	__u8 grid_width[IPU3_UAPI_MAX_STRIPES][IPU3_UAPI_DVS_STAT_LEVELS];
-	__u16 stripe_offset;
-} __packed;
-
-struct ipu3_uapi_dvs_stat_gbl_config {
-	__u8 kappa;					/* 4 bits */
-	__u8 match_shift:4;
-	__u8 ybin_mode:1;
-	__u16 __reserved1;
-} __packed;
-
-struct ipu3_uapi_dvs_stat_grd_config {
-	__u8 grid_width;				/* 5 bits */
-	__u8 grid_height;
-	__u8 block_width;				/* 8 bits */
-	__u8 block_height;
-	__u16 x_start;					/* 12 bits */
-	__u16 y_start;
-	__u16 enable;
-	__u16 x_end;					/* 12 bits */
-	__u16 y_end;
-} __packed;
-
-struct ipu3_uapi_dvs_stat_fe_roi_cfg {
-	__u8 x_start;
-	__u8 y_start;
-	__u8 x_end;
-	__u8 y_end;
-} __packed;
-
-struct ipu3_uapi_dvs_stat_cfg {
-	struct ipu3_uapi_dvs_stat_gbl_config gbl_cfg;
-	struct ipu3_uapi_dvs_stat_grd_config
-					grd_config[IPU3_UAPI_DVS_STAT_LEVELS];
-	struct ipu3_uapi_dvs_stat_fe_roi_cfg
-					fe_roi_cfg[IPU3_UAPI_DVS_STAT_LEVELS];
-	__u8 __reserved[IPU3_UAPI_ISP_WORD_BYTES -
-		 (sizeof(struct ipu3_uapi_dvs_stat_gbl_config) +
-		  (sizeof(struct ipu3_uapi_dvs_stat_grd_config) +
-		   sizeof(struct ipu3_uapi_dvs_stat_fe_roi_cfg)) *
-		  IPU3_UAPI_DVS_STAT_LEVELS) % IPU3_UAPI_ISP_WORD_BYTES];
-} __packed;
-
-struct ipu3_uapi_stats_dvs {
-	struct ipu3_uapi_dvs_stat_motion_vec motion_vec IPU3_ALIGN;
-	struct ipu3_uapi_dvs_stat_cfg cfg IPU3_ALIGN;
-	struct ipu3_uapi_dvs_stat_stripe_data stripe_data IPU3_ALIGN;
-} __packed;
-
-/******************* ipu3_uapi_stats_lace *******************/
-
-#define IPU3_UAPI_LACE_STAT_REGS_PER_SET		320
-#define IPU3_UAPI_LACE_STAT_MAX_OPERATIONS		41
-
-struct ipu3_uapi_lace_stat_stats_regs {
-	__u8 bin[4];					/* the bins 0-3 */
-} __packed;
-
-struct ipu3_uapi_lace_stat_hist_single_set {
-	struct ipu3_uapi_lace_stat_stats_regs
-		lace_hist_set[IPU3_UAPI_LACE_STAT_REGS_PER_SET] IPU3_ALIGN;
-} __packed;
-
-struct ipu3_uapi_lace_stat_hist_vec {
-	struct ipu3_uapi_lace_stat_hist_single_set
-	       lace_hist_output[IPU3_UAPI_LACE_STAT_MAX_OPERATIONS] IPU3_ALIGN;
-} __packed;
-
-struct ipu3_uapi_lace_stat_gbl_cfg {
-	__u32 lh_mode:3;
-	__u32 __reserved:3;
-	__u32 y_ds_mode:2;
-	__u32 uv_ds_mode_unsupported:1;
-	__u32 uv_input_unsupported:1;
-	__u32 __reserved1:10;
-	__u32 rst_loc_hist:1;
-	__u32 done_rst_loc_hist:1;
-	__u32 __reserved2:10;
-} __packed;
-
-struct ipu3_uapi_lace_stat_y_grd_hor_cfg {
-	__u32 grid_width:6;
-	__u32 __reserved:10;
-	__u32 block_width:4;
-	__u32 __reserved1:12;
-} __packed;
-
-struct ipu3_uapi_lace_stat_y_grd_hor_roi {
-	__u32 x_start:12;
-	__u32 __reserved:4;
-	__u32 x_end:12;
-	__u32 __reserved1:4;
-} __packed;
-
-struct ipu3_uapi_lace_stat_uv_grd_hor_cfg {
-	__u32 not_supported;
-} __packed;
-
-struct ipu3_uapi_lace_stat_uv_grd_hor_roi {
-	__u32 not_supported;
-} __packed;
-
-struct ipu3_uapi_lace_stat_grd_vrt_cfg {
-	__u32 __reserved:8;
-	__u32 grid_h:6;
-	__u32 __reserved1:6;
-	__u32 block_h:4;
-	__u32 grid_h_per_slice:7;
-	__u32 __reserved2:1;
-} __packed;
-
-struct ipu3_uapi_lace_stat_grd_vrt_roi {
-	__u32 y_start:12;
-	__u32 __reserved:4;
-	__u32 y_end:12;
-	__u32 __reserved1:4;
-} __packed;
-
-struct ipu3_uapi_lace_stat_cfg {
-	struct ipu3_uapi_lace_stat_gbl_cfg lace_stat_gbl_cfg;
-	struct ipu3_uapi_lace_stat_y_grd_hor_cfg lace_stat_y_grd_hor_cfg;
-	struct ipu3_uapi_lace_stat_y_grd_hor_roi lace_stat_y_grd_hor_roi;
-	struct ipu3_uapi_lace_stat_uv_grd_hor_cfg lace_stat_uv_grd_hor_cfg;
-	struct ipu3_uapi_lace_stat_uv_grd_hor_roi lace_stat_uv_grd_hor_roi;
-	struct ipu3_uapi_lace_stat_grd_vrt_cfg lace_stat_grd_vrt_cfg;
-	struct ipu3_uapi_lace_stat_grd_vrt_roi lace_stat_grd_vrt_roi;
-} __packed;
-
-struct ipu3_uapi_stats_lace {
-	struct ipu3_uapi_lace_stat_hist_vec lace_hist_vec IPU3_ALIGN;
-	struct ipu3_uapi_lace_stat_cfg lace_stat_cfg;
-	__u8 padding[4];
-} __packed;
-
 /******************* ipu3_uapi_acc_param *******************/
 
 #define IPU3_UAPI_BNR_LUT_SIZE				32
@@ -457,21 +267,9 @@ struct ipu3_uapi_stats_lace {
 /* number of elements in gamma correction LUT */
 #define IPU3_UAPI_GAMMA_CORR_LUT_ENTRIES		256
 
-#define IPU3_UAPI_SHD_MAX_OPERATIONS \
-		(IPU3_UAPI_SHD_MAX_PROCESS_LINES + IPU3_UAPI_SHD_MAX_TRANSFERS)
-#define IPU3_UAPI_SHD_MAX_PROCESS_LINES			31
-#define IPU3_UAPI_SHD_MAX_TRANSFERS			31
 #define IPU3_UAPI_SHD_MAX_CELLS_PER_SET			146
 /* largest grid is 73x56 */
 #define IPU3_UAPI_SHD_MAX_CFG_SETS			28
-
-#define IPU3_UAPI_DVS_STAT_L0_MD_ENTRIES		84
-#define IPU3_UAPI_DVS_STAT_PARTS_IN_MD_ENTRY		10
-#define IPU3_UAPI_DVS_STAT_L1_MD_ENTRIES		66
-#define IPU3_UAPI_DVS_STAT_L2_MD_ENTRIES		45
-#define IPU3_UAPI_DVS_STAT_MAX_OPERATIONS		100
-#define IPU3_UAPI_DVS_STAT_MAX_PROCESS_LINES		52
-#define IPU3_UAPI_DVS_STAT_MAX_TRANSFERS		52
 
 #define IPU3_UAPI_YUVP2_YTM_LUT_ENTRIES			256
 #define IPU3_UAPI_YUVP2_TCC_MACC_TABLE_ELEMENTS		16
@@ -479,54 +277,13 @@ struct ipu3_uapi_stats_lace {
 #define IPU3_UAPI_YUVP2_TCC_GAIN_PCWL_LUT_ELEMENTS	258
 #define IPU3_UAPI_YUVP2_TCC_R_SQR_LUT_ELEMENTS		24
 
-#define IPU3_UAPI_DPC_COMMANDS_PER_TRANSFER		2
-#define IPU3_UAPI_DPC_MAX_SUPPORTED_HEIGHT		3840
-#define IPU3_UAPI_DPC_STRIPE_SIZE			50
-#define IPU3_UAPI_DPC_MAX_OPERATIONS \
-	(IPU3_UAPI_DPC_COMMANDS_PER_TRANSFER * IPU3_UAPI_DPC_MAX_CFG_SETS)
-#define IPU3_UAPI_DPC_MAX_PROCESS_LINES		IPU3_UAPI_DPC_MAX_CFG_SETS
-#define IPU3_UAPI_DPC_MAX_TRANSFERS		IPU3_UAPI_DPC_MAX_CFG_SETS
-#define IPU3_UAPI_DPC_MAX_DP_FIRST_LINES_PAIR		70
-#define IPU3_UAPI_DPC_MAX_DP_PER_SET			192
-#define IPU3_UAPI_DPC_MAX_CFG_SETS \
-	((IPU3_UAPI_DPC_MAX_SUPPORTED_HEIGHT + IPU3_UAPI_DPC_STRIPE_SIZE - 1) \
-	/ IPU3_UAPI_DPC_STRIPE_SIZE)
-
 #define IPU3_UAPI_BDS_SAMPLE_PATTERN_ARRAY_SIZE		8
 #define IPU3_UAPI_BDS_PHASE_COEFFS_ARRAY_SIZE		32
 
 #define IPU3_UAPI_ANR_LUT_SIZE				26
 #define IPU3_UAPI_ANR_PYRAMID_SIZE			22
 
-#define IPU3_UAPI_AWB_FR_MAX_TRANSFERS			30
-#define IPU3_UAPI_AWB_FR_MAX_PROCESS_LINES		30
-#define IPU3_UAPI_AWB_FR_MAX_OPERATIONS \
-	(IPU3_UAPI_AWB_FR_MAX_TRANSFERS + IPU3_UAPI_AWB_FR_MAX_PROCESS_LINES)
-
 #define IPU3_UAPI_AE_WEIGHTS				96
-
-#define IPU3_UAPI_AF_MAX_TRANSFERS			30
-#define IPU3_UAPI_AF_MAX_PROCESS_LINES			30
-#define IPU3_UAPI_AF_MAX_OPERATIONS \
-		(IPU3_UAPI_AF_MAX_TRANSFERS + IPU3_UAPI_AF_MAX_PROCESS_LINES)
-
-#define IPU3_UAPI_AWB_MAX_PROCESS_LINES			68
-#define IPU3_UAPI_AWB_MAX_TRANSFERS			68
-#define IPU3_UAPI_AWB_MAX_OPERATIONS \
-		(IPU3_UAPI_AWB_MAX_PROCESS_LINES + IPU3_UAPI_AWB_MAX_TRANSFERS)
-
-#define IPU3_UAPI_OSYS_PIN_VF				0
-#define IPU3_UAPI_OSYS_PIN_OUT				1
-#define IPU3_UAPI_OSYS_PINS				2
-
-typedef __u32 imgu_addr_t;
-
-struct ipu3_uapi_stripe_input_frame_resolution {
-	__u16 width;
-	__u16 height;
-	__u32 bayer_order;		/* enum ipu3_uapi_bayer_order */
-	__u32 raw_bit_depth;
-} __packed;
 
 struct ipu3_uapi_acc_operation {
 	/*
@@ -543,119 +300,7 @@ struct ipu3_uapi_acc_process_lines_cmd_data {
 	__u8 __reserved;		/* Align to 4 bytes */
 } __packed;
 
-struct ipu3_uapi_stripes {
-	/* offset from start of frame - measured in pixels */
-	__u16 offset;
-	/* stripe width - measured in pixels */
-	__u16 width;
-	/* stripe width - measured in pixels */
-	__u16 height;
-} __packed;
-
-struct ipu3_uapi_stripe_data {
-	/*
-	 * number of stripes for current processing source
-	 * - VLIW binary parameter we currently support 1 or 2 stripes
-	 */
-	__u16 num_of_stripes;
-
-	__u8 padding[2];
-
-	/*
-	 * the following data is derived from resolution-related
-	 * pipe config and from num_of_stripes
-	 */
-
-	/*
-	 *'input-stripes' - before input cropping
-	 * used by input feeder
-	 */
-	struct ipu3_uapi_stripe_input_frame_resolution input_frame;
-
-	/*'effective-stripes' - after input cropping used dpc, bds */
-	struct ipu3_uapi_stripes effective_stripes[IPU3_UAPI_MAX_STRIPES];
-
-	/* 'down-scaled-stripes' - after down-scaling ONLY. used by BDS */
-	struct ipu3_uapi_stripes down_scaled_stripes[IPU3_UAPI_MAX_STRIPES];
-
-	/*
-	 *'bds-out-stripes' - after bayer down-scaling and padding.
-	 * used by all algos starting with norm up to the ref-frame for GDC
-	 * (currently up to the output kernel)
-	 */
-	struct ipu3_uapi_stripes bds_out_stripes[IPU3_UAPI_MAX_STRIPES];
-
-	/* 'bds-out-stripes (no overlap)' - used for ref kernel */
-	struct ipu3_uapi_stripes
-			bds_out_stripes_no_overlap[IPU3_UAPI_MAX_STRIPES];
-
-	/*
-	 * input resolution for output system (equal to bds_out - envelope)
-	 * output-system input frame width as configured by user
-	 */
-	__u16 output_system_in_frame_width;
-	/* output-system input frame height as configured by user */
-	__u16 output_system_in_frame_height;
-
-	/*
-	 * 'output-stripes' - accounts for stiching on the output (no overlap)
-	 * used by the output kernel
-	 */
-	struct ipu3_uapi_stripes output_stripes[IPU3_UAPI_MAX_STRIPES];
-
-	/*
-	 * 'block-stripes' - accounts for stiching by the output system
-	 * (1 or more blocks overlap)
-	 * used by DVS, TNR and the output system kernel
-	 */
-	struct ipu3_uapi_stripes block_stripes[IPU3_UAPI_MAX_STRIPES];
-
-	__u16 effective_frame_width;	/* Needed for vertical cropping */
-	__u16 bds_frame_width;
-	__u16 out_frame_width;	/* Output frame width as configured by user */
-	__u16 out_frame_height;	/* Output frame height as configured by user */
-
-	/* GDC in buffer (A.K.A delay frame,ref buffer) info */
-	__u16 gdc_in_buffer_width;	/* GDC in buffer width  */
-	__u16 gdc_in_buffer_height;	/* GDC in buffer height */
-	/* GDC in buffer first valid pixel x offset */
-	__u16 gdc_in_buffer_offset_x;
-	/* GDC in buffer first valid pixel y offset */
-	__u16 gdc_in_buffer_offset_y;
-
-	/* Display frame width as configured by user */
-	__u16 display_frame_width;
-	/* Display frame height as configured by user */
-	__u16 display_frame_height;
-	__u16 bds_aligned_frame_width;
-	/* Number of vectors to left-crop when writing stripes (not stripe 0) */
-	__u16 half_overlap_vectors;
-	/* Decimate ISP and fixed func resolutions after BDS (ir_extraction) */
-	__u16 ir_ext_decimation;
-	__u8 padding1[2];
-} __packed;
-
-struct ipu3_uapi_input_feeder_data {
-	__u32 row_stride;				/* row stride */
-	__u32 start_row_address;			/* start row address */
-	__u32 start_pixel;				/* start pixel */
-} __packed;
-
-struct ipu3_uapi_input_feeder_data_aligned {
-	struct ipu3_uapi_input_feeder_data data IPU3_ALIGN;
-} __packed;
-
-struct ipu3_uapi_input_feeder_data_per_stripe {
-	struct ipu3_uapi_input_feeder_data_aligned
-		input_feeder_data[IPU3_UAPI_MAX_STRIPES];
-} __packed;
-
-struct ipu3_uapi_input_feeder_config {
-	struct ipu3_uapi_input_feeder_data data;
-	struct ipu3_uapi_input_feeder_data_per_stripe data_per_stripe
-		IPU3_ALIGN;
-} __packed;
-
+/* Bayer Noise Reduction related structs */
 struct ipu3_uapi_bnr_static_config_wb_gains_config {
 	__u16 gr;
 	__u16 r;
@@ -738,7 +383,7 @@ struct ipu3_uapi_bnr_static_config {
 	struct ipu3_uapi_bnr_static_config_lut_config lut;
 	struct ipu3_uapi_bnr_static_config_bp_ctrl_config bp_ctrl;
 	struct ipu3_uapi_bnr_static_config_dn_detect_ctrl_config dn_detect_ctrl;
-	__u32 column_size;				/* 0x44 */
+	__u32 column_size;	/* 0x44 */
 	struct ipu3_uapi_bnr_static_config_opt_center_sqr_config opt_center_sqr;
 } __packed;
 
@@ -782,6 +427,7 @@ struct ipu3_uapi_dm_config {
 	__u32 __reserved5:27;
 } __packed;
 
+/* Color Conversion Matrix */
 struct ipu3_uapi_ccm_mat_config {
 	__s16 coeff_m11;
 	__s16 coeff_m12;
@@ -797,6 +443,7 @@ struct ipu3_uapi_ccm_mat_config {
 	__s16 coeff_o_b;
 } __packed;
 
+/* Gamma correction */
 struct ipu3_uapi_gamma_corr_ctrl {
 	__u32 enable:1;
 	__u32 __reserved:31;
@@ -811,6 +458,7 @@ struct ipu3_uapi_gamma_config {
 	struct ipu3_uapi_gamma_corr_lut gc_lut IPU3_ALIGN;
 } __packed;
 
+/* Color Space Conversion */
 struct ipu3_uapi_csc_mat_config {
 	__s16 coeff_c11;
 	__s16 coeff_c12;
@@ -826,6 +474,7 @@ struct ipu3_uapi_csc_mat_config {
 	__s16 coeff_b3;
 } __packed;
 
+/* Chroma Down Sample */
 struct ipu3_uapi_cds_params {
 	__u32 ds_c00:2;
 	__u32 ds_c01:2;
@@ -841,6 +490,8 @@ struct ipu3_uapi_cds_params {
 	__u32 uv_bin_output:1;
 	__u32 __reserved1:6;
 } __packed;
+
+/* Bayer shading correction */
 
 struct ipu3_uapi_shd_grid_config {
 	/* reg 0 */
@@ -880,23 +531,6 @@ struct ipu3_uapi_shd_config_static {
 	struct ipu3_uapi_shd_black_level_config black_level;
 } __packed;
 
-struct ipu3_uapi_shd_transfer_luts_set_data {
-	__u8 set_number;
-	__u8 padding[3];
-	imgu_addr_t rg_lut_ddr_addr;
-	imgu_addr_t bg_lut_ddr_addr;
-	__u32 align_dummy;
-} __packed;
-
-struct ipu3_uapi_shd_intra_frame_operations_data {
-	struct ipu3_uapi_acc_operation
-		operation_list[IPU3_UAPI_SHD_MAX_OPERATIONS] IPU3_ALIGN;
-	struct ipu3_uapi_acc_process_lines_cmd_data
-		process_lines_data[IPU3_UAPI_SHD_MAX_PROCESS_LINES] IPU3_ALIGN;
-	struct ipu3_uapi_shd_transfer_luts_set_data
-		transfer_data[IPU3_UAPI_SHD_MAX_TRANSFERS] IPU3_ALIGN;
-} __packed;
-
 struct ipu3_uapi_shd_lut {
 	struct {
 		struct {
@@ -914,56 +548,10 @@ struct ipu3_uapi_shd_lut {
 
 struct ipu3_uapi_shd_config {
 	struct ipu3_uapi_shd_config_static shd IPU3_ALIGN;
-	struct ipu3_uapi_shd_intra_frame_operations_data shd_ops IPU3_ALIGN;
 	struct ipu3_uapi_shd_lut shd_lut IPU3_ALIGN;
 } __packed;
 
-struct ipu3_uapi_dvs_stat_stripe_cfg {
-	struct ipu3_uapi_dvs_stat_cfg stripe_cfg[IPU3_UAPI_MAX_STRIPES];
-} __packed;
-
-struct ipu3_uapi_dvs_stat_transfer_op_data {
-	__u8 set_number;
-} __packed;
-
-struct ipu3_uapi_dvs_stat_intra_frame_operations_data {
-	struct ipu3_uapi_acc_operation
-		ops[IPU3_UAPI_DVS_STAT_MAX_OPERATIONS] IPU3_ALIGN;
-	struct ipu3_uapi_acc_process_lines_cmd_data
-		process_lines_data[IPU3_UAPI_DVS_STAT_MAX_PROCESS_LINES]
-		IPU3_ALIGN;
-	struct ipu3_uapi_dvs_stat_transfer_op_data
-		transfer_data[IPU3_UAPI_DVS_STAT_MAX_TRANSFERS] IPU3_ALIGN;
-} __packed;
-
-struct ipu3_uapi_dvs_stat_meta_data_align_p {
-	imgu_addr_t p_meta_data IPU3_ALIGN;
-} __packed;
-
-struct ipu3_uapi_dvs_stat_config {
-	struct ipu3_uapi_dvs_stat_cfg cfg IPU3_ALIGN;
-	struct ipu3_uapi_dvs_stat_stripe_cfg stripe;
-	struct ipu3_uapi_dvs_stat_intra_frame_operations_data operations_data;
-	struct ipu3_uapi_dvs_stat_meta_data_align_p
-		meta_data[IPU3_UAPI_MAX_STRIPES];
-} __packed;
-
-struct ipu3_uapi_lace_stat_operation {
-	__u8 op_indicator;
-	__u8 padding;
-	__u16 lines;
-} __packed;
-
-struct ipu3_uapi_lace_stat_intra_frame_op_data {
-	struct ipu3_uapi_lace_stat_operation
-		ops[IPU3_UAPI_LACE_STAT_MAX_OPERATIONS] IPU3_ALIGN;
-} __packed;
-
-struct ipu3_uapi_lace_stat_config {
-	struct ipu3_uapi_lace_stat_cfg lace_stat_cfg IPU3_ALIGN;
-	struct ipu3_uapi_lace_stat_intra_frame_op_data operations_data
-		IPU3_ALIGN;
-} __packed;
+/* Image Enhancement Filter and Denoise */
 
 struct ipu3_uapi_iefd_cux2 {
 	__u32 x0:9;
@@ -1060,6 +648,8 @@ struct ipu3_uapi_iefd_cux6_rad {
 	__u32 b45:10;
 	__u32 __reserved5:12;
 } __packed;
+
+/* YUV processing */
 
 struct ipu3_uapi_yuvp1_iefd_cfg_units {
 	struct ipu3_uapi_iefd_cux2 cu_1;
@@ -1380,11 +970,13 @@ struct ipu3_uapi_yuvp1_y_ee_nr_config {
 	struct ipu3_uapi_yuvp1_y_ee_nr_fc_coring_config fc_coring;
 } __packed;
 
+/* Y-tone Mapping */
 struct ipu3_uapi_yuvp2_y_tm_lut_static_config {
 	__u16 entries[IPU3_UAPI_YUVP2_YTM_LUT_ENTRIES]; /* 13 significand bits*/
 	__u32 enable;
 } __packed;
 
+/* Total Color Correction */
 struct ipu3_uapi_yuvp2_tcc_gen_control_static_config {
 	__u32 en:1;
 	__u32 blend_shift:3;
@@ -1432,90 +1024,7 @@ struct ipu3_uapi_yuvp2_tcc_static_config {
 	struct ipu3_uapi_yuvp2_tcc_r_sqr_lut_static_config r_sqr_lut;
 } __packed;
 
-struct ipu3_uapi_dpc_num_of_dp {
-	__u8 dp_gr;
-	__u8 dp_bg;
-	__u16 __reserved;
-} __packed;
-
-struct ipu3_uapi_dpc_params {
-	__u16 enable;
-	__u16 grad_threshold;		/* 13 bits */
-	struct ipu3_uapi_dpc_num_of_dp set[2];
-	struct ipu3_uapi_dpc_num_of_dp first_line_pair;
-} __packed;
-
-struct ipu3_uapi_dpc_transfer_luts_set_data {
-	__u8 set_number;
-	__u8 num_of_dp_gr;
-	__u8 num_of_dp_bg;
-	__u8 align_dummy;
-
-} __packed;
-
-struct ipu3_uapi_dpc_intra_frame_operations_data {
-	struct ipu3_uapi_acc_operation
-		operation_list[IPU3_UAPI_DPC_MAX_OPERATIONS] IPU3_ALIGN;
-	struct ipu3_uapi_acc_process_lines_cmd_data
-		process_lines_data[IPU3_UAPI_DPC_MAX_PROCESS_LINES] IPU3_ALIGN;
-	struct ipu3_uapi_dpc_transfer_luts_set_data
-		transfer_data[IPU3_UAPI_DPC_MAX_TRANSFERS] IPU3_ALIGN;
-} __packed;
-
-struct ipu3_uapi_dpc_1st_pair_of_lines_lut_elem {
-	__u32 column:13;
-	__u32 nghbr_sts:5;
-	__u32 p0:14;
-	__u32 p1:14;
-	__u32 __reserved0:2;
-	__u32 p2:14;
-	__u32 nghbr_order:1;
-	__u32 __reserved1:1;
-} __packed;
-
-struct ipu3_uapi_dpc_1st_pair_of_lines_lut {
-	struct ipu3_uapi_dpc_1st_pair_of_lines_lut_elem
-		entries[IPU3_UAPI_DPC_MAX_DP_FIRST_LINES_PAIR];
-
-} __packed;
-
-struct ipu3_uapi_dpc_lut_elem {
-	__u32 nghbr_sts:5;
-	__u32 skip:1;
-	__u32 nghbr_order:1;
-	__u32 column:13;
-	__u32 row_pair_delta:4;
-	__u32 __reserved0:8;
-} __packed;
-
-struct ipu3_uapi_dpc_lut_set {
-	struct ipu3_uapi_dpc_lut_elem
-		elems[IPU3_UAPI_DPC_MAX_DP_PER_SET] IPU3_ALIGN;
-} __packed;
-
-struct ipu3_uapi_dpc_lut {
-	struct ipu3_uapi_dpc_lut_set sets[IPU3_UAPI_DPC_MAX_CFG_SETS];
-} __packed;
-
-struct ipu3_uapi_dpc_stripe_config {
-	struct ipu3_uapi_dpc_params params IPU3_ALIGN;
-	struct ipu3_uapi_dpc_intra_frame_operations_data ops IPU3_ALIGN;
-	struct ipu3_uapi_dpc_1st_pair_of_lines_lut first_lines_lut_gr
-		IPU3_ALIGN;
-	struct ipu3_uapi_dpc_1st_pair_of_lines_lut first_lines_lut_bg
-		IPU3_ALIGN;
-	struct ipu3_uapi_dpc_lut lut_bg IPU3_ALIGN;
-	struct ipu3_uapi_dpc_lut lut_gr IPU3_ALIGN;
-} __packed;
-
-struct ipu3_uapi_dpc_config_per_stripe {
-	struct ipu3_uapi_dpc_stripe_config
-		dpc_config[IPU3_UAPI_MAX_STRIPES] IPU3_ALIGN;
-} __packed;
-
-struct ipu3_uapi_dpc_config {
-	struct ipu3_uapi_dpc_config_per_stripe config_per_stripe IPU3_ALIGN;
-} __packed;
+/* Bayer Down-Scaler */
 
 struct ipu3_uapi_bds_hor_ctrl0 {
 	__u32 sample_patrn_length:9;
@@ -1595,27 +1104,13 @@ struct ipu3_uapi_bds_ver {
 
 } __packed;
 
-struct ipu3_uapi_bds_per_stripe_data {
-	struct ipu3_uapi_bds_hor_ctrl0 hor_ctrl0;
-	struct ipu3_uapi_bds_ver_ctrl1 ver_ctrl1;
-	struct ipu3_uapi_bds_hor_ctrl1 crop;
-} __packed;
-
-struct ipu3_uapi_ipu3_uapi_bds_per_stripe_data_aligned {
-	struct ipu3_uapi_bds_per_stripe_data data IPU3_ALIGN;
-} __packed;
-
-struct ipu3_uapi_bds_per_stripe {
-	struct ipu3_uapi_ipu3_uapi_bds_per_stripe_data_aligned
-		aligned_data[IPU3_UAPI_MAX_STRIPES];
-} __packed;
-
 struct ipu3_uapi_bds_config {
 	struct ipu3_uapi_bds_hor hor IPU3_ALIGN;
 	struct ipu3_uapi_bds_ver ver IPU3_ALIGN;
-	struct ipu3_uapi_bds_per_stripe per_stripe IPU3_ALIGN;
 	__u32 enabled;
 } __packed;
+
+/* Advanced Noise Reduction related structs */
 
 struct ipu3_uapi_anr_search_config {
 	__u32 enable;
@@ -1703,17 +1198,8 @@ struct ipu3_uapi_anr_config {
 	struct ipu3_uapi_anr_tile2strm_config tile2strm IPU3_ALIGN;
 } __packed;
 
-struct ipu3_uapi_awb_fr_intra_frame_operations_data {
-	struct ipu3_uapi_acc_operation ops[IPU3_UAPI_AWB_FR_MAX_OPERATIONS]
-								IPU3_ALIGN;
-	struct ipu3_uapi_acc_process_lines_cmd_data
-	      process_lines_data[IPU3_UAPI_AWB_FR_MAX_PROCESS_LINES] IPU3_ALIGN;
-} __packed;
-
 struct ipu3_uapi_awb_fr_config {
 	struct ipu3_uapi_awb_fr_config_s config;
-	struct ipu3_uapi_awb_fr_intra_frame_operations_data operations_data;
-	struct ipu3_uapi_awb_fr_config_s stripes[IPU3_UAPI_MAX_STRIPES];
 } __packed;
 
 struct ipu3_uapi_ae_weight_elem {
@@ -1740,204 +1226,17 @@ struct ipu3_uapi_ae_config {
 	struct ipu3_uapi_ae_weight_elem weights[IPU3_UAPI_AE_WEIGHTS]
 								IPU3_ALIGN;
 	struct ipu3_uapi_ae_ccm ae_ccm IPU3_ALIGN;
-	struct {
-		struct ipu3_uapi_ae_grid_config grid IPU3_ALIGN;
-	} stripes[IPU3_UAPI_MAX_STRIPES];
-} __packed;
-
-struct ipu3_uapi_af_intra_frame_operations_data {
-	struct ipu3_uapi_acc_operation ops[IPU3_UAPI_AF_MAX_OPERATIONS]
-		IPU3_ALIGN;
-	struct ipu3_uapi_acc_process_lines_cmd_data
-		process_lines_data[IPU3_UAPI_AF_MAX_PROCESS_LINES] IPU3_ALIGN;
-} __packed;
-
-struct ipu3_uapi_af_stripe_config {
-	struct ipu3_uapi_af_frame_size frame_size IPU3_ALIGN;
-	struct ipu3_uapi_grid_config grid_cfg IPU3_ALIGN;
 } __packed;
 
 struct ipu3_uapi_af_config {
 	struct ipu3_uapi_af_config_s config;
-	struct ipu3_uapi_af_intra_frame_operations_data operations_data;
-	struct ipu3_uapi_af_stripe_config stripes[IPU3_UAPI_MAX_STRIPES];
-} __packed;
-
-struct ipu3_uapi_acc_transfer_op_data {
-	__u8 set_number;
-} __packed;
-
-struct IPU3_ALIGN ipu3_uapi_awb_intra_frame_operations_data {
-	struct ipu3_uapi_acc_operation ops[IPU3_UAPI_AWB_MAX_OPERATIONS]
-		IPU3_ALIGN;
-	struct ipu3_uapi_acc_process_lines_cmd_data
-		process_lines_data[IPU3_UAPI_AWB_MAX_PROCESS_LINES] IPU3_ALIGN;
-	struct ipu3_uapi_acc_transfer_op_data
-		transfer_data[IPU3_UAPI_AWB_MAX_TRANSFERS] IPU3_ALIGN;
 } __packed;
 
 struct ipu3_uapi_awb_config {
 	struct ipu3_uapi_awb_config_s config IPU3_ALIGN;
-	struct ipu3_uapi_awb_intra_frame_operations_data operations_data;
-	struct ipu3_uapi_awb_config_s stripes[IPU3_UAPI_MAX_STRIPES];
-} __packed;
-
-struct ipu3_uapi_osys_formatter_params {
-	__u32 format;
-	__u32 flip;
-	__u32 mirror;
-	__u32 tiling;
-	__u32 reduce_range;
-	__u32 alpha_blending;	/* FIXME: To figure out the unknown register */
-	__u32 release_inp_addr;
-	__u32 release_inp_en;
-	__u32 process_out_buf_addr;
-	__u32 image_width_vecs;
-	__u32 image_height_lines;
-	__u32 inp_buff_y_st_addr;
-	__u32 inp_buff_y_line_stride;
-	__u32 inp_buff_y_buffer_stride;
-	__u32 int_buff_u_st_addr;
-	__u32 int_buff_v_st_addr;
-	__u32 inp_buff_uv_line_stride;
-	__u32 inp_buff_uv_buffer_stride;
-	__u32 out_buff_level;
-	__u32 out_buff_nr_y_lines;
-	__u32 out_buff_u_st_offset;
-	__u32 out_buff_v_st_offset;
-	__u32 out_buff_y_line_stride;
-	__u32 out_buff_uv_line_stride;
-	__u32 hist_buff_st_addr;
-	__u32 hist_buff_line_stride;
-	__u32 hist_buff_nr_lines;
-} __packed;
-
-struct ipu3_uapi_osys_formatter {
-	struct ipu3_uapi_osys_formatter_params param IPU3_ALIGN;
-} __packed;
-
-struct ipu3_uapi_osys_scaler_params {
-	__u32 inp_buf_y_st_addr;
-	__u32 inp_buf_y_line_stride;
-	__u32 inp_buf_y_buffer_stride;
-	__u32 inp_buf_u_st_addr;
-	__u32 inp_buf_v_st_addr;
-	__u32 inp_buf_uv_line_stride;
-	__u32 inp_buf_uv_buffer_stride;
-	__u32 inp_buf_chunk_width;
-	__u32 inp_buf_nr_buffers;
-	/* Output buffers */
-	__u32 out_buf_y_st_addr;
-	__u32 out_buf_y_line_stride;
-	__u32 out_buf_y_buffer_stride;
-	__u32 out_buf_u_st_addr;
-	__u32 out_buf_v_st_addr;
-	__u32 out_buf_uv_line_stride;
-	__u32 out_buf_uv_buffer_stride;
-	__u32 out_buf_nr_buffers;
-	/* Intermediate buffers */
-	__u32 int_buf_y_st_addr;
-	__u32 int_buf_y_line_stride;
-	__u32 int_buf_u_st_addr;
-	__u32 int_buf_v_st_addr;
-	__u32 int_buf_uv_line_stride;
-	__u32 int_buf_height;
-	__u32 int_buf_chunk_width;
-	__u32 int_buf_chunk_height;
-	/* Context buffers */
-	__u32 ctx_buf_hor_y_st_addr;
-	__u32 ctx_buf_hor_u_st_addr;
-	__u32 ctx_buf_hor_v_st_addr;
-	__u32 ctx_buf_ver_y_st_addr;
-	__u32 ctx_buf_ver_u_st_addr;
-	__u32 ctx_buf_ver_v_st_addr;
-	/* Addresses for release-input and process-output tokens */
-	__u32 release_inp_buf_addr;
-	__u32 release_inp_buf_en;
-	__u32 release_out_buf_en;
-	__u32 process_out_buf_addr;
-	/* Settings dimensions, padding, cropping */
-	__u32 input_image_y_width;
-	__u32 input_image_y_height;
-	__u32 input_image_y_start_column;
-	__u32 input_image_uv_start_column;
-	__u32 input_image_y_left_pad;
-	__u32 input_image_uv_left_pad;
-	__u32 input_image_y_right_pad;
-	__u32 input_image_uv_right_pad;
-	__u32 input_image_y_top_pad;
-	__u32 input_image_uv_top_pad;
-	__u32 input_image_y_bottom_pad;
-	__u32 input_image_uv_bottom_pad;
-	__u32 processing_mode;
-#define IPU3_UAPI_OSYS_PROCMODE_BYPASS		0
-#define IPU3_UAPI_OSYS_PROCMODE_UPSCALE		1
-#define IPU3_UAPI_OSYS_PROCMODE_DOWNSCALE	2
-	__u32 scaling_ratio;
-	__u32 y_left_phase_init;
-	__u32 uv_left_phase_init;
-	__u32 y_top_phase_init;
-	__u32 uv_top_phase_init;
-	__u32 coeffs_exp_shift;
-	__u32 out_y_left_crop;
-	__u32 out_uv_left_crop;
-	__u32 out_y_top_crop;
-	__u32 out_uv_top_crop;
-} __packed;
-
-struct ipu3_uapi_osys_scaler {
-	struct ipu3_uapi_osys_scaler_params param IPU3_ALIGN;
-} __packed;
-
-struct ipu3_uapi_osys_frame_params {
-	/* Output pins */
-	__u32 enable;
-	__u32 format;			/* enum ipu3_uapi_osys_format */
-	__u32 flip;
-	__u32 mirror;
-	__u32 tiling;			/* enum ipu3_uapi_osys_tiling */
-	__u32 width;
-	__u32 height;
-	__u32 stride;
-	__u32 scaled;
-} __packed;
-
-struct ipu3_uapi_osys_frame {
-	struct ipu3_uapi_osys_frame_params param IPU3_ALIGN;
-} __packed;
-
-struct ipu3_uapi_osys_stripe {
-	/* Input resolution */
-	__u32 input_width;
-	__u32 input_height;
-	/* Output Stripe */
-	__u32 output_width[IPU3_UAPI_OSYS_PINS];
-	__u32 output_height[IPU3_UAPI_OSYS_PINS];
-	__u32 output_offset[IPU3_UAPI_OSYS_PINS];
-	__u32 buf_stride[IPU3_UAPI_OSYS_PINS];
-	/* Scaler params */
-	__u32 block_width;
-	__u32 block_height;
-	/* Output Crop factor */
-	__u32 crop_top[IPU3_UAPI_OSYS_PINS];
-	__u32 crop_left[IPU3_UAPI_OSYS_PINS];
-} __packed;
-
-struct ipu3_uapi_osys_config {
-	struct ipu3_uapi_osys_formatter
-		formatter[IPU3_UAPI_MAX_STRIPES][IPU3_UAPI_OSYS_PINS];
-	struct ipu3_uapi_osys_scaler scaler[IPU3_UAPI_MAX_STRIPES];
-	struct ipu3_uapi_osys_frame frame[IPU3_UAPI_OSYS_PINS];
-	struct ipu3_uapi_osys_stripe stripe[IPU3_UAPI_MAX_STRIPES];
-	/* 32 packed coefficients for luma and chroma */
-	__s8 scaler_coeffs_chroma[128];
-	__s8 scaler_coeffs_luma[128];
 } __packed;
 
 struct ipu3_uapi_acc_param {
-	struct ipu3_uapi_stripe_data stripe;
-	__u8 padding[8];
-	struct ipu3_uapi_input_feeder_config input_feeder;
 	struct ipu3_uapi_bnr_static_config bnr;
 	struct ipu3_uapi_bnr_static_config_green_disparity green_disparity
 		IPU3_ALIGN;
@@ -1947,8 +1246,6 @@ struct ipu3_uapi_acc_param {
 	struct ipu3_uapi_csc_mat_config csc IPU3_ALIGN;
 	struct ipu3_uapi_cds_params cds IPU3_ALIGN;
 	struct ipu3_uapi_shd_config shd IPU3_ALIGN;
-	struct ipu3_uapi_dvs_stat_config dvs_stat;
-	struct ipu3_uapi_lace_stat_config lace_stat;
 	struct ipu3_uapi_yuvp1_iefd_config iefd IPU3_ALIGN;
 	struct ipu3_uapi_yuvp1_yds_config yds_c0 IPU3_ALIGN;
 	struct ipu3_uapi_yuvp1_chnr_config chnr_c0 IPU3_ALIGN;
@@ -1958,14 +1255,12 @@ struct ipu3_uapi_acc_param {
 	struct ipu3_uapi_yuvp2_y_tm_lut_static_config ytm IPU3_ALIGN;
 	struct ipu3_uapi_yuvp1_yds_config yds2 IPU3_ALIGN;
 	struct ipu3_uapi_yuvp2_tcc_static_config tcc IPU3_ALIGN;
-	struct ipu3_uapi_dpc_config dpc IPU3_ALIGN;
 	struct ipu3_uapi_bds_config bds;
 	struct ipu3_uapi_anr_config anr;
 	struct ipu3_uapi_awb_fr_config awb_fr;
 	struct ipu3_uapi_ae_config ae;
 	struct ipu3_uapi_af_config af;
 	struct ipu3_uapi_awb_config awb;
-	struct ipu3_uapi_osys_config osys;
 } __packed;
 
 /* Linearization parameters */
@@ -1983,7 +1278,7 @@ struct ipu3_uapi_isp_lin_vmem_params {
 	__s16 lin_lutdif_gb[IPU3_UAPI_LIN_LUT_SIZE];
 } __packed;
 
-/* TNR3 VMEM parameters */
+/* Temporal Noise Reduction VMEM parameters */
 
 #define IPU3_UAPI_ISP_TNR3_VMEM_LEN	9
 
@@ -2047,46 +1342,6 @@ struct ipu3_uapi_isp_xnr3_params {
 	struct ipu3_uapi_xnr3_blending_params blending;
 } __packed;
 
-/* RGBIR DMEM parameters */
-
-#define IPU3_UAPI_RGBIR_LUT_WIDTH	17
-#define IPU3_UAPI_RGBIR_LUT_HEIGHT	10
-#define IPU3_UAPI_RGBIR_LUT_SIZE	(IPU3_UAPI_RGBIR_LUT_WIDTH * \
-					 IPU3_UAPI_RGBIR_LUT_HEIGHT)
-
-struct ipu3_uapi_isp_rgbir_params {
-	__u16 ob;					/* optical black level*/
-	__u16 ir_height;				/* lut table height */
-	__u16 ir_width;					/* lut table width */
-	__u16 ir_weights_r[IPU3_UAPI_RGBIR_LUT_SIZE];	/* lut values for red */
-	__u16 ir_weights_g[IPU3_UAPI_RGBIR_LUT_SIZE];	/* lut for green */
-	__u16 ir_weights_b[IPU3_UAPI_RGBIR_LUT_SIZE];	/* lut for blue */
-	__u16 ir_gain;					/* digital gain */
-} __packed;
-
-/***** Morphing table entry *****/
-
-#define IPU3_UAPI_GDC_FRAC_BITS		8
-
-struct ipu3_uapi_gdc_warp_param {
-	__u32 origin_x;
-	__u32 origin_y;
-	__u32 in_addr_offset;
-	__u32 in_block_width;
-	__u32 in_block_height;
-	__u32 p0_x;
-	__u32 p0_y;
-	__u32 p1_x;
-	__u32 p1_y;
-	__u32 p2_x;
-	__u32 p2_y;
-	__u32 p3_x;
-	__u32 p3_y;
-	__u32 in_block_width_a;
-	__u32 in_block_width_b;
-	__u32 padding;			/* struct size multiple of DDR word */
-} __packed;
-
 /***** Obgrid (optical black level compensation) table entry *****/
 
 struct ipu3_uapi_obgrid_param {
@@ -2096,40 +1351,24 @@ struct ipu3_uapi_obgrid_param {
 	__u16 gb;
 } __packed;
 
-/******************* V4L2_PIX_FMT_IPU3_PARAMS *******************/
+/******************* V4L2_META_FMT_IPU3_PARAMS *******************/
 
 /*
- * The video queue "parameters" is of format V4L2_PIX_FMT_IPU3_PARAMS.
- * It is a multiplanar output queue with three planes and type
- * V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE. User may also configure the
- * video queue as V4L2_BUF_TYPE_VIDEO_OUTPUT with a single plane, in which
- * case GDC and Obgrid tables can not be set.
+ * The video queue "parameters" is of format V4L2_META_FMT_IPU3_PARAMS.
+ * This is a "single plane" v4l2_meta_format using V4L2_BUF_TYPE_META_OUTPUT.
  *
- * Plane 0: Defined below in struct ipu3_params, size 288064 bytes.
- *          This contains a lot of parameters and flags selecting which
- *          parameters to apply. Its size and resolution (1x1) are fixed.
- *
- * Plane 1: Contains geometric distortion correction grid coordinates.
- *          Each entry in the grid is defined in
- *          struct ipu3_uapi_gdc_warp_param.
- *          The plane size is the grid entry size times the number of entries,
- *          which depends on the main output image resolution and block size.
- *
- * Plane 2: Contains Obgrid grid. Each entry in the grid is 8 bytes.
- *          The plane size depends on user parameters (internally, on chosen
- *          firmware binary which depends on user parameters).
+ * struct ipu3_uapi_params as defined below contains a lot of parameters and
+ * ipu3_uapi_flags selects which parameters to apply.
  */
-
 struct ipu3_uapi_flags {
-	/* Flags which of the settings below are to be applied */
-	__u32 gdc:1;		/* Whether to apply GDC and */
+	__u32 gdc:1;		/* Geometric Distortion Correction */
 	__u32 obgrid:1;		/* Obgrid planes */
 	__u32 __reserved1:30;
 
-	__u32 __acc_stripe:1;	/* Whether to apply these fields from */
-	__u32 __acc_input_feeder:1;	/* acc_param. Fields beginning with */
-	__u32 acc_bnr:1;		/* two underscores are reserved and */
-	__u32 acc_green_disparity:1;/* must not be enabled */
+	__u32 __acc_stripe:1;		/* Fields beginning with 2 underscore */
+	__u32 __acc_input_feeder:1;	/* are reserved and must be disabled */
+	__u32 acc_bnr:1;
+	__u32 acc_green_disparity:1;
 	__u32 acc_dm:1;
 	__u32 acc_ccm:1;
 	__u32 acc_gamma:1;
@@ -2137,7 +1376,7 @@ struct ipu3_uapi_flags {
 	__u32 acc_cds:1;
 	__u32 acc_shd:1;
 	__u32 acc_dvs_stat:1;
-	__u32 acc_lace_stat:1;
+	__u32 acc_lace_stat:1;	/* Local Adpative Contract Enhancement */
 	__u32 acc_iefd:1;
 	__u32 acc_yds_c0:1;
 	__u32 acc_chnr_c0:1;
@@ -2157,7 +1396,7 @@ struct ipu3_uapi_flags {
 	__u32 __acc_osys:1;
 	__u32 __reserved2:3;
 
-	__u32 lin_vmem_params:1;	/* Whether to apply these structs */
+	__u32 lin_vmem_params:1;
 	__u32 tnr3_vmem_params:1;
 	__u32 xnr3_vmem_params:1;
 	__u32 tnr3_dmem_params:1;
@@ -2168,16 +1407,10 @@ struct ipu3_uapi_flags {
 } __packed;
 
 struct ipu3_uapi_params {
-	__u32 padding1;
-	__u32 padding2;
+	/* Flags which of the settings below are to be applied */
+	struct ipu3_uapi_flags use IPU3_ALIGN;
 
-	struct ipu3_uapi_flags use;
-
-	/* Must be zero */
-	__u8 __reserved4[32 - sizeof(struct ipu3_uapi_flags)
-				- sizeof(__u32) * 2];
-
-	/* Acceleration cluster parameters */
+	/* Accelerator cluster parameters */
 	struct ipu3_uapi_acc_param acc_param;
 
 	/* VMEM parameters */
@@ -2188,10 +1421,8 @@ struct ipu3_uapi_params {
 	/* DMEM parameters */
 	struct ipu3_uapi_isp_tnr3_params tnr3_dmem_params;
 	struct ipu3_uapi_isp_xnr3_params xnr3_dmem_params;
-	struct ipu3_uapi_isp_rgbir_params rgbir_dmem_params;
 
 	struct ipu3_uapi_obgrid_param obgrid_param;
-	__u8 padding[4];
 } __packed;
 
 #endif

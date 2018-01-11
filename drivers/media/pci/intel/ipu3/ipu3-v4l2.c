@@ -212,8 +212,7 @@ static void ipu3_vb2_buf_queue(struct vb2_buffer *vb)
 		}
 		if (payload >= need_bytes)
 			r = ipu3_css_set_parameters(&imgu->css,
-						vb2_plane_vaddr(vb, 0),
-						NULL, 0, NULL, 0);
+						vb2_plane_vaddr(vb, 0));
 		buf->flags = V4L2_BUF_FLAG_DONE;
 		vb2_buffer_done(vb, r == 0 ? VB2_BUF_STATE_DONE
 					   : VB2_BUF_STATE_ERROR);
