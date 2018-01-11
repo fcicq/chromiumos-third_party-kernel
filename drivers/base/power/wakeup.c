@@ -573,9 +573,6 @@ static void wakeup_source_activate(struct wakeup_source *ws)
 			"unregistered wakeup source\n"))
 		return;
 
-	pr_info("%s: wakeup source activated, active_count=%lu\n",
-		ws->dev ? dev_name(ws->dev) : ws->name, ws->active_count + 1);
-
 	/*
 	 * active wakeup source should bring the system
 	 * out of PM_SUSPEND_FREEZE state
