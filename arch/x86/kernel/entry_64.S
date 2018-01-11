@@ -59,6 +59,7 @@
 #include <asm/smap.h>
 #include <asm/pgtable_types.h>
 #include <asm/kaiser.h>
+#include <asm/nospec-branch.h>
 #include <linux/err.h>
 
 /* Avoid __ASSEMBLER__'ifying <linux/audit.h> just for this.  */
@@ -370,7 +371,7 @@ ENTRY(ret_from_fork)
 	subq $REST_SKIP, %rsp	# leave space for volatiles
 	CFI_ADJUST_CFA_OFFSET	REST_SKIP
 	movq %rbp, %rdi
-	call *%rbx
+	CALL_NOSPEC %rbx
 	movl $0, RAX(%rsp)
 	RESTORE_REST
 	jmp int_ret_from_sys_call
@@ -460,9 +461,19 @@ system_call_fastpath:
 	movq %r10,%rcx
 #ifdef CONFIG_ALT_SYSCALL
 	movq TI_sys_call_table+THREAD_INFO(%rsp,RIP-ARGOFFSET),%r11
-	call *(%r11,%rax,8)
+# ifdef CONFIG_RETPOLINE
+	movq 0(%r11, %rax, 8), %rax
+	call __x86_indirect_thunk_rax
+# else
+	call *(%r11, %rax, 8)
+# endif
 #else
+# ifdef CONFIG_RETPOLINE
+  	movq sys_call_table(, %rax, 8), %rax
+	call __x86_indirect_thunk_rax
+# else
 	call *sys_call_table(,%rax,8)  # XXX:	 rip relative
+# endif
 #endif
 	movq %rax,RAX-ARGOFFSET(%rsp)
 /*
@@ -591,9 +602,19 @@ tracesys_phase2:
 	movq %r10,%rcx	/* fixup for C */
 #ifdef CONFIG_ALT_SYSCALL
 	movq TI_sys_call_table+THREAD_INFO(%rsp,RIP-ARGOFFSET),%r11
+# ifdef CONFIG_RETPOLINE
+	movq 0(%r11, %rax, 8), %rax
+	call __x86_indirect_thunk_rax
+# else
 	call *(%r11,%rax,8)
+# endif
 #else
+# ifdef CONFIG_RETPOLINE
+  	movq sys_call_table(, %rax, 8), %rax
+	call __x86_indirect_thunk_rax
+# else
 	call *sys_call_table(,%rax,8)
+# endif
 #endif
 	movq %rax,RAX-ARGOFFSET(%rsp)
 	/* Use IRET because user could have changed frame */
