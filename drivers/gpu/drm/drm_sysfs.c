@@ -254,66 +254,6 @@ static ssize_t enabled_show(struct device *device,
 	return snprintf(buf, PAGE_SIZE, enabled ? "enabled\n" : "disabled\n");
 }
 
-static ssize_t content_protection_store(struct device *device,
-			   struct device_attribute *attr,
-			   const char *buf, size_t count)
-{
-	const int nms[] = {
-		DRM_MODE_CONTENT_PROTECTION_DESIRED,
-		DRM_MODE_CONTENT_PROTECTION_UNDESIRED
-	};
-	struct drm_connector *connector = to_drm_connector(device);
-	struct drm_device *dev = connector->dev;
-	struct drm_property *prop;
-	int ret, i, val = -1;
-
-	for (i = 0; i < ARRAY_SIZE(nms); i++) {
-		if (sysfs_streq(buf, drm_get_content_protection_name(nms[i])))
-			val = nms[i];
-	}
-	if (val < 0)
-		return -EINVAL;
-
-	drm_modeset_lock_all(dev);
-
-	prop = dev->mode_config.content_protection_property;
-	if (!prop) {
-		drm_modeset_unlock_all(dev);
-		return count;
-	}
-
-	ret = drm_mode_connector_set_obj_prop(&connector->base, prop, val);
-
-	drm_modeset_unlock_all(dev);
-	return ret ? ret : count;
-}
-
-static ssize_t content_protection_show(struct device *device,
-				       struct device_attribute *attr, char *buf)
-{
-	struct drm_connector *connector = to_drm_connector(device);
-	struct drm_device *dev = connector->dev;
-	struct drm_property *prop;
-	uint64_t cp;
-	int ret;
-
-	drm_modeset_lock_all(dev);
-
-	prop = dev->mode_config.content_protection_property;
-	if (!prop) {
-		drm_modeset_unlock_all(dev);
-		return 0;
-	}
-
-	ret = drm_object_property_get_value(&connector->base, prop, &cp);
-	drm_modeset_unlock_all(dev);
-	if (ret)
-		return 0;
-
-	return snprintf(buf, PAGE_SIZE, "%s\n",
-			drm_get_content_protection_name((int)cp));
-}
-
 static ssize_t edid_show(struct file *filp, struct kobject *kobj,
 			 struct bin_attribute *attr, char *buf, loff_t off,
 			 size_t count)
@@ -361,14 +301,12 @@ static DEVICE_ATTR_RW(status);
 static DEVICE_ATTR_RO(enabled);
 static DEVICE_ATTR_RO(dpms);
 static DEVICE_ATTR_RO(modes);
-static DEVICE_ATTR_RW(content_protection);
 
 static struct attribute *connector_dev_attrs[] = {
 	&dev_attr_status.attr,
 	&dev_attr_enabled.attr,
 	&dev_attr_dpms.attr,
 	&dev_attr_modes.attr,
-	&dev_attr_content_protection.attr,
 	NULL
 };
 
