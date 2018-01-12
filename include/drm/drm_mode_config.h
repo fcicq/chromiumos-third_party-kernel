@@ -525,7 +525,6 @@ struct drm_mode_config {
 	 * connectors must be of and active must be set to disabled, too.
 	 */
 	struct drm_property *prop_mode_id;
-	struct drm_property *content_protection_property;
 
 	/**
 	 * @dvi_i_subconnector_property: Optional DVI-I property to

@@ -239,13 +239,6 @@ static const struct drm_prop_enum_list drm_plane_type_enum_list[] = {
 	{ DRM_PLANE_TYPE_CURSOR, "Cursor" },
 };
 
-static struct drm_prop_enum_list drm_cp_enum_list[] = {
-        { DRM_MODE_CONTENT_PROTECTION_UNDESIRED, "Undesired" },
-        { DRM_MODE_CONTENT_PROTECTION_DESIRED, "Desired" },
-        { DRM_MODE_CONTENT_PROTECTION_ENABLED, "Enabled" },
-};
-
-
 static const struct drm_prop_enum_list drm_dirty_info_enum_list[] = {
 	{ DRM_MODE_DIRTY_OFF,      "Off"      },
 	{ DRM_MODE_DIRTY_ON,       "On"       },
@@ -394,11 +387,6 @@ static int drm_mode_create_standard_properties(struct drm_device *dev)
 	if (!prop)
 		return -ENOMEM;
 	dev->mode_config.modifiers_property = prop;
-
-	prop = drm_property_create_enum(dev, 0,
-	                                "Content Protection", drm_cp_enum_list,
-					ARRAY_SIZE(drm_cp_enum_list));
-	dev->mode_config.content_protection_property = prop;
 
 	return 0;
 }
