@@ -245,7 +245,6 @@ static struct drm_prop_enum_list drm_cp_enum_list[] = {
         { DRM_MODE_CONTENT_PROTECTION_ENABLED, "Enabled" },
 };
 
-DRM_ENUM_NAME_FN(drm_get_content_protection_name, drm_cp_enum_list)
 
 static const struct drm_prop_enum_list drm_dirty_info_enum_list[] = {
 	{ DRM_MODE_DIRTY_OFF,      "Off"      },
