@@ -468,6 +468,10 @@ typedef PVRSRV_ERROR (*PFN_MMAP_FN)(PMR_IMPL_PRIVDATA pPriv,
 
 @Return         PVRSRV_OK if the PMR destruction was successful, an error
                 code otherwise.
+                Currently PVRSRV_ERROR_PMR_STILL_REFERENCED is the only
+                error returned from physmem_dmabuf.c layer and on this
+                error, destroying of the PMR is aborted without disturbing
+                the PMR state.
 */
 /*****************************************************************************/
 typedef PVRSRV_ERROR (*PFN_FINALIZE_FN)(PMR_IMPL_PRIVDATA pvPriv);
@@ -496,12 +500,12 @@ typedef struct _PMR_IMPL_FUNCTAB_ {
    										IMG_HANDLE *phMemObj,
 										void **pvClientAddr);
     PVRSRV_ERROR (*pfnUnmapMemoryObject)(PMR_IMPL_PRIVDATA pvPriv);
-	
+
 #if defined(USING_HYPERVISOR)
     IMG_HANDLE (*pfnGetPmr)(PMR_IMPL_PRIVDATA pvPriv, size_t ulOffset);
 #endif
 #endif
-    
+
     PFN_READ_BYTES_FN pfnReadBytes;
     PFN_WRITE_BYTES_FN pfnWriteBytes;
 
