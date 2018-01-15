@@ -77,7 +77,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #if defined(PVR_RI_DEBUG)
 #include "ri_server.h"
-#endif 
+#endif
 
 #define PMR_STRUCTURE_ASSERT
 
@@ -266,6 +266,7 @@ struct _PMR_
 	 */
 	void		*hRIHandle;
 #endif
+	IMG_BOOL bPathTaken;
 };
 
 /* do we need a struct for the export handle?  I'll use one for now, but if nothing goes in it, we'll lose it */
@@ -295,13 +296,24 @@ PPVRSRV_DEVICE_NODE PMRGetExportDeviceNode(PMR_EXPORT *psExportPMR)
 
 }
 
+void PMRSetPath(PMR *psPMR)
+{
+	psPMR->bPathTaken = IMG_TRUE;
+}
+
+int  PMRRefCount(const PMR *psPMR)
+{
+	return OSAtomicRead(&psPMR->iRefCount);
+}
+
+
 #ifdef PMR_STRUCTURE_ASSERT
 static IMG_BOOL
 _PMRAssert(const PMR *psPMR)
 {
 	if (psPMR
 	    && PMR_SIGNATURE_LIVE == psPMR->ui32PMRSignature
-	    && OSAtomicRead(&psPMR->iRefCount))
+	    && (OSAtomicRead(&psPMR->iRefCount) >= 0))
 	{
 		return IMG_TRUE;
 	}
@@ -313,11 +325,13 @@ _PMRAssert(const PMR *psPMR)
 	else if (PMR_SIGNATURE_DEAD == psPMR->ui32PMRSignature)
 	{
 		PVR_DPF((PVR_DBG_ERROR, "%s: PMR %p DEAD", __func__, psPMR));
+		PVR_LOG(("PMR : %p  Ref Value: %d Path Taken: %s\n", psPMR, PMRRefCount(psPMR), (psPMR->bPathTaken)?"yes":"no"));
 	}
 	else
 	{
 		PVR_DPF((PVR_DBG_ERROR, "%s: PMR %p CORRUPT %08x", __func__,
 		         psPMR, psPMR->ui32PMRSignature));
+		PVR_LOG(("PMR : %p  Ref Value: %d Path Taken: %s\n", psPMR, PMRRefCount(psPMR), (psPMR->bPathTaken)?"yes":"no"));
 	}
 
 	OSWarnOn(IMG_TRUE);
@@ -422,7 +436,6 @@ _PMRCreate(PMR_SIZE_T uiLogicalSize,
 	psPMR->bSparseAlloc = bSparse;
 	psPMR->uiKey = psContext->uiNextKey;
 	psPMR->uiSerialNum = psContext->uiNextSerialNum;
-
 	psPMR->ui32PMRSignature = PMR_SIGNATURE_LIVE;
 
 #if defined(PVR_RI_DEBUG)
@@ -442,10 +455,20 @@ _PMRCreate(PMR_SIZE_T uiLogicalSize,
 	return PVRSRV_OK;
 }
 
+/* This function returns true if the PMR is in use and false otherwise.
+ * This function is not thread safe and hence the caller
+ * needs to ensure the thread safety by explicitly taking
+ * the lock on the PMR or through other means */
+IMG_BOOL  PMRIsPMRLive(PMR *psPMR)
+{
+	return (OSAtomicRead(&psPMR->iRefCount) > 0);
+}
+
+
 static IMG_UINT32
 _Ref(PMR *psPMR)
 {
-	PVR_ASSERT(OSAtomicRead(&psPMR->iRefCount) > 0);
+	PVR_ASSERT(OSAtomicRead(&psPMR->iRefCount) >= 0);
 	/* We need to ensure that this function is always executed under
 	 * PMRLock. The only exception acceptable is the unloading of the driver.
 	 */
@@ -475,6 +498,30 @@ _UnrefAndMaybeDestroy(PMR *psPMR)
 
 	if (iRefCount == 0)
 	{
+		if (psPMR->psFuncTab->pfnFinalize != NULL)
+		{
+			eError2 = psPMR->psFuncTab->pfnFinalize(psPMR->pvFlavourData);
+
+			/* PMR unref can be called asynchronously by the kernel or other
+			 * third party modules (eg. display) which doesn't go through the
+			 * usual services bridge. The same PMR can be referenced simultaneously
+			 * in a different path that results in a race condition.
+			 * Hence depending on the race condition, a factory may refuse to destroy
+			 * the resource associated with this PMR if a reference on it was taken
+			 * prior to unref. In that case the PMR factory function returns the error.
+			 *
+			 * When such an error is encountered, the factory needs to ensure the state
+			 * associated with PMR is undisturbed. At this point we just bail out from
+			 * freeing the PMR itself. The PMR handle will then be freed at a later point
+			 * when the same PMR is unreferenced.
+			 * */
+			if (PVRSRV_ERROR_PMR_STILL_REFERENCED == eError2)
+			{
+				return;
+			}
+			PVR_ASSERT (eError2 == PVRSRV_OK); /* can we do better? */
+		}
+
 		psPMR->ui32PMRSignature = PMR_SIGNATURE_DEAD;
 #if defined(PDUMP)
 		PDumpPMRFreePMR(psPMR,
@@ -486,11 +533,14 @@ _UnrefAndMaybeDestroy(PMR *psPMR)
 		OSFreeMem(psPMR->pszAnnotation);
 #endif
 
-		if (psPMR->psFuncTab->pfnFinalize != NULL)
-		{
-			eError2 = psPMR->psFuncTab->pfnFinalize(psPMR->pvFlavourData);
-			PVR_ASSERT (eError2 == PVRSRV_OK); /* can we do better? */
-		}
+#if defined (PVRSRV_ENABLE_LINUX_MMAP_STATS)
+		/* This PMR is about to die, update its mmap stats record (if present) to avoid
+		 * dangling pointer. Additionally, this is required because mmap stats are
+		 * identified by PMRs and a new PMR down the line "might" get the same address
+		 * as the one we're about to free and we'd like 2 different entries in mmaps
+		 * stats for such cases */
+		MMapStatsRemovePMR(psPMR);
+#endif
 
 #ifdef PVRSRV_NEED_PVR_ASSERT
 		PVR_ASSERT(OSAtomicRead(&psPMR->iLockCount) == 0);
@@ -505,7 +555,7 @@ _UnrefAndMaybeDestroy(PMR *psPMR)
 			{
 				eError = RIDeletePMREntryKM (psPMR->hRIHandle);
 
-				if(eError != PVRSRV_OK)
+				if (eError != PVRSRV_OK)
 				{
 					PVR_DPF((PVR_DBG_ERROR, "%s: RIDeletePMREntryKM failed: %s",
 												__func__,
@@ -595,7 +645,7 @@ PMRCreatePMR(PVRSRV_DEVICE_NODE *psDevNode,
 		{
 			bInitialise = IMG_TRUE;
 		}
-		else if(PVRSRV_CHECK_POISON_ON_ALLOC(uiFlags))
+		else if (PVRSRV_CHECK_POISON_ON_ALLOC(uiFlags))
 		{
 			ui32InitValue = 0xDEADBEEF;
 			bInitialise = IMG_TRUE;
@@ -766,7 +816,7 @@ PMRUnpinPMR(PMR *psPMR, IMG_BOOL bDevMapped)
 	}
 	OSLockRelease(psPMR->hLock);
 
-	if(psPMR->psFuncTab->pfnUnpinMem != NULL)
+	if (psPMR->psFuncTab->pfnUnpinMem != NULL)
 	{
 		eError = psPMR->psFuncTab->pfnUnpinMem(psPMR->pvFlavourData);
 	}
@@ -782,7 +832,7 @@ PMRPinPMR(PMR *psPMR)
 
 	_PMRAssert(psPMR);
 
-	if(psPMR->psFuncTab->pfnPinMem != NULL)
+	if (psPMR->psFuncTab->pfnPinMem != NULL)
 	{
 		eError = psPMR->psFuncTab->pfnPinMem(psPMR->pvFlavourData,
 											psPMR->psMappingTable);
@@ -995,7 +1045,7 @@ PVRSRV_ERROR PMRSecureExportPMR(CONNECTION_DATA *psConnection,
 
 	_PMRAssert(psPMR);
 	PVR_UNREFERENCED_PARAMETER(psDevNode);
-	
+
 	/* We are acquiring reference to PMR here because OSSecureExport
 	 * releases bridge lock and PMR lock for a moment and we don't want PMR
 	 * to be removed by other thread in the meantime. */
@@ -1254,8 +1304,8 @@ IMG_HANDLE PMRGetPmr(PMR *psPMR, size_t ulOffset)
 	As well as returning the physical offset we return the number of
 	bytes remaining till the next chunk and if this chunk is valid.
 
-	For multi-page operations, upper layers communicate their 
-	Log2PageSize else argument is redundant (set to zero). 
+	For multi-page operations, upper layers communicate their
+	Log2PageSize else argument is redundant (set to zero).
 */
 
 static void
@@ -1284,7 +1334,7 @@ _PMRLogicalOffsetToPhysicalOffset(const PMR *psPMR,
 		*pui32BytesRemain = TRUNCATE_64BITS_TO_32BITS(psPMR->uiLogicalSize - uiOffset);
 		puiPhysicalOffset[0] = uiOffset;
 		bValid[0] = IMG_TRUE;
-		
+
 		if (ui32NumOfPages > 1)
 		{
 			/* initial offset may not be page aligned, round down */
@@ -1305,7 +1355,7 @@ _PMRLogicalOffsetToPhysicalOffset(const PMR *psPMR,
 					uiOffset,
 					TRUNCATE_64BITS_TO_32BITS(psMappingTable->uiChunkSize),
 					&ui32Remain);
-			
+
 			if (psMappingTable->aui32Translation[ui64ChunkIndex] == TRANSLATION_INVALID)
 			{
 				bValid[idx] = IMG_FALSE;
@@ -1459,7 +1509,7 @@ PMR_ReadBytes(PMR *psPMR,
 										  &uiPhysicalOffset,
 										  &ui32Remain,
 										  &bValid);
-		/* 
+		/*
 			Copy till either then end of the
 			chunk or end of the buffer
 		*/
@@ -1628,7 +1678,7 @@ PMR_WriteBytes(PMR *psPMR,
 										  &ui32Remain,
 										  &bValid);
 
-		/* 
+		/*
 			Copy till either then end of the
 			chunk or end of the buffer
 		*/
@@ -1832,7 +1882,7 @@ PMR_DevPhysAddr(const PMR *psPMR,
 				IMG_DEV_PHYADDR *psDevAddrPtr,
 				IMG_BOOL *pbValid)
 {
-	IMG_UINT32 ui32Remain;	
+	IMG_UINT32 ui32Remain;
 	PVRSRV_ERROR eError = PVRSRV_OK;
 	IMG_DEVMEM_OFFSET_T auiPhysicalOffset[PMR_MAX_TRANSLATION_STACK_ALLOC];
 	IMG_DEVMEM_OFFSET_T *puiPhysicalOffset = auiPhysicalOffset;
@@ -1936,14 +1986,14 @@ PMR_CpuPhysAddr(const PMR *psPMR,
     	}
     }
 
-    eError = PMR_DevPhysAddr(psPMR, ui32Log2PageSize, ui32NumOfPages, 
+    eError = PMR_DevPhysAddr(psPMR, ui32Log2PageSize, ui32NumOfPages,
 							 uiLogicalOffset, psDevPAddr, pbValid);
     if (eError != PVRSRV_OK)
     {
         goto e1;
     }
 	PhysHeapDevPAddrToCpuPAddr(psPMR->psPhysHeap, ui32NumOfPages, psCpuAddrPtr, psDevPAddr);
-	
+
 	if (ui32NumOfPages > PMR_MAX_TRANSLATION_STACK_ALLOC)
 	{
 		OSFreeMem(psDevPAddr);
@@ -1999,7 +2049,7 @@ PVRSRV_ERROR PMR_ChangeSparseMem(PMR *psPMR,
 		{
 			bInitialise = IMG_TRUE;
 		}
-		else if(PVRSRV_CHECK_POISON_ON_ALLOC(uiFlags))
+		else if (PVRSRV_CHECK_POISON_ON_ALLOC(uiFlags))
 		{
 			ui32InitValue = 0xDEADBEEF;
 			bInitialise = IMG_TRUE;
@@ -2092,7 +2142,7 @@ _PMR_PDumpSymbolicAddrPhysical(const PMR *psPMR,
 
 
 	*puiNewOffset = uiPhysicalOffset & ((1 << PMR_GetLog2Contiguity(psPMR))-1);
-	*puiNextSymName = (IMG_DEVMEM_OFFSET_T) (((uiPhysicalOffset >> PMR_GetLog2Contiguity(psPMR))+1) 
+	*puiNextSymName = (IMG_DEVMEM_OFFSET_T) (((uiPhysicalOffset >> PMR_GetLog2Contiguity(psPMR))+1)
 	                                          << PMR_GetLog2Contiguity(psPMR));
 
 	return PVRSRV_OK;
@@ -2492,7 +2542,7 @@ PMRPDumpLoadMem(PMR *psPMR,
 	PVR_ASSERT(uiLogicalOffset + uiSize <= psPMR->uiLogicalSize);
 
 	/* Get the correct PDump stream file name */
-	if(bZero)
+	if (bZero)
 	{
 		PDumpCommentWithFlags(uiPDumpFlags,
 		                      "Zeroing allocation (%llu bytes)",
@@ -2545,7 +2595,7 @@ PMRPDumpLoadMem(PMR *psPMR,
 		 * in the pdump stream */
 		if (bValid)
 		{
-			if(bZero)
+			if (bZero)
 			{
 				uiNumBytes = MIN(uiSize, uiNextSymName - uiCurrentOffset);
 			}
@@ -2576,7 +2626,7 @@ PMRPDumpLoadMem(PMR *psPMR,
 					 */
 					eError = PVRSRV_OK;
 				}
-				else if(eError != PVRSRV_OK)
+				else if (eError != PVRSRV_OK)
 				{
 					PDUMP_ERROR(eError, "Failed to write PMR memory to parameter file");
 				}
@@ -3048,7 +3098,7 @@ PMRWritePMPageList(/* Target PMR, offset, and length */
     /* Need to lock down the physical addresses of the reference PMR */
     /* N.B.  This also checks that the requested "contiguity" is achievable */
     eError = PMRLockSysPhysAddresses(psReferencePMR);
-    if(eError != PVRSRV_OK)
+    if (eError != PVRSRV_OK)
     {
         goto e1;
     }
@@ -3080,15 +3130,15 @@ PMRWritePMPageList(/* Target PMR, offset, and length */
 		pasDevAddrPtr = asDevPAddr;
 		pbPageIsValid = abValid;
 	}
-	
-	
+
+
 	eError = PMR_DevPhysAddr(psReferencePMR, uiLog2PageSize, uiNumPages, 0,
 							 pasDevAddrPtr, pbPageIsValid);
 	if (eError != PVRSRV_OK)
 	{
 		PVR_DPF((PVR_DBG_ERROR, "Failed to map PMR pages into device physical addresses"));
 		goto e3;
-	}	
+	}
 #endif
 
     for (uiPageIndex = 0; uiPageIndex < uiNumPages; uiPageIndex++)
@@ -3207,10 +3257,10 @@ PMRWritePMPageList(/* Target PMR, offset, and length */
       error exit paths follow
     */
 #if !defined(NO_HARDWARE)
-e3: 
+e3:
     if (pasDevAddrPtr != asDevPAddr)
 	{
-		OSFreeMem(pbPageIsValid);  
+		OSFreeMem(pbPageIsValid);
 		OSFreeMem(pasDevAddrPtr);
 	}
  e2:

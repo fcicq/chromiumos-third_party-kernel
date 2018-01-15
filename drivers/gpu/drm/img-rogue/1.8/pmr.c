@@ -370,10 +370,19 @@ _PMRCreate(PMR_SIZE_T uiLogicalSize,
 	return PVRSRV_OK;
 }
 
+/* This function returns true if the PMR is in use and false otherwise.
+ * This function is not thread safe and hence the caller
+ * needs to ensure the thread safety by explicitly taking
+ * the lock on the PMR or through other means */
+IMG_BOOL PMRIsPMRLive(PMR *psPMR)
+{
+	return (psPMR->uiRefCount > 0);
+}
+
 static IMG_UINT32
 _RefNoLock(PMR *psPMR)
 {
-	PVR_ASSERT(psPMR->uiRefCount > 0);
+	PVR_ASSERT(psPMR->uiRefCount >= 0);
 	/* We need to ensure that this function is always executed under
 	 * PMRLock. The only exception acceptable is the unloading of the driver.
 	 */
@@ -416,6 +425,30 @@ _UnrefAndMaybeDestroy(PMR *psPMR)
 
 	if (uiRefCount == 0)
 	{
+		if (psPMR->psFuncTab->pfnFinalize != NULL)
+		{
+			eError2 = psPMR->psFuncTab->pfnFinalize(psPMR->pvFlavourData);
+
+			/* PMR unref can be called asynchronously by the kernel or other
+			 * third party modules (eg. display) which doesn't go through the
+			 * usual services bridge. The same PMR can be referenced simultaneously
+			 * in a different path that results in a race condition.
+			 * Hence depending on the race condition, a factory may refuse to destroy
+			 * the resource associated with this PMR if a reference on it was taken
+			 * prior to unref. In that case the PMR factory function returns the error.
+			 *
+			 * When such an error is encountered, the factory needs to ensure the state
+			 * associated with PMR is undisturbed. At this point we just bail out from
+			 * freeing the PMR itself. The PMR handle will then be freed at a later point
+			 * when the same PMR is unreferenced.
+			 * */
+			if (PVRSRV_ERROR_PMR_STILL_REFERENCED == eError2)
+			{
+				return;
+			}
+			PVR_ASSERT (eError2 == PVRSRV_OK);
+		}
+
 #if defined(PDUMP)
 		PDumpPMRFreePMR(psPMR,
 		                psPMR->uiLogicalSize,
@@ -425,12 +458,6 @@ _UnrefAndMaybeDestroy(PMR *psPMR)
 
 		OSFreeMem(psPMR->pszAnnotation);
 #endif
-
-		if (psPMR->psFuncTab->pfnFinalize != NULL)
-		{
-			eError2 = psPMR->psFuncTab->pfnFinalize(psPMR->pvFlavourData);
-			PVR_ASSERT (eError2 == PVRSRV_OK); /* can we do better? */
-		}
 
 #ifdef PVRSRV_NEED_PVR_ASSERT
 		OSLockAcquire(psPMR->hLock);

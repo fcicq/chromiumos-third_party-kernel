@@ -517,6 +517,15 @@ extern PPVRSRV_DEVICE_NODE
 PMR_DeviceNode(const PMR *psPMR);
 
 /*
+ * PMRIsPMRLive()
+ *
+ * This function returns true if the PMR is in use and false otherwise.
+ * This function is not thread safe and hence the caller
+ * needs to ensure the thread safety by explicitly taking
+ * the lock on the PMR or through other means */
+IMG_BOOL  PMRIsPMRLive(PMR *psPMR);
+
+/*
  * PMR_Flags()
  *
  * Flags are static and guaranteed for the life of the PMR.  Thus this
@@ -1082,6 +1091,9 @@ extern PVRSRV_ERROR
 PMRStoreRIHandle(PMR *psPMR,
 				 void *hRIHandle);
 #endif
+
+int  PMRRefCount(const PMR *psPMR);
+void PMRSetPath(PMR *psPMR);
 
 #endif /* #ifdef _SRVSRV_PMR_H_ */
 

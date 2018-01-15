@@ -63,9 +63,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "allocmem.h"
 #include "osfunc.h"
 #include "pmr_impl.h"
-#if defined(SUPPORT_LINUX_REFCNT_PMR_ON_IMPORT)
 #include "hash.h"
-#endif
 #include "private_data.h"
 #include "module_common.h"
 
@@ -148,16 +146,13 @@ typedef struct _PMR_DMA_BUF_DATA_
 	IMG_UINT32 ui32VirtPageCount;
 } PMR_DMA_BUF_DATA;
 
-#if defined(SUPPORT_LINUX_REFCNT_PMR_ON_IMPORT)
 /* Start size of the g_psDmaBufHash hash table */
 #define DMA_BUF_HASH_SIZE 20
 
-#if !defined(PVRSRV_USE_BRIDGE_LOCK)
 static DEFINE_MUTEX(g_HashLock);
-#endif
+
 static HASH_TABLE *g_psDmaBufHash = NULL;
 static IMG_UINT32 g_ui32HashRefCount = 0;
-#endif
 
 #if defined(PVR_ANDROID_ION_USE_SG_LENGTH)
 #define pvr_sg_length(sg) ((sg)->length)
@@ -201,7 +196,51 @@ static PVRSRV_ERROR PMRFinalizeDmaBuf(PMR_IMPL_PRIVDATA pvPriv)
 	struct dma_buf_attachment *psAttachment = psPrivData->psAttachment;
 	struct dma_buf *psDmaBuf = psAttachment->dmabuf;
 	struct sg_table *psSgTable = psPrivData->psSgTable;
-	PVRSRV_ERROR eError;
+	PMR *psPMR;
+	PVRSRV_ERROR eError = PVRSRV_OK;
+
+	mutex_lock(&g_HashLock);
+
+	if (psDmaBuf->ops != &sPVRDmaBufOps)
+	{
+		if(g_psDmaBufHash)
+		{
+			/* We have a hash table so check if we've seen this dmabuf before */
+			psPMR = (PMR *) HASH_Retrieve(g_psDmaBufHash, (uintptr_t) psDmaBuf);
+
+			if(psPMR)
+			{
+				if (!PMRIsPMRLive(psPMR))
+				{
+					HASH_Remove(g_psDmaBufHash, (uintptr_t) psDmaBuf);
+					g_ui32HashRefCount--;
+
+					if (g_ui32HashRefCount == 0)
+					{
+						HASH_Delete(g_psDmaBufHash);
+						g_psDmaBufHash = NULL;
+					}
+				}
+				else{
+					eError = PVRSRV_ERROR_PMR_STILL_REFERENCED;
+				}
+			}
+		}
+	}else
+	{
+		psPMR = (PMR *) psDmaBuf->priv;
+		if (PMRIsPMRLive(psPMR))
+		{
+			eError = PVRSRV_ERROR_PMR_STILL_REFERENCED;
+		}
+
+	}
+
+	if(PVRSRV_OK != eError)
+	{
+		mutex_unlock(&g_HashLock);
+		return eError;
+	}
 
 	psPrivData->ui32PhysPageCount = 0;
 
@@ -252,10 +291,12 @@ exit:
 		eError = psPrivData->pfnDestroy(psPrivData->psPhysHeap, psPrivData->psAttachment);
 		if (eError != PVRSRV_OK)
 		{
+			mutex_unlock(&g_HashLock);
 			return eError;
 		}
 	}
 
+	mutex_unlock(&g_HashLock);
 	OSFreeMem(psPrivData->pasDevPhysAddr);
 	OSFreeMem(psPrivData);
 
@@ -645,25 +686,6 @@ static PVRSRV_ERROR PhysmemDestroyDmaBuf(PHYS_HEAP *psHeap,
 
 	PVR_UNREFERENCED_PARAMETER(psHeap);
 
-#if defined(SUPPORT_LINUX_REFCNT_PMR_ON_IMPORT)
-
-#if !defined(PVRSRV_USE_BRIDGE_LOCK)
-	mutex_lock(&g_HashLock);
-#endif
-
-	HASH_Remove(g_psDmaBufHash, (uintptr_t) psDmaBuf);
-	g_ui32HashRefCount--;
-
-	if (g_ui32HashRefCount == 0)
-	{
-		HASH_Delete(g_psDmaBufHash);
-		g_psDmaBufHash = NULL;
-	}
-
-#if !defined(PVRSRV_USE_BRIDGE_LOCK)
-	mutex_unlock(&g_HashLock);
-#endif
-#endif
 	dma_buf_detach(psDmaBuf, psAttachment);
 	dma_buf_put(psDmaBuf);
 
@@ -694,6 +716,8 @@ PhysmemExportDmaBuf(CONNECTION_DATA *psConnection,
 	IMG_DEVMEM_SIZE_T uiPMRSize;
 	PVRSRV_ERROR eError;
 	IMG_INT iFd;
+
+	mutex_lock(&g_HashLock);
 
 	PMRRefPMR(psPMR);
 
@@ -739,6 +763,7 @@ PhysmemExportDmaBuf(CONNECTION_DATA *psConnection,
 		goto fail_dma_buf;
 	}
 
+	mutex_unlock(&g_HashLock);
 	*piFd = iFd;
 	return PVRSRV_OK;
 
@@ -747,6 +772,7 @@ fail_dma_buf:
 
 fail_pmr_ref:
 	PMRUnrefPMR(psPMR);
+	mutex_unlock(&g_HashLock);
 
 	PVR_ASSERT(eError != PVRSRV_OK);
 	return eError;
@@ -764,6 +790,7 @@ PhysmemImportDmaBuf(CONNECTION_DATA *psConnection,
 	IMG_DEVMEM_SIZE_T uiSize;
 	IMG_UINT32 ui32MappingTable = 0;
 	struct dma_buf *psDmaBuf;
+	PVRSRV_ERROR eError;
 
 	/* Get the buffer handle */
 	psDmaBuf = dma_buf_get(fd);
@@ -777,9 +804,7 @@ PhysmemImportDmaBuf(CONNECTION_DATA *psConnection,
 
 	uiSize = psDmaBuf->size;
 
-	dma_buf_put(psDmaBuf);
-
-	return PhysmemImportSparseDmaBuf(psConnection,
+	eError = PhysmemImportSparseDmaBuf(psConnection,
 	                                 psDevNode,
 	                                 fd,
 	                                 uiFlags,
@@ -792,6 +817,9 @@ PhysmemImportDmaBuf(CONNECTION_DATA *psConnection,
 	                                 puiAlign);
 
 
+	dma_buf_put(psDmaBuf);
+
+	return eError;
 }
 
 PVRSRV_ERROR
@@ -811,6 +839,7 @@ PhysmemImportSparseDmaBuf(CONNECTION_DATA *psConnection,
 	struct dma_buf_attachment *psAttachment;
 	struct dma_buf *psDmaBuf;
 	PVRSRV_ERROR eError;
+	IMG_BOOL bHashTableCreated = IMG_FALSE;
 
 	PVR_UNREFERENCED_PARAMETER(psConnection);
 
@@ -830,12 +859,20 @@ PhysmemImportSparseDmaBuf(CONNECTION_DATA *psConnection,
 		goto errReturn;
 	}
 
+	mutex_lock(&g_HashLock);
+
 	if (psDmaBuf->ops == &sPVRDmaBufOps)
 	{
 		PVRSRV_DEVICE_NODE *psPMRDevNode;
 
+
 		/* We exported this dma_buf, so we can just get its PMR */
 		psPMR = (PMR *) psDmaBuf->priv;
+
+		if (psPMR)
+		{
+			PMRSetPath(psPMR);
+		}
 
 		/* However, we can't import it if it belongs to a different device */
 		psPMRDevNode = PMR_DeviceNode(psPMR);
@@ -844,22 +881,32 @@ PhysmemImportSparseDmaBuf(CONNECTION_DATA *psConnection,
 			PVR_DPF((PVR_DBG_ERROR, "%s: PMR invalid for this device\n",
 					 __func__));
 			eError = PVRSRV_ERROR_PMR_NOT_PERMITTED;
-			goto errDMAPut;
+			goto err;
 		}
 	}
-#if defined(SUPPORT_LINUX_REFCNT_PMR_ON_IMPORT)
-	else if (g_psDmaBufHash)
+	else
 	{
-#if !defined(PVRSRV_USE_BRIDGE_LOCK)
-		mutex_lock(&g_HashLock);
-#endif
-		/* We have a hash table so check if we've seen this dmabuf before */
-		psPMR = (PMR *) HASH_Retrieve(g_psDmaBufHash, (uintptr_t) psDmaBuf);
-#if !defined(PVRSRV_USE_BRIDGE_LOCK)
-		mutex_unlock(&g_HashLock);
-#endif
+		if (g_psDmaBufHash)
+		{
+			/* We have a hash table so check if we've seen this dmabuf before */
+			psPMR = (PMR *) HASH_Retrieve(g_psDmaBufHash, (uintptr_t) psDmaBuf);
+		}
+		else
+		{
+			/*
+			 * As different processes may import the same dmabuf we need to
+			 * create a hash table so we don't generate a duplicate PMR but
+			 * rather just take a reference on an existing one.
+			 */
+			g_psDmaBufHash = HASH_Create(DMA_BUF_HASH_SIZE);
+			if (!g_psDmaBufHash)
+			{
+				eError = PVRSRV_ERROR_OUT_OF_MEMORY;
+				goto err;
+			}
+			bHashTableCreated = IMG_TRUE;
+		}
 	}
-#endif
 
 	if (psPMR)
 	{
@@ -869,10 +916,16 @@ PhysmemImportSparseDmaBuf(CONNECTION_DATA *psConnection,
 		*ppsPMRPtr = psPMR;
 		PMR_LogicalSize(psPMR, puiSize);
 		*puiAlign = PAGE_SIZE;
+	}
+	/* No errors so far */
+	eError = PVRSRV_OK;
 
+err:
+	if(psPMR || (PVRSRV_OK != eError))
+	{
+		mutex_unlock(&g_HashLock);
 		dma_buf_put(psDmaBuf);
-
-		return PVRSRV_OK;
+		return eError;
 	}
 
 	/* Do we want this to be a sparse PMR? */
@@ -901,7 +954,7 @@ PhysmemImportSparseDmaBuf(CONNECTION_DATA *psConnection,
 					ui32NumPhysChunks,
 					ui32NumVirtChunks));
 			eError = PVRSRV_ERROR_INVALID_PARAMS;
-			goto errDMAPut;
+			goto errUnlockAndDMAPut;
 		}
 
 		/* Parameter validation - Mapping table entries*/
@@ -917,7 +970,7 @@ PhysmemImportSparseDmaBuf(CONNECTION_DATA *psConnection,
 						 (IMG_UINT32) pui32MappingTable[i],
 						 (IMG_UINT32) ui32NumVirtChunks));
 				eError = PVRSRV_ERROR_INVALID_PARAMS;
-				goto errDMAPut;
+				goto errUnlockAndDMAPut;
 			}
 		}
 	}
@@ -937,7 +990,7 @@ PhysmemImportSparseDmaBuf(CONNECTION_DATA *psConnection,
 		PVR_DPF((PVR_DBG_ERROR, "%s: Failed to attach to dma-buf (err=%ld)",
 				 __func__, psAttachment? PTR_ERR(psAttachment) : -ENOMEM));
 		eError = PVRSRV_ERROR_BAD_MAPPING;
-		goto errDMAPut;
+		goto errUnlockAndDMAPut;
 	}
 
 	/*
@@ -960,36 +1013,11 @@ PhysmemImportSparseDmaBuf(CONNECTION_DATA *psConnection,
 		goto errDMADetach;
 	}
 
-#if defined(SUPPORT_LINUX_REFCNT_PMR_ON_IMPORT)
-
-#if !defined(PVRSRV_USE_BRIDGE_LOCK)
-	mutex_lock(&g_HashLock);
-#endif
-	if (!g_psDmaBufHash)
-	{
-		/*
-		 * As different processes may import the same dmabuf we need to
-		 * create a hash table so we don't generate a duplicate PMR but
-		 * rather just take a reference on an existing one.
-		 */
-		g_psDmaBufHash = HASH_Create(DMA_BUF_HASH_SIZE);
-		if (!g_psDmaBufHash)
-		{
-#if !defined(PVRSRV_USE_BRIDGE_LOCK)
-			mutex_unlock(&g_HashLock);
-#endif
-			eError = PVRSRV_ERROR_OUT_OF_MEMORY;
-			goto errUnrefPMR;
-		}
-	}
-
 	/* First time we've seen this dmabuf so store it in the hash table */
 	HASH_Insert(g_psDmaBufHash, (uintptr_t) psDmaBuf, (uintptr_t) psPMR);
 	g_ui32HashRefCount++;
-#if !defined(PVRSRV_USE_BRIDGE_LOCK)
+
 	mutex_unlock(&g_HashLock);
-#endif
-#endif
 
 	*ppsPMRPtr = psPMR;
 	*puiSize = ui32NumVirtChunks * uiChunkSize;
@@ -997,15 +1025,16 @@ PhysmemImportSparseDmaBuf(CONNECTION_DATA *psConnection,
 
 	return PVRSRV_OK;
 
-#if defined(SUPPORT_LINUX_REFCNT_PMR_ON_IMPORT)
-errUnrefPMR:
-	PMRUnrefPMR(psPMR);
-#endif
-
 errDMADetach:
 	dma_buf_detach(psDmaBuf, psAttachment);
 
-errDMAPut:
+errUnlockAndDMAPut:
+	if(IMG_TRUE == bHashTableCreated)
+	{
+		HASH_Delete(g_psDmaBufHash);
+		g_psDmaBufHash = NULL;
+	}
+	mutex_unlock(&g_HashLock);
 	dma_buf_put(psDmaBuf);
 
 errReturn:

@@ -74,6 +74,15 @@ typedef enum _PMR_IMPL_TYPE_
 	PMR_TYPE_TDSECBUF
 } PMR_IMPL_TYPE;
 
+/*
+ * PMRIsPMRLive()
+ *
+ * This function returns true if the PMR is in use and false otherwise.
+ * This function is not thread safe and hence the caller
+ * needs to ensure the thread safety by explicitly taking
+ * the lock on the PMR or through other means */
+IMG_BOOL  PMRIsPMRLive(PMR *psPMR);
+
 /*************************************************************************/ /*!
 @Brief          Callback function type PFN_LOCK_PHYS_ADDRESSES_FN
 
