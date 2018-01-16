@@ -622,6 +622,26 @@ static int ipu3_css_hw_start(struct ipu3_css *css)
 	return 0;
 }
 
+static void ipu3_css_hw_stop(struct ipu3_css *css)
+{
+	void __iomem *const base = css->base;
+	struct imgu_fw_info *bi = &css->fwp->binary_header[css->fw_sp[0]];
+
+	/* Stop fw */
+	writel(IMGU_ABI_SP_COMM_COMMAND_TERMINATE,
+		base + IMGU_REG_SP_DMEM_BASE(0) +
+		bi->info.sp.host_sp_com + IMGU_ABI_SP_COMM_COMMAND);
+	if (ipu3_hw_wait(css->base, IMGU_REG_SP_CTRL(0),
+		IMGU_CTRL_IDLE, IMGU_CTRL_IDLE))
+		dev_err(css->dev, "wait sp0 idle timeout.\n");
+	if (readl(base + IMGU_REG_SP_DMEM_BASE(0) + bi->info.sp.sw_state) !=
+		IMGU_ABI_SP_SWSTATE_TERMINATED)
+		dev_err(css->dev, "sp0 is not terminated.\n");
+	if (ipu3_hw_wait(css->base, IMGU_REG_ISP_CTRL,
+		IMGU_CTRL_IDLE, IMGU_CTRL_IDLE))
+		dev_err(css->dev, "wait isp idle timeout\n");
+}
+
 static void ipu3_css_hw_cleanup(struct ipu3_css *css)
 {
 	void __iomem *const base = css->base;
@@ -1373,6 +1393,8 @@ void ipu3_css_stop_streaming(struct ipu3_css *css)
 
 	if (!css->streaming)
 		return;
+
+	ipu3_css_hw_stop(css);
 
 	ipu3_css_hw_cleanup(css);
 
