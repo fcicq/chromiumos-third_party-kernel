@@ -825,7 +825,7 @@ static const struct of_device_id ov2685_of_match[] = {
 	{ .compatible = "ovti,ov2685" },
 	{},
 };
-MODULE_DEVICE_TABLE(of, ov5695_of_match);
+MODULE_DEVICE_TABLE(of, ov2685_of_match);
 #endif
 
 static struct i2c_driver ov2685_i2c_driver = {
