@@ -931,7 +931,7 @@ static int mi_frame_end(struct rkisp1_stream *stream)
 	int i = 0;
 
 	if (stream->curr_buf) {
-		u64 ns = ktime_get_ns();
+		u64 ns = ktime_get_boot_ns();
 
 		/* Dequeue a filled buffer */
 		for (i = 0; i < isp_fmt->mplanes; i++) {
