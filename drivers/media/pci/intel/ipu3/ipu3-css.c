@@ -1378,11 +1378,13 @@ void ipu3_css_stop_streaming(struct ipu3_css *css)
 
 	ipu3_css_pipeline_cleanup(css);
 
+	spin_lock(&css->qlock);
 	for (q = 0; q < IPU3_CSS_QUEUES; q++)
 		list_for_each_entry_safe(b, b0, &css->queue[q].bufs, list) {
 			b->state = IPU3_CSS_BUFFER_FAILED;
 			list_del(&b->list);
 		}
+	spin_unlock(&css->qlock);
 
 	css->streaming = false;
 }
@@ -1391,10 +1393,12 @@ bool ipu3_css_queue_empty(struct ipu3_css *css)
 {
 	int q;
 
+	spin_lock(&css->qlock);
 	for (q = 0; q < IPU3_CSS_QUEUES; q++)
 		if (!list_empty(&css->queue[q].bufs))
-			return false;
-	return true;
+			break;
+	spin_unlock(&css->qlock);
+	return (q == IPU3_CSS_QUEUES);
 }
 
 bool ipu3_css_is_streaming(struct ipu3_css *css)
@@ -1442,6 +1446,7 @@ int ipu3_css_init(struct device *dev, struct ipu3_css *css,
 	css->iomem_length = length;
 	css->current_binary = IPU3_CSS_DEFAULT_BINARY;
 	css->pipe_id = IPU3_CSS_PIPE_ID_NUM;
+	spin_lock_init(&css->qlock);
 
 	for (q = 0; q < IPU3_CSS_QUEUES; q++) {
 		r = ipu3_css_queue_init(&css->queue[q], NULL, 0);
@@ -1870,7 +1875,9 @@ int ipu3_css_buf_queue(struct ipu3_css *css, struct ipu3_css_buffer *b)
 		abi_buf->payload.frame.padded_width =
 			css->queue[IPU3_CSS_QUEUE_VF].width_pad;
 
+	spin_lock(&css->qlock);
 	list_add_tail(&b->list, &css->queue[b->queue].bufs);
+	spin_unlock(&css->qlock);
 	b->state = IPU3_CSS_BUFFER_QUEUED;
 
 	data = css->abi_buffers[b->queue][b->queue_pos].daddr;
@@ -1961,7 +1968,9 @@ struct ipu3_css_buffer *ipu3_css_buf_dequeue(struct ipu3_css *css)
 			return ERR_PTR(-EIO);
 		}
 
+		spin_lock(&css->qlock);
 		if (list_empty(&css->queue[queue].bufs)) {
+			spin_unlock(&css->qlock);
 			dev_err(css->dev, "event on empty queue\n");
 			return ERR_PTR(-EIO);
 		}
@@ -1969,11 +1978,13 @@ struct ipu3_css_buffer *ipu3_css_buf_dequeue(struct ipu3_css *css)
 				     struct ipu3_css_buffer, list);
 		if (queue != b->queue ||
 		    daddr != css->abi_buffers[b->queue][b->queue_pos].daddr) {
+			spin_unlock(&css->qlock);
 			dev_err(css->dev, "dequeued bad buffer 0x%x\n", daddr);
 			return ERR_PTR(-EIO);
 		}
 		b->state = IPU3_CSS_BUFFER_DONE;
 		list_del(&b->list);
+		spin_unlock(&css->qlock);
 		break;
 	case IMGU_ABI_EVTTYPE_PIPELINE_DONE:
 		dev_dbg(css->dev, "event: pipeline done 0x%x for frame %ld\n",

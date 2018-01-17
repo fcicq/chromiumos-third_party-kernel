@@ -164,7 +164,7 @@ struct imgu_device {
 	 */
 	struct mutex lock;
 	/* Forbit streaming and buffer queuing during system suspend. */
-	struct mutex qbuf_lock;
+	atomic_t qbuf_barrier;
 	struct {
 		struct v4l2_rect eff; /* effective resolution */
 		struct v4l2_rect bds; /* bayer-domain scaled resolution*/

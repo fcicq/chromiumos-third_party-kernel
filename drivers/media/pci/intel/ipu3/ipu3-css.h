@@ -179,6 +179,7 @@ struct ipu3_css {
 	} pool;
 
 	enum ipu3_css_vf_status vf_output_en;
+	spinlock_t qlock;
 };
 
 /******************* css v4l *******************/
