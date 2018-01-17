@@ -758,6 +758,13 @@ static int vop_plane_atomic_check(struct drm_plane *plane,
 	if (is_yuv_support(fb->format->format) && (state->rotation != DRM_ROTATE_0))
 		return -EINVAL;
 
+	if (state->ctm) {
+		if (state->ctm->length != sizeof(struct drm_color_ctm)) {
+			DRM_ERROR("Invalid PLANE_CTM blob size.\n");
+			return -EINVAL;
+		}
+	}
+
 	if (!((state->rotation == DRM_REFLECT_Y) || (state->rotation == DRM_ROTATE_0)))
 		return -EINVAL;
 
@@ -917,6 +924,27 @@ static void vop_plane_atomic_update(struct drm_plane *plane,
 							win_yuv2yuv,
 							y2r_coefficients[i],
 							bt601_yuv2rgb[i]);
+		}
+	}
+
+	VOP_WIN_YUV2YUV_SET(vop, win_yuv2yuv, r2r_en, !!state->ctm);
+	if (state->ctm) {
+		struct drm_color_ctm *color_ctm =
+			(struct drm_color_ctm*)state->ctm->data;
+		/*
+		 * Convert matrix values from sign and fixed point U31.32 to
+		 * two's complement S3.10.
+		 */
+		for (i = 0; i < 9; i++) {
+			uint64_t input = color_ctm->matrix[i];
+			uint64_t abs_coeff = GENMASK_ULL(62, 0) & input;
+			s64 val = (input & BIT_ULL(63)) ?
+				-(abs_coeff >> 22) : (abs_coeff >> 22);
+			val = clamp_val(val, -4 << 10, (4 << 10) - 1);
+			VOP_WIN_YUV2YUV_COEFFICIENT_SET(vop,
+							win_yuv2yuv,
+							r2r_coefficients[i],
+							val);
 		}
 	}
 
