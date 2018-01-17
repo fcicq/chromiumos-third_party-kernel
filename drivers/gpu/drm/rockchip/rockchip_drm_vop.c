@@ -1594,11 +1594,13 @@ static int vop_create_crtc(struct vop *vop)
 
 	ret = drm_crtc_init_with_planes(drm_dev, crtc, primary, cursor,
 					&vop_crtc_funcs, NULL);
+	drm_plane_enable_color_mgmt(cursor, true);
 
 	drm_object_attach_property(&primary->base,
 				   rotation_property,
 				   DRM_ROTATE_0);
 
+	drm_plane_enable_color_mgmt(primary, true);
 	if (ret)
 		goto err_cleanup_planes;
 
@@ -1632,6 +1634,7 @@ static int vop_create_crtc(struct vop *vop)
 		drm_object_attach_property(&vop_win->base.base,
 					   rotation_property,
 					   DRM_ROTATE_0);
+		drm_plane_enable_color_mgmt(&vop_win->base, true);
 	}
 
 	port = of_get_child_by_name(dev->of_node, "port");
