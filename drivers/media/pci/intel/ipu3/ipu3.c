@@ -338,17 +338,6 @@ failed:
 	return r;
 }
 
-static bool imgu_buffer_drain(struct imgu_device *imgu)
-{
-	bool drain;
-
-	mutex_lock(&imgu->lock);
-	drain = ipu3_css_queue_empty(&imgu->css);
-	mutex_unlock(&imgu->lock);
-
-	return drain;
-}
-
 static int imgu_powerup(struct imgu_device *imgu)
 {
 	int r;
@@ -381,10 +370,10 @@ static int imgu_mem2mem2_s_stream(struct ipu3_mem2mem2_device *m2m2_dev,
 		/* Stop streaming */
 		dev_dbg(dev, "stream off\n");
 		/* Block new buffers to be queued to CSS. */
-		mutex_lock(&imgu->qbuf_lock);
+		atomic_set(&imgu->qbuf_barrier, 1);
 		ipu3_css_stop_streaming(&imgu->css);
 		synchronize_irq(imgu->pci_dev->irq);
-		mutex_unlock(&imgu->qbuf_lock);
+		atomic_set(&imgu->qbuf_barrier, 0);
 		imgu_powerdown(imgu);
 		pm_runtime_put(&imgu->pci_dev->dev);
 
@@ -669,15 +658,11 @@ static irqreturn_t imgu_isr_threaded(int irq, void *imgu_ptr)
 
 	/*
 	 * Try to queue more buffers for CSS.
-	 * qbuf_lock is used to disable new buffers
-	 * to be queued to CSS. mutex_trylock is used
-	 * to avoid blocking irq thread processing
-	 * remaining buffers.
+	 * qbuf_barrier is used to disable new buffers
+	 * to be queued to CSS.
 	 */
-	if (mutex_trylock(&imgu->qbuf_lock)) {
+	if (!atomic_read(&imgu->qbuf_barrier))
 		imgu_queue_buffers(imgu, false);
-		mutex_unlock(&imgu->qbuf_lock);
-	}
 
 	return IRQ_HANDLED;
 }
@@ -824,7 +809,7 @@ static int imgu_pci_probe(struct pci_dev *pci_dev,
 		return r;
 
 	mutex_init(&imgu->lock);
-	mutex_init(&imgu->qbuf_lock);
+	atomic_set(&imgu->qbuf_barrier, 0);
 	init_waitqueue_head(&imgu->buf_drain_wq);
 
 	r = imgu_dma_dev_init(imgu);
@@ -919,7 +904,6 @@ static void imgu_pci_remove(struct pci_dev *pci_dev)
 	imgu_dma_dev_exit(imgu);
 	ipu3_mmu_exit(imgu->mmu);
 	mutex_destroy(&imgu->lock);
-	mutex_destroy(&imgu->qbuf_lock);
 }
 
 static int __maybe_unused imgu_suspend(struct device *dev)
@@ -932,15 +916,19 @@ static int __maybe_unused imgu_suspend(struct device *dev)
 	if (!imgu->suspend_in_stream)
 		goto out;
 	/* Block new buffers to be queued to CSS. */
-	mutex_lock(&imgu->qbuf_lock);
+	atomic_set(&imgu->qbuf_barrier, 1);
+	/*
+	 * Wait for currently running irq handler to be done so that
+	 * no new buffers will be queued to fw later.
+	 */
+	synchronize_irq(pci_dev->irq);
 	/* Wait until all buffers in CSS are done. */
 	if (!wait_event_timeout(imgu->buf_drain_wq,
-		imgu_buffer_drain(imgu), msecs_to_jiffies(1000)))
+	    ipu3_css_queue_empty(&imgu->css), msecs_to_jiffies(1000)))
 		dev_err(dev, "wait buffer drain timeout.\n");
 
 	ipu3_css_stop_streaming(&imgu->css);
-	synchronize_irq(pci_dev->irq);
-	mutex_unlock(&imgu->qbuf_lock);
+	atomic_set(&imgu->qbuf_barrier, 0);
 	imgu_powerdown(imgu);
 	pm_runtime_force_suspend(dev);
 out:
