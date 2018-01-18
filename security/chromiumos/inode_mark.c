@@ -266,9 +266,10 @@ int chromiumos_update_inode_security_policy(
 		free_mark = true;
 		for (i = 0; i < CHROMIUMOS_NUMBER_OF_POLICIES; i++) {
 			if (chromiumos_to_inode_mark(mark)->policies[i]
-				!= CHROMIUMOS_INODE_POLICY_INHERIT)
+				!= CHROMIUMOS_INODE_POLICY_INHERIT) {
 				free_mark = false;
 				break;
+			}
 		}
 		if (free_mark)
 			fsnotify_detach_mark(mark);
