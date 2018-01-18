@@ -13058,6 +13058,54 @@ static void intel_atomic_helper_free_state_worker(struct work_struct *work)
 	intel_atomic_helper_free_state(dev_priv);
 }
 
+static void
+intel_atomic_disable_hdcp(struct drm_atomic_state *old_state)
+{
+	struct drm_connector *conn;
+	struct drm_connector_state *old_conn_state;
+	int i;
+
+	for_each_connector_in_state(old_state, conn, old_conn_state, i) {
+		struct intel_connector *intel_conn = to_intel_connector(conn);
+		uint64_t new, old;
+
+		if (!intel_conn->hdcp_shim)
+			continue;
+
+		old = old_conn_state->content_protection;
+		new = conn->state->content_protection;
+		if ((new != old &&
+		     new == DRM_MODE_CONTENT_PROTECTION_UNDESIRED) ||
+		    (!conn->state->crtc && old_conn_state->crtc))
+			intel_hdcp_disable(intel_conn);
+	}
+}
+
+static void
+intel_atomic_enable_hdcp(struct drm_atomic_state *old_state)
+{
+	struct drm_connector *conn;
+	struct drm_connector_state *old_conn_state;
+	int i;
+
+	for_each_connector_in_state(old_state, conn, old_conn_state, i) {
+		struct intel_connector *intel_conn = to_intel_connector(conn);
+		uint64_t new, old;
+
+		if (!intel_conn->hdcp_shim)
+			continue;
+
+		old = old_conn_state->content_protection;
+		new = conn->state->content_protection;
+		if (!conn->state->crtc ||
+		    new != DRM_MODE_CONTENT_PROTECTION_DESIRED ||
+		    (new == old && old_conn_state->crtc == conn->state->crtc))
+			continue;
+
+		intel_hdcp_enable(intel_conn);
+	}
+}
+
 static void intel_atomic_commit_tail(struct drm_atomic_state *state)
 {
 	struct drm_device *dev = state->dev;
@@ -13157,6 +13205,8 @@ static void intel_atomic_commit_tail(struct drm_atomic_state *state)
 		}
 	}
 
+	intel_atomic_disable_hdcp(state);
+
 	/* Now enable the clocks, plane, pipe, and connectors that we set up. */
 	dev_priv->display.update_crtcs(state, &crtc_vblank_mask);
 
@@ -13198,6 +13248,8 @@ static void intel_atomic_commit_tail(struct drm_atomic_state *state)
 
 	if (intel_state->modeset && intel_can_enable_sagv(state))
 		intel_enable_sagv(dev_priv);
+
+	intel_atomic_enable_hdcp(state);
 
 	drm_atomic_helper_commit_hw_done(state);
 
