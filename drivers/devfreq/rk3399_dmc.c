@@ -695,7 +695,7 @@ int rockchip_dmcfreq_unblock(struct devfreq *devfreq)
 	int ret = 0;
 
 	mutex_lock(&dmcfreq->en_lock);
-	if (dmcfreq->num_sync_nb <= 1 && dmcfreq->disable_count > 0) {
+	if (dmcfreq->num_sync_nb <= 1 && dmcfreq->disable_count == 1) {
 		rockchip_ddrclk_set_timeout_en(dmcfreq->dmc_clk, true);
 		ret = devfreq_resume_device(devfreq);
 	}
