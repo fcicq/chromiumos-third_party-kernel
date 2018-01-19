@@ -472,7 +472,6 @@ static ssize_t dw_mipi_dsi_host_transfer(struct mipi_dsi_host *host,
 		if (dsi->slave)
 			ret = dw_mipi_dsi_dcs_short_write(dsi->slave, msg);
 		break;
-	case MIPI_DSI_GENERIC_LONG_WRITE:
 	case MIPI_DSI_DCS_LONG_WRITE:
 		ret = dw_mipi_dsi_dcs_long_write(dsi, msg);
 		if (dsi->slave)

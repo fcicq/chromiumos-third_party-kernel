@@ -29,16 +29,11 @@ struct panel_desc {
 	} size;
 };
 
-struct panel_init_cmd {
-	char buf[7];
-};
-
 struct panel_desc_dsi {
 	struct panel_desc desc;
 
 	unsigned long flags;
 	enum mipi_dsi_pixel_format format;
-	const struct panel_init_cmd *init_cmds;
 	unsigned int lanes;
 };
 
@@ -142,36 +137,6 @@ static int innolux_panel_prepare(struct drm_panel *panel)
 	/* T4: 15ms - 1000ms */
 	usleep_range(15000, 16000);
 
-	if (innolux->dsi_desc->init_cmds) {
-		const struct panel_init_cmd *cmds =
-					innolux->dsi_desc->init_cmds;
-		int i;
-
-		for (i = 0; cmds[i].buf[0] != 0; i++) {
-			const struct panel_init_cmd *cmd = &cmds[i];
-
-			err = mipi_dsi_generic_write(innolux->link, cmd->buf,
-						     strlen(cmd->buf));
-			if (err < 0) {
-				dev_err(panel->dev,
-					"failed to write command %d\n", i);
-				goto poweroff;
-			}
-
-			/*
-			 * Included by random guessing, because without this
-			 * (or at least, some delay), the panel sometimes
-			 * didn't appear to pick up the command sequence.
-			 */
-			err = mipi_dsi_dcs_nop(innolux->link);
-			if (err < 0) {
-				dev_err(panel->dev,
-					"failed to send DCS nop: %d\n", err);
-				goto poweroff;
-			}
-		}
-	}
-
 	err = mipi_dsi_dcs_exit_sleep_mode(innolux->link);
 	if (err < 0) {
 		DRM_DEV_ERROR(panel->dev, "failed to exit sleep mode: %d\n",
@@ -269,26 +234,6 @@ static const struct drm_display_mode innolux_p097pfg_mode = {
 	.vrefresh = 60,
 };
 
-/*
- * No documentation provided by the panel vendor so far...
- */
-static const struct panel_init_cmd innolux_p097pfg_init_cmds[] = {
-	{{0xF0, 0x55, 0xAA, 0x52, 0x08, 0x06, 0}},
-
-	{{0xB0, 0x02, 0x32, 0x32, 0x08, 0x2F, 0}},
-	{{0xB1, 0x2E, 0x15, 0x14, 0x13, 0x12, 0}},
-	{{0xB2, 0x11, 0x10, 0x00, 0x3D, 0x3D, 0}},
-	{{0xB3, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0}},
-	{{0xB4, 0x3D, 0x32, 0}},
-
-	{{0xB5, 0x03, 0x32, 0x32, 0x09, 0x2F, 0}},
-	{{0xB6, 0x2E, 0x1B, 0x1A, 0x19, 0x18, 0}},
-	{{0xB7, 0x17, 0x16, 0x01, 0x3D, 0x3D, 0}},
-	{{0xB8, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0}},
-	{{0xB9, 0x3D, 0x32, 0}},
-	{},
-};
-
 static const struct panel_desc_dsi innolux_p097pfg_panel_desc = {
 	.desc = {
 		.modes = &innolux_p097pfg_mode,
@@ -301,7 +246,6 @@ static const struct panel_desc_dsi innolux_p097pfg_panel_desc = {
 	.flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_SYNC_PULSE |
 		 MIPI_DSI_MODE_LPM,
 	.format = MIPI_DSI_FMT_RGB888,
-	.init_cmds = innolux_p097pfg_init_cmds,
 	.lanes = 8,
 };
 
