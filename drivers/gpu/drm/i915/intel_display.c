@@ -13354,9 +13354,15 @@ static int intel_atomic_commit(struct drm_device *dev,
 	 * we want to perform the vblank waits so that watermark
 	 * updates happen during the correct frames. Gen9+ have
 	 * double buffered watermarks and so shouldn't need this.
+	 *
+	 * Unfortunately, the GEN9+ double buffering seems to be buggy when it
+	 * races with a modeset. The result is that the register (CURCNTL)
+	 * appears to have been written (reads back as 0), but the cursor is
+	 * still on. This manifests itself as garbage in the upper-left corner
+	 * of the display (as we set position and base to 0).  We work around
+	 * that by always falling back to the vblank wait.
 	 */
-	if (INTEL_GEN(dev_priv) < 9)
-		state->legacy_cursor_update = false;
+	state->legacy_cursor_update = false;
 
 	ret = drm_atomic_helper_setup_commit(state, nonblock);
 	if (ret)
