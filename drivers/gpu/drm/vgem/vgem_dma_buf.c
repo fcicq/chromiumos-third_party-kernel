@@ -92,7 +92,7 @@ out_unlock:
 
 struct drm_gem_object *
 vgem_gem_prime_import_sg_table(struct drm_device *dev,
-			       struct dma_buf_attachment *attach,
+			       size_t size,
 			       struct sg_table *sg)
 {
 	struct drm_vgem_gem_object *obj = NULL;
@@ -104,7 +104,7 @@ vgem_gem_prime_import_sg_table(struct drm_device *dev,
 		goto fail;
 	}
 
-	ret = drm_gem_object_init(dev, &obj->base, attach->dmabuf->size);
+	ret = drm_gem_object_init(dev, &obj->base, size);
 	if (ret) {
 		ret = -ENOMEM;
 		goto fail_free;

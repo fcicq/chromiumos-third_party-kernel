@@ -58,7 +58,7 @@ extern int vgem_gem_prime_mmap(struct drm_gem_object *gobj,
 			       struct vm_area_struct *vma);
 struct drm_gem_object *
 vgem_gem_prime_import_sg_table(struct drm_device *dev,
-			       struct dma_buf_attachment *attach,
+			       size_t size,
 			       struct sg_table *sg);
 
 #endif
