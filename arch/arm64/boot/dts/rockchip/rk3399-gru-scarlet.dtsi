@@ -743,7 +743,7 @@ camera: &i2c7 {
 
 &discrete_regulators {
 	display_rst_l: display-rst-l {
-		rockchip,pins = <4 25 RK_FUNC_GPIO &pcfg_pull_none>;
+		rockchip,pins = <4 25 RK_FUNC_GPIO &pcfg_pull_down>;
 	};
 
 	ppvarp_lcd_en: ppvarp-lcd-en {
