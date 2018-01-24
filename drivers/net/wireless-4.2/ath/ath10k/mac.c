@@ -3867,10 +3867,16 @@ u32 ath10k_atf_update_airtime(struct ath10k *ar, struct ieee80211_txq *txq,
 	pktlen = skb->len + 38; /* Assume MAC header 30, SNAP 8 for most case */
 	if (txq && txq->sta && txq->sta->last_tx_bitrate) {
 		/* airtime in us, last_tx_bitrate in 100kbps */
-		airtime = (skb->len * 8 * (1000 / 100))
+		airtime = (pktlen * 8 * (1000 / 100))
 				/ txq->sta->last_tx_bitrate;
 	} else {
 		overhead = IEEE80211_ATF_OVERHEAD;
+		/* This is mostly for throttle excessive BC/MC frames, and the
+		 * airtime/rate doesn't need be exact. Airtime of BC/MC frames
+		 * in 2G get some discount, which helps prevent very low rate
+		 * frames from being blocked for too long.
+		 */
+		airtime = (pktlen * 8 * (1000 / 100)) / 60; /* 6M */
 	}
 
 	airtime += overhead;
