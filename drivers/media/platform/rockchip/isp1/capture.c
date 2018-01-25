@@ -1676,7 +1676,6 @@ static int rkisp1_register_stream_vdev(struct rkisp1_stream *stream)
 	vdev->vfl_dir = VFL_DIR_RX;
 	node->pad.flags = MEDIA_PAD_FL_SINK;
 
-	dev->alloc_ctx = vb2_dma_contig_init_ctx(v4l2_dev->dev);
 	rkisp_init_vb2_queue(&node->buf_queue, stream,
 			     V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE);
 	vdev->queue = &node->buf_queue;
