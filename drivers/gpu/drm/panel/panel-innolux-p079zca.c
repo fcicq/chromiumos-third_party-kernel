@@ -103,9 +103,12 @@ static int innolux_panel_unprepare(struct drm_panel *panel)
 		return err;
 	}
 
+	/* p097pfg: t15 */
+	msleep(100);
+
 	gpiod_set_value_cansleep(innolux->enable_gpio, 0);
 
-	/* T8: 80ms - 1000ms */
+	/* p079zca: t8*/
 	msleep(80);
 
 	regulator_disable(innolux->avee);
@@ -139,13 +142,13 @@ static int _innolux_panel_prepare(struct drm_panel *panel)
 	if (err < 0)
 		goto disable_avdd;
 
-	/* T2: 15ms - 1000ms */
-	usleep_range(15000, 16000);
+	/* p079zca: t2 (20ms), p097pfg: t4 (15ms) */
+	usleep_range(20000, 21000);
 
 	gpiod_set_value_cansleep(innolux->enable_gpio, 1);
 
-	/* T4: 15ms - 1000ms */
-	usleep_range(15000, 16000);
+	/* p079zca: t4, p097pfg: t5 */
+	usleep_range(20000, 21000);
 
 	if (innolux->dsi_desc->init_cmds) {
 		const struct panel_init_cmd *cmds =
