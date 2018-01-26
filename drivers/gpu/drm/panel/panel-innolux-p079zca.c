@@ -120,7 +120,7 @@ static int innolux_panel_unprepare(struct drm_panel *panel)
 	return 0;
 }
 
-static int _innolux_panel_prepare(struct drm_panel *panel)
+static int innolux_panel_prepare(struct drm_panel *panel)
 {
 	struct innolux_panel *innolux = to_innolux_panel(panel);
 	int err;
@@ -213,33 +213,6 @@ disable_vddi:
 	regulator_disable(innolux->vddi);
 
 	return err;
-}
-
-static int innolux_panel_prepare(struct drm_panel *panel)
-{
-	int ret;
-	struct innolux_panel *innolux = to_innolux_panel(panel);
-
-	ret = _innolux_panel_prepare(panel);
-	if (ret)
-		return ret;
-
-	if (innolux->dsi_desc->init_cmds) {
-		/*
-		 * HACK: For unknown reasons panels without OTP
-		 * programming are often not properly initialized in the
-		 * first pass. A re-initialization appears to initialize
-		 * the panel reliably.
-		 */
-
-		ret = innolux_panel_unprepare(panel);
-		if (ret)
-			return ret;
-
-		ret = _innolux_panel_prepare(panel);
-	}
-
-	return ret;
 }
 
 static int innolux_panel_enable(struct drm_panel *panel)
