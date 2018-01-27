@@ -482,6 +482,10 @@ camera: &i2c7 {
 	status = "okay";
 };
 
+&its {
+	reset-on-suspend;
+};
+
 &max98357a {
 	sdmode-gpios = <&gpio0 2 GPIO_ACTIVE_HIGH>;
 };
