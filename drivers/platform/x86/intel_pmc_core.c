@@ -746,6 +746,10 @@ static void pmc_decode_wake_source(struct device *dev)
 		}
 	}
 
+	/* Say "Unknown" if no wake_source is identified */
+	if (size == sizeof(pmcdev->wake_source) - 1)
+		snprintf(s, size, "Unknown");
+
 	/* Log the wake source */
 	dev_info(dev, "last_wake_source: %s\n", pmc.wake_source);
 }
