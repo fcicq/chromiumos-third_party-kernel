@@ -1318,6 +1318,7 @@ struct mesh_config {
 	bool dot11MeshGateAnnouncementProtocol;
 	bool dot11MeshForwarding;
 	s32 rssi_threshold;
+	s32 meshlink_rssi_threshold;
 	u16 ht_opmode;
 	u32 dot11MeshHWMPactivePathToRootTimeout;
 	u16 dot11MeshHWMProotInterval;
