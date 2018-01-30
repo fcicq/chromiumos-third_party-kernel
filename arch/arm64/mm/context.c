@@ -26,6 +26,8 @@
 #include <asm/mmu_context.h>
 #include <asm/tlbflush.h>
 #include <asm/cachetype.h>
+#include <asm/alternative.h>
+
 
 #define asid_bits(reg) \
 	(((read_cpuid(ID_AA64MMFR0_EL1) & 0xf0) >> 2) + 8)
@@ -119,6 +121,15 @@ static inline void set_mm_context(struct mm_struct *mm, unsigned int asid)
 }
 
 #endif
+
+/* Errata workaround post TTBRx_EL1 update. */
+asmlinkage void post_ttbr_update_workaround(void)
+{
+	asm(ALTERNATIVE("nop; nop; nop",
+			"ic iallu; dsb nsh; isb",
+			ARM64_WORKAROUND_CAVIUM_27456,
+			CONFIG_CAVIUM_ERRATUM_27456));
+}
 
 void __new_context(struct mm_struct *mm)
 {
