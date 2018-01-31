@@ -381,16 +381,16 @@ static inline unsigned long ifname_compare_aligned(const char *_a,
  * allows us to return 0 for single core systems without forcing
  * callers to deal with SMP vs. NONSMP issues.
  */
-static inline unsigned long xt_percpu_counter_alloc(void)
+static inline u64 xt_percpu_counter_alloc(void)
 {
 	if (nr_cpu_ids > 1) {
 		void __percpu *res = __alloc_percpu(sizeof(struct xt_counters),
 						    sizeof(struct xt_counters));
 
 		if (res == NULL)
-			return -ENOMEM;
+			return (u64) -ENOMEM;
 
-		return (__force unsigned long) res;
+		return (u64) (__force unsigned long) res;
 	}
 
 	return 0;
