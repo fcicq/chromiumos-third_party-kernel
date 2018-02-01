@@ -327,7 +327,7 @@ int rockchip_vpu_ctrls_setup(struct rockchip_vpu_ctx *ctx,
 	for (i = 0; i < num_ctrls; i++) {
 		if (IS_VPU_PRIV(controls[i].id)
 		    || IS_USER_PRIV(controls[i].id)
-		    || controls[i].type == V4L2_CTRL_TYPE_PRIVATE) {
+		    || controls[i].type >= V4L2_CTRL_COMPOUND_TYPES) {
 			memset(&cfg, 0, sizeof(struct v4l2_ctrl_config));
 
 			cfg.ops = ctrl_ops;
