@@ -874,14 +874,14 @@ static int rockchip_usb3_phy_power_on(struct phy *phy)
 			goto unlock_ret;
 	}
 
-	/* enable usb3 host */
-	tcphy_cfg_usb3_to_usb2_only(tcphy, false);
-
 	/* wait TCPHY for pipe ready */
 	for (timeout = 0; timeout < 100; timeout++) {
 		regmap_read(tcphy->grf_regs, reg->offset, &val);
 		if (!(val & BIT(reg->enable_bit))) {
 			tcphy->mode |= new_mode & (MODE_DFP_USB | MODE_UFP_USB);
+
+			/* enable usb3 host */
+			tcphy_cfg_usb3_to_usb2_only(tcphy, false);
 			goto unlock_ret;
 		}
 		usleep_range(10, 20);
