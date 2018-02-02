@@ -522,6 +522,9 @@ static int _intel_hdcp_disable(struct intel_connector *connector)
 	enum port port = intel_dig_port->base.port;
 	int ret;
 
+	DRM_INFO("[%s:%d] HDCP is being disabled...\n",
+		 connector->base.name, connector->base.base.id);
+
 	I915_WRITE(PORT_HDCP_CONF(port), 0);
 	if (intel_wait_for_register(dev_priv, PORT_HDCP_STATUS(port), ~0, 0,
 				    20)) {
@@ -545,6 +548,9 @@ static int _intel_hdcp_enable(struct intel_connector *connector)
 {
 	struct drm_i915_private *dev_priv = connector->base.dev->dev_private;
 	int i, ret;
+
+	DRM_INFO("[%s:%d] HDCP is being enabled...\n",
+		 connector->base.name, connector->base.base.id);
 
 	if (!(I915_READ(SKL_FUSE_STATUS) & SKL_FUSE_PG1_DIST_STATUS)) {
 		DRM_ERROR("PG1 is disabled, cannot load keys\n");
@@ -709,8 +715,9 @@ int intel_hdcp_check_link(struct intel_connector *connector)
 		goto out;
 
 	if (!(I915_READ(PORT_HDCP_STATUS(port)) & HDCP_STATUS_ENC)) {
-		DRM_ERROR("HDCP check failed: link is not encrypted, %x\n",
-			   I915_READ(PORT_HDCP_STATUS(port)));
+		DRM_ERROR("%s:%d HDCP check failed: link is not encrypted,%x\n",
+			  connector->base.name, connector->base.base.id,
+			  I915_READ(PORT_HDCP_STATUS(port)));
 		ret = -ENXIO;
 		connector->hdcp_value = DRM_MODE_CONTENT_PROTECTION_DESIRED;
 		schedule_work(&connector->hdcp_prop_work);
@@ -727,7 +734,8 @@ int intel_hdcp_check_link(struct intel_connector *connector)
 		goto out;
 	}
 
-	DRM_INFO("HDCP link failed, retrying authentication\n");
+	DRM_INFO("[%s:%d] HDCP link failed, retrying authentication\n",
+		 connector->base.name, connector->base.base.id);
 
 	ret = _intel_hdcp_disable(connector);
 	if (ret) {
