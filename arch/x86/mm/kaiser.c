@@ -12,13 +12,20 @@
 
 extern struct mm_struct init_mm;
 
+#undef pr_fmt
+#define pr_fmt(fmt)     "Kernel/User page tables isolation: " fmt
+
 #include <asm/kaiser.h>
 #include <asm/tlbflush.h>	/* to verify its kaiser declarations */
 #include <asm/pgtable.h>
 #include <asm/pgalloc.h>
 #include <asm/desc.h>
+#include <asm/cmdline.h>
+#include <asm/vsyscall.h>
 
-#ifdef CONFIG_KAISER
+int kaiser_enabled __read_mostly = 1;
+EXPORT_SYMBOL(kaiser_enabled);	/* for inlined TLB flush functions */
+
 __visible
 DEFINE_PER_CPU_USER_MAPPED(unsigned long, unsafe_stack_register_backup);
 
@@ -30,7 +37,6 @@ DEFINE_PER_CPU_USER_MAPPED(unsigned long, unsafe_stack_register_backup);
  * This is also handy because systems that do not support PCIDs
  * just end up or'ing a 0 into their CR3, which does no harm.
  */
-unsigned long x86_cr3_pcid_noflush __read_mostly;
 DEFINE_PER_CPU(unsigned long, x86_cr3_pcid_user);
 
 /*
@@ -107,24 +113,30 @@ static inline unsigned long get_pa_from_mapping(unsigned long vaddr)
  *
  * Returns a pointer to a PTE on success, or NULL on failure.
  */
-static pte_t *kaiser_pagetable_walk(unsigned long address, bool is_atomic)
+static pte_t *kaiser_pagetable_walk(unsigned long address, bool user)
 {
 	pmd_t *pmd;
 	pud_t *pud;
 	pgd_t *pgd = native_get_shadow_pgd(pgd_offset_k(address));
 	gfp_t gfp = (GFP_KERNEL | __GFP_NOTRACK | __GFP_ZERO);
-
-	if (is_atomic) {
-		gfp &= ~GFP_KERNEL;
-		gfp |= __GFP_HIGH;
-	} else
-		might_sleep();
+	unsigned long prot = _KERNPG_TABLE;
 
 	if (pgd_none(*pgd)) {
 		WARN_ONCE(1, "All shadow pgds should have been populated");
 		return NULL;
 	}
 	BUILD_BUG_ON(pgd_large(*pgd) != 0);
+
+	if (user) {
+		/*
+		 * The vsyscall page is the only page that will have
+		 *  _PAGE_USER set. Catch everything else.
+		 */
+		BUG_ON(address != VSYSCALL_ADDR);
+
+		set_pgd(pgd, __pgd(pgd_val(*pgd) | _PAGE_USER));
+		prot = _PAGE_TABLE;
+	}
 
 	pud = pud_offset(pgd, address);
 	/* The shadow page tables do not use large mappings: */
@@ -138,7 +150,7 @@ static pte_t *kaiser_pagetable_walk(unsigned long address, bool is_atomic)
 			return NULL;
 		spin_lock(&shadow_table_allocation_lock);
 		if (pud_none(*pud)) {
-			set_pud(pud, __pud(_KERNPG_TABLE | __pa(new_pmd_page)));
+			set_pud(pud, __pud(prot | __pa(new_pmd_page)));
 			__inc_zone_page_state(virt_to_page((void *)
 						new_pmd_page), NR_KAISERTABLE);
 		} else
@@ -158,7 +170,7 @@ static pte_t *kaiser_pagetable_walk(unsigned long address, bool is_atomic)
 			return NULL;
 		spin_lock(&shadow_table_allocation_lock);
 		if (pmd_none(*pmd)) {
-			set_pmd(pmd, __pmd(_KERNPG_TABLE | __pa(new_pte_page)));
+			set_pmd(pmd, __pmd(prot | __pa(new_pte_page)));
 			__inc_zone_page_state(virt_to_page((void *)
 						new_pte_page), NR_KAISERTABLE);
 		} else
@@ -169,8 +181,8 @@ static pte_t *kaiser_pagetable_walk(unsigned long address, bool is_atomic)
 	return pte_offset_kernel(pmd, address);
 }
 
-int kaiser_add_user_map(const void *__start_addr, unsigned long size,
-			unsigned long flags)
+static int kaiser_add_user_map(const void *__start_addr, unsigned long size,
+			       unsigned long flags)
 {
 	int ret = 0;
 	pte_t *pte;
@@ -179,13 +191,24 @@ int kaiser_add_user_map(const void *__start_addr, unsigned long size,
 	unsigned long end_addr = PAGE_ALIGN(start_addr + size);
 	unsigned long target_address;
 
+	/*
+	 * It is convenient for callers to pass in __PAGE_KERNEL etc,
+	 * and there is no actual harm from setting _PAGE_GLOBAL, so
+	 * long as CR4.PGE is not set.  But it is nonetheless troubling
+	 * to see Kaiser itself setting _PAGE_GLOBAL (now that "nokaiser"
+	 * requires that not to be #defined to 0): so mask it off here.
+	 */
+	flags &= ~_PAGE_GLOBAL;
+	if (!(__supported_pte_mask & _PAGE_NX))
+		flags &= ~_PAGE_NX;
+
 	for (; address < end_addr; address += PAGE_SIZE) {
 		target_address = get_pa_from_mapping(address);
 		if (target_address == -1) {
 			ret = -EIO;
 			break;
 		}
-		pte = kaiser_pagetable_walk(address, false);
+		pte = kaiser_pagetable_walk(address, flags & _PAGE_USER);
 		if (!pte) {
 			ret = -ENOMEM;
 			break;
@@ -254,6 +277,44 @@ static void __init kaiser_init_all_pgds(void)
 	WARN_ON(__ret);							\
 } while (0)
 
+void __init kaiser_check_boottime_disable(void)
+{
+	bool enable = true;
+	char arg[5];
+	int ret;
+
+	ret = cmdline_find_option(boot_command_line, "pti", arg, sizeof(arg));
+	if (ret > 0) {
+		if (!strncmp(arg, "on", 2))
+			goto enable;
+
+		if (!strncmp(arg, "off", 3))
+			goto disable;
+
+		if (!strncmp(arg, "auto", 4))
+			goto skip;
+	}
+
+	if (cmdline_find_option_bool(boot_command_line, "nopti"))
+		goto disable;
+
+skip:
+	if (boot_cpu_data.x86_vendor == X86_VENDOR_AMD)
+		goto disable;
+
+enable:
+	if (enable)
+		setup_force_cpu_cap(X86_FEATURE_KAISER);
+
+	return;
+
+disable:
+	pr_info("disabled\n");
+
+	kaiser_enabled = 0;
+	setup_clear_cpu_cap(X86_FEATURE_KAISER);
+}
+
 /*
  * If anything in here fails, we will likely die on one of the
  * first kernel->user transitions and init will die.  But, we
@@ -265,7 +326,23 @@ void __init kaiser_init(void)
 {
 	int cpu;
 
+	if (!kaiser_enabled)
+		return;
+
 	kaiser_init_all_pgds();
+
+	/*
+	 * Note that this sets _PAGE_USER and it needs to happen when the
+	 * pagetable hierarchy gets created, i.e., early. Otherwise
+	 * kaiser_pagetable_walk() will encounter initialized PTEs in the
+	 * hierarchy and not set the proper permissions, leading to the
+	 * pagefaults with page-protection violations when trying to read the
+	 * vsyscall page. For example.
+	 */
+	if (vsyscall_enabled())
+		kaiser_add_user_map_early((void *)VSYSCALL_ADDR,
+					  PAGE_SIZE,
+					   __PAGE_KERNEL_VSYSCALL);
 
 	for_each_possible_cpu(cpu) {
 		void *percpu_vaddr = __per_cpu_user_mapped_start +
@@ -305,14 +382,14 @@ void __init kaiser_init(void)
 				  sizeof(gate_desc) * NR_VECTORS,
 				  __PAGE_KERNEL);
 
-	kaiser_add_user_map_early(&x86_cr3_pcid_noflush,
-				  sizeof(x86_cr3_pcid_noflush),
-				  __PAGE_KERNEL);
+	pr_info("enabled\n");
 }
 
 /* Add a mapping to the shadow mapping, and synchronize the mappings */
 int kaiser_add_mapping(unsigned long addr, unsigned long size, unsigned long flags)
 {
+	if (!kaiser_enabled)
+		return 0;
 	return kaiser_add_user_map((const void *)addr, size, flags);
 }
 
@@ -324,6 +401,8 @@ void kaiser_remove_mapping(unsigned long start, unsigned long size)
 	unsigned long addr, next;
 	pgd_t *pgd;
 
+	if (!kaiser_enabled)
+		return;
 	pgd = native_get_shadow_pgd(pgd_offset_k(start));
 	for (addr = start; addr < end; pgd++, addr = next) {
 		next = pgd_addr_end(addr, end);
@@ -345,6 +424,8 @@ static inline bool is_userspace_pgd(pgd_t *pgdp)
 
 pgd_t kaiser_set_shadow_pgd(pgd_t *pgdp, pgd_t pgd)
 {
+	if (!kaiser_enabled)
+		return pgd;
 	/*
 	 * Do we need to also populate the shadow pgd?  Check _PAGE_USER to
 	 * skip cases like kexec and EFI which make temporary low mappings.
@@ -358,7 +439,8 @@ pgd_t kaiser_set_shadow_pgd(pgd_t *pgdp, pgd_t pgd)
 			 * get out to userspace running on the kernel CR3,
 			 * userspace will crash instead of running.
 			 */
-			pgd.pgd |= _PAGE_NX;
+			if (__supported_pte_mask & _PAGE_NX)
+				pgd.pgd |= _PAGE_NX;
 		}
 	} else if (!pgd.pgd) {
 		/*
@@ -375,30 +457,25 @@ pgd_t kaiser_set_shadow_pgd(pgd_t *pgdp, pgd_t pgd)
 
 void kaiser_setup_pcid(void)
 {
-	unsigned long kern_cr3 = 0;
 	unsigned long user_cr3 = KAISER_SHADOW_PGD_OFFSET;
 
-	if (this_cpu_has(X86_FEATURE_PCID)) {
-		kern_cr3 |= X86_CR3_PCID_KERN_NOFLUSH;
+	if (this_cpu_has(X86_FEATURE_PCID))
 		user_cr3 |= X86_CR3_PCID_USER_NOFLUSH;
-	}
 	/*
 	 * These variables are used by the entry/exit
 	 * code to change PCID and pgd and TLB flushing.
 	 */
-	x86_cr3_pcid_noflush = kern_cr3;
 	this_cpu_write(x86_cr3_pcid_user, user_cr3);
 }
 
 /*
  * Make a note that this cpu will need to flush USER tlb on return to user.
- * Caller checks whether this_cpu_has(X86_FEATURE_PCID) before calling:
- * if cpu does not, then the NOFLUSH bit will never have been set.
+ * If cpu does not have PCID, then the NOFLUSH bit will never have been set.
  */
 void kaiser_flush_tlb_on_return_to_user(void)
 {
-	this_cpu_write(x86_cr3_pcid_user,
+	if (this_cpu_has(X86_FEATURE_PCID))
+		this_cpu_write(x86_cr3_pcid_user,
 			X86_CR3_PCID_USER_FLUSH | KAISER_SHADOW_PGD_OFFSET);
 }
 EXPORT_SYMBOL(kaiser_flush_tlb_on_return_to_user);
-#endif /* CONFIG_KAISER */

@@ -59,6 +59,7 @@
 #include <asm/smap.h>
 #include <asm/pgtable_types.h>
 #include <asm/kaiser.h>
+#include <asm/nospec-branch.h>
 #include <linux/err.h>
 
 /* Avoid __ASSEMBLER__'ifying <linux/audit.h> just for this.  */
@@ -317,7 +318,7 @@ ENTRY(save_paranoid)
 	SWAPGS
 	xorl %ebx,%ebx
 1:
-#ifdef CONFIG_KAISER
+#ifdef CONFIG_PAGE_TABLE_ISOLATION
 	/*
 	 * We might have come in between a swapgs and a SWITCH_KERNEL_CR3
 	 * on entry, or between a SWITCH_USER_CR3 and a swapgs on exit.
@@ -325,12 +326,13 @@ ENTRY(save_paranoid)
 	 * unconditionally, but we need to find out whether the reverse
 	 * should be done on return (conveyed to paranoid_exit in %ebx).
 	 */
-	movq	%cr3, %rax
+	ALTERNATIVE "jmp 2f", "movq %cr3, %rax", X86_FEATURE_KAISER
 	testl	$KAISER_SHADOW_PGD_OFFSET, %eax
 	jz	2f
 	orl	$2, %ebx
 	andq	$(~(X86_CR3_PCID_ASID_MASK | KAISER_SHADOW_PGD_OFFSET)), %rax
-	orq	x86_cr3_pcid_noflush, %rax
+	/* If PCID enabled, set X86_CR3_PCID_NOFLUSH_BIT */
+	ALTERNATIVE "", "bts $63, %rax", X86_FEATURE_PCID
 	movq	%rax, %cr3
 2:
 #endif
@@ -370,7 +372,7 @@ ENTRY(ret_from_fork)
 	subq $REST_SKIP, %rsp	# leave space for volatiles
 	CFI_ADJUST_CFA_OFFSET	REST_SKIP
 	movq %rbp, %rdi
-	call *%rbx
+	CALL_NOSPEC %rbx
 	movl $0, RAX(%rsp)
 	RESTORE_REST
 	jmp int_ret_from_sys_call
@@ -460,9 +462,19 @@ system_call_fastpath:
 	movq %r10,%rcx
 #ifdef CONFIG_ALT_SYSCALL
 	movq TI_sys_call_table+THREAD_INFO(%rsp,RIP-ARGOFFSET),%r11
-	call *(%r11,%rax,8)
+# ifdef CONFIG_RETPOLINE
+	movq 0(%r11, %rax, 8), %rax
+	call __x86_indirect_thunk_rax
+# else
+	call *(%r11, %rax, 8)
+# endif
 #else
+# ifdef CONFIG_RETPOLINE
+  	movq sys_call_table(, %rax, 8), %rax
+	call __x86_indirect_thunk_rax
+# else
 	call *sys_call_table(,%rax,8)  # XXX:	 rip relative
+# endif
 #endif
 	movq %rax,RAX-ARGOFFSET(%rsp)
 /*
@@ -591,9 +603,19 @@ tracesys_phase2:
 	movq %r10,%rcx	/* fixup for C */
 #ifdef CONFIG_ALT_SYSCALL
 	movq TI_sys_call_table+THREAD_INFO(%rsp,RIP-ARGOFFSET),%r11
+# ifdef CONFIG_RETPOLINE
+	movq 0(%r11, %rax, 8), %rax
+	call __x86_indirect_thunk_rax
+# else
 	call *(%r11,%rax,8)
+# endif
 #else
+# ifdef CONFIG_RETPOLINE
+  	movq sys_call_table(, %rax, 8), %rax
+	call __x86_indirect_thunk_rax
+# else
 	call *sys_call_table(,%rax,8)
+# endif
 #endif
 	movq %rax,RAX-ARGOFFSET(%rsp)
 	/* Use IRET because user could have changed frame */
@@ -1336,7 +1358,7 @@ trace_idtentry page_fault do_page_fault has_error_code=1
 idtentry async_page_fault do_async_page_fault has_error_code=1
 #endif
 #ifdef CONFIG_X86_MCE
-idtentry machine_check has_error_code=0 paranoid=1 do_sym=*machine_check_vector(%rip)
+idtentry machine_check do_mce has_error_code=0 paranoid=1
 #endif
 
 	/*
@@ -1367,7 +1389,8 @@ ENTRY(paranoid_exit)
 paranoid_kernel:
 	movq	%r12, %rbx		/* restore after paranoid_userspace */
 	TRACE_IRQS_IRETQ_DEBUG 0
-#ifdef CONFIG_KAISER
+#ifdef CONFIG_PAGE_TABLE_ISOLATION
+	/* No ALTERNATIVE for X86_FEATURE_KAISER: paranoid_entry sets %ebx */
 	testl	$2, %ebx			/* SWITCH_USER_CR3 needed? */
 	jz	paranoid_exit_no_switch
 	SWITCH_USER_CR3
@@ -1611,28 +1634,27 @@ ENTRY(nmi)
 
 	movq	%rsp, %rdi
 	movq	$-1, %rsi
-#ifdef CONFIG_KAISER
+#ifdef CONFIG_PAGE_TABLE_ISOLATION
 	/* Unconditionally use kernel CR3 for do_nmi() */
 	/* %rax is saved above, so OK to clobber here */
-	movq	%cr3, %rax
+	ALTERNATIVE "jmp 2f", "movq %cr3, %rax", X86_FEATURE_KAISER
 	/* If PCID enabled, NOFLUSH now and NOFLUSH on return */
-	orq	x86_cr3_pcid_noflush, %rax
+	ALTERNATIVE "", "bts $63, %rax", X86_FEATURE_PCID
 	pushq	%rax
 	/* mask off "user" bit of pgd address and 12 PCID bits: */
 	andq	$(~(X86_CR3_PCID_ASID_MASK | KAISER_SHADOW_PGD_OFFSET)), %rax
 	movq	%rax, %cr3
+2:
 #endif
 	call	do_nmi
 
-#ifdef CONFIG_KAISER
+#ifdef CONFIG_PAGE_TABLE_ISOLATION
 	/*
 	 * Unconditionally restore CR3.  I know we return to
 	 * kernel code that needs user CR3, but do we ever return
 	 * to "user mode" where we need the kernel CR3?
 	 */
-
-	popq	%rax
-	mov	%rax, %cr3
+	ALTERNATIVE "", "popq %rax; movq %rax, %cr3", X86_FEATURE_KAISER
 #endif
 
 	/*
@@ -1860,30 +1882,30 @@ end_repeat_nmi:
 1:
 	movq	%rsp,%rdi
 	movq	$-1,%rsi
-#ifdef CONFIG_KAISER
+#ifdef CONFIG_PAGE_TABLE_ISOLATION
 	/* Unconditionally use kernel CR3 for do_nmi() */
 	/* %rax is saved above, so OK to clobber here */
-	movq	%cr3, %rax
+	ALTERNATIVE "jmp 2f", "movq %cr3, %rax", X86_FEATURE_KAISER
 	/* If PCID enabled, NOFLUSH now and NOFLUSH on return */
-	orq	x86_cr3_pcid_noflush, %rax
+	ALTERNATIVE "", "bts $63, %rax", X86_FEATURE_PCID
 	pushq	%rax
 	/* mask off "user" bit of pgd address and 12 PCID bits: */
 	andq	$(~(X86_CR3_PCID_ASID_MASK | KAISER_SHADOW_PGD_OFFSET)), %rax
 	movq	%rax, %cr3
+2:
 #endif
 	DEFAULT_FRAME 0		/* ???? */
 
 	/* paranoidentry do_nmi, 0; without TRACE_IRQS_OFF */
 	call	do_nmi
 
-#ifdef CONFIG_KAISER
+#ifdef CONFIG_PAGE_TABLE_ISOLATION
 	/*
 	 * Unconditionally restore CR3.  We might be returning to
 	 * kernel code that needs user CR3, like just just before
 	 * a sysret.
 	 */
-	popq	%rax
-	mov	%rax, %cr3
+	ALTERNATIVE "", "popq %rax; movq %rax, %cr3", X86_FEATURE_KAISER
 #endif
 
 	testl %ebx,%ebx				/* swapgs needed? */
