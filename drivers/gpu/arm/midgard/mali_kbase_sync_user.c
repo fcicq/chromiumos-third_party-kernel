@@ -104,7 +104,8 @@ int kbase_stream_create_fence(int tl_fd, struct sync_file **rsfile)
 		goto out;
 	}
 
-	/* from here the sync_fole owns the fence */
+	/* Unref the fence from here, let the sync_file own it */
+	dma_fence_put(fence);
 
 	/* create a fd representing the fence */
 	fd = get_unused_fd_flags(O_RDWR | O_CLOEXEC);
