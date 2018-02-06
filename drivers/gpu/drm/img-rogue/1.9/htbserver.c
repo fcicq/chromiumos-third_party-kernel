@@ -130,7 +130,7 @@ static const IMG_UINT32 g_ui32TLBaseFlags = 0; //TL_FLAG_NO_SIGNAL_ON_COMMIT
 #define HTB_TL_BUFFER_SIZE_MIN	(0x10000)
 
 
-static HTB_CTRL_INFO g_sCtrl  = {0};
+static HTB_CTRL_INFO g_sCtrl;
 static IMG_BOOL g_bConfigured = IMG_FALSE;
 static IMG_HANDLE g_hTLStream = NULL;
 

@@ -2136,9 +2136,9 @@ static PVRSRV_HANDLE_TYPE g_aeOrderedFreeList[] =
 PVRSRV_ERROR PVRSRVFreeHandleBase(PVRSRV_HANDLE_BASE *psBase, IMG_UINT64 ui64MaxBridgeTime)
 {
 #if defined(DEBUG)
-	COUNT_HANDLE_DATA sCountData = { 0 };
+	COUNT_HANDLE_DATA sCountData = { };
 #endif
-	FREE_HANDLE_DATA sHandleData = { 0 };
+	FREE_HANDLE_DATA sHandleData = { };
 	IMG_UINT32 i;
 	PVRSRV_ERROR eError;
 

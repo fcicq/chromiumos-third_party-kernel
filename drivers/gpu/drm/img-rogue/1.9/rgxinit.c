@@ -2365,14 +2365,7 @@ static void RGXDebugRequestNotify(PVRSRV_DBGREQ_HANDLE hDbgReqestHandle,
 	}
 }
 
-static const RGX_MIPS_ADDRESS_TRAMPOLINE sNullTrampoline =
-{
-#if defined(PDUMP)
-	.hPdumpPages = NULL,
-#endif
-	.sPages = {{0}},
-	.sPhysAddr = {0}
-};
+static const RGX_MIPS_ADDRESS_TRAMPOLINE sNullTrampoline;
 
 static void RGXFreeTrampoline(PVRSRV_DEVICE_NODE *psDeviceNode)
 {

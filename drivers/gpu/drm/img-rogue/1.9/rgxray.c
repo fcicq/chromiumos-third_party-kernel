@@ -2478,8 +2478,8 @@ PVRSRV_ERROR PVRSRVRGXKickRSKM(RGX_SERVER_RAY_CONTEXT		*psRayContext,
 								IMG_DEV_VIRTADDR			sRobustnessResetReason)
 {
 	RGXFWIF_KCCB_CMD		sRSKCCBCmd;
-	RGX_CCB_CMD_HELPER_DATA	asRSCmdHelperData[1] = {{0}};
-	RGX_CCB_CMD_HELPER_DATA asFCCmdHelperData[1] = {{0}};
+	RGX_CCB_CMD_HELPER_DATA	asRSCmdHelperData[1] = { };
+	RGX_CCB_CMD_HELPER_DATA asFCCmdHelperData[1] = { };
 	PVRSRV_ERROR			eError;
 	PVRSRV_ERROR			eError1;
 	PVRSRV_ERROR			eError2;

@@ -1584,7 +1584,7 @@ static PVRSRV_ERROR _DumpList(PMR *psPMR, IMG_PID pid)
 
 					if (pid)
 					{
-						if((dllist_get_next_node(&(psRISubEntry->sProcListNode)) == 0) ||
+						if((dllist_get_next_node(&(psRISubEntry->sProcListNode)) == NULL) ||
 						   (dllist_get_next_node(&(psRISubEntry->sProcListNode)) == (PDLLIST_NODE)hashData))
 						{
 							psRISubEntry = NULL;
