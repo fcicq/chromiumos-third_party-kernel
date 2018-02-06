@@ -72,7 +72,6 @@ extern u16 __read_mostly tlb_lld_4k[NR_INFO];
 extern u16 __read_mostly tlb_lld_2m[NR_INFO];
 extern u16 __read_mostly tlb_lld_4m[NR_INFO];
 extern u16 __read_mostly tlb_lld_1g[NR_INFO];
-extern s8  __read_mostly tlb_flushall_shift;
 
 /*
  *  CPU type and hardware bug flags. Kept separately for each CPU.
@@ -283,7 +282,7 @@ struct tss_struct {
 
 } ____cacheline_aligned;
 
-DECLARE_PER_CPU_SHARED_ALIGNED(struct tss_struct, init_tss);
+DECLARE_PER_CPU_SHARED_ALIGNED_USER_MAPPED(struct tss_struct, init_tss);
 
 /*
  * Save the original ist values for checking stack pointers during debugging
@@ -888,7 +887,7 @@ extern unsigned long KSTK_ESP(struct task_struct *task);
 /*
  * User space RSP while inside the SYSCALL fast path
  */
-DECLARE_PER_CPU(unsigned long, old_rsp);
+DECLARE_PER_CPU_USER_MAPPED(unsigned long, old_rsp);
 
 #endif /* CONFIG_X86_64 */
 
