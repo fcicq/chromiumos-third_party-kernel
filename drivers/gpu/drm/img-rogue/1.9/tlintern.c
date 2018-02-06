@@ -89,7 +89,7 @@ TLMakeSNode(IMG_HANDLE f2, TL_STREAM *f3, TL_STREAM_DESC *f4)
 /*
  * Transport Layer Global top variables and functions
  */
-static TL_GLOBAL_DATA  sTLGlobalData = { 0 };
+static TL_GLOBAL_DATA sTLGlobalData;
 
 TL_GLOBAL_DATA *TLGGD(void)	// TLGetGlobalData()
 {

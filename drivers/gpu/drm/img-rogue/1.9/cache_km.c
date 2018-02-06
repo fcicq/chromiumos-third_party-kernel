@@ -298,7 +298,7 @@ typedef struct _CACHEOP_WORK_QUEUE_
 } CACHEOP_WORK_QUEUE;
 
 /* Top-level CacheOp framework object */
-static CACHEOP_WORK_QUEUE gsCwq = {0};
+static CACHEOP_WORK_QUEUE gsCwq;
 
 #define CacheOpConfigSupports(e) ((gsCwq.eConfig & (e)) ? IMG_TRUE : IMG_FALSE)
 
@@ -2012,7 +2012,7 @@ static PVRSRV_ERROR CacheOpBatchExecTimeline(PVRSRV_TIMELINE iTimeline,
 {
 	PVRSRV_ERROR eError;
 	IMG_UINT32 ui32NextIdx;
-	CACHEOP_WORK_ITEM sCacheOpWorkItem = {0};
+	CACHEOP_WORK_ITEM sCacheOpWorkItem = { };
 	CACHEOP_WORK_ITEM *psCacheOpWorkItem = NULL;
 
 	eError = CacheOpTimelineBind(&sCacheOpWorkItem, iTimeline);

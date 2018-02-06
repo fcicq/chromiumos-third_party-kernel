@@ -198,7 +198,7 @@ typedef struct _DEVICEMEM_HISTORY_DATA_
 	POS_LOCK hLock;
 } DEVICEMEM_HISTORY_DATA;
 
-static DEVICEMEM_HISTORY_DATA gsDevicememHistoryData = { 0 };
+static DEVICEMEM_HISTORY_DATA gsDevicememHistoryData;
 
 static void DevicememHistoryLock(void)
 {
