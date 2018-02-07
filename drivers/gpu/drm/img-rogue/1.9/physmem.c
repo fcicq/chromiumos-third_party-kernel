@@ -52,7 +52,17 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "rgx_heaps.h"
 
 #if defined(DEBUG)
-IMG_UINT32 gPMRAllocFail = 0;
+
+static IMG_UINT32 gPMRAllocFail = 0;
+
+#if defined(LINUX)
+#include <linux/moduleparam.h>
+
+module_param(gPMRAllocFail, uint, 0644);
+MODULE_PARM_DESC(gPMRAllocFail, "When number of PMR allocs reaches "
+				 "this value, it will fail (default value is 0 which "
+				 "means that alloc function will behave normally).");
+#endif /* defined(LINUX) */
 #endif /* defined(DEBUG) */
 
 PVRSRV_ERROR DevPhysMemAlloc(PVRSRV_DEVICE_NODE	*psDevNode,

@@ -183,7 +183,7 @@ struct SYNC_CHECKPOINT_RECORD
 	IMG_UINT64				ui64OSTime;
 	DLLIST_NODE				sNode;
 	IMG_CHAR				szClassName[SYNC_MAX_CLASS_NAME_LEN];
-} SYNC_CHECKPOINT_RECORD;
+};
 #endif /* defined(PVRSRV_ENABLE_FULL_SYNC_TRACKING) */
 
 static IMG_BOOL gbSyncCheckpointInit = IMG_FALSE;

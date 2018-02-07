@@ -55,7 +55,6 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "rgxdevice.h"
 #include "pvrsrv_error.h"
 #include "pvr_drv.h"
-#include <linux/moduleparam.h>
 
 #include <pvr_fence.h>
 
@@ -73,22 +72,6 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include "km_apphint.h"
 #include "srvinit.h"
-
-#if defined(PVRSRV_NEED_PVR_DPF)
-extern IMG_UINT32 gPVRDebugLevel;
-module_param(gPVRDebugLevel, uint, 0644);
-MODULE_PARM_DESC(gPVRDebugLevel,
-				 "Sets the level of debug output (default 0x7)");
-#endif /* defined(PVRSRV_NEED_PVR_DPF) */
-
-#if defined(DEBUG)
-extern IMG_UINT32 gPMRAllocFail;
-module_param(gPMRAllocFail, uint, 0644);
-MODULE_PARM_DESC(gPMRAllocFail, "When number of PMR allocs reaches"
-				 " this value, it will fail (default value is 0 which"
-				 "means that alloc function will behave normally).");
-#endif /* defined(DEBUG) */
-
 
 #if defined(SUPPORT_DISPLAY_CLASS)
 /* Display class interface */
