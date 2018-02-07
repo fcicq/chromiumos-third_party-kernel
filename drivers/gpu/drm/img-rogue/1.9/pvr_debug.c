@@ -46,6 +46,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <linux/sched.h>
 #include <linux/hardirq.h>
 #include <linux/module.h>
+#include <linux/moduleparam.h>
 #include <linux/spinlock.h>
 #include <linux/string.h>
 #include <linux/slab.h>
@@ -190,8 +191,7 @@ static IMG_BOOL BAppend(IMG_CHAR *pszBuf, IMG_UINT32 ui32BufSiz,
 						const IMG_CHAR *pszFormat, ...)
 						__printf(3, 4);
 
-/* NOTE: Must NOT be static! Used in module.c.. */
-IMG_UINT32 gPVRDebugLevel =
+static IMG_UINT32 gPVRDebugLevel =
 	(
 	 DBGPRIV_FATAL | DBGPRIV_ERROR | DBGPRIV_WARNING
 
@@ -203,6 +203,10 @@ IMG_UINT32 gPVRDebugLevel =
 	 | DBGPRIV_DEBUG
 #endif /* defined(PVR_DPF_ADHOC_DEBUG_ON) */
 	);
+
+module_param(gPVRDebugLevel, uint, 0644);
+MODULE_PARM_DESC(gPVRDebugLevel,
+				 "Sets the level of debug output (default 0x7)");
 
 #endif /* defined(PVRSRV_NEED_PVR_DPF) || defined(PVRSRV_NEED_PVR_TRACE) */
 
