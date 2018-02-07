@@ -1820,8 +1820,10 @@ static PVRSRV_ERROR CreateRecords(void)
 		return PVRSRV_ERROR_OUT_OF_MEMORY;
 	}
 
+	/* Allocated and initialise the circular buffer with zeros so every
+	 * command is initialised as a command of type COMMAND_TYPE_NONE. */
 	gsDevicememHistoryData.sRecords.pasCircularBuffer =
-			OSAllocMem(sizeof(COMMAND_WRAPPER) * CIRCULAR_BUFFER_NUM_COMMANDS);
+			OSAllocZMem(sizeof(COMMAND_WRAPPER) * CIRCULAR_BUFFER_NUM_COMMANDS);
 
 	if(gsDevicememHistoryData.sRecords.pasCircularBuffer == NULL)
 	{
@@ -1856,13 +1858,6 @@ static void InitialiseRecords(void)
 	gsDevicememHistoryData.sRecords.pasAllocations[ALLOCATION_LIST_NUM_ENTRIES - 1].ui32Next = 0;
 
 	gsDevicememHistoryData.sRecords.ui32AllocationsListHead = 0;
-
-	/* initialise the circular buffer with zeros so every command
-	 * is initialised as a command of type COMMAND_TYPE_NONE
-	 */
-	OSCachedMemSet(gsDevicememHistoryData.sRecords.pasCircularBuffer,
-								COMMAND_TYPE_NONE,
-			sizeof(gsDevicememHistoryData.sRecords.pasCircularBuffer[0]) * CIRCULAR_BUFFER_NUM_COMMANDS);
 }
 
 PVRSRV_ERROR DevicememHistoryInitKM(void)
