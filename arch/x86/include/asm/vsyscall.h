@@ -20,6 +20,7 @@ extern void map_vsyscall(void);
  * Returns true if handled.
  */
 extern bool emulate_vsyscall(struct pt_regs *regs, unsigned long address);
+extern bool vsyscall_enabled(void);
 
 #ifdef CONFIG_X86_64
 

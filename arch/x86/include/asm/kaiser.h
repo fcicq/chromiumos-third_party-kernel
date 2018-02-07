@@ -19,13 +19,24 @@
 
 #define KAISER_SHADOW_PGD_OFFSET 0x1000
 
+#ifdef CONFIG_PAGE_TABLE_ISOLATION
+/*
+ *  A page table address must have this alignment to stay the same when
+ *  KAISER_SHADOW_PGD_OFFSET mask is applied
+ */
+#define KAISER_KERNEL_PGD_ALIGNMENT (KAISER_SHADOW_PGD_OFFSET << 1)
+#else
+#define KAISER_KERNEL_PGD_ALIGNMENT PAGE_SIZE
+#endif
+
 #ifdef __ASSEMBLY__
-#ifdef CONFIG_KAISER
+#ifdef CONFIG_PAGE_TABLE_ISOLATION
 
 .macro _SWITCH_TO_KERNEL_CR3 reg
 movq %cr3, \reg
 andq $(~(X86_CR3_PCID_ASID_MASK | KAISER_SHADOW_PGD_OFFSET)), \reg
-orq  x86_cr3_pcid_noflush, \reg
+/* If PCID enabled, set X86_CR3_PCID_NOFLUSH_BIT */
+ALTERNATIVE "", "bts $63, \reg", X86_FEATURE_PCID
 movq \reg, %cr3
 .endm
 
@@ -39,44 +50,49 @@ movq \reg, %cr3
 movq %cr3, \reg
 orq  PER_CPU_VAR(x86_cr3_pcid_user), \reg
 js   9f
-/* FLUSH this time, reset to NOFLUSH for next time (if PCID enabled) */
+/* If PCID enabled, FLUSH this time, reset to NOFLUSH for next time */
 movb \regb, PER_CPU_VAR(x86_cr3_pcid_user+7)
 9:
 movq \reg, %cr3
 .endm
 
 .macro SWITCH_KERNEL_CR3
-pushq %rax
+ALTERNATIVE "jmp 8f", "pushq %rax", X86_FEATURE_KAISER
 _SWITCH_TO_KERNEL_CR3 %rax
 popq %rax
+8:
 .endm
 
 .macro SWITCH_USER_CR3
-pushq %rax
+ALTERNATIVE "jmp 8f", "pushq %rax", X86_FEATURE_KAISER
 _SWITCH_TO_USER_CR3 %rax %al
 popq %rax
+8:
 .endm
 
 .macro SWITCH_KERNEL_CR3_NO_STACK
-movq %rax, PER_CPU_VAR(unsafe_stack_register_backup)
+ALTERNATIVE "jmp 8f", \
+	__stringify(movq %rax, PER_CPU_VAR(unsafe_stack_register_backup)), \
+	X86_FEATURE_KAISER
 _SWITCH_TO_KERNEL_CR3 %rax
 movq PER_CPU_VAR(unsafe_stack_register_backup), %rax
+8:
 .endm
 
-#else /* CONFIG_KAISER */
+#else /* CONFIG_PAGE_TABLE_ISOLATION */
 
-.macro SWITCH_KERNEL_CR3 reg
+.macro SWITCH_KERNEL_CR3
 .endm
-.macro SWITCH_USER_CR3 reg regb
+.macro SWITCH_USER_CR3
 .endm
 .macro SWITCH_KERNEL_CR3_NO_STACK
 .endm
 
-#endif /* CONFIG_KAISER */
+#endif /* CONFIG_PAGE_TABLE_ISOLATION */
 
 #else /* __ASSEMBLY__ */
 
-#ifdef CONFIG_KAISER
+#ifdef CONFIG_PAGE_TABLE_ISOLATION
 /*
  * Upon kernel/user mode switch, it may happen that the address
  * space has to be switched before the registers have been
@@ -85,10 +101,21 @@ movq PER_CPU_VAR(unsafe_stack_register_backup), %rax
 */
 DECLARE_PER_CPU_USER_MAPPED(unsigned long, unsafe_stack_register_backup);
 
-extern unsigned long x86_cr3_pcid_noflush;
 DECLARE_PER_CPU(unsigned long, x86_cr3_pcid_user);
 
 extern char __per_cpu_user_mapped_start[], __per_cpu_user_mapped_end[];
+
+extern int kaiser_enabled;
+extern void __init kaiser_check_boottime_disable(void);
+#else
+#define kaiser_enabled	0
+static inline void __init kaiser_check_boottime_disable(void) {}
+#endif /* CONFIG_PAGE_TABLE_ISOLATION */
+
+/*
+ * Kaiser function prototypes are needed even when CONFIG_PAGE_TABLE_ISOLATION is not set,
+ * so as to build with tests on kaiser_enabled instead of #ifdefs.
+ */
 
 /**
  *  kaiser_add_mapping - map a virtual memory part to the shadow (user) mapping
@@ -118,8 +145,6 @@ extern void kaiser_remove_mapping(unsigned long start, unsigned long size);
  *  time mappings are permanent and never unmapped.
  */
 extern void kaiser_init(void);
-
-#endif /* CONFIG_KAISER */
 
 #endif /* __ASSEMBLY */
 
