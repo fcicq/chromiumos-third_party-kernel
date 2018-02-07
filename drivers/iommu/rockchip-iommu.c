@@ -1150,17 +1150,11 @@ static void rk_iommu_domain_free(struct iommu_domain *domain)
 	platform_device_put(rk_domain->pdev);
 }
 
+static const struct iommu_ops rk_iommu_ops;
+
 static bool rk_iommu_is_dev_iommu_master(struct device *dev)
 {
-	struct device_node *np = dev->of_node;
-	int ret;
-
-	/*
-	 * An iommu master has an iommus property containing a list of phandles
-	 * to iommu nodes, each with an #iommu-cells property with value 0.
-	 */
-	ret = of_count_phandle_with_args(np, "iommus", "#iommu-cells");
-	return (ret > 0);
+	return dev->iommu_fwspec && dev->iommu_fwspec->ops == &rk_iommu_ops;
 }
 
 static int rk_iommu_group_set_iommudata(struct iommu_group *group,
