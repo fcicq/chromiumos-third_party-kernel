@@ -3336,7 +3336,7 @@ PVRSRV_ERROR DevDeInitRGX (PVRSRV_DEVICE_NODE *psDeviceNode)
 	if (psDevInfo->pvRegsBaseKM != NULL)
 	{
 #if !defined(NO_HARDWARE)
-		OSUnMapPhysToLin(psDevInfo->pvRegsBaseKM,
+		OSUnMapPhysToLin((void __force *) psDevInfo->pvRegsBaseKM,
 						 psDevInfo->ui32RegSize,
 						 PVRSRV_MEMALLOCFLAG_CPU_UNCACHED);
 #endif /* !NO_HARDWARE */
@@ -4643,7 +4643,7 @@ PVRSRV_ERROR RGXRegisterDevice (PVRSRV_DEVICE_NODE *psDeviceNode)
 	 * Map RGX Registers
 	 */
 #if !defined(NO_HARDWARE)
-	psDevInfo->pvRegsBaseKM = OSMapPhysToLin(psDeviceNode->psDevConfig->sRegsCpuPBase,
+	psDevInfo->pvRegsBaseKM = (void __iomem *) OSMapPhysToLin(psDeviceNode->psDevConfig->sRegsCpuPBase,
 												psDeviceNode->psDevConfig->ui32RegsSize,
 										     PVRSRV_MEMALLOCFLAG_CPU_UNCACHED);
 
@@ -4715,7 +4715,7 @@ PVRSRV_ERROR RGXRegisterDevice (PVRSRV_DEVICE_NODE *psDeviceNode)
 
 e10:
 #if !defined(NO_HARDWARE)
-	OSUnMapPhysToLin(psDevInfo->pvRegsBaseKM,
+	OSUnMapPhysToLin((void __force *) psDevInfo->pvRegsBaseKM,
 							 psDevInfo->ui32RegSize,
 							 PVRSRV_MEMALLOCFLAG_CPU_UNCACHED);
 e9:

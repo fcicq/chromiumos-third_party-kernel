@@ -291,9 +291,10 @@ PVRSRV_ERROR LMA_PhyContigPagesClean(PVRSRV_DEVICE_NODE *psDevNode,
 
  @Return   PVRSRV_ERROR :
 ******************************************************************************/
-IMG_IMPORT PVRSRV_ERROR IMG_CALLCONV PVRSRVPollForValueKM(volatile IMG_UINT32	*pui32LinMemAddr,
-														  IMG_UINT32			ui32Value,
-														  IMG_UINT32			ui32Mask);
+IMG_IMPORT PVRSRV_ERROR IMG_CALLCONV PVRSRVPollForValueKM(
+	volatile IMG_UINT32 __iomem *pui32LinMemAddr,
+	IMG_UINT32                   ui32Value,
+	IMG_UINT32                   ui32Mask);
 
 /*!
 ******************************************************************************
@@ -308,9 +309,10 @@ IMG_IMPORT PVRSRV_ERROR IMG_CALLCONV PVRSRVPollForValueKM(volatile IMG_UINT32	*p
 
  @Return   PVRSRV_ERROR :
 ******************************************************************************/
-IMG_IMPORT PVRSRV_ERROR IMG_CALLCONV PVRSRVWaitForValueKM(volatile IMG_UINT32	*pui32LinMemAddr,
-														IMG_UINT32			ui32Value,
-														IMG_UINT32			ui32Mask);
+IMG_IMPORT PVRSRV_ERROR IMG_CALLCONV PVRSRVWaitForValueKM(
+	volatile IMG_UINT32 __iomem *pui32LinMemAddr,
+	IMG_UINT32                   ui32Value,
+	IMG_UINT32                   ui32Mask);
 
 /*!
 ******************************************************************************
@@ -326,9 +328,10 @@ IMG_IMPORT PVRSRV_ERROR IMG_CALLCONV PVRSRVWaitForValueKM(volatile IMG_UINT32	*p
 
  @Return   PVRSRV_ERROR :
 ******************************************************************************/
-PVRSRV_ERROR IMG_CALLCONV PVRSRVWaitForValueKMAndHoldBridgeLockKM(volatile IMG_UINT32 *pui32LinMemAddr,
-                                                                  IMG_UINT32          ui32Value,
-                                                                  IMG_UINT32          ui32Mask);
+PVRSRV_ERROR IMG_CALLCONV PVRSRVWaitForValueKMAndHoldBridgeLockKM(
+	volatile IMG_UINT32 __iomem *pui32LinMemAddr,
+	IMG_UINT32                   ui32Value,
+	IMG_UINT32                   ui32Mask);
 
 /*!
 *****************************************************************************

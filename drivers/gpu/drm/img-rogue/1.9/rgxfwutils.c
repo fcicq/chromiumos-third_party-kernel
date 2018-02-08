@@ -3377,7 +3377,7 @@ static PVRSRV_ERROR RGXSendCommandRaw(PVRSRV_RGXDEV_INFO	*psDevInfo,
 			/* wait for firmware to catch up */
 			PVR_DPF((PVR_DBG_MESSAGE, "RGXSendCommandRaw: waiting on fw to catch-up, roff: %d, woff: %d",
 						psKCCBCtl->ui32ReadOffset, ui32OldWriteOffset));
-			PVRSRVPollForValueKM(&psKCCBCtl->ui32ReadOffset, ui32OldWriteOffset, 0xFFFFFFFF);
+			PVRSRVPollForValueKM((IMG_UINT32 __iomem *) &psKCCBCtl->ui32ReadOffset, ui32OldWriteOffset, 0xFFFFFFFF);
 
 			/* Dump Init state of Kernel CCB control (read and write offset) */
 			PDUMPCOMMENTWITHFLAGS(PDUMP_FLAGS_CONTINUOUS, "Initial state of kernel CCB Control, roff: %d, woff: %d",
@@ -4344,7 +4344,7 @@ PVRSRV_ERROR RGXScheduleCleanupCommand(PVRSRV_RGXDEV_INFO	*psDevInfo,
 		If the command has was run but a resource was busy, then the request
 		will need to be retried.
 	*/
-	if (*psSyncPrim->pui32LinAddr & RGXFWIF_CLEANUP_BUSY)
+	if (OSReadDeviceMem32(psSyncPrim->pui32LinAddr) & RGXFWIF_CLEANUP_BUSY)
 	{
 		eError = PVRSRV_ERROR_RETRY;
 		goto fail_requestbusy;
@@ -4864,12 +4864,12 @@ fail_ccbacquire:
 */
 PVRSRV_ERROR RGXReadMETAAddr(PVRSRV_RGXDEV_INFO	*psDevInfo, IMG_UINT32 ui32METAAddr, IMG_UINT32 *pui32Value)
 {
-	IMG_UINT8 *pui8RegBase = (IMG_UINT8*)psDevInfo->pvRegsBaseKM;
+	IMG_UINT8 __iomem *pui8RegBase = psDevInfo->pvRegsBaseKM;
 	IMG_UINT32 ui32Value;
 
 	/* Wait for Slave Port to be Ready */
 	if (PVRSRVPollForValueKM(
-	        (IMG_UINT32*) (pui8RegBase + RGX_CR_META_SP_MSLVCTRL1),
+	        (IMG_UINT32 __iomem *) (pui8RegBase + RGX_CR_META_SP_MSLVCTRL1),
 	        RGX_CR_META_SP_MSLVCTRL1_READY_EN|RGX_CR_META_SP_MSLVCTRL1_GBLPORT_IDLE_EN,
 	        RGX_CR_META_SP_MSLVCTRL1_READY_EN|RGX_CR_META_SP_MSLVCTRL1_GBLPORT_IDLE_EN) != PVRSRV_OK)
 	{
@@ -4884,7 +4884,7 @@ PVRSRV_ERROR RGXReadMETAAddr(PVRSRV_RGXDEV_INFO	*psDevInfo, IMG_UINT32 ui32METAA
 
 	/* Wait for Slave Port to be Ready: read complete */
 	if (PVRSRVPollForValueKM(
-	        (IMG_UINT32*) (pui8RegBase + RGX_CR_META_SP_MSLVCTRL1),
+	        (IMG_UINT32 __iomem *) (pui8RegBase + RGX_CR_META_SP_MSLVCTRL1),
 	        RGX_CR_META_SP_MSLVCTRL1_READY_EN|RGX_CR_META_SP_MSLVCTRL1_GBLPORT_IDLE_EN,
 	        RGX_CR_META_SP_MSLVCTRL1_READY_EN|RGX_CR_META_SP_MSLVCTRL1_GBLPORT_IDLE_EN) != PVRSRV_OK)
 	{
@@ -4904,11 +4904,11 @@ PVRSRV_ERROR RGXReadMETAAddr(PVRSRV_RGXDEV_INFO	*psDevInfo, IMG_UINT32 ui32METAA
 */
 PVRSRV_ERROR RGXWriteMETAAddr(PVRSRV_RGXDEV_INFO *psDevInfo, IMG_UINT32 ui32METAAddr, IMG_UINT32 ui32Value)
 {
-	IMG_UINT8 *pui8RegBase = (IMG_UINT8*)psDevInfo->pvRegsBaseKM;
+	IMG_UINT8 __iomem *pui8RegBase = psDevInfo->pvRegsBaseKM;
 
 	/* Wait for Slave Port to be Ready */
-	if (PVRSRVPollForValueKM(
-		(IMG_UINT32*) (pui8RegBase + RGX_CR_META_SP_MSLVCTRL1),
+	if (PVRSRVPollForValueKM((IMG_UINT32 __iomem *)
+		(pui8RegBase + RGX_CR_META_SP_MSLVCTRL1),
 		RGX_CR_META_SP_MSLVCTRL1_READY_EN|RGX_CR_META_SP_MSLVCTRL1_GBLPORT_IDLE_EN,
 		RGX_CR_META_SP_MSLVCTRL1_READY_EN|RGX_CR_META_SP_MSLVCTRL1_GBLPORT_IDLE_EN) != PVRSRV_OK)
 	{

@@ -974,10 +974,17 @@ void OSSleepms(IMG_UINT32 ui32Timems);
 */ /**************************************************************************/
 void OSReleaseThreadQuanta(void);
 
+/* The access method is dependent on the location of the physical memory that
+ * makes up the PhyHeaps defined for the system and the CPU architecture. These
+ * macros may change in future to accommodate different access requirements.
+ */
+#define OSReadDeviceMem32(addr)        (*((volatile IMG_UINT32 __force *)(addr)))
+#define OSWriteDeviceMem32(addr, val)  (*((volatile IMG_UINT32 __force *)(addr)) = (IMG_UINT32)(val))
+
 #if defined(LINUX) && defined(__KERNEL__) && !defined(NO_HARDWARE)
-	#define OSReadHWReg8(addr, off)  (IMG_UINT8)readb((IMG_PBYTE)(addr) + (off))
-	#define OSReadHWReg16(addr, off) (IMG_UINT16)readw((IMG_PBYTE)(addr) + (off))
-	#define OSReadHWReg32(addr, off) (IMG_UINT32)readl((IMG_PBYTE)(addr) + (off))
+	#define OSReadHWReg8(addr, off)  (IMG_UINT8)readb((IMG_BYTE __iomem *)(addr) + (off))
+	#define OSReadHWReg16(addr, off) (IMG_UINT16)readw((IMG_BYTE __iomem *)(addr) + (off))
+	#define OSReadHWReg32(addr, off) (IMG_UINT32)readl((IMG_BYTE __iomem *)(addr) + (off))
 	/* Little endian support only */
 	#define OSReadHWReg64(addr, off) \
 			({ \
@@ -985,22 +992,22 @@ void OSReleaseThreadQuanta(void);
 				__typeof__(off) _off = off; \
 				(IMG_UINT64) \
 				( \
-					( (IMG_UINT64)(readl((IMG_PBYTE)(_addr) + (_off) + 4)) << 32) \
-					| readl((IMG_PBYTE)(_addr) + (_off)) \
+					( (IMG_UINT64)(readl((IMG_BYTE __iomem *)(_addr) + (_off) + 4)) << 32) \
+					| readl((IMG_BYTE __iomem *)(_addr) + (_off)) \
 				); \
 			})
 
-	#define OSWriteHWReg8(addr, off, val)  writeb((IMG_UINT8)(val), (IMG_PBYTE)(addr) + (off))
-	#define OSWriteHWReg16(addr, off, val) writew((IMG_UINT16)(val), (IMG_PBYTE)(addr) + (off))
-	#define OSWriteHWReg32(addr, off, val) writel((IMG_UINT32)(val), (IMG_PBYTE)(addr) + (off))
+	#define OSWriteHWReg8(addr, off, val)  writeb((IMG_UINT8)(val), (IMG_BYTE __iomem *)(addr) + (off))
+	#define OSWriteHWReg16(addr, off, val) writew((IMG_UINT16)(val), (IMG_BYTE __iomem *)(addr) + (off))
+	#define OSWriteHWReg32(addr, off, val) writel((IMG_UINT32)(val), (IMG_BYTE __iomem *)(addr) + (off))
 	/* Little endian support only */
 	#define OSWriteHWReg64(addr, off, val) do \
 			{ \
 				__typeof__(addr) _addr = addr; \
 				__typeof__(off) _off = off; \
 				__typeof__(val) _val = val; \
-				writel((IMG_UINT32)((_val) & 0xffffffff), (_addr) + (_off));	\
-				writel((IMG_UINT32)(((IMG_UINT64)(_val) >> 32) & 0xffffffff), (_addr) + (_off) + 4); \
+				writel((IMG_UINT32)((_val) & 0xffffffff), (IMG_BYTE __iomem *)(_addr) + (_off));	\
+				writel((IMG_UINT32)(((IMG_UINT64)(_val) >> 32) & 0xffffffff), (IMG_BYTE __iomem *)(_addr) + (_off) + 4); \
 			} while (0)
 
 #elif defined(NO_HARDWARE)
@@ -1029,7 +1036,7 @@ void OSReleaseThreadQuanta(void);
                                    the register to be read.
 @Return         The byte read.
 */ /**************************************************************************/
-	IMG_UINT8 OSReadHWReg8(void *pvLinRegBaseAddr, IMG_UINT32 ui32Offset);
+	IMG_UINT8 OSReadHWReg8(volatile void *pvLinRegBaseAddr, IMG_UINT32 ui32Offset);
 
 /*************************************************************************/ /*!
 @Function       OSReadHWReg16
@@ -1045,7 +1052,7 @@ void OSReleaseThreadQuanta(void);
                                    the register to be read.
 @Return         The word read.
 */ /**************************************************************************/
-	IMG_UINT16 OSReadHWReg16(void *pvLinRegBaseAddr, IMG_UINT32 ui32Offset);
+	IMG_UINT16 OSReadHWReg16(volatile void *pvLinRegBaseAddr, IMG_UINT32 ui32Offset);
 
 /*************************************************************************/ /*!
 @Function       OSReadHWReg32
@@ -1061,7 +1068,7 @@ void OSReleaseThreadQuanta(void);
                                    the register to be read.
 @Return         The long word read.
 */ /**************************************************************************/
-	IMG_UINT32 OSReadHWReg32(void *pvLinRegBaseAddr, IMG_UINT32 ui32Offset);
+	IMG_UINT32 OSReadHWReg32(volatile void *pvLinRegBaseAddr, IMG_UINT32 ui32Offset);
 
 /*************************************************************************/ /*!
 @Function       OSReadHWReg64
@@ -1077,7 +1084,7 @@ void OSReleaseThreadQuanta(void);
                                    the register to be read.
 @Return         The long long word read.
 */ /**************************************************************************/
-	IMG_UINT64 OSReadHWReg64(void *pvLinRegBaseAddr, IMG_UINT32 ui32Offset);
+	IMG_UINT64 OSReadHWReg64(volatile void *pvLinRegBaseAddr, IMG_UINT32 ui32Offset);
 
 /*************************************************************************/ /*!
 @Function       OSWriteHWReg8
@@ -1093,7 +1100,7 @@ void OSReleaseThreadQuanta(void);
 @Input          ui8Value           The byte to be written to the register.
 @Return         None.
 */ /**************************************************************************/
-	void OSWriteHWReg8(void *pvLinRegBaseAddr, IMG_UINT32 ui32Offset, IMG_UINT8 ui8Value);
+	void OSWriteHWReg8(volatile void *pvLinRegBaseAddr, IMG_UINT32 ui32Offset, IMG_UINT8 ui8Value);
 
 /*************************************************************************/ /*!
 @Function       OSWriteHWReg16
@@ -1109,7 +1116,7 @@ void OSReleaseThreadQuanta(void);
 @Input          ui16Value          The word to be written to the register.
 @Return         None.
 */ /**************************************************************************/
-	void OSWriteHWReg16(void *pvLinRegBaseAddr, IMG_UINT32 ui32Offset, IMG_UINT16 ui16Value);
+	void OSWriteHWReg16(volatile void *pvLinRegBaseAddr, IMG_UINT32 ui32Offset, IMG_UINT16 ui16Value);
 
 /*************************************************************************/ /*!
 @Function       OSWriteHWReg32
@@ -1125,7 +1132,7 @@ void OSReleaseThreadQuanta(void);
 @Input          ui32Value          The long word to be written to the register.
 @Return         None.
 */ /**************************************************************************/
-	void OSWriteHWReg32(void *pvLinRegBaseAddr, IMG_UINT32 ui32Offset, IMG_UINT32 ui32Value);
+	void OSWriteHWReg32(volatile void *pvLinRegBaseAddr, IMG_UINT32 ui32Offset, IMG_UINT32 ui32Value);
 
 /*************************************************************************/ /*!
 @Function       OSWriteHWReg64
@@ -1142,7 +1149,7 @@ void OSReleaseThreadQuanta(void);
                                    register.
 @Return         None.
 */ /**************************************************************************/
-	void OSWriteHWReg64(void *pvLinRegBaseAddr, IMG_UINT32 ui32Offset, IMG_UINT64 ui64Value);
+	void OSWriteHWReg64(volatile void *pvLinRegBaseAddr, IMG_UINT32 ui32Offset, IMG_UINT64 ui64Value);
 #endif
 
 typedef void (*PFN_TIMER_FUNC)(void*);
@@ -1210,7 +1217,7 @@ void OSPanic(void);
 @Input          ui32Bytes        size of the data to be copied
 @Return         PVRSRV_OK on success, a failure code otherwise.
 */ /**************************************************************************/
-PVRSRV_ERROR OSCopyToUser(void *pvProcess, void *pvDest, const void *pvSrc, size_t ui32Bytes);
+PVRSRV_ERROR OSCopyToUser(void *pvProcess, void __user *pvDest, const void *pvSrc, size_t ui32Bytes);
 
 /*************************************************************************/ /*!
 @Function       OSCopyFromUser
@@ -1227,7 +1234,7 @@ PVRSRV_ERROR OSCopyToUser(void *pvProcess, void *pvDest, const void *pvSrc, size
 @Input          ui32Bytes        size of the data to be copied
 @Return         PVRSRV_OK on success, a failure code otherwise.
 */ /**************************************************************************/
-PVRSRV_ERROR OSCopyFromUser(void *pvProcess, void *pvDest, const void *pvSrc, size_t ui32Bytes);
+PVRSRV_ERROR OSCopyFromUser(void *pvProcess, void *pvDest, const void __user *pvSrc, size_t ui32Bytes);
 
 #if defined (__linux__) || defined (WINDOWS_WDF) || defined(INTEGRITY_OS)
 #define OSBridgeCopyFromUser OSCopyFromUser

@@ -2726,7 +2726,7 @@ PVRSRV_ERROR IMG_CALLCONV PVRSRVDevInitCompatCheck(PVRSRV_DEVICE_NODE *psDeviceN
 	PollForValueKM
 */
 static
-PVRSRV_ERROR IMG_CALLCONV PollForValueKM (volatile IMG_UINT32*	pui32LinMemAddr,
+PVRSRV_ERROR IMG_CALLCONV PollForValueKM (volatile IMG_UINT32 __iomem * pui32LinMemAddr,
 										  IMG_UINT32			ui32Value,
 										  IMG_UINT32			ui32Mask,
 										  IMG_UINT32			ui32Timeoutus,
@@ -2751,7 +2751,7 @@ PVRSRV_ERROR IMG_CALLCONV PollForValueKM (volatile IMG_UINT32*	pui32LinMemAddr,
 
 	LOOP_UNTIL_TIMEOUT(ui32Timeoutus)
 	{
-		ui32ActualValue = OSReadHWReg32((void *)pui32LinMemAddr, 0) & ui32Mask;
+		ui32ActualValue = OSReadHWReg32(pui32LinMemAddr, 0) & ui32Mask;
 
 		if (ui32ActualValue == ui32Value)
 		{
@@ -2785,7 +2785,7 @@ PVRSRV_ERROR IMG_CALLCONV PollForValueKM (volatile IMG_UINT32*	pui32LinMemAddr,
 	PVRSRVPollForValueKM
 */
 IMG_EXPORT
-PVRSRV_ERROR IMG_CALLCONV PVRSRVPollForValueKM (volatile IMG_UINT32	*pui32LinMemAddr,
+PVRSRV_ERROR IMG_CALLCONV PVRSRVPollForValueKM (volatile IMG_UINT32	__iomem *pui32LinMemAddr,
 												IMG_UINT32			ui32Value,
 												IMG_UINT32			ui32Mask)
 {
@@ -2796,7 +2796,7 @@ PVRSRV_ERROR IMG_CALLCONV PVRSRVPollForValueKM (volatile IMG_UINT32	*pui32LinMem
 }
 
 static
-PVRSRV_ERROR IMG_CALLCONV WaitForValueKM(volatile IMG_UINT32  *pui32LinMemAddr,
+PVRSRV_ERROR IMG_CALLCONV WaitForValueKM(volatile IMG_UINT32 __iomem *pui32LinMemAddr,
                                          IMG_UINT32           ui32Value,
                                          IMG_UINT32           ui32Mask,
                                          IMG_BOOL             bHoldBridgeLock)
@@ -2825,7 +2825,7 @@ PVRSRV_ERROR IMG_CALLCONV WaitForValueKM(volatile IMG_UINT32  *pui32LinMemAddr,
 	
 	LOOP_UNTIL_TIMEOUT(MAX_HW_TIME_US)
 	{
-		ui32ActualValue = (*pui32LinMemAddr & ui32Mask);
+		ui32ActualValue = (OSReadDeviceMem32(pui32LinMemAddr) & ui32Mask);
 
 		if (ui32ActualValue == ui32Value)
 		{
@@ -2857,7 +2857,7 @@ PVRSRV_ERROR IMG_CALLCONV WaitForValueKM(volatile IMG_UINT32  *pui32LinMemAddr,
 	OSEventObjectClose(hOSEvent);
 
 	/* One last check in case the object wait ended after the loop timeout... */
-	if (eError != PVRSRV_OK  &&  (*pui32LinMemAddr & ui32Mask) == ui32Value)
+	if (eError != PVRSRV_OK  &&  (OSReadDeviceMem32(pui32LinMemAddr) & ui32Mask) == ui32Value)
 	{
 		eError = PVRSRV_OK;
 	}
@@ -2883,7 +2883,7 @@ EventObjectOpenError:
 	PVRSRVWaitForValueKM
 */
 IMG_EXPORT
-PVRSRV_ERROR IMG_CALLCONV PVRSRVWaitForValueKM (volatile IMG_UINT32	*pui32LinMemAddr,
+PVRSRV_ERROR IMG_CALLCONV PVRSRVWaitForValueKM (volatile IMG_UINT32	__iomem *pui32LinMemAddr,
 												IMG_UINT32			ui32Value,
 												IMG_UINT32			ui32Mask)
 {
@@ -2895,7 +2895,7 @@ PVRSRV_ERROR IMG_CALLCONV PVRSRVWaitForValueKM (volatile IMG_UINT32	*pui32LinMem
 /*
 	PVRSRVWaitForValueKMAndHoldBridgeLock
 */
-PVRSRV_ERROR IMG_CALLCONV PVRSRVWaitForValueKMAndHoldBridgeLockKM(volatile IMG_UINT32 *pui32LinMemAddr,
+PVRSRV_ERROR IMG_CALLCONV PVRSRVWaitForValueKMAndHoldBridgeLockKM(volatile IMG_UINT32 __iomem *pui32LinMemAddr,
                                                                   IMG_UINT32          ui32Value,
                                                                   IMG_UINT32          ui32Mask)
 {

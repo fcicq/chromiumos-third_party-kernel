@@ -73,7 +73,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #if defined(SUPPORT_DRM_EXT)
 #define CAST_BRIDGE_CMD_PTR_TO_PTR(ptr) (ptr)
 #else
-#define CAST_BRIDGE_CMD_PTR_TO_PTR(ptr) (void *)(uintptr_t)(ptr)
+#define CAST_BRIDGE_CMD_PTR_TO_PTR(ptr) (void __user *)(uintptr_t)(ptr)
 #endif
 
 #if defined(MODULE_TEST)

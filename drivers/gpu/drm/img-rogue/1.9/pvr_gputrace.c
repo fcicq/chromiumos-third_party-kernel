@@ -133,7 +133,7 @@ static struct seq_operations gsGpuTracingReadOps =
 };
 
 
-static IMG_INT GpuTracingSet(const IMG_CHAR *buffer, size_t count, loff_t *puiPosition, void *data)
+static IMG_INT GpuTracingSet(const IMG_CHAR __user *buffer, size_t count, loff_t *puiPosition, void *data)
 {
 	IMG_CHAR cFirstChar;
 	IMG_BOOL bEnable = IMG_FALSE;

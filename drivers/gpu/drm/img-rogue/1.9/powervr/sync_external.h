@@ -59,7 +59,7 @@ typedef struct _SYNC_OP_COOKIE_ *PSYNC_OP_COOKIE;
  */
 typedef struct PVRSRV_CLIENT_SYNC_PRIM
 {
-	volatile uint32_t	*pui32LinAddr;	/*!< User pointer to the primitive */
+	volatile uint32_t __iomem *pui32LinAddr;	/*!< User pointer to the primitive */
 } PVRSRV_CLIENT_SYNC_PRIM;
 
 /*!

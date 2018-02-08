@@ -36,8 +36,10 @@ extern "C" {
 	#include "msvc_types.h"
 #elif defined(LINUX) && defined(__KERNEL__)
 	#include <linux/types.h>
+	#include <linux/compiler.h>
 #else
 	#include <stdint.h>
+	#define __iomem
 #endif
 
 typedef void *IMG_CPU_VIRTADDR;

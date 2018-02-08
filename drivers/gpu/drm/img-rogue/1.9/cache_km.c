@@ -1216,6 +1216,7 @@ static IMG_CPU_VIRTADDR CacheOpValidateVAOffset(PMR *psPMR,
 	struct mm_struct *mm = current->mm;
 	struct vm_area_struct *vma;
 #endif
+	void __user *pvAddr;
 
 	if (! pvAddress)
 	{
@@ -1223,20 +1224,20 @@ static IMG_CPU_VIRTADDR CacheOpValidateVAOffset(PMR *psPMR,
 	}
 
 #if !defined(LINUX) || defined(CACHEFLUSH_NO_KMRBF_USING_UMVA)
-	pvAddress = NULL;
+	pvAddr = NULL;
 #else
 	/* Offset VA, validate UM/VA, skip all KM/VA as it's pre-validated */
-	pvAddress = (void*)(uintptr_t)((uintptr_t)pvAddress + uiOffset);
-	if (access_ok(VERIFY_READ, pvAddress, uiSize))
+	pvAddr = (void __user *)(uintptr_t)((uintptr_t)pvAddress + uiOffset);
+	if (access_ok(VERIFY_READ, pvAddr, uiSize))
 	{
 		down_read(&mm->mmap_sem);
-		vma = find_vma(mm, (unsigned long)(uintptr_t)pvAddress);
+		vma = find_vma(mm, (unsigned long)(uintptr_t)pvAddr);
 		if (!vma ||
-			vma->vm_start > (unsigned long)(uintptr_t)pvAddress ||
+			vma->vm_start > (unsigned long)(uintptr_t)pvAddr ||
 			vma->vm_end - vma->vm_start > (unsigned long)(uintptr_t)uiSize)
 		{
 			/* Out of range mm_struct->vm_area VA */
-			pvAddress = NULL;
+			pvAddr = NULL;
 		}
 		else if (vma->vm_private_data != psPMR)
 		{
@@ -1245,18 +1246,18 @@ static IMG_CPU_VIRTADDR CacheOpValidateVAOffset(PMR *psPMR,
 			   this VA as the client user space mapping could be removed without
 			   us knowing which might induce CPU fault during cache maintenance.
 			*/
-			pvAddress = NULL;
+			pvAddr = NULL;
 		}
 		up_read(&mm->mmap_sem);
 	}
 	/* Fail if access is not OK and the supplied address is a client user space VA */
 	else if ((IMG_UINT64)(uintptr_t)pvAddress <= OSGetCurrentProcessVASpaceSize())
 	{
-		pvAddress = NULL;
+		pvAddr = NULL;
 	}
 #endif
 
-	return pvAddress;
+	return (IMG_CPU_VIRTADDR __force) pvAddr;
 }
 
 static PVRSRV_ERROR CacheOpPMRExec (PMR *psPMR,

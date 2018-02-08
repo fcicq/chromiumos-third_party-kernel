@@ -120,7 +120,7 @@ void RGXWriteReg32(const void *hPrivate, IMG_UINT32 ui32RegAddr, IMG_UINT32 ui32
 {
 	RGX_LAYER_PARAMS *psParams;
 	PVRSRV_RGXDEV_INFO *psDevInfo;
-	void *pvRegsBase;
+	void __iomem *pvRegsBase;
 
 	PVR_ASSERT(hPrivate != NULL);
 	psParams = (RGX_LAYER_PARAMS*)hPrivate;
@@ -141,7 +141,7 @@ void RGXWriteReg64(const void *hPrivate, IMG_UINT32 ui32RegAddr, IMG_UINT64 ui64
 {
 	RGX_LAYER_PARAMS *psParams;
 	PVRSRV_RGXDEV_INFO *psDevInfo;
-	void *pvRegsBase;
+	void __iomem *pvRegsBase;
 
 	PVR_ASSERT(hPrivate != NULL);
 	psParams = (RGX_LAYER_PARAMS*)hPrivate;
@@ -162,7 +162,7 @@ IMG_UINT32 RGXReadReg32(const void *hPrivate, IMG_UINT32 ui32RegAddr)
 {
 	RGX_LAYER_PARAMS *psParams;
 	PVRSRV_RGXDEV_INFO *psDevInfo;
-	void *pvRegsBase;
+	void __iomem *pvRegsBase;
 	IMG_UINT32 ui32RegValue;
 
 	PVR_ASSERT(hPrivate != NULL);
@@ -190,7 +190,7 @@ IMG_UINT64 RGXReadReg64(const void *hPrivate, IMG_UINT32 ui32RegAddr)
 {
 	RGX_LAYER_PARAMS *psParams;
 	PVRSRV_RGXDEV_INFO *psDevInfo;
-	void *pvRegsBase;
+	void __iomem *pvRegsBase;
 	IMG_UINT64 ui64RegValue;
 
 	PVR_ASSERT(hPrivate != NULL);
@@ -221,7 +221,7 @@ PVRSRV_ERROR RGXPollReg32(const void *hPrivate,
 {
 	RGX_LAYER_PARAMS *psParams;
 	PVRSRV_RGXDEV_INFO *psDevInfo;
-	void *pvRegsBase;
+	void __iomem *pvRegsBase;
 
 	PVR_ASSERT(hPrivate != NULL);
 	psParams = (RGX_LAYER_PARAMS*)hPrivate;
@@ -232,7 +232,7 @@ PVRSRV_ERROR RGXPollReg32(const void *hPrivate,
 	if (!(psParams->ui32PdumpFlags & PDUMP_FLAGS_NOHW))
 #endif
 	{
-		if (PVRSRVPollForValueKM((IMG_UINT32 *)((IMG_UINT8*)pvRegsBase + ui32RegAddr),
+		if (PVRSRVPollForValueKM((IMG_UINT32 __iomem *)((IMG_UINT8 __iomem *)pvRegsBase + ui32RegAddr),
 		                         ui32RegValue,
 		                         ui32RegMask) != PVRSRV_OK)
 		{
@@ -258,7 +258,7 @@ PVRSRV_ERROR RGXPollReg64(const void *hPrivate,
 {
 	RGX_LAYER_PARAMS *psParams;
 	PVRSRV_RGXDEV_INFO *psDevInfo;
-	void *pvRegsBase;
+	void __iomem *pvRegsBase;
 
 	/* Split lower and upper words */
 	IMG_UINT32 ui32UpperValue = (IMG_UINT32) (ui64RegValue >> 32);
@@ -275,7 +275,7 @@ PVRSRV_ERROR RGXPollReg64(const void *hPrivate,
 	if (!(psParams->ui32PdumpFlags & PDUMP_FLAGS_NOHW))
 #endif
 	{
-		if (PVRSRVPollForValueKM((IMG_UINT32 *)((IMG_UINT8*)pvRegsBase + ui32RegAddr + 4),
+		if (PVRSRVPollForValueKM((IMG_UINT32 __iomem *)((IMG_UINT8 __iomem *)pvRegsBase + ui32RegAddr + 4),
 		                         ui32UpperValue,
 		                         ui32UpperMask) != PVRSRV_OK)
 		{
@@ -283,7 +283,7 @@ PVRSRV_ERROR RGXPollReg64(const void *hPrivate,
 			return PVRSRV_ERROR_TIMEOUT;
 		}
 
-		if (PVRSRVPollForValueKM((IMG_UINT32 *)((IMG_UINT8*)pvRegsBase + ui32RegAddr),
+		if (PVRSRVPollForValueKM((IMG_UINT32 __iomem *)((IMG_UINT8 __iomem *)pvRegsBase + ui32RegAddr),
 		                         ui32LowerValue,
 		                         ui32LowerMask) != PVRSRV_OK)
 		{
@@ -435,7 +435,7 @@ void RGXAcquireTrampolineRemapAddr(const void *hPrivate, IMG_DEV_PHYADDR *psTram
 
 #if defined(PDUMP)
 static inline
-void RGXWriteRemapConfig2Reg(void *pvRegs,
+void RGXWriteRemapConfig2Reg(void __iomem *pvRegs,
                              PMR *psPMR,
                              IMG_DEVMEM_OFFSET_T uiLogicalOffset,
                              IMG_UINT32 ui32RegAddr,

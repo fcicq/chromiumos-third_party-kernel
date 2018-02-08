@@ -268,6 +268,9 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 		#define __printf(fmt, va)
 	#endif /* defined(__GNUC__) */
 
+	#define __user
+	#define __force
+	#define __iomem
 #else
 	/* Silently ignore those attributes */
 	#define __printf(fmt, va)
@@ -282,6 +285,10 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 	#else
 		#define __noreturn
 	#endif
+
+	#define __user
+	#define __force
+	#define __iomem
 #endif
 
 

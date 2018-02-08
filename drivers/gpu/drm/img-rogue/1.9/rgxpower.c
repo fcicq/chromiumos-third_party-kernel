@@ -196,7 +196,7 @@ PVRSRV_ERROR RGXPrePowerState (IMG_HANDLE				hDevHandle,
 				for (ui32TID = 0; ui32TID < RGXFW_THREAD_NUM; ui32TID++)
 				{
 					/* Wait for the pending META/MIPS to host interrupts to come back. */
-					eError = PVRSRVPollForValueKM(&psDevInfo->aui32SampleIRQCount[ui32TID],
+					eError = PVRSRVPollForValueKM((IMG_UINT32 __iomem *)&psDevInfo->aui32SampleIRQCount[ui32TID],
 										          psFWTraceBuf->aui32InterruptCount[ui32TID],
 										          0xffffffff);
 
@@ -346,7 +346,7 @@ PVRSRV_ERROR RGXPostPowerState (IMG_HANDLE				hDevHandle,
 			/*
 			 * Check whether the FW has started by polling on bFirmwareStarted flag
 			 */
-			if (PVRSRVPollForValueKM((IMG_UINT32 *)&psRGXFWInit->bFirmwareStarted,
+			if (PVRSRVPollForValueKM((IMG_UINT32 __iomem *)&psRGXFWInit->bFirmwareStarted,
 			                         IMG_TRUE,
 			                         0xFFFFFFFF) != PVRSRV_OK)
 			{
