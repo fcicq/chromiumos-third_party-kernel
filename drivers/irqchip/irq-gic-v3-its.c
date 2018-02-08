@@ -1487,14 +1487,15 @@ static int its_save_disable(void)
 		its->ctlr_save = readl_relaxed(base + GITS_CTLR);
 		err = its_force_quiescent(base);
 		if (err) {
-			pr_err("ITS failed to quiesce\n");
+			pr_err("ITS@%pa: failed to quiesce: %d\n",
+			       &its->phys_base, err);
 			writel_relaxed(its->ctlr_save, base + GITS_CTLR);
 			goto err;
 		}
 
 		for (i = 0; i < GITS_BASER_NR_REGS; i++)
 			its->baser_save[i] = readq_relaxed(base + GITS_BASER +
-					i * sizeof(*its->baser_save));
+					i * sizeof(its->baser_save[i]));
 
 		its->cbaser_save = readq_relaxed(base + GITS_CBASER);
 	}
@@ -1519,6 +1520,7 @@ err:
 static void its_restore_enable(void)
 {
 	struct its_node *its;
+	int ret;
 
 	spin_lock(&its_lock);
 	list_for_each_entry(its, &its_nodes, entry) {
@@ -1536,8 +1538,10 @@ static void its_restore_enable(void)
 		 * registers is undefined according to the GIC v3 ITS
 		 * Specification.
 		 */
-		if (its_force_quiescent(base)) {
-			pr_err("ITS(%p): failed to quiesce on resume\n", base);
+		ret = its_force_quiescent(base);
+		if (ret) {
+			pr_err("ITS@%pa: failed to quiesce on resume: %d\n",
+			       &its->phys_base, ret);
 			continue;
 		}
 
@@ -1557,7 +1561,7 @@ static void its_restore_enable(void)
 
 			writeq_relaxed(its->baser_save[i],
 				       base + GITS_BASER +
-				       i * sizeof(*its->baser_save));
+				       i * sizeof(its->baser_save[i]));
 		}
 		writel_relaxed(its->ctlr_save, base + GITS_CTLR);
 
