@@ -231,6 +231,7 @@ static inline void GetBufferLock(unsigned long *pulLockFlags)
 	else
 	{
 		mutex_lock(&gsDebugMutexNonIRQ);
+		__acquire(gsDebugLockIRQ);
 	}
 }
 
@@ -242,6 +243,7 @@ static inline void ReleaseBufferLock(unsigned long ulLockFlags)
 	}
 	else
 	{
+		__release(gsDebugLockIRQ);
 		mutex_unlock(&gsDebugMutexNonIRQ);
 	}
 }
