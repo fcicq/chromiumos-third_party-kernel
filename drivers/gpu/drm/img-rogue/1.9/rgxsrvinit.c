@@ -96,6 +96,7 @@ static RGX_INIT_COMMAND asDbgCommands[RGX_MAX_DEBUG_COMMANDS];
 #define	HW_PERF_FILTER_DEFAULT         0x00000000 /* Default to no HWPerf */
 #define HW_PERF_FILTER_DEFAULT_ALL_ON  0xFFFFFFFF /* All events */
 
+#define VZ_RGX_FW_FILENAME_SUFFIX ".vz"
 
 #if defined(SUPPORT_VALIDATION)
 #include "pvrsrv_apphint.h"
@@ -1231,25 +1232,35 @@ static PVRSRV_ERROR InitFirmware(PVRSRV_DEVICE_NODE *psDeviceNode,
 
 	if (!PVRSRV_VZ_MODE_IS(DRIVER_MODE_GUEST)) 
 	{
-		IMG_CHAR *pszFWFilename = NULL;
-		IMG_CHAR *pszFWpFilename = NULL;
+		const IMG_CHAR * const pszFWFilenameSuffix =
+			PVRSRV_VZ_MODE_IS(DRIVER_MODE_NATIVE) ? "" : VZ_RGX_FW_FILENAME_SUFFIX;
+		IMG_CHAR aszFWFilenameStr[sizeof(RGX_FW_FILENAME) +
+								  MAX_BVNC_STRING_LEN +
+								  sizeof(VZ_RGX_FW_FILENAME_SUFFIX)];
+		IMG_CHAR aszFWpFilenameStr[IMG_ARR_NUM_ELEMS(aszFWFilenameStr)];
 
-		IMG_CHAR aszFWFilenameStr[OSStringLength(RGX_FW_FILENAME)+MAX_BVNC_STRING_LEN+2];
-		IMG_CHAR aszFWpFilenameStr[OSStringLength(RGX_FW_FILENAME)+MAX_BVNC_STRING_LEN+3];
+		OSSNPrintf(aszFWFilenameStr, IMG_ARR_NUM_ELEMS(aszFWFilenameStr),
+				   "%s.%d.%d.%d.%d%s",
+				   RGX_FW_FILENAME,
+		           psDevInfo->sDevFeatureCfg.ui32B,
+				   psDevInfo->sDevFeatureCfg.ui32V,
+		           psDevInfo->sDevFeatureCfg.ui32N,
+				   psDevInfo->sDevFeatureCfg.ui32C,
+				   pszFWFilenameSuffix);
 
-		pszFWFilename = &aszFWFilenameStr[0];
-		OSSNPrintf(pszFWFilename, OSStringLength(RGX_FW_FILENAME)+MAX_BVNC_STRING_LEN+2, "%s.%d.%d.%d.%d%s", RGX_FW_FILENAME,
-		           psDevInfo->sDevFeatureCfg.ui32B, psDevInfo->sDevFeatureCfg.ui32V,
-		           psDevInfo->sDevFeatureCfg.ui32N, psDevInfo->sDevFeatureCfg.ui32C, PVRSRV_VZ_MODE_IS(DRIVER_MODE_NATIVE) ? "" : ".vz");
-		pszFWpFilename = &aszFWpFilenameStr[0];
-		OSSNPrintf(pszFWpFilename, OSStringLength(RGX_FW_FILENAME)+MAX_BVNC_STRING_LEN+3, "%s.%d.%dp.%d.%d%s", RGX_FW_FILENAME,
-		           psDevInfo->sDevFeatureCfg.ui32B, psDevInfo->sDevFeatureCfg.ui32V,
-		           psDevInfo->sDevFeatureCfg.ui32N, psDevInfo->sDevFeatureCfg.ui32C, PVRSRV_VZ_MODE_IS(DRIVER_MODE_NATIVE) ? "" : ".vz");
+		OSSNPrintf(aszFWpFilenameStr, IMG_ARR_NUM_ELEMS(aszFWpFilenameStr),
+				   "%s.%d.%dp.%d.%d%s",
+				   RGX_FW_FILENAME,
+		           psDevInfo->sDevFeatureCfg.ui32B,
+				   psDevInfo->sDevFeatureCfg.ui32V,
+		           psDevInfo->sDevFeatureCfg.ui32N,
+				   psDevInfo->sDevFeatureCfg.ui32C,
+				   pszFWFilenameSuffix);
 
 		/*
 		 * Get pointer to Firmware image
 		 */
-		psRGXFW = RGXLoadFirmware(psDeviceNode, pszFWFilename, pszFWpFilename);
+		psRGXFW = RGXLoadFirmware(psDeviceNode, aszFWFilenameStr, aszFWpFilenameStr);
 		if (psRGXFW == NULL)
 		{
 			PVR_DPF((PVR_DBG_ERROR, "InitFirmware: RGXLoadFirmware failed"));
