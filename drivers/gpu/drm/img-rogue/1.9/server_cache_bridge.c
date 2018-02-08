@@ -141,7 +141,7 @@ PVRSRVBridgeCacheOpQueue(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psCacheOpQueueIN->ui32NumCacheOps * sizeof(IMG_HANDLE) > 0)
 			{
-				if ( OSCopyFromUser(NULL, hPMRInt2, psCacheOpQueueIN->phPMR, psCacheOpQueueIN->ui32NumCacheOps * sizeof(IMG_HANDLE)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, hPMRInt2, (const void __user *) psCacheOpQueueIN->phPMR, psCacheOpQueueIN->ui32NumCacheOps * sizeof(IMG_HANDLE)) != PVRSRV_OK )
 				{
 					psCacheOpQueueOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -157,7 +157,7 @@ PVRSRVBridgeCacheOpQueue(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psCacheOpQueueIN->ui32NumCacheOps * sizeof(IMG_UINT64) > 0)
 			{
-				if ( OSCopyFromUser(NULL, ui64AddressInt, psCacheOpQueueIN->pui64Address, psCacheOpQueueIN->ui32NumCacheOps * sizeof(IMG_UINT64)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, ui64AddressInt, (const void __user *) psCacheOpQueueIN->pui64Address, psCacheOpQueueIN->ui32NumCacheOps * sizeof(IMG_UINT64)) != PVRSRV_OK )
 				{
 					psCacheOpQueueOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -173,7 +173,7 @@ PVRSRVBridgeCacheOpQueue(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psCacheOpQueueIN->ui32NumCacheOps * sizeof(IMG_DEVMEM_OFFSET_T) > 0)
 			{
-				if ( OSCopyFromUser(NULL, uiOffsetInt, psCacheOpQueueIN->puiOffset, psCacheOpQueueIN->ui32NumCacheOps * sizeof(IMG_DEVMEM_OFFSET_T)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, uiOffsetInt, (const void __user *) psCacheOpQueueIN->puiOffset, psCacheOpQueueIN->ui32NumCacheOps * sizeof(IMG_DEVMEM_OFFSET_T)) != PVRSRV_OK )
 				{
 					psCacheOpQueueOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -189,7 +189,7 @@ PVRSRVBridgeCacheOpQueue(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psCacheOpQueueIN->ui32NumCacheOps * sizeof(IMG_DEVMEM_SIZE_T) > 0)
 			{
-				if ( OSCopyFromUser(NULL, uiSizeInt, psCacheOpQueueIN->puiSize, psCacheOpQueueIN->ui32NumCacheOps * sizeof(IMG_DEVMEM_SIZE_T)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, uiSizeInt, (const void __user *) psCacheOpQueueIN->puiSize, psCacheOpQueueIN->ui32NumCacheOps * sizeof(IMG_DEVMEM_SIZE_T)) != PVRSRV_OK )
 				{
 					psCacheOpQueueOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -205,7 +205,7 @@ PVRSRVBridgeCacheOpQueue(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psCacheOpQueueIN->ui32NumCacheOps * sizeof(PVRSRV_CACHE_OP) > 0)
 			{
-				if ( OSCopyFromUser(NULL, iuCacheOpInt, psCacheOpQueueIN->piuCacheOp, psCacheOpQueueIN->ui32NumCacheOps * sizeof(PVRSRV_CACHE_OP)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, iuCacheOpInt, (const void __user *) psCacheOpQueueIN->piuCacheOp, psCacheOpQueueIN->ui32NumCacheOps * sizeof(PVRSRV_CACHE_OP)) != PVRSRV_OK )
 				{
 					psCacheOpQueueOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 

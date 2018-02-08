@@ -387,7 +387,7 @@ _CleanupThread_FreeMMUMapping(void* pvData)
 		psCleanup->psSync = psDevNode->psMMUCacheSyncPrim;
 	}
 
-	uiSyncCurrent = *(psCleanup->psSync->pui32LinAddr);
+	uiSyncCurrent = OSReadDeviceMem32(psCleanup->psSync->pui32LinAddr);
 	uiSyncReq = psCleanup->uiRequiredSyncVal;
 
 	/* Either the invalidate has been executed ... */

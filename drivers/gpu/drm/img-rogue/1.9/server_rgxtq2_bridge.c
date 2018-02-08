@@ -145,7 +145,7 @@ PVRSRVBridgeRGXTDMCreateTransferContext(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXTDMCreateTransferContextIN->ui32FrameworkCmdize * sizeof(IMG_BYTE) > 0)
 			{
-				if ( OSCopyFromUser(NULL, psFrameworkCmdInt, psRGXTDMCreateTransferContextIN->psFrameworkCmd, psRGXTDMCreateTransferContextIN->ui32FrameworkCmdize * sizeof(IMG_BYTE)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, psFrameworkCmdInt, (const void __user *) psRGXTDMCreateTransferContextIN->psFrameworkCmd, psRGXTDMCreateTransferContextIN->ui32FrameworkCmdize * sizeof(IMG_BYTE)) != PVRSRV_OK )
 				{
 					psRGXTDMCreateTransferContextOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -427,7 +427,7 @@ PVRSRVBridgeRGXTDMSubmitTransfer(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXTDMSubmitTransferIN->ui32ClientFenceCount * sizeof(IMG_HANDLE) > 0)
 			{
-				if ( OSCopyFromUser(NULL, hFenceUFOSyncPrimBlockInt2, psRGXTDMSubmitTransferIN->phFenceUFOSyncPrimBlock, psRGXTDMSubmitTransferIN->ui32ClientFenceCount * sizeof(IMG_HANDLE)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, hFenceUFOSyncPrimBlockInt2, (const void __user *) psRGXTDMSubmitTransferIN->phFenceUFOSyncPrimBlock, psRGXTDMSubmitTransferIN->ui32ClientFenceCount * sizeof(IMG_HANDLE)) != PVRSRV_OK )
 				{
 					psRGXTDMSubmitTransferOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -443,7 +443,7 @@ PVRSRVBridgeRGXTDMSubmitTransfer(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXTDMSubmitTransferIN->ui32ClientFenceCount * sizeof(IMG_UINT32) > 0)
 			{
-				if ( OSCopyFromUser(NULL, ui32FenceSyncOffsetInt, psRGXTDMSubmitTransferIN->pui32FenceSyncOffset, psRGXTDMSubmitTransferIN->ui32ClientFenceCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, ui32FenceSyncOffsetInt, (const void __user *) psRGXTDMSubmitTransferIN->pui32FenceSyncOffset, psRGXTDMSubmitTransferIN->ui32ClientFenceCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
 				{
 					psRGXTDMSubmitTransferOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -459,7 +459,7 @@ PVRSRVBridgeRGXTDMSubmitTransfer(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXTDMSubmitTransferIN->ui32ClientFenceCount * sizeof(IMG_UINT32) > 0)
 			{
-				if ( OSCopyFromUser(NULL, ui32FenceValueInt, psRGXTDMSubmitTransferIN->pui32FenceValue, psRGXTDMSubmitTransferIN->ui32ClientFenceCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, ui32FenceValueInt, (const void __user *) psRGXTDMSubmitTransferIN->pui32FenceValue, psRGXTDMSubmitTransferIN->ui32ClientFenceCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
 				{
 					psRGXTDMSubmitTransferOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -477,7 +477,7 @@ PVRSRVBridgeRGXTDMSubmitTransfer(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXTDMSubmitTransferIN->ui32ClientUpdateCount * sizeof(IMG_HANDLE) > 0)
 			{
-				if ( OSCopyFromUser(NULL, hUpdateUFOSyncPrimBlockInt2, psRGXTDMSubmitTransferIN->phUpdateUFOSyncPrimBlock, psRGXTDMSubmitTransferIN->ui32ClientUpdateCount * sizeof(IMG_HANDLE)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, hUpdateUFOSyncPrimBlockInt2, (const void __user *) psRGXTDMSubmitTransferIN->phUpdateUFOSyncPrimBlock, psRGXTDMSubmitTransferIN->ui32ClientUpdateCount * sizeof(IMG_HANDLE)) != PVRSRV_OK )
 				{
 					psRGXTDMSubmitTransferOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -493,7 +493,7 @@ PVRSRVBridgeRGXTDMSubmitTransfer(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXTDMSubmitTransferIN->ui32ClientUpdateCount * sizeof(IMG_UINT32) > 0)
 			{
-				if ( OSCopyFromUser(NULL, ui32UpdateSyncOffsetInt, psRGXTDMSubmitTransferIN->pui32UpdateSyncOffset, psRGXTDMSubmitTransferIN->ui32ClientUpdateCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, ui32UpdateSyncOffsetInt, (const void __user *) psRGXTDMSubmitTransferIN->pui32UpdateSyncOffset, psRGXTDMSubmitTransferIN->ui32ClientUpdateCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
 				{
 					psRGXTDMSubmitTransferOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -509,7 +509,7 @@ PVRSRVBridgeRGXTDMSubmitTransfer(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXTDMSubmitTransferIN->ui32ClientUpdateCount * sizeof(IMG_UINT32) > 0)
 			{
-				if ( OSCopyFromUser(NULL, ui32UpdateValueInt, psRGXTDMSubmitTransferIN->pui32UpdateValue, psRGXTDMSubmitTransferIN->ui32ClientUpdateCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, ui32UpdateValueInt, (const void __user *) psRGXTDMSubmitTransferIN->pui32UpdateValue, psRGXTDMSubmitTransferIN->ui32ClientUpdateCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
 				{
 					psRGXTDMSubmitTransferOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -525,7 +525,7 @@ PVRSRVBridgeRGXTDMSubmitTransfer(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXTDMSubmitTransferIN->ui32ServerSyncCount * sizeof(IMG_UINT32) > 0)
 			{
-				if ( OSCopyFromUser(NULL, ui32ServerSyncFlagsInt, psRGXTDMSubmitTransferIN->pui32ServerSyncFlags, psRGXTDMSubmitTransferIN->ui32ServerSyncCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, ui32ServerSyncFlagsInt, (const void __user *) psRGXTDMSubmitTransferIN->pui32ServerSyncFlags, psRGXTDMSubmitTransferIN->ui32ServerSyncCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
 				{
 					psRGXTDMSubmitTransferOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -543,7 +543,7 @@ PVRSRVBridgeRGXTDMSubmitTransfer(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXTDMSubmitTransferIN->ui32ServerSyncCount * sizeof(IMG_HANDLE) > 0)
 			{
-				if ( OSCopyFromUser(NULL, hServerSyncInt2, psRGXTDMSubmitTransferIN->phServerSync, psRGXTDMSubmitTransferIN->ui32ServerSyncCount * sizeof(IMG_HANDLE)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, hServerSyncInt2, (const void __user *) psRGXTDMSubmitTransferIN->phServerSync, psRGXTDMSubmitTransferIN->ui32ServerSyncCount * sizeof(IMG_HANDLE)) != PVRSRV_OK )
 				{
 					psRGXTDMSubmitTransferOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -559,7 +559,7 @@ PVRSRVBridgeRGXTDMSubmitTransfer(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (32 * sizeof(IMG_CHAR) > 0)
 			{
-				if ( OSCopyFromUser(NULL, uiUpdateFenceNameInt, psRGXTDMSubmitTransferIN->puiUpdateFenceName, 32 * sizeof(IMG_CHAR)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, uiUpdateFenceNameInt, (const void __user *) psRGXTDMSubmitTransferIN->puiUpdateFenceName, 32 * sizeof(IMG_CHAR)) != PVRSRV_OK )
 				{
 					psRGXTDMSubmitTransferOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -575,7 +575,7 @@ PVRSRVBridgeRGXTDMSubmitTransfer(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXTDMSubmitTransferIN->ui32CommandSize * sizeof(IMG_UINT8) > 0)
 			{
-				if ( OSCopyFromUser(NULL, ui8FWCommandInt, psRGXTDMSubmitTransferIN->pui8FWCommand, psRGXTDMSubmitTransferIN->ui32CommandSize * sizeof(IMG_UINT8)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, ui8FWCommandInt, (const void __user *) psRGXTDMSubmitTransferIN->pui8FWCommand, psRGXTDMSubmitTransferIN->ui32CommandSize * sizeof(IMG_UINT8)) != PVRSRV_OK )
 				{
 					psRGXTDMSubmitTransferOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -591,7 +591,7 @@ PVRSRVBridgeRGXTDMSubmitTransfer(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXTDMSubmitTransferIN->ui32SyncPMRCount * sizeof(IMG_UINT32) > 0)
 			{
-				if ( OSCopyFromUser(NULL, ui32SyncPMRFlagsInt, psRGXTDMSubmitTransferIN->pui32SyncPMRFlags, psRGXTDMSubmitTransferIN->ui32SyncPMRCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, ui32SyncPMRFlagsInt, (const void __user *) psRGXTDMSubmitTransferIN->pui32SyncPMRFlags, psRGXTDMSubmitTransferIN->ui32SyncPMRCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
 				{
 					psRGXTDMSubmitTransferOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -609,7 +609,7 @@ PVRSRVBridgeRGXTDMSubmitTransfer(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXTDMSubmitTransferIN->ui32SyncPMRCount * sizeof(IMG_HANDLE) > 0)
 			{
-				if ( OSCopyFromUser(NULL, hSyncPMRsInt2, psRGXTDMSubmitTransferIN->phSyncPMRs, psRGXTDMSubmitTransferIN->ui32SyncPMRCount * sizeof(IMG_HANDLE)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, hSyncPMRsInt2, (const void __user *) psRGXTDMSubmitTransferIN->phSyncPMRs, psRGXTDMSubmitTransferIN->ui32SyncPMRCount * sizeof(IMG_HANDLE)) != PVRSRV_OK )
 				{
 					psRGXTDMSubmitTransferOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 

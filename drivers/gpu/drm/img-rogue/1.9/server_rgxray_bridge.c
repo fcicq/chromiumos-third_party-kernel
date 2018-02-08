@@ -635,7 +635,7 @@ PVRSRVBridgeRGXKickRS(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXKickRSIN->ui32ClientFenceCount * sizeof(IMG_HANDLE) > 0)
 			{
-				if ( OSCopyFromUser(NULL, hClientFenceUFOSyncPrimBlockInt2, psRGXKickRSIN->phClientFenceUFOSyncPrimBlock, psRGXKickRSIN->ui32ClientFenceCount * sizeof(IMG_HANDLE)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, hClientFenceUFOSyncPrimBlockInt2, (const void __user *) psRGXKickRSIN->phClientFenceUFOSyncPrimBlock, psRGXKickRSIN->ui32ClientFenceCount * sizeof(IMG_HANDLE)) != PVRSRV_OK )
 				{
 					psRGXKickRSOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -651,7 +651,7 @@ PVRSRVBridgeRGXKickRS(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXKickRSIN->ui32ClientFenceCount * sizeof(IMG_UINT32) > 0)
 			{
-				if ( OSCopyFromUser(NULL, ui32ClientFenceSyncOffsetInt, psRGXKickRSIN->pui32ClientFenceSyncOffset, psRGXKickRSIN->ui32ClientFenceCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, ui32ClientFenceSyncOffsetInt, (const void __user *) psRGXKickRSIN->pui32ClientFenceSyncOffset, psRGXKickRSIN->ui32ClientFenceCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
 				{
 					psRGXKickRSOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -667,7 +667,7 @@ PVRSRVBridgeRGXKickRS(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXKickRSIN->ui32ClientFenceCount * sizeof(IMG_UINT32) > 0)
 			{
-				if ( OSCopyFromUser(NULL, ui32ClientFenceValueInt, psRGXKickRSIN->pui32ClientFenceValue, psRGXKickRSIN->ui32ClientFenceCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, ui32ClientFenceValueInt, (const void __user *) psRGXKickRSIN->pui32ClientFenceValue, psRGXKickRSIN->ui32ClientFenceCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
 				{
 					psRGXKickRSOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -685,7 +685,7 @@ PVRSRVBridgeRGXKickRS(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXKickRSIN->ui32ClientUpdateCount * sizeof(IMG_HANDLE) > 0)
 			{
-				if ( OSCopyFromUser(NULL, hClientUpdateUFOSyncPrimBlockInt2, psRGXKickRSIN->phClientUpdateUFOSyncPrimBlock, psRGXKickRSIN->ui32ClientUpdateCount * sizeof(IMG_HANDLE)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, hClientUpdateUFOSyncPrimBlockInt2, (const void __user *) psRGXKickRSIN->phClientUpdateUFOSyncPrimBlock, psRGXKickRSIN->ui32ClientUpdateCount * sizeof(IMG_HANDLE)) != PVRSRV_OK )
 				{
 					psRGXKickRSOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -701,7 +701,7 @@ PVRSRVBridgeRGXKickRS(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXKickRSIN->ui32ClientUpdateCount * sizeof(IMG_UINT32) > 0)
 			{
-				if ( OSCopyFromUser(NULL, ui32ClientUpdateSyncOffsetInt, psRGXKickRSIN->pui32ClientUpdateSyncOffset, psRGXKickRSIN->ui32ClientUpdateCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, ui32ClientUpdateSyncOffsetInt, (const void __user *) psRGXKickRSIN->pui32ClientUpdateSyncOffset, psRGXKickRSIN->ui32ClientUpdateCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
 				{
 					psRGXKickRSOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -717,7 +717,7 @@ PVRSRVBridgeRGXKickRS(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXKickRSIN->ui32ClientUpdateCount * sizeof(IMG_UINT32) > 0)
 			{
-				if ( OSCopyFromUser(NULL, ui32ClientUpdateValueInt, psRGXKickRSIN->pui32ClientUpdateValue, psRGXKickRSIN->ui32ClientUpdateCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, ui32ClientUpdateValueInt, (const void __user *) psRGXKickRSIN->pui32ClientUpdateValue, psRGXKickRSIN->ui32ClientUpdateCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
 				{
 					psRGXKickRSOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -733,7 +733,7 @@ PVRSRVBridgeRGXKickRS(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXKickRSIN->ui32ServerSyncCount * sizeof(IMG_UINT32) > 0)
 			{
-				if ( OSCopyFromUser(NULL, ui32ServerSyncFlagsInt, psRGXKickRSIN->pui32ServerSyncFlags, psRGXKickRSIN->ui32ServerSyncCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, ui32ServerSyncFlagsInt, (const void __user *) psRGXKickRSIN->pui32ServerSyncFlags, psRGXKickRSIN->ui32ServerSyncCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
 				{
 					psRGXKickRSOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -751,7 +751,7 @@ PVRSRVBridgeRGXKickRS(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXKickRSIN->ui32ServerSyncCount * sizeof(IMG_HANDLE) > 0)
 			{
-				if ( OSCopyFromUser(NULL, hServerSyncsInt2, psRGXKickRSIN->phServerSyncs, psRGXKickRSIN->ui32ServerSyncCount * sizeof(IMG_HANDLE)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, hServerSyncsInt2, (const void __user *) psRGXKickRSIN->phServerSyncs, psRGXKickRSIN->ui32ServerSyncCount * sizeof(IMG_HANDLE)) != PVRSRV_OK )
 				{
 					psRGXKickRSOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -767,7 +767,7 @@ PVRSRVBridgeRGXKickRS(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (32 * sizeof(IMG_CHAR) > 0)
 			{
-				if ( OSCopyFromUser(NULL, uiUpdateFenceNameInt, psRGXKickRSIN->puiUpdateFenceName, 32 * sizeof(IMG_CHAR)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, uiUpdateFenceNameInt, (const void __user *) psRGXKickRSIN->puiUpdateFenceName, 32 * sizeof(IMG_CHAR)) != PVRSRV_OK )
 				{
 					psRGXKickRSOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -783,7 +783,7 @@ PVRSRVBridgeRGXKickRS(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXKickRSIN->ui32CmdSize * sizeof(IMG_BYTE) > 0)
 			{
-				if ( OSCopyFromUser(NULL, psDMCmdInt, psRGXKickRSIN->psDMCmd, psRGXKickRSIN->ui32CmdSize * sizeof(IMG_BYTE)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, psDMCmdInt, (const void __user *) psRGXKickRSIN->psDMCmd, psRGXKickRSIN->ui32CmdSize * sizeof(IMG_BYTE)) != PVRSRV_OK )
 				{
 					psRGXKickRSOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -799,7 +799,7 @@ PVRSRVBridgeRGXKickRS(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXKickRSIN->ui32FCCmdSize * sizeof(IMG_BYTE) > 0)
 			{
-				if ( OSCopyFromUser(NULL, psFCDMCmdInt, psRGXKickRSIN->psFCDMCmd, psRGXKickRSIN->ui32FCCmdSize * sizeof(IMG_BYTE)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, psFCDMCmdInt, (const void __user *) psRGXKickRSIN->psFCDMCmd, psRGXKickRSIN->ui32FCCmdSize * sizeof(IMG_BYTE)) != PVRSRV_OK )
 				{
 					psRGXKickRSOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -1145,7 +1145,7 @@ PVRSRVBridgeRGXKickVRDM(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXKickVRDMIN->ui32ClientFenceCount * sizeof(IMG_HANDLE) > 0)
 			{
-				if ( OSCopyFromUser(NULL, hClientFenceUFOSyncPrimBlockInt2, psRGXKickVRDMIN->phClientFenceUFOSyncPrimBlock, psRGXKickVRDMIN->ui32ClientFenceCount * sizeof(IMG_HANDLE)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, hClientFenceUFOSyncPrimBlockInt2, (const void __user *) psRGXKickVRDMIN->phClientFenceUFOSyncPrimBlock, psRGXKickVRDMIN->ui32ClientFenceCount * sizeof(IMG_HANDLE)) != PVRSRV_OK )
 				{
 					psRGXKickVRDMOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -1161,7 +1161,7 @@ PVRSRVBridgeRGXKickVRDM(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXKickVRDMIN->ui32ClientFenceCount * sizeof(IMG_UINT32) > 0)
 			{
-				if ( OSCopyFromUser(NULL, ui32ClientFenceSyncOffsetInt, psRGXKickVRDMIN->pui32ClientFenceSyncOffset, psRGXKickVRDMIN->ui32ClientFenceCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, ui32ClientFenceSyncOffsetInt, (const void __user *) psRGXKickVRDMIN->pui32ClientFenceSyncOffset, psRGXKickVRDMIN->ui32ClientFenceCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
 				{
 					psRGXKickVRDMOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -1177,7 +1177,7 @@ PVRSRVBridgeRGXKickVRDM(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXKickVRDMIN->ui32ClientFenceCount * sizeof(IMG_UINT32) > 0)
 			{
-				if ( OSCopyFromUser(NULL, ui32ClientFenceValueInt, psRGXKickVRDMIN->pui32ClientFenceValue, psRGXKickVRDMIN->ui32ClientFenceCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, ui32ClientFenceValueInt, (const void __user *) psRGXKickVRDMIN->pui32ClientFenceValue, psRGXKickVRDMIN->ui32ClientFenceCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
 				{
 					psRGXKickVRDMOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -1195,7 +1195,7 @@ PVRSRVBridgeRGXKickVRDM(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXKickVRDMIN->ui32ClientUpdateCount * sizeof(IMG_HANDLE) > 0)
 			{
-				if ( OSCopyFromUser(NULL, hClientUpdateUFOSyncPrimBlockInt2, psRGXKickVRDMIN->phClientUpdateUFOSyncPrimBlock, psRGXKickVRDMIN->ui32ClientUpdateCount * sizeof(IMG_HANDLE)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, hClientUpdateUFOSyncPrimBlockInt2, (const void __user *) psRGXKickVRDMIN->phClientUpdateUFOSyncPrimBlock, psRGXKickVRDMIN->ui32ClientUpdateCount * sizeof(IMG_HANDLE)) != PVRSRV_OK )
 				{
 					psRGXKickVRDMOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -1211,7 +1211,7 @@ PVRSRVBridgeRGXKickVRDM(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXKickVRDMIN->ui32ClientUpdateCount * sizeof(IMG_UINT32) > 0)
 			{
-				if ( OSCopyFromUser(NULL, ui32ClientUpdateSyncOffsetInt, psRGXKickVRDMIN->pui32ClientUpdateSyncOffset, psRGXKickVRDMIN->ui32ClientUpdateCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, ui32ClientUpdateSyncOffsetInt, (const void __user *) psRGXKickVRDMIN->pui32ClientUpdateSyncOffset, psRGXKickVRDMIN->ui32ClientUpdateCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
 				{
 					psRGXKickVRDMOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -1227,7 +1227,7 @@ PVRSRVBridgeRGXKickVRDM(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXKickVRDMIN->ui32ClientUpdateCount * sizeof(IMG_UINT32) > 0)
 			{
-				if ( OSCopyFromUser(NULL, ui32ClientUpdateValueInt, psRGXKickVRDMIN->pui32ClientUpdateValue, psRGXKickVRDMIN->ui32ClientUpdateCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, ui32ClientUpdateValueInt, (const void __user *) psRGXKickVRDMIN->pui32ClientUpdateValue, psRGXKickVRDMIN->ui32ClientUpdateCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
 				{
 					psRGXKickVRDMOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -1243,7 +1243,7 @@ PVRSRVBridgeRGXKickVRDM(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXKickVRDMIN->ui32ServerSyncCount * sizeof(IMG_UINT32) > 0)
 			{
-				if ( OSCopyFromUser(NULL, ui32ServerSyncFlagsInt, psRGXKickVRDMIN->pui32ServerSyncFlags, psRGXKickVRDMIN->ui32ServerSyncCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, ui32ServerSyncFlagsInt, (const void __user *) psRGXKickVRDMIN->pui32ServerSyncFlags, psRGXKickVRDMIN->ui32ServerSyncCount * sizeof(IMG_UINT32)) != PVRSRV_OK )
 				{
 					psRGXKickVRDMOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -1261,7 +1261,7 @@ PVRSRVBridgeRGXKickVRDM(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXKickVRDMIN->ui32ServerSyncCount * sizeof(IMG_HANDLE) > 0)
 			{
-				if ( OSCopyFromUser(NULL, hServerSyncsInt2, psRGXKickVRDMIN->phServerSyncs, psRGXKickVRDMIN->ui32ServerSyncCount * sizeof(IMG_HANDLE)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, hServerSyncsInt2, (const void __user *) psRGXKickVRDMIN->phServerSyncs, psRGXKickVRDMIN->ui32ServerSyncCount * sizeof(IMG_HANDLE)) != PVRSRV_OK )
 				{
 					psRGXKickVRDMOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -1277,7 +1277,7 @@ PVRSRVBridgeRGXKickVRDM(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (32 * sizeof(IMG_CHAR) > 0)
 			{
-				if ( OSCopyFromUser(NULL, uiUpdateFenceNameInt, psRGXKickVRDMIN->puiUpdateFenceName, 32 * sizeof(IMG_CHAR)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, uiUpdateFenceNameInt, (const void __user *) psRGXKickVRDMIN->puiUpdateFenceName, 32 * sizeof(IMG_CHAR)) != PVRSRV_OK )
 				{
 					psRGXKickVRDMOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -1293,7 +1293,7 @@ PVRSRVBridgeRGXKickVRDM(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXKickVRDMIN->ui32CmdSize * sizeof(IMG_BYTE) > 0)
 			{
-				if ( OSCopyFromUser(NULL, psDMCmdInt, psRGXKickVRDMIN->psDMCmd, psRGXKickVRDMIN->ui32CmdSize * sizeof(IMG_BYTE)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, psDMCmdInt, (const void __user *) psRGXKickVRDMIN->psDMCmd, psRGXKickVRDMIN->ui32CmdSize * sizeof(IMG_BYTE)) != PVRSRV_OK )
 				{
 					psRGXKickVRDMOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -1611,7 +1611,7 @@ PVRSRVBridgeRGXCreateRayContext(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psRGXCreateRayContextIN->ui32FrameworkCmdSize * sizeof(IMG_BYTE) > 0)
 			{
-				if ( OSCopyFromUser(NULL, psFrameworkCmdInt, psRGXCreateRayContextIN->psFrameworkCmd, psRGXCreateRayContextIN->ui32FrameworkCmdSize * sizeof(IMG_BYTE)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, psFrameworkCmdInt, (const void __user *) psRGXCreateRayContextIN->psFrameworkCmd, psRGXCreateRayContextIN->ui32FrameworkCmdSize * sizeof(IMG_BYTE)) != PVRSRV_OK )
 				{
 					psRGXCreateRayContextOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 

@@ -2520,7 +2520,7 @@ static_assert((RGX_CR_MMU_FAULT_STATUS_TYPE_SHIFT == RGX_CR_MMU_FAULT_STATUS_MET
 #if !defined(NO_HARDWARE)
 static PVRSRV_ERROR _RGXMipsExtraDebug(PVRSRV_RGXDEV_INFO *psDevInfo, PVRSRV_DEVICE_CONFIG *psDevConfig, RGX_MIPS_STATE *psMIPSState)
 {
-	void *pvRegsBaseKM = psDevInfo->pvRegsBaseKM;
+	void __iomem *pvRegsBaseKM = psDevInfo->pvRegsBaseKM;
 	IMG_UINT32 ui32RegRead;
 	IMG_UINT32 eError = PVRSRV_OK;
 	/* This pointer contains a kernel mapping of a particular memory area shared

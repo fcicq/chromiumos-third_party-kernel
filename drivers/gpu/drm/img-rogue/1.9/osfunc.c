@@ -1031,7 +1031,7 @@ OSMapPhysToLin(IMG_CPU_PHYADDR BasePAddr,
 			   size_t ui32Bytes,
 			   IMG_UINT32 ui32MappingFlags)
 {
-	void *pvLinAddr;
+	void __iomem *pvLinAddr;
 
 	if (ui32MappingFlags & ~(PVRSRV_MEMALLOCFLAG_CPU_CACHE_MODE_MASK))
 	{
@@ -1054,30 +1054,30 @@ OSMapPhysToLin(IMG_CPU_PHYADDR BasePAddr,
 		  manually for DMA physheap allocations by translating from CPU/VA 
 		  to BUS/PA thereby preventing the creation of conflicting mappings.
 		*/
-		pvLinAddr = SysDmaDevPAddrToCpuVAddr(BasePAddr.uiAddr, ui32Bytes);
+		pvLinAddr = (void __iomem *) SysDmaDevPAddrToCpuVAddr(BasePAddr.uiAddr, ui32Bytes);
 		if (pvLinAddr != NULL)
 		{
-			return pvLinAddr;
+			return (void __force *) pvLinAddr;
 		}
 	}
 
 	switch (ui32MappingFlags)
 	{
 		case PVRSRV_MEMALLOCFLAG_CPU_UNCACHED:
-			pvLinAddr = (void *)ioremap_nocache(BasePAddr.uiAddr, ui32Bytes);
+			pvLinAddr = (void __iomem *)ioremap_nocache(BasePAddr.uiAddr, ui32Bytes);
 			break;
 		case PVRSRV_MEMALLOCFLAG_CPU_WRITE_COMBINE:
 #if defined(CONFIG_X86) || defined(CONFIG_ARM) || defined(CONFIG_ARM64)
-			pvLinAddr = (void *)ioremap_wc(BasePAddr.uiAddr, ui32Bytes);
+			pvLinAddr = (void __iomem *)ioremap_wc(BasePAddr.uiAddr, ui32Bytes);
 #else
-			pvLinAddr = (void *)ioremap_nocache(BasePAddr.uiAddr, ui32Bytes);
+			pvLinAddr = (void __iomem *)ioremap_nocache(BasePAddr.uiAddr, ui32Bytes);
 #endif
 			break;
 		case PVRSRV_MEMALLOCFLAG_CPU_CACHED:
 #if defined(CONFIG_X86) || defined(CONFIG_ARM)
-			pvLinAddr = (void *)ioremap_cache(BasePAddr.uiAddr, ui32Bytes);
+			pvLinAddr = (void __iomem *)ioremap_cache(BasePAddr.uiAddr, ui32Bytes);
 #else
-			pvLinAddr = (void *)ioremap(BasePAddr.uiAddr, ui32Bytes);
+			pvLinAddr = (void __iomem *)ioremap(BasePAddr.uiAddr, ui32Bytes);
 #endif
 			break;
 		case PVRSRV_MEMALLOCFLAG_CPU_CACHE_COHERENT:
@@ -1091,7 +1091,7 @@ OSMapPhysToLin(IMG_CPU_PHYADDR BasePAddr,
 			break;
 	}
 
-	return pvLinAddr;
+	return (void __force *) pvLinAddr;
 }
 
 
@@ -1114,7 +1114,7 @@ OSUnMapPhysToLin(void *pvLinAddr, size_t ui32Bytes, IMG_UINT32 ui32MappingFlags)
 		}
 	}
 
-	iounmap(pvLinAddr);
+	iounmap((void __iomem *) pvLinAddr);
 
 	return IMG_TRUE;
 }
@@ -1486,7 +1486,7 @@ PVRSRV_ERROR OSEventObjectSignal(IMG_HANDLE hEventObject)
 }
 
 PVRSRV_ERROR OSCopyToUser(void *pvProcess,
-						  void *pvDest,
+						  void __user *pvDest,
 						  const void *pvSrc,
 						  size_t ui32Bytes)
 {
@@ -1500,7 +1500,7 @@ PVRSRV_ERROR OSCopyToUser(void *pvProcess,
 
 PVRSRV_ERROR OSCopyFromUser(void *pvProcess,
 							void *pvDest,
-							const void *pvSrc,
+							const void __user *pvSrc,
 							size_t ui32Bytes)
 {
 	PVR_UNREFERENCED_PARAMETER(pvProcess);

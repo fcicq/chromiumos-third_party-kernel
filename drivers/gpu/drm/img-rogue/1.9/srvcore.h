@@ -57,12 +57,12 @@ PVRSRV_ERROR
 CopyFromUserWrapper(CONNECTION_DATA *psConnection,
 					IMG_UINT32 ui32DispatchTableEntry,
 					void *pvDest,
-					void *pvSrc,
+					void __user *pvSrc,
 					IMG_UINT32 ui32Size);
 PVRSRV_ERROR
 CopyToUserWrapper(CONNECTION_DATA *psConnection, 
 				  IMG_UINT32 ui32DispatchTableEntry,
-				  void *pvDest,
+				  void __user *pvDest,
 				  void *pvSrc,
 				  IMG_UINT32 ui32Size);
 

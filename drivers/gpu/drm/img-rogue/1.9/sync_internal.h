@@ -76,7 +76,7 @@ typedef struct _SYNC_PRIM_BLOCK_
 	IMG_UINT32			ui32SyncBlockSize;		/*!< Size of the sync prim block */
 	IMG_UINT32			ui32FirmwareAddr;		/*!< Firmware address */
 	DEVMEM_MEMDESC		*hMemDesc;				/*!< Host mapping handle */
-	IMG_UINT32			*pui32LinAddr;			/*!< User CPU mapping */
+	IMG_UINT32 __iomem	*pui32LinAddr;			/*!< User CPU mapping */
 	IMG_UINT64			uiSpanBase;				/*!< Base of this import in the span RA */
 	DLLIST_NODE			sListNode;				/*!< List node for the sync block list */
 } SYNC_PRIM_BLOCK;

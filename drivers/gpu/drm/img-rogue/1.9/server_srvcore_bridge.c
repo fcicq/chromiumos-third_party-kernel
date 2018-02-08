@@ -635,7 +635,7 @@ PVRSRVBridgeAlignmentCheck(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psAlignmentCheckIN->ui32AlignChecksSize * sizeof(IMG_UINT32) > 0)
 			{
-				if ( OSCopyFromUser(NULL, ui32AlignChecksInt, psAlignmentCheckIN->pui32AlignChecks, psAlignmentCheckIN->ui32AlignChecksSize * sizeof(IMG_UINT32)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, ui32AlignChecksInt, (const void __user *) psAlignmentCheckIN->pui32AlignChecks, psAlignmentCheckIN->ui32AlignChecksSize * sizeof(IMG_UINT32)) != PVRSRV_OK )
 				{
 					psAlignmentCheckOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -846,7 +846,7 @@ PVRSRVBridgeFindProcessMemStats(IMG_UINT32 ui32DispatchTableEntry,
 
 	if ((psFindProcessMemStatsIN->ui32ArrSize * sizeof(IMG_UINT32)) > 0)
 	{
-		if ( OSCopyToUser(NULL, psFindProcessMemStatsOUT->pui32MemStatsArray, pui32MemStatsArrayInt,
+		if ( OSCopyToUser(NULL, (void __user *) psFindProcessMemStatsOUT->pui32MemStatsArray, pui32MemStatsArrayInt,
 			(psFindProcessMemStatsIN->ui32ArrSize * sizeof(IMG_UINT32))) != PVRSRV_OK )
 		{
 			psFindProcessMemStatsOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;

@@ -267,7 +267,7 @@ PVRSRV_ERROR RGXRunScript(PVRSRV_RGXDEV_INFO *psDevInfo,
 					/* if the conditions succeeds, poll the register */
 					if ((ui32RegVal & psComm->sCondPollHWReg.ui32CondMask) == psComm->sCondPollHWReg.ui32CondValue)
 					{
-						if (PVRSRVPollForValueKM((IMG_UINT32 *)((IMG_UINT8*)psDevInfo->pvRegsBaseKM + psComm->sCondPollHWReg.ui32Offset),
+						if (PVRSRVPollForValueKM((IMG_UINT32 __iomem *)((IMG_UINT8 __iomem *)psDevInfo->pvRegsBaseKM + psComm->sCondPollHWReg.ui32Offset),
 								psComm->sCondPollHWReg.ui32Value,
 								psComm->sCondPollHWReg.ui32Mask) != PVRSRV_OK)
 						{
@@ -303,7 +303,7 @@ PVRSRV_ERROR RGXRunScript(PVRSRV_RGXDEV_INFO *psDevInfo,
 
 				if( !(ui32PdumpFlags & PDUMP_FLAGS_NOHW) )
 				{
-					if (PVRSRVPollForValueKM((IMG_UINT32 *)(((IMG_UINT8*)psDevInfo->pvRegsBaseKM) + psComm->sPoll64HWReg.ui32Offset + 4),
+					if (PVRSRVPollForValueKM((IMG_UINT32 __iomem *)(((IMG_UINT8 __iomem *)psDevInfo->pvRegsBaseKM) + psComm->sPoll64HWReg.ui32Offset + 4),
 										 ui32UpperValue,
 										 ui32UpperMask) != PVRSRV_OK)
 					{
@@ -320,7 +320,7 @@ PVRSRV_ERROR RGXRunScript(PVRSRV_RGXDEV_INFO *psDevInfo,
 
 				if( !(ui32PdumpFlags & PDUMP_FLAGS_NOHW) )
 				{
-					if (PVRSRVPollForValueKM((IMG_UINT32 *)((IMG_UINT8*)psDevInfo->pvRegsBaseKM + psComm->sPoll64HWReg.ui32Offset),
+					if (PVRSRVPollForValueKM((IMG_UINT32 __iomem *)((IMG_UINT8 __iomem *)psDevInfo->pvRegsBaseKM + psComm->sPoll64HWReg.ui32Offset),
 										 ui32LowerValue,
 										 ui32LowerMask) != PVRSRV_OK)
 					{
@@ -341,7 +341,7 @@ PVRSRV_ERROR RGXRunScript(PVRSRV_RGXDEV_INFO *psDevInfo,
 			{
 				if( !(ui32PdumpFlags & PDUMP_FLAGS_NOHW) )
 				{
-					if (PVRSRVPollForValueKM((IMG_UINT32 *)((IMG_UINT8*)psDevInfo->pvRegsBaseKM + psComm->sPollHWReg.ui32Offset),
+					if (PVRSRVPollForValueKM((IMG_UINT32 __iomem *)((IMG_UINT8 __iomem *)psDevInfo->pvRegsBaseKM + psComm->sPollHWReg.ui32Offset),
 										 psComm->sPollHWReg.ui32Value,
 										 psComm->sPollHWReg.ui32Mask) != PVRSRV_OK)
 					{

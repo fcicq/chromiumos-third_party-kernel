@@ -183,7 +183,7 @@ PVRSRVBridgeSyncRecordAdd(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psSyncRecordAddIN->ui32ClassNameSize * sizeof(IMG_CHAR) > 0)
 			{
-				if ( OSCopyFromUser(NULL, uiClassNameInt, psSyncRecordAddIN->puiClassName, psSyncRecordAddIN->ui32ClassNameSize * sizeof(IMG_CHAR)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, uiClassNameInt, (const void __user *) psSyncRecordAddIN->puiClassName, psSyncRecordAddIN->ui32ClassNameSize * sizeof(IMG_CHAR)) != PVRSRV_OK )
 				{
 					psSyncRecordAddOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 

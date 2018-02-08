@@ -1015,7 +1015,7 @@ PVRSRVSyncPrimSetKM(SYNC_PRIMITIVE_BLOCK *psSyncBlk, IMG_UINT32 ui32Index,
 PVRSRV_ERROR
 PVRSRVServerSyncPrimSetKM(SERVER_SYNC_PRIMITIVE *psServerSync, IMG_UINT32 ui32Value)
 {
-	*psServerSync->psSync->pui32LinAddr = ui32Value;
+	OSWriteDeviceMem32(psServerSync->psSync->pui32LinAddr, ui32Value);
 
 	return PVRSRV_OK;
 }
@@ -1197,7 +1197,7 @@ PVRSRVServerSyncGetStatusKM(IMG_UINT32 ui32SyncCount,
 		else
 		{
 			pui32FWAddr[i] = ui32SyncAddr;
-			pui32CurrentOp[i] = *psClientSync->pui32LinAddr;
+			pui32CurrentOp[i] = OSReadDeviceMem32(psClientSync->pui32LinAddr);
 		}
 		pui32NextOp[i] = papsSyncs[i]->ui32NextOp;
 		pui32UID[i] = papsSyncs[i]->ui32UID;
@@ -1417,7 +1417,7 @@ _ServerSyncTakeOperation(SERVER_SYNC_PRIMITIVE *psSync,
 				"Dump initial sync state (0x%p, FW VAddr = 0x%08x) = 0x%08x\n",
 				psSync,
 				ui32SyncAddr,
-				*psSync->psSync->pui32LinAddr);
+				OSReadDeviceMem32(psSync->psSync->pui32LinAddr));
 		}
 #endif
 
@@ -1625,7 +1625,7 @@ IMG_BOOL ServerSyncFenceIsMet(SERVER_SYNC_PRIMITIVE *psSync,
 							   IMG_UINT32 ui32FenceValue)
 {
 	SYNC_UPDATES_PRINT("%s: sync: %p, value(%d) == fence(%d)?", __FUNCTION__, psSync, *psSync->psSync->pui32LinAddr, ui32FenceValue);
-	return (*psSync->psSync->pui32LinAddr == ui32FenceValue);
+	return (OSReadDeviceMem32(psSync->psSync->pui32LinAddr) == ui32FenceValue);
 }
 
 void
@@ -1637,7 +1637,7 @@ ServerSyncCompleteOp(SERVER_SYNC_PRIMITIVE *psSync,
 	{
 		SYNC_UPDATES_PRINT("%s: sync: %p (%d) = %d", __FUNCTION__, psSync, *psSync->psSync->pui32LinAddr, ui32UpdateValue);
 
-		*psSync->psSync->pui32LinAddr = ui32UpdateValue;
+		OSWriteDeviceMem32(psSync->psSync->pui32LinAddr, ui32UpdateValue);
 	}
 
 	_ServerSyncUnref(psSync);
@@ -1656,7 +1656,7 @@ ServerSyncGetFWAddr(SERVER_SYNC_PRIMITIVE *psSync, IMG_UINT32 *pui32SyncAddr)
 
 IMG_UINT32 ServerSyncGetValue(SERVER_SYNC_PRIMITIVE *psSync)
 {
-	return *psSync->psSync->pui32LinAddr;
+	return OSReadDeviceMem32(psSync->psSync->pui32LinAddr);
 }
 
 IMG_UINT32 ServerSyncGetNextValue(SERVER_SYNC_PRIMITIVE *psSync)
@@ -1675,7 +1675,7 @@ static void _ServerSyncState(PDLLIST_NODE psNode,
 {
 	SERVER_SYNC_PRIMITIVE *psSync = IMG_CONTAINER_OF(psNode, SERVER_SYNC_PRIMITIVE, sNode);
 
-	if (*psSync->psSync->pui32LinAddr != psSync->ui32NextOp)
+	if (OSReadDeviceMem32(psSync->psSync->pui32LinAddr) != psSync->ui32NextOp)
 	{
 		IMG_UINT32 ui32SyncAddr;
 

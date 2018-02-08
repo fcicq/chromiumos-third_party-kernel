@@ -451,9 +451,9 @@ typedef struct PVRSRV_BRIDGE_PACKAGE_TAG
 	IMG_UINT32				ui32BridgeID;			/*!< ioctl bridge group */
 	IMG_UINT32				ui32FunctionID;         /*!< ioctl function index */
 	IMG_UINT32				ui32Size;				/*!< size of structure */
-	void					*pvParamIn;				/*!< input data buffer */
+	void __user				*pvParamIn;				/*!< input data buffer */
 	IMG_UINT32				ui32InBufferSize;		/*!< size of input data buffer */
-	void					*pvParamOut;			/*!< output data buffer */
+	void __user				*pvParamOut;			/*!< output data buffer */
 	IMG_UINT32				ui32OutBufferSize;		/*!< size of output data buffer */
 }PVRSRV_BRIDGE_PACKAGE;
 

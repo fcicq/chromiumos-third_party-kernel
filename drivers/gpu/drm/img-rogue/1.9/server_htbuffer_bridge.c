@@ -132,7 +132,7 @@ PVRSRVBridgeHTBConfigure(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psHTBConfigureIN->ui32NameSize * sizeof(IMG_CHAR) > 0)
 			{
-				if ( OSCopyFromUser(NULL, uiNameInt, psHTBConfigureIN->puiName, psHTBConfigureIN->ui32NameSize * sizeof(IMG_CHAR)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, uiNameInt, (const void __user *) psHTBConfigureIN->puiName, psHTBConfigureIN->ui32NameSize * sizeof(IMG_CHAR)) != PVRSRV_OK )
 				{
 					psHTBConfigureOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -229,7 +229,7 @@ PVRSRVBridgeHTBControl(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psHTBControlIN->ui32NumGroups * sizeof(IMG_UINT32) > 0)
 			{
-				if ( OSCopyFromUser(NULL, ui32GroupEnableInt, psHTBControlIN->pui32GroupEnable, psHTBControlIN->ui32NumGroups * sizeof(IMG_UINT32)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, ui32GroupEnableInt, (const void __user *) psHTBControlIN->pui32GroupEnable, psHTBControlIN->ui32NumGroups * sizeof(IMG_UINT32)) != PVRSRV_OK )
 				{
 					psHTBControlOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
@@ -329,7 +329,7 @@ PVRSRVBridgeHTBLog(IMG_UINT32 ui32DispatchTableEntry,
 			/* Copy the data over */
 			if (psHTBLogIN->ui32NumArgs * sizeof(IMG_UINT32) > 0)
 			{
-				if ( OSCopyFromUser(NULL, ui32ArgsInt, psHTBLogIN->pui32Args, psHTBLogIN->ui32NumArgs * sizeof(IMG_UINT32)) != PVRSRV_OK )
+				if ( OSCopyFromUser(NULL, ui32ArgsInt, (const void __user *) psHTBLogIN->pui32Args, psHTBLogIN->ui32NumArgs * sizeof(IMG_UINT32)) != PVRSRV_OK )
 				{
 					psHTBLogOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 

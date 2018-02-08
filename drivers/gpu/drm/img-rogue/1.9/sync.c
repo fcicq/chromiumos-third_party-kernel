@@ -626,7 +626,7 @@ static IMG_UINT32 _SyncPrimBlockListGetClientValue(SYNC_BLOCK_LIST *psBlockList,
 												   IMG_UINT32 ui32BlockIndex,
 												   IMG_UINT32 ui32Index)
 {
-	return psBlockList->papsSyncPrimBlock[ui32BlockIndex]->pui32LinAddr[ui32Index];
+	return *((IMG_UINT32 __force *)(psBlockList->papsSyncPrimBlock[ui32BlockIndex]->pui32LinAddr)+ui32Index);
 }
 
 static void _SyncPrimBlockListDestroy(SYNC_BLOCK_LIST *psBlockList)

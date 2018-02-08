@@ -239,7 +239,7 @@ typedef struct _PVRSRV_RGXDEV_INFO_
 	IMG_HANDLE				hDbgReqNotify;
 
 	/* Kernel mode linear address of device registers */
-	void					*pvRegsBaseKM;
+	void __iomem			*pvRegsBaseKM;
 
 	/* FIXME: The alloc for this should go through OSAllocMem in future */
 	IMG_HANDLE				hRegMapping;
