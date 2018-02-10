@@ -929,6 +929,118 @@
 			interrupt-controller;
 			#interrupt-cells = <2>;
 
+			dpu_dp_aux_active: dpu-dp-aux_active {
+				pinmux {
+					pins = "gpio43", "gpio51";
+					function = "gpio";
+				};
+
+				/* TODO: move pinconf to board file */
+				pinconf {
+					pins = "gpio43", "gpio51";
+					bias-disable;
+					drive-strength = <8>;
+				};
+			};
+
+			dpu_dp_aux_suspend: dpu-dp-aux-suspend {
+				pinmux {
+					pins = "gpio43", "gpio51";
+					function = "gpio";
+				};
+
+				/* TODO: move pinconf to board file */
+				pinconf {
+					pins = "gpio43", "gpio51";
+					bias-pull-down;
+					drive-strength = <2>;
+				};
+			};
+
+			dpu_dp_usbplug_cc_active: dpu-dp-usbplug-cc-active {
+				pinmux {
+					pins = "gpio38";
+					function = "gpio";
+				};
+
+				/* TODO: move pinconf to board file */
+				pinconf {
+					pins = "gpio38";
+					bias-disable;
+					drive-strength = <16>;
+				};
+			};
+
+			dpu_dp_usbplug_cc_suspend: dpu-dp-usbplug-cc-suspend {
+				pinmux {
+					pins = "gpio38";
+					function = "gpio";
+				};
+
+				/* TODO: move pinconf to board file */
+				pinconf {
+					pins = "gpio38";
+					bias-pull-down;
+					drive-strength = <2>;
+				};
+			};
+
+			dpu_dsi_active: dpu-dsi-active {
+				pinmux {
+					pins = "gpio6", "gpio52";
+					function = "gpio";
+				};
+
+				/* TODO: move pinconf to board file */
+				pinconf {
+					pins = "gpio6", "gpio52";
+					drive-strength = <8>;
+					/*bias-pull-up; */
+					bias-disable;
+				};
+			};
+			dpu_dsi_suspend: dpu-dsi-suspend {
+				pinmux {
+					pins = "gpio6", "gpio52";
+					function = "gpio";
+				};
+
+				/* TODO: move pinconf to board file */
+				pinconf {
+					pins = "gpio6", "gpio52";
+					drive-strength = <2>;
+					bias-pull-down;
+				};
+			};
+
+			dpu_te_active: dpu-te-active {
+				pinmux {
+					pins = "gpio10";
+					function = "mdp_vsync";
+				};
+
+				/* TODO: move pinconf to board file */
+				pinconf {
+					pins = "gpio10";
+					drive-strength = <2>;
+					bias-pull-down;
+				};
+			};
+
+			dpu_te_suspend: dpu-te-suspend {
+				pinmux {
+					pins = "gpio10";
+					function = "mdp_vsync";
+				};
+
+				/* TODO: move pinconf to board file */
+				pinconf {
+					pins = "gpio10";
+					drive-strength = <2>;
+					bias-pull-down;
+				};
+			};
+
 			qup_i2c0_default: qup-i2c0-default {
 				pinmux {
 					pins = "gpio0", "gpio1";
@@ -1449,6 +1561,194 @@
 			#clock-cells = <1>;
 			#reset-cells = <1>;
 			#power-domain-cells = <1>;
+		};
+
+		mdss: mdss@ae00000 {
+			compatible = "qcom,sdm845-mdss";
+			reg = <0xae00000 0x1000>;
+			reg-names = "mdss";
+
+			power-domains = <&dispcc 0>;
+
+			clocks = <&gcc GCC_DISP_AHB_CLK>,
+				 <&gcc GCC_DISP_AXI_CLK>,
+				 <&dispcc DISP_CC_MDSS_MDP_CLK>;
+			clock-names = "gcc_iface", "gcc_bus", "core";
+
+			assigned-clocks = <&dispcc DISP_CC_MDSS_MDP_CLK>;
+			assigned-clock-rates = <300000000>;
+
+			interrupts = <GIC_SPI 83 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+
+			iommus = <&apps_smmu 0x880 0x8>,
+				 <&apps_smmu 0xc80 0x8>;
+
+			#address-cells = <2>;
+			#size-cells = <1>;
+			ranges = <0 0 0xae00000 0xb2008>;
+
+			mdss_mdp: mdp@ae01000 {
+				compatible = "qcom,sdm845-dpu";
+				reg = <0 0x1000 0x8f000>, <0 0xb0000 0x2008>;
+				reg-names = "mdp", "vbif";
+
+				clocks = <&dispcc DISP_CC_MDSS_AHB_CLK>,
+					 <&dispcc DISP_CC_MDSS_AXI_CLK>,
+					 <&dispcc DISP_CC_MDSS_MDP_CLK>,
+					 <&dispcc DISP_CC_MDSS_VSYNC_CLK>;
+				clock-names = "iface", "bus", "core", "vsync";
+
+				assigned-clocks =
+					<&dispcc DISP_CC_MDSS_MDP_CLK>,
+					<&dispcc DISP_CC_MDSS_VSYNC_CLK>;
+				assigned-clock-rates = <300000000 19200000>;
+
+				interrupts = <0 IRQ_TYPE_LEVEL_HIGH>;
+
+				ports {
+					#address-cells = <1>;
+					#size-cells = <0>;
+
+					port@0 {
+						reg = <0>;
+						dpu_intf1_out: endpoint {
+							remote-endpoint = <&dsi0_in>;
+						};
+					};
+
+					port@1 {
+						reg = <1>;
+						dpu_intf2_out: endpoint {
+							remote-endpoint = <&dsi1_in>;
+						};
+					};
+				};
+
+			};
+
+			dsi0: dsi@ae94000 {
+				compatible = "qcom,mdss-dsi-ctrl";
+				reg = <0 0x94000 0x400>;
+				reg-names = "dsi_ctrl";
+
+				interrupt-parent = <&mdss>;
+				interrupts = <4 0>;
+
+				clocks = <&dispcc DISP_CC_MDSS_BYTE0_CLK>,
+					 <&dispcc DISP_CC_MDSS_BYTE0_INTF_CLK>,
+					 <&dispcc DISP_CC_MDSS_PCLK0_CLK>,
+					 <&dispcc DISP_CC_MDSS_ESC0_CLK>,
+					 <&dispcc DISP_CC_MDSS_AHB_CLK>,
+					 <&dispcc DISP_CC_MDSS_AXI_CLK>;
+				clock-names = "byte",
+					      "byte_intf",
+					      "pixel",
+					      "core",
+					      "iface",
+					      "bus";
+
+				phys = <&dsi0_phy>;
+				phy-names = "dsi-phy";
+
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				ports {
+					#address-cells = <1>;
+					#size-cells = <0>;
+
+					port@0 {
+						reg = <0>;
+						dsi0_in: endpoint {
+							remote-endpoint = <&dpu_intf1_out>;
+						};
+					};
+
+					port@1 {
+						reg = <1>;
+						dsi0_out: endpoint {
+						};
+					};
+				};
+			};
+
+			dsi0_phy: dsi-phy@ae94400 {
+				compatible = "qcom,dsi-phy-10nm";
+				reg = <0 0x94400 0x200>,
+				      <0 0x94a00 0x1e0>,
+				      <0 0x94600 0x280>;
+				reg-names = "dsi_phy",
+					    "dsi_pll",
+						"dsi_phy_lane";
+
+				#clock-cells = <1>;
+
+				clocks = <&dispcc DISP_CC_MDSS_AHB_CLK>;
+				clock-names = "iface";
+			};
+
+			dsi1: dsi@ae96000 {
+				compatible = "qcom,mdss-dsi-ctrl";
+				reg = <0 0x96000 0x400>;
+				reg-names = "dsi_ctrl";
+
+				interrupt-parent = <&mdss>;
+				interrupts = <5 0>;
+
+				clocks = <&dispcc DISP_CC_MDSS_BYTE1_CLK>,
+					 <&dispcc DISP_CC_MDSS_BYTE1_INTF_CLK>,
+					 <&dispcc DISP_CC_MDSS_PCLK1_CLK>,
+					 <&dispcc DISP_CC_MDSS_ESC1_CLK>,
+					 <&dispcc DISP_CC_MDSS_AHB_CLK>,
+					 <&dispcc DISP_CC_MDSS_AXI_CLK>;
+				clock-names = "byte",
+					      "byte_intf",
+					      "pixel",
+					      "core",
+					      "iface",
+					      "bus";
+
+				phys = <&dsi1_phy>;
+				phy-names = "dsi-phy";
+
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				ports {
+					#address-cells = <1>;
+					#size-cells = <0>;
+
+					port@0 {
+						reg = <0>;
+						dsi1_in: endpoint {
+							remote-endpoint = <&dpu_intf2_out>;
+						};
+					};
+
+					port@1 {
+						reg = <1>;
+						dsi1_out: endpoint {
+						};
+					};
+				};
+			};
+
+			dsi1_phy: dsi-phy@ae96400 {
+				compatible = "qcom,dsi-phy-10nm";
+				reg = <0 0x96400 0x200>,
+				      <0 0x96a00 0x10e>,
+					<0 0x96600 0x280>;
+				reg-names = "dsi_phy",
+					    "dsi_pll",
+						"dsi_phy_lane";
+
+				#clock-cells = <1>;
+
+				clocks = <&dispcc DISP_CC_MDSS_AHB_CLK>;
+				clock-names = "iface";
+			};
 		};
 
 		dispcc: clock-controller@af00000 {

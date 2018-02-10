@@ -343,9 +343,115 @@
 	};
 };
 
+&dsi0 {
+	status = "okay";
+	qcom,dual-dsi-mode;
+	qcom,master-dsi;
+	qcom,sync-dual-dsi;
+
+	vdda-supply = <&vdda_mipi_dsi0_1p2>;
+
+	panel@0 {
+		compatible = "truly,nt35597";
+		reg = <0>;
+
+		vdda-supply = <&vreg_l14a_1p88>;
+		vdispp-supply = <&lab_regulator>;
+		vdispn-supply = <&ibb_regulator>;
+
+		pinctrl-names = "default", "suspend";
+		pinctrl-0 = <&dpu_dsi_active>;
+		pinctrl-1 = <&dpu_dsi_suspend>;
+
+		reset-gpios = <&tlmm 6 0>;
+		mode-gpios = <&tlmm 52 0>;
+
+		display-timings {
+			timing0: timing-0 {
+				/* originally
+				 * 268316160 Mhz,
+				 * but value below fits
+				 * better w/ downstream
+				 */
+				clock-frequency = <268316138>;
+				hactive = <1440>;
+				vactive = <2560>;
+				hfront-porch = <200>;
+				hback-porch = <64>;
+				hsync-len = <32>;
+				vfront-porch = <8>;
+				vback-porch = <7>;
+				vsync-len = <1>;
+			};
+		};
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			port@0 {
+				reg = <0>;
+				panel0_in: endpoint {
+					remote-endpoint = <&dsi0_out>;
+				};
+			};
+
+			port@1 {
+				reg = <1>;
+				panel1_in: endpoint {
+					remote-endpoint = <&dsi1_out>;
+				};
+			};
+		};
+	};
+
+	ports {
+		port@1 {
+			endpoint {
+				remote-endpoint = <&panel0_in>;
+				data-lanes = <0 1 2 3>;
+			};
+		};
+	};
+};
+
+&dsi0_phy {
+	status = "okay";
+	vdds-supply = <&vdda_mipi_dsi0_pll>;
+};
+
+&dsi1 {
+	status = "okay";
+
+	qcom,dual-dsi-mode;
+	qcom,sync-dual-dsi;
+
+	vdda-supply = <&vdda_mipi_dsi1_1p2>;
+
+	ports {
+		port@1 {
+			endpoint {
+				remote-endpoint = <&panel1_in>;
+				data-lanes = <0 1 2 3>;
+			};
+		};
+	};
+};
+
+&dsi1_phy {
+	status = "okay";
+	vdds-supply = <&vdda_mipi_dsi1_pll>;
+};
+
 &i2c10 {
 	status = "okay";
 	clock-frequency = <400000>;
+};
+
+&mdss {
+	status = "okay";
+};
+
+&mdss_mdp {
+	status = "okay";
 };
 
 &qupv3_id_1 {
@@ -469,6 +575,7 @@
  * until we have patches to do this right.
  */
 #include "pmi8998.dtsi"
+
 &labibb {
 	status = "okay";
 	qcom,qpnp-labibb-mode = "lcd";
