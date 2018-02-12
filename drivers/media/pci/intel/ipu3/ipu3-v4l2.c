@@ -834,7 +834,8 @@ int ipu3_v4l2_register(struct imgu_device *dev)
 		}
 
 		/* Initialize vdev */
-		strlcpy(vdev->name, node->name, sizeof(vdev->name));
+		snprintf(vdev->name, sizeof(vdev->name), "%s %s",
+			 m2m2->name, node->name);
 		vdev->release = video_device_release_empty;
 		vdev->fops = &m2m2->v4l2_file_ops;
 		vdev->lock = &node->lock;
