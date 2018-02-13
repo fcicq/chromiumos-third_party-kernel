@@ -507,7 +507,7 @@ static int virtio_gpu_get_caps_ioctl(struct drm_device *dev,
 	}
 
 	size = vgdev->capsets[found_valid].max_size;
-	if (args->size > size) {
+	if (size > args->size) {
 		spin_unlock(&vgdev->display_info_lock);
 		return -EINVAL;
 	}
