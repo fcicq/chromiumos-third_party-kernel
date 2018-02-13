@@ -30,27 +30,8 @@
 #include "inode_mark.h"
 #include "utils.h"
 
-int chromiumos_security_sb_mount(const char *dev_name, struct path *path,
-				 const char *type, unsigned long flags,
-				 void *data)
-{
-#ifdef CONFIG_SECURITY_CHROMIUMOS_NO_SYMLINK_MOUNT
-	if (current->total_link_count) {
-		char *cmdline;
 
-		cmdline = printable_cmdline(current);
-		pr_notice("Mount path with symlinks prohibited - "
-			"pid=%d cmdline=%s\n",
-			task_pid_nr(current), cmdline);
-		kfree(cmdline);
-		return -ELOOP;
-	}
-#endif
-
-	return 0;
-}
-
-static void report_load(const char *origin, struct path *path, char *operation)
+static void report(const char *origin, struct path *path, char *operation)
 {
 	char *alloced = NULL, *cmdline;
 	char *pathname; /* Pointer to either static string or "alloced". */
@@ -81,6 +62,22 @@ static void report_load(const char *origin, struct path *path, char *operation)
 
 	kfree(cmdline);
 	kfree(alloced);
+}
+
+int chromiumos_security_sb_mount(const char *dev_name, struct path *path,
+				 const char *type, unsigned long flags,
+				 void *data)
+{
+#ifdef CONFIG_SECURITY_CHROMIUMOS_NO_SYMLINK_MOUNT
+	if (current->total_link_count) {
+		report("sb_mount", path, "Mount path with symlinks prohibited");
+		pr_notice("sb_mount dev=%s type=%s flags=%#lx\n",
+			  dev_name, type, flags);
+		return -ELOOP;
+	}
+#endif
+
+	return 0;
 }
 
 static int module_locking = 1;
@@ -169,11 +166,11 @@ static int check_pinning(const char *origin, struct file *file)
 
 	if (!file) {
 		if (!module_locking) {
-			report_load(origin, NULL, "old-api-locking-ignored");
+			report(origin, NULL, "old-api-locking-ignored");
 			return 0;
 		}
 
-		report_load(origin, NULL, "old-api-denied");
+		report(origin, NULL, "old-api-denied");
 		return -EPERM;
 	}
 
@@ -195,19 +192,18 @@ static int check_pinning(const char *origin, struct file *file)
 		 */
 		spin_unlock(&locked_root_spinlock);
 		check_locking_enforcement(locked_root);
-		report_load(origin, &file->f_path, "locked");
+		report(origin, &file->f_path, "locked");
 	} else {
 		spin_unlock(&locked_root_spinlock);
 	}
 
 	if (IS_ERR_OR_NULL(locked_root) || module_root->mnt_sb != locked_root) {
 		if (unlikely(!module_locking)) {
-			report_load(origin, &file->f_path,
-				    "locking-ignored");
+			report(origin, &file->f_path, "locking-ignored");
 			return 0;
 		}
 
-		report_load(origin, &file->f_path, "denied");
+		report(origin, &file->f_path, "denied");
 		return -EPERM;
 	}
 
