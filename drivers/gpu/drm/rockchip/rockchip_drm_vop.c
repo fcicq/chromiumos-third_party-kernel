@@ -54,10 +54,6 @@
 		if (vop->data->afbdc) \
 			vop_reg_set(vop, &vop->data->afbdc->name, 0, ~0, v, #name)
 
-#define VOP_YUV2YUV_SET(x, name, v) \
-		if ((x)->data->yuv2yuv) \
-			vop_reg_set(vop, &vop->data->yuv2yuv->name, 0, ~0, v, #name)
-
 #define VOP_INTR_SET_MASK(vop, name, mask, v) \
 		vop_reg_set(vop, &vop->data->intr->name, 0, mask, v, #name)
 
@@ -89,18 +85,6 @@
 
 #define to_vop(x) container_of(x, struct vop, crtc)
 #define to_vop_win(x) container_of(x, struct vop_win, base)
-
-/*
- * The coefficients of the following matrix are all fixed points.
- * The format is 3.10 for the 3x3 part of the matrix, and 10.12 for the offsets.
- * They are all represented in two's complement.
- */
-static const uint32_t bt601_yuv2rgb[] = {
-	0x4A8, 0x0,    0x662,
-	0x4A8, 0x1E6F, 0x1CBF,
-	0x4A8, 0x812,  0x0,
-	0x321168, 0x0877CF, 0x2EB127
-};
 
 enum vop_pending {
 	VOP_PENDING_FB_UNREF,
@@ -827,9 +811,6 @@ static void vop_plane_atomic_update(struct drm_plane *plane,
 	uint32_t val;
 	bool rb_swap;
 	int format;
-	int is_yuv = is_yuv_support(fb->format->format);
-	int win_index = VOP_WIN_TO_INDEX(vop_win);
-	int i;
 
 	/*
 	 * can't update plane when vop is disabled.
@@ -888,18 +869,11 @@ static void vop_plane_atomic_update(struct drm_plane *plane,
 	VOP_WIN_SET(vop, win, format, format);
 	VOP_WIN_SET(vop, win, yrgb_vir, DIV_ROUND_UP(fb->pitches[0], 4));
 	VOP_WIN_SET(vop, win, yrgb_mst, dma_addr);
-	VOP_WIN_SET(vop, win, y_mir_en, state->rotation == DRM_REFLECT_Y);
 
-	if (!win_index) {
-		VOP_YUV2YUV_SET(vop, win0_y2r_en, is_yuv);
-	} else if (win_index == 1) {
-		VOP_YUV2YUV_SET(vop, win1_y2r_en, is_yuv);
-	}
-
-	if (is_yuv) {
+	if (is_yuv_support(fb->format->format)) {
 		int hsub = drm_format_horz_chroma_subsampling(fb->format->format);
 		int vsub = drm_format_vert_chroma_subsampling(fb->format->format);
-		int bpp = fb->format->cpp[1];
+		int bpp = drm_format_plane_cpp(fb->format->format, 1);
 
 		uv_obj = rockchip_fb_get_gem_obj(fb, 1);
 		rk_uv_obj = to_rockchip_obj(uv_obj);
@@ -910,18 +884,6 @@ static void vop_plane_atomic_update(struct drm_plane *plane,
 		dma_addr = rk_uv_obj->dma_addr + offset + fb->offsets[1];
 		VOP_WIN_SET(vop, win, uv_vir, DIV_ROUND_UP(fb->pitches[1], 4));
 		VOP_WIN_SET(vop, win, uv_mst, dma_addr);
-
-		for (i = 0; i < 12; i++) {
-			if (!win_index) {
-				VOP_YUV2YUV_SET(vop,
-						win0_y2r_coefficients[i],
-						bt601_yuv2rgb[i]);
-			} else {
-				VOP_YUV2YUV_SET(vop,
-						win1_y2r_coefficients[i],
-						bt601_yuv2rgb[i]);
-			}
-		}
 	}
 
 	if (win->phy->scl)
@@ -950,7 +912,7 @@ static void vop_plane_atomic_update(struct drm_plane *plane,
 	}
 
 	VOP_WIN_SET(vop, win, enable, 1);
-	vop->win_enabled |= BIT(win_index);
+	vop->win_enabled |= BIT(VOP_WIN_TO_INDEX(vop_win));
 
 	spin_unlock(&vop->reg_lock);
 }

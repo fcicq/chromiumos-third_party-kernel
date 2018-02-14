@@ -95,16 +95,6 @@ struct vop_afbdc {
 	struct vop_reg rstn;
 };
 
-struct vop_yuv2yuv {
-	struct vop_reg win0_enable;
-	struct vop_reg win0_y2r_en;
-	struct vop_reg win0_y2r_coefficients[12];
-
-	struct vop_reg win1_enable;
-	struct vop_reg win1_y2r_en;
-	struct vop_reg win1_y2r_coefficients[12];
-};
-
 struct vop_intr {
 	const int *intrs;
 	uint32_t nintrs;
@@ -185,7 +175,6 @@ struct vop_data {
 	const struct vop_modeset *modeset;
 	const struct vop_output *output;
 	const struct vop_afbdc *afbdc;
-	const struct vop_yuv2yuv *yuv2yuv;
 	const struct vop_win_data *win;
 	unsigned int win_size;
 
