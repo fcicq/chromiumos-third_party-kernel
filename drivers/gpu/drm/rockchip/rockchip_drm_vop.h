@@ -27,6 +27,8 @@
 #define AFBDC_FMT_U8U8U8U8	0x5
 #define AFBDC_FMT_U8U8U8	0x4
 
+#define NUM_YUV2YUV_COEFFICIENTS 12
+
 enum vop_data_format {
 	VOP_FMT_ARGB8888 = 0,
 	VOP_FMT_RGB888,
@@ -138,6 +140,10 @@ struct vop_scl_regs {
 	struct vop_reg scale_cbcr_y;
 };
 
+struct vop_yuv2yuv_phy {
+	struct vop_reg y2r_coefficients[NUM_YUV2YUV_COEFFICIENTS];
+};
+
 struct vop_win_phy {
 	const struct vop_scl_regs *scl;
 	const uint32_t *data_formats;
@@ -161,6 +167,12 @@ struct vop_win_phy {
 	struct vop_reg src_alpha_ctl;
 };
 
+struct vop_win_yuv2yuv_data {
+	uint32_t base;
+	const struct vop_yuv2yuv_phy *phy;
+	struct vop_reg y2r_en;
+};
+
 struct vop_win_data {
 	uint32_t base;
 	const struct vop_win_phy *phy;
@@ -175,6 +187,7 @@ struct vop_data {
 	const struct vop_modeset *modeset;
 	const struct vop_output *output;
 	const struct vop_afbdc *afbdc;
+	const struct vop_win_yuv2yuv_data *win_yuv2yuv;
 	const struct vop_win_data *win;
 	unsigned int win_size;
 
