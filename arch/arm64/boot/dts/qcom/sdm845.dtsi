@@ -1503,6 +1503,12 @@
 			#mbox-cells = <1>;
 		};
 
+		/* TODO: conflicts w/ above? */
+		apcs: syscon@1799000c {
+			compatible = "syscon";
+			reg = <0x1799000c 0x4>;
+		};
+
 		apps_rsc: rsc@179c0000 {
 			label = "apps_rsc";
 			compatible = "qcom,rpmh-rsc";
@@ -1651,6 +1657,86 @@
 				interrupts = <GIC_SPI 13 IRQ_TYPE_LEVEL_HIGH>;
 				reg = <0x17d10000 0x1000>;
 				status = "disabled";
+			};
+		};
+
+		adsp-smp2p {
+			compatible = "qcom,smp2p";
+			qcom,smem = <443>, <429>;
+			interrupts = <GIC_SPI 158 IRQ_TYPE_EDGE_RISING>;
+			qcom,ipc = <&apcs 0 10>;
+			qcom,local-pid = <0>;
+			qcom,remote-pid = <2>;
+
+			adsp_smp2p_out: master-kernel {
+				qcom,entry-name = "master-kernel";
+				#qcom,smem-state-cells = <1>;
+			};
+
+			adsp_smp2p_in: slave-kernel {
+				qcom,entry-name = "slave-kernel";
+				interrupt-controller;
+				#interrupt-cells = <2>;
+			};
+		};
+
+		cdsp-smp2p {
+			compatible = "qcom,smp2p";
+			qcom,smem = <94>, <432>;
+			interrupts = <GIC_SPI 576 IRQ_TYPE_EDGE_RISING>;
+			qcom,ipc = <&apcs 0 6>;
+			qcom,local-pid = <0>;
+			qcom,remote-pid = <5>;
+
+			cdsp_smp2p_out: master-kernel {
+				qcom,entry-name = "master-kernel";
+				#qcom,smem-state-cells = <1>;
+			};
+
+			cdsp_smp2p_in: slave-kernel {
+				qcom,entry-name = "slave-kernel";
+				interrupt-controller;
+				#interrupt-cells = <2>;
+			};
+		};
+
+		dsps-smp2p {
+			compatible = "qcom,smp2p";
+			qcom,smem = <481>, <430>;
+			interrupts = <GIC_SPI 172 IRQ_TYPE_EDGE_RISING>;
+			qcom,ipc = <&apcs 0 26>;
+			qcom,local-pid = <0>;
+			qcom,remote-pid = <3>;
+
+			dsps_smp2p_out: master-kernel {
+				qcom,entry-name = "master-kernel";
+				#qcom,smem-state-cells = <1>;
+			};
+
+			dsps_smp2p_in: slave-kernel {
+				qcom,entry-name = "slave-kernel";
+				interrupt-controller;
+				#interrupt-cells = <2>;
+			};
+		};
+
+		modem-smp2p {
+			compatible = "qcom,smp2p";
+			qcom,smem = <435>, <428>;
+			interrupts = <GIC_SPI 451 IRQ_TYPE_EDGE_RISING>;
+			qcom,ipc = <&apcs 0 14>;
+			qcom,local-pid = <0>;
+			qcom,remote-pid = <1>;
+
+			modem_smp2p_out: master-kernel {
+				qcom,entry-name = "master-kernel";
+				#qcom,smem-state-cells = <1>;
+			};
+
+			modem_smp2p_in: slave-kernel {
+				qcom,entry-name = "slave-kernel";
+				interrupt-controller;
+				#interrupt-cells = <2>;
 			};
 		};
 	};
