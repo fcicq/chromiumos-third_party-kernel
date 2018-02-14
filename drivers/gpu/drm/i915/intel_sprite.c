@@ -801,7 +801,8 @@ intel_check_sprite_plane(struct drm_plane *plane,
 		if (state->ckey.flags == I915_SET_COLORKEY_NONE) {
 			can_scale = 1;
 			min_scale = 1;
-			max_scale = skl_max_scale(intel_crtc, crtc_state);
+			max_scale = skl_max_scale(intel_crtc, crtc_state,
+						  fb->format->format);
 		} else {
 			can_scale = 0;
 			min_scale = DRM_PLANE_HELPER_NO_SCALING;

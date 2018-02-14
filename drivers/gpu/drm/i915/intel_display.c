@@ -3466,6 +3466,8 @@ u32 skl_plane_ctl_format(uint32_t pixel_format)
 		return PLANE_CTL_FORMAT_YUV422 | PLANE_CTL_YUV422_UYVY;
 	case DRM_FORMAT_VYUY:
 		return PLANE_CTL_FORMAT_YUV422 | PLANE_CTL_YUV422_VYUY;
+	case DRM_FORMAT_NV12:
+		return PLANE_CTL_FORMAT_NV12;
 	default:
 		MISSING_CASE(pixel_format);
 	}
@@ -4794,7 +4796,9 @@ static void cpt_verify_modeset(struct drm_device *dev, int pipe)
 static int
 skl_update_scaler(struct intel_crtc_state *crtc_state, bool force_detach,
 		  unsigned scaler_user, int *scaler_id, unsigned int rotation,
-		  int src_w, int src_h, int dst_w, int dst_h)
+		  int src_w, int src_h, int dst_w, int dst_h,
+		  bool plane_scaler_check,
+		  uint32_t pixel_format)
 {
 	struct intel_crtc_scaler_state *scaler_state =
 		&crtc_state->scaler_state;
@@ -4805,6 +4809,9 @@ skl_update_scaler(struct intel_crtc_state *crtc_state, bool force_detach,
 	need_scaling = drm_rotation_90_or_270(rotation) ?
 		(src_h != dst_w || src_w != dst_h):
 		(src_w != dst_w || src_h != dst_h);
+
+	if (plane_scaler_check)
+		need_scaling = pixel_format == DRM_FORMAT_NV12;
 
 	/*
 	 * if plane is being disabled or scaler is no more required or force detach
@@ -4866,9 +4873,10 @@ int skl_update_scaler_crtc(struct intel_crtc_state *state)
 	const struct drm_display_mode *adjusted_mode = &state->base.adjusted_mode;
 
 	return skl_update_scaler(state, !state->base.active, SKL_CRTC_INDEX,
-		&state->scaler_state.scaler_id, DRM_ROTATE_0,
-		state->pipe_src_w, state->pipe_src_h,
-		adjusted_mode->crtc_hdisplay, adjusted_mode->crtc_vdisplay);
+				 &state->scaler_state.scaler_id, DRM_ROTATE_0,
+				 state->pipe_src_w, state->pipe_src_h,
+				 adjusted_mode->crtc_hdisplay,
+				 adjusted_mode->crtc_vdisplay, false, 0);
 }
 
 /**
@@ -4899,7 +4907,8 @@ static int skl_update_scaler_plane(struct intel_crtc_state *crtc_state,
 				drm_rect_width(&plane_state->base.src) >> 16,
 				drm_rect_height(&plane_state->base.src) >> 16,
 				drm_rect_width(&plane_state->base.dst),
-				drm_rect_height(&plane_state->base.dst));
+				drm_rect_height(&plane_state->base.dst),
+				fb ? true : false, fb ? fb->format->format : 0);
 
 	if (ret || plane_state->scaler_id < 0)
 		return ret;
@@ -4925,6 +4934,7 @@ static int skl_update_scaler_plane(struct intel_crtc_state *crtc_state,
 	case DRM_FORMAT_YVYU:
 	case DRM_FORMAT_UYVY:
 	case DRM_FORMAT_VYUY:
+	case DRM_FORMAT_NV12:
 		break;
 	default:
 		DRM_DEBUG_KMS("[PLANE:%d:%s] FB:%d unsupported scaling format 0x%x\n",
@@ -13621,11 +13631,13 @@ intel_cleanup_plane_fb(struct drm_plane *plane,
 }
 
 int
-skl_max_scale(struct intel_crtc *intel_crtc, struct intel_crtc_state *crtc_state)
+skl_max_scale(struct intel_crtc *intel_crtc,
+	      struct intel_crtc_state *crtc_state,
+	      uint32_t pixel_format)
 {
 	struct drm_i915_private *dev_priv;
-	int max_scale;
-	int crtc_clock, max_dotclk;
+	int max_scale, mult;
+	int crtc_clock, max_dotclk, tmpclk1, tmpclk2;
 
 	if (!intel_crtc || !crtc_state->base.enable)
 		return DRM_PLANE_HELPER_NO_SCALING;
@@ -13647,8 +13659,10 @@ skl_max_scale(struct intel_crtc *intel_crtc, struct intel_crtc_state *crtc_state
 	 *            or
 	 *    cdclk/crtc_clock
 	 */
-	max_scale = min((1 << 16) * 3 - 1,
-			(1 << 8) * ((max_dotclk << 8) / crtc_clock));
+	mult = pixel_format == DRM_FORMAT_NV12 ? 2 : 3;
+	tmpclk1 = (1 << 16) * mult - 1;
+	tmpclk2 = (1 << 8) * ((max_dotclk << 8) / crtc_clock);
+	max_scale = min(tmpclk1, tmpclk2);
 
 	return max_scale;
 }
@@ -13664,12 +13678,16 @@ intel_check_primary_plane(struct drm_plane *plane,
 	int max_scale = DRM_PLANE_HELPER_NO_SCALING;
 	bool can_position = false;
 	int ret;
+	uint32_t pixel_format = 0;
 
 	if (INTEL_GEN(dev_priv) >= 9) {
 		/* use scaler when colorkey is not required */
 		if (state->ckey.flags == I915_SET_COLORKEY_NONE) {
 			min_scale = 1;
-			max_scale = skl_max_scale(to_intel_crtc(crtc), crtc_state);
+			if (state->base.fb)
+				pixel_format = state->base.fb->format->format;
+			max_scale = skl_max_scale(to_intel_crtc(crtc),
+						  crtc_state, pixel_format);
 		}
 		can_position = true;
 	}
