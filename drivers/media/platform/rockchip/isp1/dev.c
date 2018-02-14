@@ -542,7 +542,7 @@ static int rockchip_initialize_devfreq(struct device *dev,
 }
 #else
 static int rockchip_initialize_devfreq(struct device *dev,
-				       struct rockchip_drm_private *priv)
+				       struct rkisp1_device *isp_dev)
 {
 	return 0;
 }
