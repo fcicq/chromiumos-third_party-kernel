@@ -527,7 +527,8 @@ static void i2c_dw_xfer_init(struct dw_i2c_dev *dev)
 	i2c_dw_disable_int(dev);
 
 	if (!enabled)
-		__i2c_dw_enable(dev, true);
+		/* Enable the adapter */
+		__i2c_dw_enable_and_wait(dev, true);
 
 	/* Clear and enable interrupts */
 	dw_readl(dev, DW_IC_CLR_INTR);
