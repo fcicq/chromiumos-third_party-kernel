@@ -3209,6 +3209,18 @@ static int binder_free_thread(struct binder_proc *proc,
 		wake_up_poll(&thread->wait, POLLHUP | POLLFREE);
 	}
 
+	/*
+	 * This is needed to avoid races between wake_up_poll() above and
+	 * and ep_remove_waitqueue() called for other reasons (eg the epoll file
+	 * descriptor being closed); ep_remove_waitqueue() holds an RCU read
+	 * lock, so we can be sure it's done after calling synchronize_rcu().
+	 */
+	if (thread->looper & BINDER_LOOPER_STATE_POLL) {
+		preempt_enable_no_resched();
+		synchronize_rcu();
+		preempt_disable();
+	}
+
 	if (send_reply)
 		binder_send_failed_reply(send_reply, BR_DEAD_REPLY);
 	binder_release_work(&thread->todo);
