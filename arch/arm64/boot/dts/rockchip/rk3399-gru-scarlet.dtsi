@@ -214,6 +214,7 @@
 		pinctrl-0 = <&dmic_en>;
 
 		dmicen-gpios = <&gpio4 3 GPIO_ACTIVE_HIGH>;
+		wakeup-delay-ms = <250>;
 	};
 };
 
