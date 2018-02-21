@@ -166,11 +166,11 @@ static bool __is_excluded(const struct qstr *app_name, uint32_t user)
 		if (atomic_read(&hash_cur->value) == user &&
 				qstr_case_eq(app_name, &hash_cur->key)) {
 			rcu_read_unlock();
-			return 1;
+			return true;
 		}
 	}
 	rcu_read_unlock();
-	return 0;
+	return false;
 }
 
 bool pkglist_user_is_excluded(const char *key, uint32_t user)
