@@ -14941,6 +14941,14 @@ static int intel_framebuffer_init(struct drm_device *dev,
 			return -EINVAL;
 		}
 		break;
+	case DRM_FORMAT_NV12:
+		if (INTEL_GEN(dev_priv) < 9) {
+			DRM_DEBUG_KMS("unsupported pixel format: %s\n",
+				      drm_get_format_name(mode_cmd->pixel_format,
+				      &format_name));
+			return -EINVAL;
+		}
+		break;
 	default:
 		DRM_DEBUG("unsupported pixel format: %s\n",
 		          drm_get_format_name(mode_cmd->pixel_format, &format_name));
