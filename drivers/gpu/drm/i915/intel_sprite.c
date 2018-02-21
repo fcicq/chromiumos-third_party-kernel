@@ -1042,6 +1042,7 @@ static uint32_t skl_plane_formats[] = {
 	DRM_FORMAT_YVYU,
 	DRM_FORMAT_UYVY,
 	DRM_FORMAT_VYUY,
+	DRM_FORMAT_NV12,
 };
 
 static const uint64_t skl_plane_format_modifiers[] = {
@@ -1205,6 +1206,16 @@ intel_sprite_plane_create(struct drm_i915_private *dev_priv,
 
 		plane_formats = skl_plane_formats;
 		num_plane_formats = ARRAY_SIZE(skl_plane_formats);
+
+                if (IS_GEMINILAKE(dev_priv) || INTEL_GEN(dev_priv) == 10) {
+                        if (plane != 0)
+                                num_plane_formats -= 1;
+                } else {
+                        if (plane != 0 || pipe == PIPE_C){
+                                 num_plane_formats -= 1;
+			}
+                }
+
 		modifiers = skl_plane_format_modifiers;
 	} else if (IS_VALLEYVIEW(dev_priv) || IS_CHERRYVIEW(dev_priv)) {
 		intel_plane->can_scale = false;
