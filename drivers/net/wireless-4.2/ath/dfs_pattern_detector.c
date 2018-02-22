@@ -285,7 +285,8 @@ dpd_add_pulse(struct dfs_pattern_detector *dpd, struct pulse_event *event)
 		return false;
 
 	/* reset detector on time stamp wraparound, caused by TSF reset */
-	if (event->ts < dpd->last_pulse_ts)
+	if (event->ts < dpd->last_pulse_ts ||
+	    (event->ts - dpd->last_pulse_ts < 100))
 		dpd_reset(dpd);
 	dpd->last_pulse_ts = event->ts;
 
