@@ -309,17 +309,33 @@ static int hdac_hdmi_setup_audio_infoframe(struct hdac_ext_device *hdac,
 static void hdac_hdmi_set_power_state(struct hdac_ext_device *edev,
 		struct hdac_hdmi_dai_pin_map *dai_map, unsigned int pwr_state)
 {
+	int count;
+	unsigned int state;
+
 	/* Power up pin widget */
 	if (!snd_hdac_check_power_state(&edev->hdac, dai_map->pin->nid,
-						pwr_state))
-		snd_hdac_codec_write(&edev->hdac, dai_map->pin->nid, 0,
-			AC_VERB_SET_POWER_STATE, pwr_state);
-
+							pwr_state)) {
+		for (count = 0; count < 10; count++) {
+			snd_hdac_codec_read(&edev->hdac, dai_map->pin->nid,
+				0, AC_VERB_SET_POWER_STATE, pwr_state);
+			state = snd_hdac_sync_power_state(&edev->hdac,
+					dai_map->pin->nid, pwr_state);
+			if (!(state & AC_PWRST_ERROR))
+				break;
+		}
+	}
 	/* Power up converter */
 	if (!snd_hdac_check_power_state(&edev->hdac, dai_map->cvt->nid,
-						pwr_state))
-		snd_hdac_codec_write(&edev->hdac, dai_map->cvt->nid, 0,
-			AC_VERB_SET_POWER_STATE, pwr_state);
+						pwr_state)) {
+		for (count = 0; count < 10; count++) {
+			snd_hdac_codec_read(&edev->hdac, dai_map->cvt->nid,
+				0, AC_VERB_SET_POWER_STATE, pwr_state);
+			state = snd_hdac_sync_power_state(&edev->hdac,
+					dai_map->cvt->nid, pwr_state);
+			if (!(state & AC_PWRST_ERROR))
+				break;
+		}
+	}
 }
 
 static int hdac_hdmi_playback_prepare(struct snd_pcm_substream *substream,
