@@ -895,6 +895,7 @@ void cfg80211_process_wdev_events(struct wireless_dev *wdev)
 					       ev->ij.channel);
 			break;
 		case EVENT_STOPPED:
+			printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 			__cfg80211_leave(wiphy_to_rdev(wdev->wiphy), wdev);
 			break;
 		}
@@ -956,6 +957,7 @@ int cfg80211_change_iface(struct cfg80211_registered_device *rdev,
 
 		switch (otype) {
 		case NL80211_IFTYPE_AP:
+			printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 			cfg80211_stop_ap(rdev, dev, true);
 			break;
 		case NL80211_IFTYPE_ADHOC:
@@ -975,6 +977,7 @@ int cfg80211_change_iface(struct cfg80211_registered_device *rdev,
 			break;
 		}
 
+		printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 		cfg80211_process_rdev_events(rdev);
 	}
 

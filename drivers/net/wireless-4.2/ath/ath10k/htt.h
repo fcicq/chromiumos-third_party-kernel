@@ -1544,6 +1544,7 @@ struct ath10k_htt {
 		dma_addr_t paddr;
 		struct ath10k_htt_txbuf *vaddr;
 	} txbuf;
+	uint32_t drop_count;
 };
 
 #define RX_HTT_HDR_STATUS_LEN 64

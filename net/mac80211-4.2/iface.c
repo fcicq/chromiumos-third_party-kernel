@@ -768,6 +768,7 @@ static int ieee80211_open(struct net_device *dev)
 	struct ieee80211_sub_if_data *sdata = IEEE80211_DEV_TO_SUB_IF(dev);
 	int err;
 
+	printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 	/* fail early if user set an invalid address */
 	if (!is_valid_ether_addr(dev->dev_addr))
 		return -EADDRNOTAVAIL;
@@ -776,6 +777,7 @@ static int ieee80211_open(struct net_device *dev)
 	if (err)
 		return err;
 
+	printk(KERN_INFO "Debug-M65:%s %d iface:%s\n", __func__,__LINE__,sdata->name);
 	return ieee80211_do_open(&sdata->wdev, true);
 }
 
@@ -791,7 +793,12 @@ static void ieee80211_do_stop(struct ieee80211_sub_if_data *sdata,
 	struct cfg80211_chan_def chandef;
 	bool cancel_scan;
 
+	if (sdata && sdata->name) {
+		printk(KERN_INFO "Debug-M65:%s %d iface:%s\n", __func__,__LINE__, sdata->name);
+	}
+
 	clear_bit(SDATA_STATE_RUNNING, &sdata->state);
+	dump_stack();
 
 	cancel_scan = rcu_access_pointer(local->scan_sdata) == sdata;
 	if (cancel_scan)
@@ -1047,8 +1054,10 @@ static int ieee80211_stop(struct net_device *dev)
 {
 	struct ieee80211_sub_if_data *sdata = IEEE80211_DEV_TO_SUB_IF(dev);
 
+	printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 #ifdef CONFIG_QCA_NSS_DRV
 	if (sdata->nssctx) {
+		printk(KERN_INFO "Debug-M65:%s %d iface:%s\n", __func__,__LINE__, sdata->name);
 		nss_destroy_virt_if(sdata->nssctx);
 		sdata_info(sdata, "Destroyed NSS virtual interface\n");
 	}

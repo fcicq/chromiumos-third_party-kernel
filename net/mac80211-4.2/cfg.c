@@ -723,6 +723,11 @@ static int ieee80211_start_ap(struct wiphy *wiphy, struct net_device *dev,
 	if (old)
 		return -EALREADY;
 
+	if (sdata && sdata->name) {
+		printk(KERN_INFO "Debug-M65:%s %d iface %s\n", __func__,__LINE__,
+			sdata->name);
+	}
+
 	switch (params->smps_mode) {
 	case NL80211_SMPS_OFF:
 		sdata->smps_mode = IEEE80211_SMPS_OFF;
@@ -811,6 +816,7 @@ static int ieee80211_start_ap(struct wiphy *wiphy, struct net_device *dev,
 	netif_carrier_on(dev);
 	list_for_each_entry(vlan, &sdata->u.ap.vlans, u.vlan.list)
 		netif_carrier_on(vlan->dev);
+	printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 
 	return 0;
 }
@@ -853,6 +859,8 @@ static int ieee80211_stop_ap(struct wiphy *wiphy, struct net_device *dev)
 
 	sdata_assert_lock(sdata);
 
+	printk(KERN_INFO "Debug-M65:%s %d iface:%s\n", __func__,__LINE__,
+		sdata->name);
 	old_beacon = sdata_dereference(sdata->u.ap.beacon, sdata);
 	if (!old_beacon)
 		return -ENOENT;
@@ -911,6 +919,7 @@ static int ieee80211_stop_ap(struct wiphy *wiphy, struct net_device *dev)
 	ieee80211_vif_copy_chanctx_to_vlans(sdata, true);
 	ieee80211_vif_release_channel(sdata);
 	mutex_unlock(&local->mtx);
+	printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 
 	return 0;
 }
@@ -2953,8 +2962,10 @@ static int __ieee80211_csa_finalize(struct ieee80211_sub_if_data *sdata)
 	}
 
 	if (!cfg80211_chandef_identical(&sdata->vif.bss_conf.chandef,
-					&sdata->csa_chandef))
+					&sdata->csa_chandef)) {
+		printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 		return -EINVAL;
+	}
 
 	sdata->vif.csa_active = false;
 
@@ -2983,6 +2994,7 @@ static void ieee80211_csa_finalize(struct ieee80211_sub_if_data *sdata)
 {
 	if (__ieee80211_csa_finalize(sdata)) {
 		sdata_info(sdata, "failed to finalize CSA, disconnecting\n");
+		printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 		cfg80211_stop_iface(sdata->local->hw.wiphy, &sdata->wdev,
 				    GFP_KERNEL);
 	}
@@ -3395,6 +3407,8 @@ static int ieee80211_mgmt_tx(struct wiphy *wiphy, struct wireless_dev *wdev,
 	skb = dev_alloc_skb(local->hw.extra_tx_headroom + params->len);
 	if (!skb) {
 		ret = -ENOMEM;
+		printk(KERN_INFO "Debug-M65:%s %d dev_alloc failed.\n",
+			__func__,__LINE__);
 		goto out_unlock;
 	}
 	skb_reserve(skb, local->hw.extra_tx_headroom);

@@ -91,6 +91,7 @@ static void cfg80211_leave_all(struct cfg80211_registered_device *rdev)
 {
 	struct wireless_dev *wdev;
 
+	printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 	list_for_each_entry(wdev, &rdev->wdev_list, list)
 		cfg80211_leave(rdev, wdev);
 }

@@ -627,6 +627,7 @@ static int ieee80211_assign_vif_chanctx(struct ieee80211_sub_if_data *sdata,
 	if (conf) {
 		curr_ctx = container_of(conf, struct ieee80211_chanctx, conf);
 
+		printk(KERN_INFO "Debug-M65:%s %d ret:%d\n", __func__,__LINE__, ret);
 		drv_unassign_vif_chanctx(local, sdata, curr_ctx);
 		conf = NULL;
 		list_del(&sdata->assigned_chanctx_list);
@@ -634,6 +635,7 @@ static int ieee80211_assign_vif_chanctx(struct ieee80211_sub_if_data *sdata,
 
 	if (new_ctx) {
 		ret = drv_assign_vif_chanctx(local, sdata, new_ctx);
+		printk(KERN_INFO "Debug-M65:%s %d ret:%d\n", __func__,__LINE__, ret);
 		if (ret)
 			goto out;
 

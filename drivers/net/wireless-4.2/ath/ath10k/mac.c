@@ -4214,6 +4214,7 @@ static int ath10k_add_interface(struct ieee80211_hw *hw,
 	arvif->ar = ar;
 	arvif->vif = vif;
 
+	printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 	INIT_LIST_HEAD(&arvif->list);
 	INIT_WORK(&arvif->ap_csa_work, ath10k_mac_vif_ap_csa_work);
 	INIT_DELAYED_WORK(&arvif->connection_loss_work,
@@ -4271,10 +4272,13 @@ static int ath10k_add_interface(struct ieee80211_hw *hw,
 		arvif->vdev_type = WMI_VDEV_TYPE_AP;
 		break;
 	case NL80211_IFTYPE_AP:
+		printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 		arvif->vdev_type = WMI_VDEV_TYPE_AP;
 
-		if (vif->p2p)
+		if (vif->p2p) {
+			printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 			arvif->vdev_subtype = WMI_VDEV_SUBTYPE_P2P_GO;
+		}
 		break;
 	case NL80211_IFTYPE_MONITOR:
 		arvif->vdev_type = WMI_VDEV_TYPE_MONITOR;
@@ -4502,6 +4506,7 @@ static int ath10k_add_interface(struct ieee80211_hw *hw,
 	spin_unlock_bh(&ar->htt.tx_lock);
 
 	mutex_unlock(&ar->conf_mutex);
+	printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 	return 0;
 
 err_peer_delete:
@@ -4544,6 +4549,7 @@ static void ath10k_remove_interface(struct ieee80211_hw *hw,
 	cancel_work_sync(&arvif->ap_csa_work);
 	cancel_delayed_work_sync(&arvif->connection_loss_work);
 
+	printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 	mutex_lock(&ar->conf_mutex);
 
 #ifdef CONFIG_ATH10K_SMART_ANTENNA
@@ -4575,6 +4581,7 @@ static void ath10k_remove_interface(struct ieee80211_hw *hw,
 
 	ath10k_dbg(ar, ATH10K_DBG_MAC, "mac vdev %i delete (remove interface)\n",
 		   arvif->vdev_id);
+	printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 
 	ret = ath10k_wmi_vdev_delete(ar, arvif->vdev_id);
 	if (ret)
@@ -4611,6 +4618,7 @@ static void ath10k_remove_interface(struct ieee80211_hw *hw,
 	spin_unlock_bh(&ar->htt.tx_lock);
 
 	mutex_unlock(&ar->conf_mutex);
+	printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 }
 
 /*

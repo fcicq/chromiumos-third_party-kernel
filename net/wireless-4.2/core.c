@@ -956,6 +956,7 @@ void cfg80211_stop_iface(struct wiphy *wiphy, struct wireless_dev *wdev,
 
 	ev->type = EVENT_STOPPED;
 
+	printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 	spin_lock_irqsave(&wdev->event_lock, flags);
 	list_add_tail(&ev->list, &wdev->event_list);
 	spin_unlock_irqrestore(&wdev->event_lock, flags);
@@ -978,6 +979,7 @@ static int cfg80211_netdev_notifier_call(struct notifier_block *nb,
 
 	WARN_ON(wdev->iftype == NL80211_IFTYPE_UNSPECIFIED);
 
+	printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 	switch (state) {
 	case NETDEV_POST_INIT:
 		SET_NETDEV_DEVTYPE(dev, &wiphy_type);
@@ -1032,9 +1034,11 @@ static int cfg80211_netdev_notifier_call(struct notifier_block *nb,
 #endif
 		break;
 	case NETDEV_GOING_DOWN:
+		printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 		cfg80211_leave(rdev, wdev);
 		break;
 	case NETDEV_DOWN:
+		printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 		cfg80211_update_iface_num(rdev, wdev->iftype, -1);
 		if (rdev->scan_req && rdev->scan_req->wdev == wdev) {
 			if (WARN_ON(!rdev->scan_req->notified))
@@ -1128,6 +1132,7 @@ static int cfg80211_netdev_notifier_call(struct notifier_block *nb,
 		 * Ensure that all events have been processed and
 		 * freed.
 		 */
+		printk(KERN_INFO "Debug-M65:%s %d\n",__func__,__LINE__);
 		cfg80211_process_wdev_events(wdev);
 
 		if (WARN_ON(wdev->current_bss)) {

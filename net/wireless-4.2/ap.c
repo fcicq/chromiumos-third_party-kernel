@@ -24,6 +24,7 @@ int __cfg80211_stop_ap(struct cfg80211_registered_device *rdev,
 	if (!wdev->beacon_interval)
 		return -ENOENT;
 
+	printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 	err = rdev_stop_ap(rdev, dev);
 	if (!err) {
 		wdev->beacon_interval = 0;
@@ -43,6 +44,7 @@ int cfg80211_stop_ap(struct cfg80211_registered_device *rdev,
 	struct wireless_dev *wdev = dev->ieee80211_ptr;
 	int err;
 
+	printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 	wdev_lock(wdev);
 	err = __cfg80211_stop_ap(rdev, dev, notify);
 	wdev_unlock(wdev);

@@ -2599,10 +2599,12 @@ static int nl80211_set_interface(struct sk_buff *skb, struct genl_info *info)
 	    !(rdev->wiphy.features & NL80211_FEATURE_ACTIVE_MONITOR))
 		return -EOPNOTSUPP;
 
-	if (change)
+	if (change) {
+		printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 		err = cfg80211_change_iface(rdev, dev, ntype, flags, &params);
-	else
+	} else {
 		err = 0;
+	}
 
 	if (!err && params.use_4addr != -1)
 		dev->ieee80211_ptr->use_4addr = params.use_4addr;
@@ -3302,6 +3304,7 @@ static int nl80211_start_ap(struct sk_buff *skb, struct genl_info *info)
 
 	memset(&params, 0, sizeof(params));
 
+	printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 	/* these are required for START_AP */
 	if (!info->attrs[NL80211_ATTR_BEACON_INTERVAL] ||
 	    !info->attrs[NL80211_ATTR_DTIM_PERIOD] ||
@@ -3449,6 +3452,7 @@ static int nl80211_start_ap(struct sk_buff *skb, struct genl_info *info)
 	wdev_unlock(wdev);
 
 	kfree(params.acl);
+	printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 
 	return err;
 }
@@ -3486,6 +3490,7 @@ static int nl80211_stop_ap(struct sk_buff *skb, struct genl_info *info)
 {
 	struct cfg80211_registered_device *rdev = info->user_ptr[0];
 	struct net_device *dev = info->user_ptr[1];
+	printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 
 	return cfg80211_stop_ap(rdev, dev, false);
 }

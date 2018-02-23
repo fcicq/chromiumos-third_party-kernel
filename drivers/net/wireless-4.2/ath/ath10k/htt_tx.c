@@ -48,6 +48,16 @@ static int ath10k_htt_tx_inc_pending(struct ath10k_htt *htt,
 
 	spin_lock_bh(&htt->tx_lock);
 
+	if ((htt->num_pending_tx >= htt->max_num_pending_tx)) {
+		if (!(htt->drop_count % 100)) {
+			printk(KERN_INFO "Debug-M65: %s %d pending:%d max:%d\n",
+				__func__,__LINE__, htt->num_pending_tx,
+				htt->max_num_pending_tx);
+			htt->drop_count = 0;
+		}
+		htt->drop_count++;
+	}
+
 	if (htt->num_pending_tx >= htt->max_num_pending_tx) {
 		ret = -EBUSY;
 		goto exit;
@@ -57,6 +67,9 @@ static int ath10k_htt_tx_inc_pending(struct ath10k_htt *htt,
 		if (is_probe_resp && (htt->num_pending_mgmt_tx >
 		    ar->hw_params.max_probe_resp_desc_thres)) {
 			ret = -EBUSY;
+			printk(KERN_INFO "Debug-M65: %s %d pending:%d max:%d\n",
+				__func__,__LINE__, htt->num_pending_tx,
+				htt->max_num_pending_tx);
 			goto exit;
 		}
 		htt->num_pending_mgmt_tx++;
