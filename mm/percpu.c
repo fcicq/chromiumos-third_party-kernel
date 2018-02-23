@@ -1146,6 +1146,7 @@ static void pcpu_balance_workfn(struct work_struct *work)
 			spin_unlock_irq(&pcpu_lock);
 		}
 		pcpu_destroy_chunk(chunk);
+		cond_resched();
 	}
 
 	/* service chunks which requested async area map extension */
