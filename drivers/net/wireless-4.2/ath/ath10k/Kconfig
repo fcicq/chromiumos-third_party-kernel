@@ -35,7 +35,6 @@ config ATH10K_TRACING
 	bool "Atheros ath10k tracing support"
 	depends on ATH10K
 	depends on EVENT_TRACING
-	default y
 	---help---
 	  Select this to ath10k use tracing infrastructure.
 
