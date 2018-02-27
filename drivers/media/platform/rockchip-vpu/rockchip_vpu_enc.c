@@ -1035,6 +1035,86 @@ out:
 	return ret;
 }
 
+static int rockchip_vpu_encoder_cmd(struct rockchip_vpu_ctx *ctx,
+				    struct v4l2_encoder_cmd *cmd, bool try)
+{
+	struct rockchip_vpu_dev *dev = ctx->dev;
+	struct rockchip_vpu_buf *buf = NULL;
+	unsigned long flags;
+	int ret = 0;
+
+	switch (cmd->cmd) {
+	case V4L2_ENC_CMD_STOP:
+	case V4L2_ENC_CMD_START:
+		if (cmd->flags != 0) {
+			vpu_err("Invalid flags for encoder command (%u)",
+				cmd->flags);
+			return -EINVAL;
+		}
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	spin_lock_irqsave(&dev->irqlock, flags);
+
+	switch (cmd->cmd) {
+	case V4L2_ENC_CMD_STOP:
+		if (!list_empty(&ctx->flush_buf.list)) {
+			vpu_err("Cannot stop while flush already in progress");
+			ret = -EBUSY;
+			break;
+		}
+
+		if (!ctx->stopped && !try)
+			list_add_tail(&ctx->flush_buf.list, &ctx->src_queue);
+		break;
+
+	case V4L2_ENC_CMD_START:
+		if (!list_empty(&ctx->flush_buf.list)
+		    || (ctx->stopped && !ctx->vq_dst.last_buffer_dequeued)) {
+			vpu_err("Cannot restart with flush still in progress");
+			ret = -EBUSY;
+			break;
+		}
+
+		if (!vb2_is_streaming(&ctx->vq_src)) {
+			vpu_err("Cannot start with OUTPUT queue not streaming");
+			ret = -EINVAL;
+			break;
+		}
+
+		if (!try) {
+			vb2_clear_last_buffer_dequeued(&ctx->vq_dst);
+			ctx->stopped = false;
+		}
+		break;
+	}
+
+	spin_unlock_irqrestore(&dev->irqlock, flags);
+
+	if (!try)
+		rockchip_vpu_try_context(dev, ctx);
+
+	return ret;
+}
+
+static int vidioc_try_encoder_cmd(struct file *file, void *priv,
+				 struct v4l2_encoder_cmd *cmd)
+{
+	struct rockchip_vpu_ctx *ctx = fh_to_ctx(priv);
+
+	return rockchip_vpu_encoder_cmd(ctx, cmd, true);
+}
+
+static int vidioc_encoder_cmd(struct file *file, void *priv,
+			      struct v4l2_encoder_cmd *cmd)
+{
+	struct rockchip_vpu_ctx *ctx = fh_to_ctx(priv);
+
+	return rockchip_vpu_encoder_cmd(ctx, cmd, false);
+}
+
 static const struct v4l2_ioctl_ops rockchip_vpu_enc_ioctl_ops = {
 	.vidioc_querycap = vidioc_querycap,
 	.vidioc_enum_framesizes = vidioc_enum_framesizes,
@@ -1056,6 +1136,8 @@ static const struct v4l2_ioctl_ops rockchip_vpu_enc_ioctl_ops = {
 	.vidioc_cropcap = vidioc_cropcap,
 	.vidioc_g_crop = vidioc_g_crop,
 	.vidioc_s_crop = vidioc_s_crop,
+	.vidioc_try_encoder_cmd = vidioc_try_encoder_cmd,
+	.vidioc_encoder_cmd = vidioc_encoder_cmd,
 };
 
 static int rockchip_vpu_queue_setup(struct vb2_queue *vq,
@@ -1190,16 +1272,19 @@ static int rockchip_vpu_start_streaming(struct vb2_queue *q, unsigned int count)
 
 	vpu_debug_enter();
 
-	if (q->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+	if (q->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
 		ret = rockchip_vpu_init(ctx);
 		if (ret < 0) {
 			vpu_err("rockchip_vpu_init failed\n");
 			return ret;
 		}
 
-		ready = vb2_is_streaming(&ctx->vq_src);
-	} else if (q->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
+		vb2_clear_last_buffer_dequeued(&ctx->vq_dst);
+		ctx->stopped = false;
+
 		ready = vb2_is_streaming(&ctx->vq_dst);
+	} else if (q->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+		ready = vb2_is_streaming(&ctx->vq_src);
 	}
 
 	if (ready)
@@ -1231,6 +1316,7 @@ static void rockchip_vpu_stop_streaming(struct vb2_queue *q)
 		break;
 
 	case V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE:
+		list_del_init(&ctx->flush_buf.list);
 		list_splice_init(&ctx->src_queue, &queue);
 		break;
 
@@ -1250,7 +1336,7 @@ static void rockchip_vpu_stop_streaming(struct vb2_queue *q)
 		list_del(&b->list);
 	}
 
-	if (q->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE)
+	if (q->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE)
 		rockchip_vpu_deinit(ctx);
 
 	vpu_debug_leave();
