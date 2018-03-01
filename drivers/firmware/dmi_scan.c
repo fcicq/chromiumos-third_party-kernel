@@ -965,6 +965,17 @@ out:
 }
 EXPORT_SYMBOL(dmi_get_date);
 
+int dmi_get_bios_year(void)
+{
+	bool exists;
+	int year;
+
+	exists = dmi_get_date(DMI_BIOS_DATE, &year, NULL, NULL);
+
+	return exists ? year : -ENODATA;
+}
+EXPORT_SYMBOL(dmi_get_bios_year);
+
 /**
  *	dmi_walk - Walk the DMI table and get called back for every record
  *	@decode: Callback function
