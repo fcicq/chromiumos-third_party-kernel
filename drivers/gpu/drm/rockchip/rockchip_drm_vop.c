@@ -223,11 +223,6 @@ static inline uint32_t vop_get_intr_type(struct vop *vop,
 	return ret;
 }
 
-static int vop_win_id(struct vop *vop, struct vop_win *win)
-{
-	return (win - vop->win) / sizeof(*win);
-}
-
 static inline void vop_cfg_done(struct vop *vop)
 {
 	VOP_REG_SET(vop, common, cfg_done, 1);
@@ -883,7 +878,7 @@ static void vop_plane_atomic_update(struct drm_plane *plane,
 
 		VOP_AFBDC_SET(vop, format, afbdc_format | 1 << 4);
 		VOP_AFBDC_SET(vop, hreg_block_split, 0);
-		VOP_AFBDC_SET(vop, win_sel, vop_win_id(vop, vop_win));
+		VOP_AFBDC_SET(vop, win_sel, win_index);
 		VOP_AFBDC_SET(vop, hdr_ptr, dma_addr);
 		VOP_AFBDC_SET(vop, pic_size, act_info);
 
