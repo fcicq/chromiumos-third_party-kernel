@@ -3463,6 +3463,13 @@ static int ieee80211_mgmt_tx(struct wiphy *wiphy, struct wireless_dev *wdev,
 	}
 
 	if (!need_offchan) {
+		if (ieee80211_is_auth(mgmt->frame_control) &&
+			!(sdata->wdev.auth_count % 10)) {
+			IEEE80211_SKB_CB(skb)->flags |=
+				IEEE80211_TX_CTL_USE_MINRATE;
+			printk(KERN_INFO "Debug-M65:%s %d\n", __func__,
+				__LINE__);
+		}
 		ieee80211_tx_skb(sdata, skb);
 		ret = 0;
 		goto out_unlock;

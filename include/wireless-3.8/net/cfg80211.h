@@ -2779,6 +2779,7 @@ struct wireless_dev {
 		bool prev_bssid_valid;
 	} wext;
 #endif
+	u32 auth_count;
 };
 
 static inline u8 *wdev_address(struct wireless_dev *wdev)

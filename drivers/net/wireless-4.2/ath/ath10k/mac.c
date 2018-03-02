@@ -3007,6 +3007,7 @@ void ath10k_mac_tx_lock(struct ath10k *ar, int reason)
 
 	WARN_ON(reason >= ATH10K_TX_PAUSE_MAX);
 	ar->tx_paused |= BIT(reason);
+	printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
 	ieee80211_stop_queues(ar->hw);
 }
 
@@ -3048,6 +3049,7 @@ void ath10k_mac_vif_tx_lock(struct ath10k_vif *arvif, int reason)
 
 	WARN_ON(reason >= BITS_PER_LONG);
 	arvif->tx_paused |= BIT(reason);
+	printk(KERN_INFO "Debug-M65:%s %d\n",__func__,__LINE__);
 	ieee80211_stop_queue(ar->hw, arvif->vdev_id);
 }
 
@@ -3345,16 +3347,26 @@ static void ath10k_mac_tx(struct ath10k *ar, struct sk_buff *skb)
 		if (test_bit(ATH10K_FW_FEATURE_HAS_WMI_MGMT_TX,
 			     ar->fw_features))
 			ret = ath10k_mac_tx_wmi_mgmt(ar, skb);
+			if (ret)
+				printk(KERN_INFO "Debug-M65:%s %d\n",
+					__func__,__LINE__);
 		else if (ar->htt.target_version_major >= 3)
 			ret = ath10k_htt_tx(htt, skb);
+			if (ret)
+				printk(KERN_INFO "Debug-M65:%s %d\n",
+					__func__,__LINE__);
 		else
 			ret = ath10k_htt_mgmt_tx(htt, skb);
+			if (ret)
+				printk(KERN_INFO "Debug-M65:%s %d\n",
+					__func__,__LINE__);
 		break;
 	}
 
 	if (ret) {
 		ath10k_warn(ar, "failed to transmit packet, dropping: %d\n",
 			    ret);
+		printk(KERN_INFO "Debug-M65:%s %d\n",__func__,__LINE__);
 		ieee80211_free_txskb(ar->hw, skb);
 	}
 }
@@ -3993,6 +4005,7 @@ static void ath10k_stop(struct ieee80211_hw *hw)
 
 	ath10k_drain_tx(ar);
 
+	printk(KERN_INFO "Debug-M65:%s %d\n",__func__,__LINE__);
 	mutex_lock(&ar->conf_mutex);
 	if (ar->state != ATH10K_STATE_OFF) {
 		ath10k_halt(ar);
@@ -5877,6 +5890,7 @@ static void ath10k_flush(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	if (drop)
 		return;
 
+	printk(KERN_INFO "Debug-M65:%s %d\n",__func__,__LINE__);
 	mutex_lock(&ar->conf_mutex);
 
 	if (ar->state == ATH10K_STATE_WEDGED)
@@ -7525,6 +7539,7 @@ int ath10k_mac_register(struct ath10k *ar)
 	return 0;
 
 err_unregister:
+	printk(KERN_INFO "Debug-M65:%s %d\n",__func__,__LINE__);
 	ieee80211_unregister_hw(ar->hw);
 
 err_dfs_detector_exit:
@@ -7541,6 +7556,7 @@ err_free:
 
 void ath10k_mac_unregister(struct ath10k *ar)
 {
+	printk(KERN_INFO "Debug-M65:%s %d\n",__func__,__LINE__);
 	ieee80211_unregister_hw(ar->hw);
 
 	if (config_enabled(CONFIG_ATH10K_DFS_CERTIFIED) && ar->dfs_detector)

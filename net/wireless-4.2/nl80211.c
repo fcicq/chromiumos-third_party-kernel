@@ -8328,6 +8328,7 @@ static int nl80211_tx_mgmt(struct sk_buff *skb, struct genl_info *info)
 		.dont_wait_for_ack =
 			info->attrs[NL80211_ATTR_DONT_WAIT_FOR_ACK],
 	};
+	const struct ieee80211_mgmt *mgmt;
 
 	if (!info->attrs[NL80211_ATTR_FRAME])
 		return -EINVAL;
@@ -8421,6 +8422,16 @@ static int nl80211_tx_mgmt(struct sk_buff *skb, struct genl_info *info)
 	}
 
 	params.chan = chandef.chan;
+	mgmt = (const struct ieee80211_mgmt *)(params.buf);
+	if (ieee80211_is_auth(mgmt->frame_control)) {
+		wdev->auth_count++;
+		printk(KERN_INFO "Debug-M65:%s %d count %d\n", __func__,
+			__LINE__,wdev->auth_count);
+		if (!(wdev->auth_count % 10)) {
+			printk(KERN_INFO "Debug-M65 %s %d\n",
+				__func__,__LINE__);
+		}
+	}
 	err = cfg80211_mlme_mgmt_tx(rdev, wdev, &params, &cookie);
 	if (err)
 		goto free_msg;
@@ -12997,6 +13008,7 @@ int nl80211_init(void)
 
 	err = genl_register_family_with_ops_groups(&nl80211_fam, nl80211_ops,
 						   nl80211_mcgrps);
+	printk(KERN_INFO "Debug-M65: nl80211_init %s %d\n",__func__,__LINE__);
 	if (err)
 		return err;
 

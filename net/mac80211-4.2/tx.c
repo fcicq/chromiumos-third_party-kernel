@@ -1284,6 +1284,9 @@ static void ieee80211_drv_tx(struct ieee80211_local *local,
 	return;
 
 tx_normal:
+	if (ieee80211_is_auth(hdr->frame_control) &&
+		(IEEE80211_SKB_CB(skb)->flags  & IEEE80211_TX_CTL_USE_MINRATE))
+		printk(KERN_INFO "Debug-M65:%s %d", __func__, __LINE__);
 	drv_tx(local, &control, skb);
 }
 
@@ -1338,11 +1341,13 @@ static bool ieee80211_tx_frags(struct ieee80211_local *local,
 {
 	struct sk_buff *skb, *tmp;
 	unsigned long flags;
+	__le16 fc;
 
 	skb_queue_walk_safe(skbs, skb, tmp) {
 		struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
 		int q = info->hw_queue;
 
+	fc = ((struct ieee80211_hdr *)skb->data)->frame_control;
 #ifdef CONFIG_MAC80211_VERBOSE_DEBUG
 		if (WARN_ON_ONCE(q >= local->hw.queues)) {
 			__skb_unlink(skb, skbs);
@@ -1367,6 +1372,12 @@ static bool ieee80211_tx_frags(struct ieee80211_local *local,
 					spin_unlock_irqrestore(
 						&local->queue_stop_reason_lock,
 						flags);
+					if (ieee80211_is_auth(fc) &&
+						(IEEE80211_SKB_CB(skb)->flags  &
+						  IEEE80211_TX_CTL_USE_MINRATE))
+						printk(KERN_INFO "Debug-M65:%s "
+							"%d", __func__,
+							__LINE__);
 					ieee80211_purge_tx_queue(&local->hw,
 								 skbs);
 					return true;
@@ -1378,6 +1389,12 @@ static bool ieee80211_tx_frags(struct ieee80211_local *local,
 					spin_unlock_irqrestore(
 						&local->queue_stop_reason_lock,
 						flags);
+					if (ieee80211_is_auth(fc) &&
+						(IEEE80211_SKB_CB(skb)->flags  &
+						  IEEE80211_TX_CTL_USE_MINRATE))
+						printk(KERN_INFO "Debug-M65:%s "
+							"%d", __func__,
+							__LINE__);
 					ieee80211_purge_tx_queue(&local->hw,
 								 skbs);
 					return false;
@@ -1388,6 +1405,11 @@ static bool ieee80211_tx_frags(struct ieee80211_local *local,
 				 * later transmission from the tx-pending
 				 * tasklet when the queue is woken again.
 				 */
+				if (ieee80211_is_auth(fc) &&
+					(IEEE80211_SKB_CB(skb)->flags  &
+						IEEE80211_TX_CTL_USE_MINRATE))
+					printk(KERN_INFO "Debug-M65:%s %d %d",
+						__func__, __LINE__,txpending);
 				if (txpending)
 					skb_queue_splice_init(skbs,
 							      &local->pending[q]);
@@ -1405,6 +1427,9 @@ static bool ieee80211_tx_frags(struct ieee80211_local *local,
 		info->control.vif = vif;
 
 		__skb_unlink(skb, skbs);
+		if (ieee80211_is_auth(fc) && (IEEE80211_SKB_CB(skb)->flags  &
+						IEEE80211_TX_CTL_USE_MINRATE))
+			printk(KERN_INFO "Debug-M65:%s %d", __func__, __LINE__);
 		ieee80211_drv_tx(local, vif, sta, skb);
 	}
 
@@ -1627,9 +1652,15 @@ static bool ieee80211_tx(struct ieee80211_sub_if_data *sdata,
 		info->hw_queue =
 			sdata->vif.hw_queue[skb_get_queue_mapping(skb)];
 
-	if (!invoke_tx_handlers(&tx))
+	if (!invoke_tx_handlers(&tx)) {
+		struct ieee80211_hdr *hdr = (struct ieee80211_hdr *) skb->data;
+		if (ieee80211_is_auth(hdr->frame_control) &&
+			(IEEE80211_SKB_CB(skb)->flags  &
+				IEEE80211_TX_CTL_USE_MINRATE))
+			printk(KERN_INFO "Debug-M65:%s %d\n",__func__,__LINE__);
 		result = __ieee80211_tx(local, &tx.skbs, led_len,
 					tx.sta, txpending);
+	}
 
 	return result;
 }

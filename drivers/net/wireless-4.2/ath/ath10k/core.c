@@ -1385,6 +1385,7 @@ static void ath10k_core_restart(struct work_struct *work)
 	 */
 	barrier();
 
+	printk(KERN_INFO "Debug-M65:%s %d\n",__func__,__LINE__);
 	ieee80211_stop_queues(ar->hw);
 	ath10k_drain_tx(ar);
 	complete_all(&ar->scan.started);

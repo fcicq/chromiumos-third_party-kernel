@@ -603,6 +603,10 @@ int cfg80211_mlme_mgmt_tx(struct cfg80211_registered_device *rdev,
 		return -EINVAL;
 
 	/* Transmit the Action frame as requested by user space */
+	if (ieee80211_is_auth(mgmt->frame_control)) {
+		if (!(wdev->auth_count % 10))
+			printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
+	}  
 	return rdev_mgmt_tx(rdev, wdev, params, cookie);
 }
 
