@@ -1116,6 +1116,29 @@ static const struct file_operations fops_htt_stats_mask = {
 	.llseek = default_llseek,
 };
 
+static ssize_t ath10k_read_htt_stats(struct file *file,
+				     char __user *user_buf,
+				     size_t count, loff_t *ppos)
+{
+	struct ath10k *ar = file->private_data;
+	char buf[32];
+	unsigned int len;
+
+	len = scnprintf(buf, sizeof(buf), "num_max_pending_tx %lu "
+		"num_pending_tx %lu num_pending_mgmt_tx %lu\n",
+		ar->htt.max_num_pending_tx, ar->htt.num_pending_tx,
+		ar->htt.num_pending_mgmt_tx);
+
+	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
+}
+
+static const struct file_operations fops_htt_stats = {
+	.read = ath10k_read_htt_stats,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+	.llseek = default_llseek,
+};
+
 static ssize_t ath10k_write_warm_hw_reset(struct file *file,
                                           const char __user *user_buf,
                                           size_t count, loff_t *ppos)
@@ -2355,6 +2378,9 @@ int ath10k_debug_register(struct ath10k *ar)
 
 	debugfs_create_file("htt_stats_mask", S_IRUSR, ar->debug.debugfs_phy,
 			    ar, &fops_htt_stats_mask);
+
+	debugfs_create_file("htt_stats", S_IRUSR, ar->debug.debugfs_phy,
+			    ar, &fops_htt_stats);
 
         debugfs_create_file("warm_hw_reset", S_IRUSR | S_IWUSR,
                             ar->debug.debugfs_phy, ar, &fops_warm_hw_reset);
