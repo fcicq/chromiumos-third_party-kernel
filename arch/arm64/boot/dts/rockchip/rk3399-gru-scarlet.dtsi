@@ -43,6 +43,7 @@
  */
 
 #include "rk3399-gru.dtsi"
+#include <dt-bindings/input/gpio-keys.h>
 
 /{
 	/* REGULATORS */
@@ -451,6 +452,8 @@ camera: &i2c7 {
 		gpios = <&gpio1 1 GPIO_ACTIVE_LOW>;
 		linux,code = <SW_PEN_INSERTED>;
 		linux,input-type = <EV_SW>;
+		/* Wakeup only when ejecting */
+		wakeup-event-action = <EV_ACT_DEASSERTED>;
 		wakeup-source;
 	};
 };
