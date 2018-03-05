@@ -361,9 +361,6 @@ static int cr50_spi_probe(struct spi_device *dev)
 	cr50_get_fw_version(&phy->priv, fw_ver);
 	dev_info(&dev->dev, "Cr50 firmware version: %s\n", fw_ver);
 
-	/* Disable deep-sleep, ignore if command failed. */
-	cr50_control_deep_sleep(spi_get_drvdata(dev), 0);
-
 	return 0;
 }
 
@@ -390,7 +387,6 @@ static void cr50_spi_shutdown(struct spi_device *dev)
 {
 	struct tpm_chip *chip = spi_get_drvdata(dev);
 
-	cr50_control_deep_sleep(chip, 1);
 	tpm_chip_unregister(chip);
 	tpm_tis_remove(chip);
 	dev_info(&dev->dev, "gentle shutdown done\n");
