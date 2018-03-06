@@ -3007,7 +3007,7 @@ void ath10k_mac_tx_lock(struct ath10k *ar, int reason)
 
 	WARN_ON(reason >= ATH10K_TX_PAUSE_MAX);
 	ar->tx_paused |= BIT(reason);
-	printk(KERN_INFO "Debug-M65:%s %d\n", __func__,__LINE__);
+	printk(KERN_INFO "Debug-M65:%s %d ath10k ar->tx_paused %x reason %d\n", __func__,__LINE__, ar->tx_paused, reason);
 	ieee80211_stop_queues(ar->hw);
 }
 
@@ -3029,6 +3029,7 @@ void ath10k_mac_tx_unlock(struct ath10k *ar, int reason)
 
 	WARN_ON(reason >= ATH10K_TX_PAUSE_MAX);
 	ar->tx_paused &= ~BIT(reason);
+	printk(KERN_INFO "Debug-M65:%s %d ath10k ar->tx_paused %x reason %d\n", __func__,__LINE__, ar->tx_paused, reason);
 
 	if (ar->tx_paused)
 		return;
@@ -3049,7 +3050,7 @@ void ath10k_mac_vif_tx_lock(struct ath10k_vif *arvif, int reason)
 
 	WARN_ON(reason >= BITS_PER_LONG);
 	arvif->tx_paused |= BIT(reason);
-	printk(KERN_INFO "Debug-M65:%s %d\n",__func__,__LINE__);
+	printk(KERN_INFO "Debug-M65:%s %d ath10k_vif arvif->tx_paused %x reason %d\n", __func__,__LINE__, arvif->tx_paused, reason);
 	ieee80211_stop_queue(ar->hw, arvif->vdev_id);
 }
 
@@ -3061,6 +3062,7 @@ void ath10k_mac_vif_tx_unlock(struct ath10k_vif *arvif, int reason)
 
 	WARN_ON(reason >= BITS_PER_LONG);
 	arvif->tx_paused &= ~BIT(reason);
+	printk(KERN_INFO "Debug-M65:%s %d ath10k_vif arvif->tx_paused %x reason %d\n", __func__,__LINE__, arvif->tx_paused, reason);
 
 	if (ar->tx_paused)
 		return;

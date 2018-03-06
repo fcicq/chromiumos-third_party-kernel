@@ -1121,7 +1121,7 @@ static ssize_t ath10k_read_htt_stats(struct file *file,
 				     size_t count, loff_t *ppos)
 {
 	struct ath10k *ar = file->private_data;
-	char buf[32];
+	char buf[255];
 	unsigned int len;
 
 	len = scnprintf(buf, sizeof(buf), "num_max_pending_tx %lu "
