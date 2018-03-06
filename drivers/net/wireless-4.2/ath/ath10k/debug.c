@@ -1124,10 +1124,11 @@ static ssize_t ath10k_read_htt_stats(struct file *file,
 	char buf[255];
 	unsigned int len;
 
-	len = scnprintf(buf, sizeof(buf), "num_max_pending_tx %lu "
-		"num_pending_tx %lu num_pending_mgmt_tx %lu\n",
+	len = scnprintf(buf, sizeof(buf), "num_max_pending_tx %d "
+		"num_pending_tx %d num_pending_mgmt_tx %d "
+		"mcast_pending %d\n",
 		ar->htt.max_num_pending_tx, ar->htt.num_pending_tx,
-		ar->htt.num_pending_mgmt_tx);
+		ar->htt.num_pending_mgmt_tx, ar->htt.mcast_pending);
 
 	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
 }

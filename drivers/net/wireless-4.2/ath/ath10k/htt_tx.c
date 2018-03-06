@@ -22,8 +22,12 @@
 #include "txrx.h"
 #include "debug.h"
 
-void __ath10k_htt_tx_dec_pending(struct ath10k_htt *htt, bool limit_mgmt_desc)
+void __ath10k_htt_tx_dec_pending(struct ath10k_htt *htt, bool limit_mgmt_desc,
+				 bool is_multicast)
 {
+	if (is_multicast)
+		htt->mcast_pending--;
+
 	if (limit_mgmt_desc)
 		htt->num_pending_mgmt_tx--;
 
@@ -33,20 +37,25 @@ void __ath10k_htt_tx_dec_pending(struct ath10k_htt *htt, bool limit_mgmt_desc)
 }
 
 static void ath10k_htt_tx_dec_pending(struct ath10k_htt *htt,
-				      bool limit_mgmt_desc)
+				      bool limit_mgmt_desc,
+				      bool is_multicast)
 {
 	spin_lock_bh(&htt->tx_lock);
-	__ath10k_htt_tx_dec_pending(htt, limit_mgmt_desc);
+	__ath10k_htt_tx_dec_pending(htt, limit_mgmt_desc, is_multicast);
 	spin_unlock_bh(&htt->tx_lock);
 }
 
 static int ath10k_htt_tx_inc_pending(struct ath10k_htt *htt,
-				     bool limit_mgmt_desc, bool is_probe_resp)
+				     bool limit_mgmt_desc, bool is_probe_resp,
+				     bool is_multicast)
 {
 	struct ath10k *ar = htt->ar;
 	int ret = 0;
 
 	spin_lock_bh(&htt->tx_lock);
+
+	if (is_multicast)
+		htt->mcast_pending++;
 
 	if ((htt->num_pending_tx >= htt->max_num_pending_tx)) {
 		if (!(htt->drop_count % 100)) {
@@ -468,6 +477,7 @@ int ath10k_htt_mgmt_tx(struct ath10k_htt *htt, struct sk_buff *msdu)
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)msdu->data;
 	bool limit_mgmt_desc = false;
 	bool is_probe_resp = false;
+	bool is_multicast = false;
 
 	if (ar->hw_params.max_probe_resp_desc_thres) {
 		limit_mgmt_desc = true;
@@ -476,7 +486,10 @@ int ath10k_htt_mgmt_tx(struct ath10k_htt *htt, struct sk_buff *msdu)
 			is_probe_resp = true;
 	}
 
-	res = ath10k_htt_tx_inc_pending(htt, limit_mgmt_desc, is_probe_resp);
+	is_multicast = is_multicast_ether_addr(ieee80211_get_DA(hdr)) ?
+			true : false;
+	res = ath10k_htt_tx_inc_pending(htt, limit_mgmt_desc, is_probe_resp,
+					is_multicast);
 
 	if (res)
 		goto err;
@@ -542,7 +555,7 @@ err_free_msdu_id:
 	ath10k_htt_tx_free_msdu_id(htt, msdu_id);
 	spin_unlock_bh(&htt->tx_lock);
 err_tx_dec:
-	ath10k_htt_tx_dec_pending(htt, limit_mgmt_desc);
+	ath10k_htt_tx_dec_pending(htt, limit_mgmt_desc, is_multicast);
 err:
 	return res;
 }
@@ -565,6 +578,7 @@ int ath10k_htt_tx(struct ath10k_htt *htt, struct sk_buff *msdu)
 	struct htt_msdu_ext_desc *ext_desc = NULL;
 	bool limit_mgmt_desc = false;
 	bool is_probe_resp = false;
+	bool is_multicast = false;
 
 	if (unlikely(ieee80211_is_mgmt(hdr->frame_control)) &&
 	    ar->hw_params.max_probe_resp_desc_thres) {
@@ -574,7 +588,10 @@ int ath10k_htt_tx(struct ath10k_htt *htt, struct sk_buff *msdu)
 			is_probe_resp = true;
 	}
 
-	res = ath10k_htt_tx_inc_pending(htt, limit_mgmt_desc, is_probe_resp);
+	is_multicast = is_multicast_ether_addr(ieee80211_get_DA(hdr)) ?
+			true : false;
+	res = ath10k_htt_tx_inc_pending(htt, limit_mgmt_desc, is_probe_resp,
+					is_multicast);
 	if (res)
 		goto err;
 
@@ -746,7 +763,7 @@ err_free_msdu_id:
 	ath10k_htt_tx_free_msdu_id(htt, msdu_id);
 	spin_unlock_bh(&htt->tx_lock);
 err_tx_dec:
-	ath10k_htt_tx_dec_pending(htt, limit_mgmt_desc);
+	ath10k_htt_tx_dec_pending(htt, limit_mgmt_desc, is_multicast);
 err:
 	return res;
 }

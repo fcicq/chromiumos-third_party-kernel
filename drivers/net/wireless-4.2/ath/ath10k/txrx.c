@@ -55,6 +55,7 @@ void ath10k_txrx_tx_unref(struct ath10k_htt *htt,
 	struct ieee80211_hdr *hdr;
 	__le16 fc;
 	bool limit_mgmt_desc = false;
+	bool is_multicast = false;
 
 	ath10k_dbg(ar, ATH10K_DBG_HTT,
 		   "htt tx completion msdu_id %u discard %d no_ack %d success %d\n",
@@ -83,8 +84,11 @@ void ath10k_txrx_tx_unref(struct ath10k_htt *htt,
 	    ar->hw_params.max_probe_resp_desc_thres)
 		limit_mgmt_desc = true;
 
+	is_multicast = is_multicast_ether_addr(ieee80211_get_DA(hdr)) ?
+			true : false;
+
 	ath10k_htt_tx_free_msdu_id(htt, tx_done->msdu_id);
-	__ath10k_htt_tx_dec_pending(htt, limit_mgmt_desc);
+	__ath10k_htt_tx_dec_pending(htt, limit_mgmt_desc, is_multicast);
 	if (htt->num_pending_tx == 0)
 		wake_up(&htt->empty_tx_wq);
 	spin_unlock_bh(&htt->tx_lock);
