@@ -133,6 +133,12 @@ static int parse_options(struct super_block *sb, char *options)
 	if (!options)
 		return 0;
 
+	/* make public default */
+	clear_opt(sbi, DERIVE_LEGACY);
+	set_opt(sbi, DERIVE_UNIFIED);
+	clear_opt(sbi, DERIVE_MULTI);
+	set_opt(sbi, DERIVE_PUBLIC);
+
 	while ((p = strsep(&options, ",")) != NULL) {
 		int token;
 
@@ -144,12 +150,6 @@ static int parse_options(struct super_block *sb, char *options)
 		 */
 		args[0].to = args[0].from = NULL;
 		token = match_token(p, esdfs_tokens, args);
-
-		/* make public default */
-		clear_opt(sbi, DERIVE_LEGACY);
-		set_opt(sbi, DERIVE_UNIFIED);
-		clear_opt(sbi, DERIVE_MULTI);
-		set_opt(sbi, DERIVE_PUBLIC);
 
 		switch (token) {
 		case Opt_lower_perms:
