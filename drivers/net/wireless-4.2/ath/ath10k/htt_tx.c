@@ -58,7 +58,7 @@ static int ath10k_htt_tx_inc_pending(struct ath10k_htt *htt,
 		htt->mcast_pending++;
 
 	if ((htt->num_pending_tx >= htt->max_num_pending_tx)) {
-		if (!(htt->drop_count % 100)) {
+		if (!(htt->drop_count % 10)) {
 			printk(KERN_INFO "Debug-M65: %s %d pending:%d max:%d\n",
 				__func__,__LINE__, htt->num_pending_tx,
 				htt->max_num_pending_tx);
