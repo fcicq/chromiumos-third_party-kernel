@@ -562,6 +562,7 @@ static int rk3399_dmcfreq_target(struct device *dev, unsigned long *freq,
 	rk3399_dfi_calc_top_threshold(dmcfreq->devfreq);
 	devfreq_event_set_event(dmcfreq->edev);
 out:
+	*freq = dmcfreq->rate;
 	mutex_unlock(&dmcfreq->lock);
 	return err;
 }
