@@ -1544,8 +1544,19 @@ struct ath10k_htt {
 		dma_addr_t paddr;
 		struct ath10k_htt_txbuf *vaddr;
 	} txbuf;
+
 	uint32_t drop_count;
 	uint32_t mcast_pending;
+	struct {
+		u64 total_tx;
+		u64 total_ack;
+		u64 total_ack_fail;
+		u64 total_ack_succ;
+		u64 total_drop;
+		u64 max_cont_fail;
+		u64 cur_cont_fail;
+		u64 total_offchannel_tx;
+	} tx_stats;
 };
 
 #define RX_HTT_HDR_STATUS_LEN 64

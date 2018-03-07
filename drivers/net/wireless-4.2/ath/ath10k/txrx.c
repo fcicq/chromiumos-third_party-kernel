@@ -102,6 +102,17 @@ void ath10k_txrx_tx_unref(struct ath10k_htt *htt,
 	memset(&info->status, 0, sizeof(info->status));
 	trace_ath10k_txrx_tx_unref(ar, tx_done->msdu_id);
 
+	htt->tx_stats.total_ack++;
+	if (tx_done->success) {
+		htt->tx_stats.total_ack_succ++;
+		if (htt->tx_stats.cur_cont_fail > htt->tx_stats.max_cont_fail)
+			  htt->tx_stats.max_cont_fail = htt->tx_stats.cur_cont_fail;
+		htt->tx_stats.cur_cont_fail = 0;
+	} else {
+		htt->tx_stats.total_ack_fail++;
+		htt->tx_stats.cur_cont_fail++;
+	}
+
 	info->status.rates[0] = ar->htt.tx_rate;
 
 	if (tx_done->discard) {

@@ -2310,6 +2310,61 @@ static const struct file_operations fops_adjacent_wlan_interfrc = {
 	.open = simple_open
 };
 
+#define ATH10K_TX_STATS(s, p) (\
+	len += scnprintf(buf + len, size - len, "%-28s : %10llu\n", s, \
+			 ar->htt.tx_stats.p))
+
+static ssize_t ath10k_read_tx_stats(struct file *file, char __user *user_buf,
+				    size_t count, loff_t *ppos)
+{
+	int retval = 0, len = 0;
+	const int size = 8000;
+	struct ath10k *ar = file->private_data;
+	char *buf;
+
+	buf = kzalloc(size, GFP_KERNEL);
+	if (buf == NULL)
+		return -ENOMEM;
+
+	len += scnprintf(buf + len, size - len, "Tx statistics:\n");
+
+	ATH10K_TX_STATS("Total tx", total_tx);
+	ATH10K_TX_STATS("Total offchannel tx", total_offchannel_tx);
+	ATH10K_TX_STATS("Total tx drop", total_drop);
+	ATH10K_TX_STATS("Total ack", total_ack);
+	ATH10K_TX_STATS("Total Ack Failure", total_ack_fail);
+	ATH10K_TX_STATS("Tatal Ack Success", total_ack_succ);
+	ATH10K_TX_STATS("Max Continuous failure", max_cont_fail);
+	ATH10K_TX_STATS("Current Continuous failure", cur_cont_fail);
+
+	if (len > size)
+		len = size;
+
+	retval = simple_read_from_buffer(user_buf, count, ppos, buf, len);
+	kfree(buf);
+
+	return retval;
+}
+
+static ssize_t ath10k_write_tx_stats(struct file *file,
+				     const char __user *user_buf,
+				     size_t count, loff_t *ppos)
+{
+	struct ath10k *ar = file->private_data;
+
+	memset(&ar->htt.tx_stats, 0, sizeof(ar->htt.tx_stats));
+
+	return count;
+}
+
+static const struct file_operations fops_tx_stats = {
+	.read = ath10k_read_tx_stats,
+	.write = ath10k_write_tx_stats,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+	.llseek = default_llseek,
+};
+
 int ath10k_debug_create(struct ath10k *ar)
 {
 	ar->debug.fw_crash_data = vzalloc(sizeof(*ar->debug.fw_crash_data));
@@ -2425,6 +2480,8 @@ int ath10k_debug_register(struct ath10k *ar)
 	debugfs_create_file("tpc_stats", S_IRUSR,
 			    ar->debug.debugfs_phy, ar, &fops_tpc_stats);
 
+	debugfs_create_file("tx_stats", S_IRUSR, ar->debug.debugfs_phy, ar,
+			    &fops_tx_stats);
 #ifdef CONFIG_ATH10K_SMART_ANTENNA
 	ath10k_smart_ant_debugfs_init(ar);
 #endif

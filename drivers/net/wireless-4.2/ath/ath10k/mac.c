@@ -3369,6 +3369,7 @@ static void ath10k_mac_tx(struct ath10k *ar, struct sk_buff *skb)
 		ath10k_warn(ar, "failed to transmit packet, dropping: %d\n",
 			    ret);
 		printk(KERN_INFO "Debug-M65:%s %d\n",__func__,__LINE__);
+		htt->tx_stats.total_drop++;
 		ieee80211_free_txskb(ar->hw, skb);
 	}
 }
@@ -3678,6 +3679,7 @@ static void ath10k_tx(struct ieee80211_hw *hw,
 	ATH10K_SKB_CB(skb)->txmode = ath10k_tx_h_get_txmode(ar, vif, sta, skb);
 	ATH10K_SKB_CB(skb)->is_protected = ieee80211_has_protected(fc);
 
+	ar->htt.tx_stats.total_tx++;
 	switch (ATH10K_SKB_CB(skb)->txmode) {
 	case ATH10K_HW_TXRX_MGMT:
 	case ATH10K_HW_TXRX_NATIVE_WIFI:
@@ -3705,6 +3707,7 @@ static void ath10k_tx(struct ieee80211_hw *hw,
 		if (ath10k_mac_need_offchan_tx_work(ar)) {
 			ATH10K_SKB_CB(skb)->htt.freq = 0;
 			ATH10K_SKB_CB(skb)->htt.is_offchan = true;
+			ar->htt.tx_stats.total_offchannel_tx++;
 
 			ath10k_dbg(ar, ATH10K_DBG_MAC, "queued offchannel skb %p\n",
 				   skb);
