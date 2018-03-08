@@ -1039,7 +1039,6 @@ static int rockchip_vpu_encoder_cmd(struct rockchip_vpu_ctx *ctx,
 				    struct v4l2_encoder_cmd *cmd, bool try)
 {
 	struct rockchip_vpu_dev *dev = ctx->dev;
-	struct rockchip_vpu_buf *buf = NULL;
 	unsigned long flags;
 	int ret = 0;
 
