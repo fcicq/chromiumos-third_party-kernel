@@ -1127,9 +1127,10 @@ static ssize_t ath10k_read_htt_stats(struct file *file,
 
 	len = scnprintf(buf, sizeof(buf), "num_max_pending_tx %d "
 		"num_pending_tx %d num_pending_mgmt_tx %d "
-		"mcast_pending %d\n",
+		"mcast_pending %d quiet_period %d temperature %d\n",
 		ar->htt.max_num_pending_tx, ar->htt.num_pending_tx,
-		ar->htt.num_pending_mgmt_tx, ar->htt.mcast_pending);
+		ar->htt.num_pending_mgmt_tx, ar->htt.mcast_pending,
+		ar->thermal.quiet_period, ar->thermal.temperature);
 
 	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
 }
@@ -2172,6 +2173,9 @@ static ssize_t ath10k_write_quiet_period(struct file *file,
 	ar->thermal.quiet_period = period;
 	ath10k_thermal_set_throttling(ar);
 	mutex_unlock(&ar->conf_mutex);
+
+	printk(KERN_INFO "Debug-M65: quiet_period %d temperature %d",
+	       ar->thermal.quiet_period, ar->thermal.temperature);
 
 	return count;
 }
