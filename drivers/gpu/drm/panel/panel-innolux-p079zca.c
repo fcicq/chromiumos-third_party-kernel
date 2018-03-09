@@ -265,15 +265,15 @@ static const struct panel_desc_dsi innolux_p079zca_panel_desc = {
 };
 
 static const struct drm_display_mode innolux_p097pfg_mode = {
-	.clock = 220000,
+	.clock = 229000,
 	.hdisplay = 1536,
 	.hsync_start = 1536 + 100,
 	.hsync_end = 1536 + 100 + 24,
 	.htotal = 1536 + 100 + 24 + 100,
 	.vdisplay = 2048,
-	.vsync_start = 2048 + 18,
-	.vsync_end = 2048 + 18 + 2,
-	.vtotal = 2048 + 18 + 2 + 18,
+	.vsync_start = 2048 + 100,
+	.vsync_end = 2048 + 100 + 2,
+	.vtotal = 2048 + 100 + 2 + 18,
 	.vrefresh = 60,
 };
 
