@@ -68,6 +68,10 @@
 		};
 	};
 
+	smc-watchdog {
+		compatible = "arm,smc-watchdog";
+	};
+
 	gpio_keys: gpio-keys {
 		compatible = "gpio-keys";
 		pinctrl-names = "default";
@@ -1088,6 +1092,10 @@
 	pinctrl-0 = <&usb_pins>;
 	vusb33-supply = <&mt6397_vusb_reg>;
 	mediatek,wakeup-src = <1>;
+};
+
+&watchdog {
+	status = "disabled";
 };
 
 #include "../../../../arm/boot/dts/cros-ec-keyboard.dtsi"
