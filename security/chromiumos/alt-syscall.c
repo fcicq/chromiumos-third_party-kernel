@@ -563,6 +563,13 @@ android_sched_setscheduler(pid_t pid, int policy,
 	return retval;
 }
 
+static asmlinkage int
+android_socket(int domain, int type, int socket) {
+	if (domain == AF_VSOCK)
+	       return -EACCES;
+	return sys_socket(domain, type, socket);
+}
+
 static asmlinkage long
 android_perf_event_open(struct perf_event_attr __user *attr_uptr,
 			pid_t pid, int cpu, int group_fd, unsigned long flags)
@@ -838,7 +845,7 @@ static struct syscall_whitelist_entry android_whitelist[] = {
 	SYSCALL_ENTRY(sendto),
 	SYSCALL_ENTRY(setsockopt),
 	SYSCALL_ENTRY(shutdown),
-	SYSCALL_ENTRY(socket),
+	SYSCALL_ENTRY_ALT(socket, android_socket),
 	SYSCALL_ENTRY(socketpair),
 	/*
 	 * recv(2)/send(2) are officially deprecated, but their entry-points
