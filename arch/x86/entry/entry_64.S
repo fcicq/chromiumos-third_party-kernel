@@ -182,14 +182,14 @@ entry_SYSCALL_64_fastpath:
 	movl	ASM_THREAD_INFO(TI_nr_syscalls, %rsp, SIZEOF_PTREGS), %r11d
 	cmpq	%r11, %rax
 # else
-	cmpq	$__NR_syscalls, %rax
+	cmpq	$NR_syscalls, %rax
 # endif /* CONFIG_ALT_SYSCALL */
 #else
 	andl	$__SYSCALL_MASK, %eax
 # ifdef CONFIG_ALT_SYSCALL
 	cmpl	ASM_THREAD_INFO(TI_nr_syscalls, %rsp, SIZEOF_PTREGS), %eax
 # else
-	cmpl	$__NR_syscalls, %eax
+	cmpl	$NR_syscalls, %eax
 # endif /* CONFIG_ALT_SYSCALL */
 #endif
 	jae	1f				/* return -ENOSYS (already in pt_regs->ax) */
@@ -301,14 +301,14 @@ tracesys_phase2:
 	movl	ASM_THREAD_INFO(TI_nr_syscalls, %rsp, SIZEOF_PTREGS), %r11d
 	cmpq	%r11, %rax
 # else
-	cmpq	$__NR_syscalls, %rax
+	cmpq	$NR_syscalls, %rax
 # endif /* CONFIG_ALT_SYSCALL */
 #else
 	andl	$__SYSCALL_MASK, %eax
 # ifdef CONFIG_ALT_SYSCALL
 	cmpl	ASM_THREAD_INFO(TI_nr_syscalls, %rsp, SIZEOF_PTREGS), %eax
 # else
-	cmpl	$__NR_syscalls, %eax
+	cmpl	$NR_syscalls, %eax
 # endif /* CONFIG_ALT_SYSCALL */
 #endif
 	jae	1f				/* return -ENOSYS (already in pt_regs->ax) */
