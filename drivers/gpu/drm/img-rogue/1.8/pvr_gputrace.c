@@ -50,8 +50,13 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "rgxhwperf.h"
 
 #include "trace_events.h"
-#define CREATE_TRACE_POINTS
 #include <trace/events/gpu.h>
+
+/*
+ * This must be defined after gpu.h to avoid the same symbols being defined
+ * multiple times.
+ */
+#define CREATE_TRACE_POINTS
 #include "rogue_trace_events.h"
 
 
