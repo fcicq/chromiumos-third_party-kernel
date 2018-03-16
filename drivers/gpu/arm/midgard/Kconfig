@@ -22,6 +22,8 @@
 
 menuconfig MALI_MIDGARD
 	tristate "Mali Midgard series support"
+	depends on ARM || ARM64
+	depends on THERMAL || THERMAL=n
 	select GPU_TRACEPOINTS if ANDROID
 	default n
 	help
@@ -147,6 +149,7 @@ config MALI_FENCE_DEBUG
 config MALI_NO_MALI
 	bool "No Mali"
 	depends on MALI_MIDGARD && MALI_EXPERT
+	depends on BROKEN
 	default n
 	help
 	  This can be used to test the driver in a simulated environment
@@ -173,6 +176,7 @@ config MALI_TRACE_TIMELINE
 config MALI_SYSTEM_TRACE
 	bool "Enable system event tracing support"
 	depends on MALI_MIDGARD && MALI_EXPERT
+	depends on BROKEN
 	default n
 	help
 	  Choose this option to enable system trace events for each
@@ -204,6 +208,7 @@ config MALI_2MB_ALLOC
 config MALI_PWRSOFT_765
 	bool "PWRSOFT-765 ticket"
 	depends on MALI_MIDGARD && MALI_EXPERT
+	depends on BROKEN
 	default n
 	help
 	  PWRSOFT-765 fixes devfreq cooling devices issues. The fix was merged
