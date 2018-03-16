@@ -4,6 +4,7 @@ config DRM_POWERVR_ROGUE_1_9
 	depends on HAS_IOMEM
 	depends on DRM
 	select DRM_KMS_HELPER
+	select GPU_TRACEPOINTS
 	select PM_DEVFREQ
 	select DEVFREQ_GOV_SIMPLE_ONDEMAND
 	select PM_OPP
@@ -21,6 +22,7 @@ config DRM_POWERVR_ROGUE_1_8
 	depends on DRM
 	depends on (DRM_POWERVR_ROGUE_1_9!=m && m) || (DRM_POWERVR_ROGUE_1_9!=y && y)
 	select DRM_KMS_HELPER
+	select GPU_TRACEPOINTS
 	select PM_DEVFREQ
 	select DEVFREQ_GOV_SIMPLE_ONDEMAND
 	select PM_OPP
