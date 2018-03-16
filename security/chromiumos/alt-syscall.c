@@ -15,6 +15,7 @@
 #include <linux/module.h>
 #include <linux/prctl.h>
 #include <linux/slab.h>
+#include <linux/socket.h>
 #include <linux/syscalls.h>
 #include <linux/timex.h>
 
@@ -563,8 +564,9 @@ android_sched_setscheduler(pid_t pid, int policy,
 	return retval;
 }
 
-static asmlinkage int
-android_socket(int domain, int type, int socket) {
+static asmlinkage int __maybe_unused
+android_socket(int domain, int type, int socket)
+{
 	if (domain == AF_VSOCK)
 	       return -EACCES;
 	return sys_socket(domain, type, socket);
