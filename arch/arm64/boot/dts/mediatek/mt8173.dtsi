@@ -227,9 +227,9 @@
 			LITTLE_CPU_SLEEP_0: little-cpu-sleep-0 {
 				compatible = "arm,idle-state";
 				local-timer-stop;
-				entry-latency-us = <895>;
-				exit-latency-us = <952>;
-				min-residency-us = <1523>;
+				entry-latency-us = <639>;
+				exit-latency-us = <680>;
+				min-residency-us = <17000>;
 				arm,psci-suspend-param = <0x0010000>;
 			};
 
