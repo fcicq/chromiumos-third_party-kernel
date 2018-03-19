@@ -461,6 +461,7 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 	char str[5];
 	unsigned long dma_align;
 	int i;
+	bool need_alignment;
 
 	vpu_debug_enter();
 
@@ -516,13 +517,31 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 		/* Fill in remaining fields. */
 		calculate_plane_sizes(fmt, pix_fmt_mp);
 
+		/* TODO(crbug.com/824662): handle sizeimage in Chromium.
+		 * Align plane size to full cache line by adjusting the height.
+		 * Considering the I420 format, the width is multiple of MB_DIM,
+		 * the size of uv plane is 1/4 of y plane. So the height should
+		 * be multiple of (cache * 4 / MB_DIM).
+		 */
 		dma_align = dma_get_cache_alignment();
+		need_alignment = false;
 		for (i = 0; i < fmt->num_planes; i++) {
 			if (!IS_ALIGNED(pix_fmt_mp->plane_fmt[i].sizeimage,
 					dma_align)) {
-				vpu_err("plane size does not match cache alignment\n");
+				need_alignment = true;
+				break;
+			}
+		}
+		if (need_alignment) {
+			pix_fmt_mp->height = round_up(pix_fmt_mp->height,
+						      dma_align * 4 / MB_DIM);
+			if (pix_fmt_mp->height >
+			    ctx->vpu_dst_fmt->frmsize.max_height) {
+				vpu_err("Aligned height higher than maximum.\n");
 				return -EINVAL;
 			}
+			/* Fill in remaining fields again. */
+			calculate_plane_sizes(fmt, pix_fmt_mp);
 		}
 		break;
 
