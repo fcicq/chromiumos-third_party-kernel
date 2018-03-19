@@ -1428,8 +1428,7 @@ void intel_mode_from_pipe_config(struct drm_display_mode *mode,
 				 struct intel_crtc_state *pipe_config);
 
 int skl_update_scaler_crtc(struct intel_crtc_state *crtc_state);
-int skl_max_scale(struct intel_crtc *crtc, struct intel_crtc_state *crtc_state,
-		  uint32_t pixel_format);
+int skl_max_scale(struct intel_crtc *crtc, struct intel_crtc_state *crtc_state);
 
 static inline u32 intel_plane_ggtt_offset(const struct intel_plane_state *state)
 {
