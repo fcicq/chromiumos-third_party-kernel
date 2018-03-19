@@ -1057,18 +1057,6 @@ static u32 vlv_wa_c0_ei(struct drm_i915_private *dev_priv, u32 pm_iir)
 	return events;
 }
 
-static bool any_waiters(struct drm_i915_private *dev_priv)
-{
-	struct intel_engine_cs *engine;
-	enum intel_engine_id id;
-
-	for_each_engine(engine, dev_priv, id)
-		if (intel_engine_has_waiter(engine))
-			return true;
-
-	return false;
-}
-
 static void gen6_pm_rps_work(struct work_struct *work)
 {
 	struct drm_i915_private *dev_priv =
@@ -1088,8 +1076,7 @@ static void gen6_pm_rps_work(struct work_struct *work)
 	dev_priv->rps.pm_iir = 0;
 	/* Make sure not to corrupt PMIMR state used by ringbuffer on GEN6 */
 	gen6_enable_pm_irq(dev_priv, dev_priv->pm_rps_events);
-	client_boost = dev_priv->rps.client_boost;
-	dev_priv->rps.client_boost = false;
+	client_boost = atomic_read(&dev_priv->rps.num_waiters);
 	spin_unlock_irq(&dev_priv->irq_lock);
 
 	/* Make sure we didn't queue anything we're not going to process. */
@@ -1106,7 +1093,7 @@ static void gen6_pm_rps_work(struct work_struct *work)
 	new_delay = dev_priv->rps.cur_freq;
 	min = dev_priv->rps.min_freq_softlimit;
 	max = dev_priv->rps.max_freq_softlimit;
-	if (client_boost || any_waiters(dev_priv))
+	if (client_boost)
 		max = dev_priv->rps.max_freq;
 	if (client_boost && new_delay < dev_priv->rps.boost_freq) {
 		new_delay = dev_priv->rps.boost_freq;
@@ -1127,7 +1114,7 @@ static void gen6_pm_rps_work(struct work_struct *work)
 			new_delay = dev_priv->rps.efficient_freq;
 			adj = 0;
 		}
-	} else if (client_boost || any_waiters(dev_priv)) {
+	} else if (client_boost) {
 		adj = 0;
 	} else if (pm_iir & GEN6_PM_RP_DOWN_TIMEOUT) {
 		if (dev_priv->rps.cur_freq > dev_priv->rps.efficient_freq)
