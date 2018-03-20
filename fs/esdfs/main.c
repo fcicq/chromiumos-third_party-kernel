@@ -230,8 +230,8 @@ static int parse_options(struct super_block *sb, char *options)
 		case Opt_mask:
 			if (match_int(&args[0], &option))
 				return -EINVAL;
-			sbi->upper_perms.dmask = option;
-			sbi->upper_perms.fmask = option;
+			sbi->upper_perms.dmask = 0775 & ~option;
+			sbi->upper_perms.fmask = 0775 & ~option;
 			break;
 		case Opt_fsuid:
 			if (match_int(&args[0], &option))
