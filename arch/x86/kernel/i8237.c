@@ -15,6 +15,7 @@
 #include <linux/syscore_ops.h>
 
 #include <asm/dma.h>
+#include <asm/x86_init.h>
 
 /*
  * This module just handles suspend/resume issues with the
