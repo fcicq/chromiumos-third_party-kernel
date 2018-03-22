@@ -43,6 +43,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include <linux/dma-mapping.h>
 #include <linux/interrupt.h>
+#include <linux/kernel.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/of_irq.h>
@@ -437,7 +438,7 @@ PVRSRV_ERROR SysDevInit(void *pvOSDevice, PVRSRV_DEVICE_CONFIG **ppsDevConfig)
 
 	gsDevice.eBIFTilingMode = geBIFTilingMode;
 	gsDevice.pui32BIFTilingHeapConfigs = gauiBIFTilingHeapXStrides;
-	gsDevice.ui32BIFTilingHeapCount = IMG_ARR_NUM_ELEMS(gauiBIFTilingHeapXStrides);
+	gsDevice.ui32BIFTilingHeapCount = ARRAY_SIZE(gauiBIFTilingHeapXStrides);
 
 	/* power management on  HW system */
 	gsDevice.pfnPrePowerState = MTKSysDevPrePowerState;
