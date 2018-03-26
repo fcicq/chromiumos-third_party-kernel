@@ -1106,6 +1106,7 @@ struct ath10k {
 
 	const unsigned int *debug_mask;
 	u32	cfr_enable;
+	struct rchan *rfs_cfr_capture;
 
 	/* must be last */
 	u8 drv_priv[0] __aligned(sizeof(void *));
