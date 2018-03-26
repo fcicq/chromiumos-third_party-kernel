@@ -410,6 +410,13 @@ struct ath10k_txq {
 	struct atf_scheduler atf;
 };
 
+struct ath10k_cfr_capture {
+	u32 cfr_enable;
+	u32 cfr_period;
+	u32 cfr_bandwidth;
+	u32 cfr_method;
+};
+
 struct ath10k_sta {
 	struct ath10k_vif *arvif;
 
@@ -434,6 +441,7 @@ struct ath10k_sta {
 	u32 peer_ps_state;
 
 	struct ath10k_smart_ant_sta *smart_ant_sta;
+	struct ath10k_cfr_capture cfr_capture;
 };
 
 #define ATH10K_VDEV_SETUP_TIMEOUT_HZ (5*HZ)
@@ -1101,6 +1109,8 @@ struct ath10k {
 	u32	atf_txq_limit_max;
 	u32	atf_quantum;
 	u32	atf_quantum_mesh;
+	u32	cfr_enable;
+
 	/* must be last */
 	u8 drv_priv[0] __aligned(sizeof(void *));
 };
