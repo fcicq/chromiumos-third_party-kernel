@@ -1110,6 +1110,7 @@ struct ath10k {
 	u32	atf_quantum;
 	u32	atf_quantum_mesh;
 	u32	cfr_enable;
+	struct rchan *rfs_cfr_capture;
 
 	/* must be last */
 	u8 drv_priv[0] __aligned(sizeof(void *));
