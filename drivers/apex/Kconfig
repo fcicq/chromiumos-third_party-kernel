@@ -1,0 +1,23 @@
+menu "DS devices"
+
+config DS
+  tristate "DS framework"
+  depends on PCI
+  help
+  This framework supports DS, such as Knoll and Apex. It is required
+  for either of those modules.
+
+  To compile this driver as a module, choose M here.  The module
+  will be called ds.
+
+config DWN
+  tristate "Dwn Driver"
+  depends on DS
+  help
+  This driver supports the Dwn device.  Say Y if you want to
+  include this driver in the kernel.
+
+  To compile this driver as a module, choose M here.  The module
+  will be called dwn.
+
+endmenu
