@@ -1121,6 +1121,14 @@ static inline bool ath10k_atf_scheduler_enabled(struct ath10k *ar)
 	return ar->atf_enabled;
 }
 
+static inline bool ath10k_peer_cfr_capture_enabled(struct ath10k *ar)
+{
+	if (test_bit(WMI_SERVICE_CFR_CAPTURE_SUPPORT, ar->wmi.svc_map))
+		return true;
+
+	return false;
+}
+
 static inline bool ath10k_peer_stats_enabled(struct ath10k *ar)
 {
 	if (!test_bit(ATH10K_FLAG_PEER_STATS_DISABLED, &ar->dev_flags) &&
