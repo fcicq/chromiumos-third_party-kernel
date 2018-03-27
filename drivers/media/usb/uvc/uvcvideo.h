@@ -430,11 +430,13 @@ struct uvc_stats_stream {
  * struct uvc_urb - URB context management structure
  *
  * @urb: the URB described by this context structure
+ * @stream: UVC streaming context
  * @buffer: memory storage for the URB
  * @dma: DMA coherent addressing for the urb_buffer
  */
 struct uvc_urb {
 	struct urb *urb;
+	struct uvc_streaming *stream;
 
 	char *buffer;
 	dma_addr_t dma;
@@ -469,8 +471,8 @@ struct uvc_streaming {
 	/* Buffers queue. */
 	unsigned int frozen : 1;
 	struct uvc_video_queue queue;
-	void (*decode) (struct urb *urb, struct uvc_streaming *video,
-			struct uvc_buffer *buf);
+	struct workqueue_struct *async_wq;
+	void (*decode)(struct uvc_urb *urb, struct uvc_buffer *buf);
 
 	/* Context data used by the bulk completion handler. */
 	struct {
@@ -730,8 +732,7 @@ extern struct usb_host_endpoint *uvc_find_endpoint(
 		struct usb_host_interface *alts, __u8 epaddr);
 
 /* Quirks support */
-void uvc_video_decode_isight(struct urb *urb, struct uvc_streaming *stream,
-		struct uvc_buffer *buf);
+void uvc_video_decode_isight(struct uvc_urb *urb, struct uvc_buffer *buf);
 
 /* debugfs and statistics */
 int uvc_debugfs_init(void);
