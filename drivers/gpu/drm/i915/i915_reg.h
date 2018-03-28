@@ -3611,6 +3611,8 @@ enum {
 #define EDP_PSR2_CTL			_MMIO(0x6f900)
 #define   EDP_PSR2_ENABLE		(1<<31)
 #define   EDP_SU_TRACK_ENABLE		(1<<30)
+#define   EDP_Y_COORDINATE_VALID	(1<<26) /* GLK and CNL+ */
+#define   EDP_Y_COORDINATE_ENABLE	(1<<25) /* GLK and CNL+ */
 #define   EDP_MAX_SU_DISABLE_TIME(t)	((t)<<20)
 #define   EDP_MAX_SU_DISABLE_TIME_MASK	(0x1f<<20)
 #define   EDP_PSR2_TP2_TIME_500us	(0<<8)
@@ -6478,6 +6480,7 @@ enum {
 #define CHICKEN_TRANS_A         0x420c0
 #define CHICKEN_TRANS_B         0x420c4
 #define CHICKEN_TRANS(trans) _MMIO_TRANS(trans, CHICKEN_TRANS_A, CHICKEN_TRANS_B)
+#define  VSC_DATA_SEL_SOFTWARE_CONTROL	(1<<25) /* GLK and CNL+ */
 #define PSR2_VSC_ENABLE_PROG_HEADER    (1<<12)
 #define PSR2_ADD_VERTICAL_LINE_COUNT   (1<<15)
 
