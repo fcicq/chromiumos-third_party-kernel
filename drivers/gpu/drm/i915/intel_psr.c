@@ -111,14 +111,15 @@ void intel_psr_init_dpcd(struct intel_dp *intel_dp)
 		 * Y-coordinate requirement panels we would need to enable
 		 * GTC first.
 		 */
-		dev_priv->psr.psr2_support = intel_dp_get_y_coord_required(intel_dp);
-		DRM_DEBUG_KMS("PSR2 %s on sink",
-			      dev_priv->psr.psr2_support ? "supported" : "not supported");
+		dev_priv->psr.sink_psr2_support =
+				intel_dp_get_y_coord_required(intel_dp);
+		DRM_DEBUG_KMS("PSR2 %s on sink", dev_priv->psr.sink_psr2_support
+			      ? "supported" : "not supported");
 
 		/* TODO(b/67599437) PSR2 is broken */
-		dev_priv->psr.psr2_support = false;
+		dev_priv->psr.sink_psr2_support = false;
 
-		if (dev_priv->psr.psr2_support) {
+		if (dev_priv->psr.sink_psr2_support) {
 			dev_priv->psr.colorimetry_support =
 				intel_dp_get_colorimetry_status(intel_dp);
 			dev_priv->psr.alpm =
@@ -190,7 +191,7 @@ static void hsw_psr_setup_vsc(struct intel_dp *intel_dp,
 	struct drm_i915_private *dev_priv = to_i915(intel_dig_port->base.base.dev);
 	struct edp_vsc_psr psr_vsc;
 
-	if (dev_priv->psr.psr2_support) {
+	if (dev_priv->psr.psr2_enabled) {
 		/* Prepare VSC Header for SU as per EDP 1.4 spec, Table 6.11 */
 		memset(&psr_vsc, 0, sizeof(psr_vsc));
 		psr_vsc.sdp_header.HB0 = 0;
@@ -261,7 +262,7 @@ static void hsw_psr_enable_sink(struct intel_dp *intel_dp)
 	struct drm_i915_private *dev_priv = to_i915(dev);
 
 	/* Enable ALPM at sink for psr2 */
-	if (dev_priv->psr.psr2_support && dev_priv->psr.alpm)
+	if (dev_priv->psr.psr2_enabled && dev_priv->psr.alpm)
 		drm_dp_dpcd_writeb(&intel_dp->aux,
 				DP_RECEIVER_ALPM_CONFIG,
 				DP_ALPM_ENABLE);
@@ -438,7 +439,7 @@ static void hsw_psr_activate(struct intel_dp *intel_dp)
 	 */
 
 	/* psr1 and psr2 are mutually exclusive.*/
-	if (dev_priv->psr.psr2_support)
+	if (dev_priv->psr.psr2_enabled)
 		hsw_activate_psr2(intel_dp);
 	else
 		hsw_activate_psr1(intel_dp);
@@ -457,7 +458,7 @@ static bool intel_psr2_config_valid(struct intel_dp *intel_dp,
 	 * dynamically during PSR enable, and extracted from sink
 	 * caps during eDP detection.
 	 */
-	if (!dev_priv->psr.psr2_support)
+	if (!dev_priv->psr.sink_psr2_support)
 		return false;
 
 	/* PSR2 is restricted to work with panel resolutions up to 3640x2304 */
@@ -548,7 +549,7 @@ static void intel_psr_activate(struct intel_dp *intel_dp)
 	struct drm_device *dev = intel_dig_port->base.base.dev;
 	struct drm_i915_private *dev_priv = to_i915(dev);
 
-	if (dev_priv->psr.psr2_support)
+	if (dev_priv->psr.psr2_enabled)
 		WARN_ON(I915_READ(EDP_PSR2_CTL) & EDP_PSR2_ENABLE);
 	else
 		WARN_ON(I915_READ(EDP_PSR_CTL) & EDP_PSR_ENABLE);
@@ -573,7 +574,7 @@ static void hsw_psr_enable_source(struct intel_dp *intel_dp,
 	if (IS_HASWELL(dev_priv) || IS_BROADWELL(dev_priv))
 		hsw_psr_setup_aux(intel_dp);
 
-	if (dev_priv->psr.psr2_support) {
+	if (dev_priv->psr.psr2_enabled) {
 		u32 chicken = I915_READ(CHICKEN_TRANS(cpu_transcoder));
 
 		if (INTEL_GEN(dev_priv) == 9 && !IS_GEMINILAKE(dev_priv))
@@ -632,7 +633,7 @@ void intel_psr_enable(struct intel_dp *intel_dp,
 		goto unlock;
 	}
 
-	dev_priv->psr.psr2_support = crtc_state->has_psr2;
+	dev_priv->psr.psr2_enabled = crtc_state->has_psr2;
 	dev_priv->psr.busy_frontbuffer_bits = 0;
 
 	dev_priv->psr.setup_vsc(intel_dp, crtc_state);
@@ -702,7 +703,7 @@ static void hsw_psr_disable(struct intel_dp *intel_dp,
 		i915_reg_t psr_status;
 		u32 psr_status_mask;
 
-		if (dev_priv->psr.psr2_support) {
+		if (dev_priv->psr.psr2_enabled) {
 			psr_status = EDP_PSR2_STATUS;
 			psr_status_mask = EDP_PSR2_STATUS_STATE_MASK;
 
@@ -726,7 +727,7 @@ static void hsw_psr_disable(struct intel_dp *intel_dp,
 
 		dev_priv->psr.active = false;
 	} else {
-		if (dev_priv->psr.psr2_support)
+		if (dev_priv->psr.psr2_enabled)
 			WARN_ON(I915_READ(EDP_PSR2_CTL) & EDP_PSR2_ENABLE);
 		else
 			WARN_ON(I915_READ(EDP_PSR_CTL) & EDP_PSR_ENABLE);
@@ -784,7 +785,7 @@ static void intel_psr_work(struct work_struct *work)
 	 * and be ready for re-enable.
 	 */
 	if (HAS_DDI(dev_priv)) {
-		if (dev_priv->psr.psr2_support) {
+		if (dev_priv->psr.psr2_enabled) {
 			if (intel_wait_for_register(dev_priv,
 						    EDP_PSR2_STATUS,
 						    EDP_PSR2_STATUS_STATE_MASK,
@@ -843,7 +844,7 @@ static void intel_psr_exit(struct drm_i915_private *dev_priv)
 		return;
 
 	if (HAS_DDI(dev_priv)) {
-		if (dev_priv->psr.psr2_support) {
+		if (dev_priv->psr.psr2_enabled) {
 			val = I915_READ(EDP_PSR2_CTL);
 			WARN_ON(!(val & EDP_PSR2_ENABLE));
 			I915_WRITE(EDP_PSR2_CTL, val & ~EDP_PSR2_ENABLE);
@@ -1012,7 +1013,7 @@ void intel_psr_flush(struct drm_i915_private *dev_priv,
 
 	/* By definition flush = invalidate + flush */
 	if (frontbuffer_bits) {
-		if (dev_priv->psr.psr2_support ||
+		if (dev_priv->psr.psr2_enabled ||
 		    IS_VALLEYVIEW(dev_priv) || IS_CHERRYVIEW(dev_priv)) {
 			intel_psr_exit(dev_priv);
 		} else {
