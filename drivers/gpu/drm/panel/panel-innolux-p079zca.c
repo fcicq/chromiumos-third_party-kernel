@@ -45,6 +45,7 @@ struct panel_desc_dsi {
 	enum mipi_dsi_pixel_format format;
 	const struct panel_init_cmd *init_cmds;
 	unsigned int lanes;
+	unsigned int power_down_delay;
 };
 
 struct innolux_panel {
@@ -109,7 +110,8 @@ static int innolux_panel_unprepare(struct drm_panel *panel)
 	gpiod_set_value_cansleep(innolux->enable_gpio, 0);
 
 	/* p079zca: t8*/
-	msleep(80);
+	if (innolux->dsi_desc->power_down_delay)
+		msleep(innolux->dsi_desc->power_down_delay);
 
 	regulator_disable(innolux->avee);
 	regulator_disable(innolux->avdd);
@@ -262,6 +264,7 @@ static const struct panel_desc_dsi innolux_p079zca_panel_desc = {
 		 MIPI_DSI_MODE_LPM,
 	.format = MIPI_DSI_FMT_RGB888,
 	.lanes = 4,
+	.power_down_delay = 80,
 };
 
 static const struct drm_display_mode innolux_p097pfg_mode = {
