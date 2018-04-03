@@ -11,7 +11,6 @@
  * published by the Free Software Foundation.
  */
 
-#include <linux/fsnotify.h>
 #include "esdfs.h"
 
 static ssize_t esdfs_read(struct file *file, char __user *buf,
@@ -258,7 +257,6 @@ static int esdfs_open(struct inode *inode, struct file *file)
 			fput(lower_file); /* fput calls dput for lower_dentry */
 		}
 	} else {
-		fsnotify_open(lower_file);
 		esdfs_set_lower_file(file, lower_file);
 	}
 
