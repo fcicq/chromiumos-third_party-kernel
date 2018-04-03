@@ -490,8 +490,8 @@ static void rk3399_vpu_vp8e_set_params(struct rockchip_vpu_dev *vpu,
 		(struct rk3399_vp8e_reg_params *)ctx->run.vp8e.reg_params;
 	int i;
 	u32 reg;
-	u32 mbs_in_row = (ctx->dst_fmt.width + 15) / 16;
-	u32 mbs_in_col = (ctx->dst_fmt.height + 15) / 16;
+	u32 mbs_in_row = MB_WIDTH(ctx->src_fmt.width);
+	u32 mbs_in_col = MB_HEIGHT(ctx->src_fmt.height);
 	u32 deq;
 	u32 tmp;
 	u32 qp = params->qp;
@@ -748,8 +748,8 @@ void rk3399_vpu_vp8e_run(struct rockchip_vpu_ctx *ctx)
 	schedule_delayed_work(&vpu->watchdog_work, msecs_to_jiffies(2000));
 
 	/* Start the hardware. */
-	reg = VEPU_REG_MB_HEIGHT(MB_HEIGHT(ctx->dst_fmt.height))
-		| VEPU_REG_MB_WIDTH(MB_WIDTH(ctx->dst_fmt.width))
+	reg = VEPU_REG_MB_HEIGHT(MB_HEIGHT(ctx->src_fmt.height))
+		| VEPU_REG_MB_WIDTH(MB_WIDTH(ctx->src_fmt.width))
 		| VEPU_REG_PIC_TYPE(params->is_intra)
 		| VEPU_REG_ENCODE_FORMAT(1)
 		| VEPU_REG_ENCODE_ENABLE;
