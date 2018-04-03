@@ -215,6 +215,11 @@ struct intel_link_m_n {
 #define for_each_pipe_masked(__dev_priv, __p, __mask) \
 	for ((__p) = 0; (__p) < INTEL_INFO(__dev_priv)->num_pipes; (__p)++) \
 		for_each_if ((__mask) & (1 << (__p)))
+
+#define for_each_cpu_transcoder_masked(__dev_priv, __t, __mask) \
+	for ((__t) = 0; (__t) < I915_MAX_TRANSCODERS; (__t)++)	\
+		for_each_if ((__mask) & (1 << (__t)))
+
 #define for_each_universal_plane(__dev_priv, __pipe, __p)		\
 	for ((__p) = 0;							\
 	     (__p) < INTEL_INFO(__dev_priv)->num_sprites[(__pipe)] + 1;	\
