@@ -2639,6 +2639,17 @@ static int i915_edp_psr_status(struct seq_file *m, void *data)
 	}
 	mutex_unlock(&dev_priv->psr.lock);
 
+	if (READ_ONCE(dev_priv->psr.debug)) {
+		/*
+		 * ktime_to_ns() needed only in chromeos-4.4 because
+		 * ktime_t is defined as a union with member tv64
+		 */
+		seq_printf(m, "Last attempted entry at: %lld\n",
+			   ktime_to_ns(dev_priv->psr.last_entry_attempt));
+		seq_printf(m, "Last exit at: %lld\n",
+			   ktime_to_ns(dev_priv->psr.last_exit));
+	}
+
 	intel_runtime_pm_put(dev_priv);
 	return 0;
 }

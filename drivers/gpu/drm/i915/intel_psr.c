@@ -92,6 +92,9 @@ void intel_psr_irq_handler(struct drm_i915_private *dev_priv, u32 psr_iir)
 {
 	u32 transcoders = BIT(TRANSCODER_EDP);
 	enum transcoder cpu_transcoder;
+	/* Deviating from upstream, ktime_t is a union in chromeos-4.4 */
+	ktime_t time_ns;
+	time_ns.tv64 = ktime_to_ns(ktime_get());
 
 	if (INTEL_GEN(dev_priv) >= 8)
 		transcoders |= BIT(TRANSCODER_A) |
@@ -104,13 +107,27 @@ void intel_psr_irq_handler(struct drm_i915_private *dev_priv, u32 psr_iir)
 			DRM_DEBUG_KMS("[transcoder %s] PSR aux error\n",
 				      transcoder_name(cpu_transcoder));
 
-		if (psr_iir & EDP_PSR_PRE_ENTRY(cpu_transcoder))
+		if (psr_iir & EDP_PSR_PRE_ENTRY(cpu_transcoder)) {
+			/*
+			 * in kernel 4.4 ktime_t is defined as a union
+			 * with one member: tv64 but upstream is now defined
+			 * as an s64 type
+			 */
+			dev_priv->psr.last_entry_attempt.tv64 = ktime_to_ns(time_ns);
 			DRM_DEBUG_KMS("[transcoder %s] PSR entry attempt in 2 vblanks\n",
 				      transcoder_name(cpu_transcoder));
+		}
 
-		if (psr_iir & EDP_PSR_POST_EXIT(cpu_transcoder))
+		if (psr_iir & EDP_PSR_POST_EXIT(cpu_transcoder)) {
+			/*
+			 * in kernel 4.4 ktime_t is defined as a union
+			 * with one member: tv64 but upstream is now defined
+			 * as an s64 type
+			 */
+			dev_priv->psr.last_exit.tv64 = ktime_to_ns(time_ns);
 			DRM_DEBUG_KMS("[transcoder %s] PSR exit completed\n",
 				      transcoder_name(cpu_transcoder));
+		}
 	}
 }
 
