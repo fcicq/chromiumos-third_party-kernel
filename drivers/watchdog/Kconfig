@@ -578,6 +578,14 @@ config LPC18XX_WATCHDOG
 	  To compile this driver as a module, choose M here: the
 	  module will be called lpc18xx_wdt.
 
+config SMC_WATCHDOG
+	tristate "ARM Secure Monitor Call based watchdog support"
+	depends on ARM || ARM64
+	select WATCHDOG_CORE
+	help
+	  Say Y here to include support for a watchdog timer implemented by
+	  the EL3 Secure Monitor on ARM platforms. Requires firmware support.
+
 # AVR32 Architecture
 
 config AT32AP700X_WDT

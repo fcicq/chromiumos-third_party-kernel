@@ -24,24 +24,57 @@
 
 #include "i915_drv.h"
 
+#define PLATFORM_NAME(x) [INTEL_##x] = #x
+static const char * const platform_names[] = {
+	PLATFORM_NAME(I830),
+	PLATFORM_NAME(I845G),
+	PLATFORM_NAME(I85X),
+	PLATFORM_NAME(I865G),
+	PLATFORM_NAME(I915G),
+	PLATFORM_NAME(I915GM),
+	PLATFORM_NAME(I945G),
+	PLATFORM_NAME(I945GM),
+	PLATFORM_NAME(G33),
+	PLATFORM_NAME(PINEVIEW),
+	PLATFORM_NAME(BROADWATER),
+	PLATFORM_NAME(CRESTLINE),
+	PLATFORM_NAME(G4X),
+	PLATFORM_NAME(IRONLAKE),
+	PLATFORM_NAME(SANDYBRIDGE),
+	PLATFORM_NAME(IVYBRIDGE),
+	PLATFORM_NAME(VALLEYVIEW),
+	PLATFORM_NAME(HASWELL),
+	PLATFORM_NAME(BROADWELL),
+	PLATFORM_NAME(CHERRYVIEW),
+	PLATFORM_NAME(SKYLAKE),
+	PLATFORM_NAME(BROXTON),
+	PLATFORM_NAME(KABYLAKE),
+	PLATFORM_NAME(GEMINILAKE),
+};
+#undef PLATFORM_NAME
+
+const char *intel_platform_name(enum intel_platform platform)
+{
+	if (WARN_ON_ONCE(platform >= ARRAY_SIZE(platform_names) ||
+			 platform_names[platform] == NULL))
+		return "<unknown>";
+
+	return platform_names[platform];
+}
+
 void intel_device_info_dump(struct drm_i915_private *dev_priv)
 {
 	const struct intel_device_info *info = &dev_priv->info;
 
-#define PRINT_S(name) "%s"
-#define SEP_EMPTY
-#define PRINT_FLAG(name) info->name ? #name "," : ""
-#define SEP_COMMA ,
-	DRM_DEBUG_DRIVER("i915 device info: gen=%i, pciid=0x%04x rev=0x%02x flags="
-			 DEV_INFO_FOR_EACH_FLAG(PRINT_S, SEP_EMPTY),
+	DRM_DEBUG_DRIVER("i915 device info: platform=%s gen=%i pciid=0x%04x rev=0x%02x",
+			 intel_platform_name(info->platform),
 			 info->gen,
 			 dev_priv->drm.pdev->device,
-			 dev_priv->drm.pdev->revision,
-			 DEV_INFO_FOR_EACH_FLAG(PRINT_FLAG, SEP_COMMA));
-#undef PRINT_S
-#undef SEP_EMPTY
+			 dev_priv->drm.pdev->revision);
+#define PRINT_FLAG(name) \
+	DRM_DEBUG_DRIVER("i915 device info: " #name ": %s", yesno(info->name))
+	DEV_INFO_FOR_EACH_FLAG(PRINT_FLAG);
 #undef PRINT_FLAG
-#undef SEP_COMMA
 }
 
 static void cherryview_sseu_info_init(struct drm_i915_private *dev_priv)

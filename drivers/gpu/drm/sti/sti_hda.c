@@ -596,12 +596,6 @@ struct drm_connector_helper_funcs sti_hda_connector_helper_funcs = {
 	.best_encoder = sti_hda_best_encoder,
 };
 
-static enum drm_connector_status
-sti_hda_connector_detect(struct drm_connector *connector, bool force)
-{
-	return connector_status_connected;
-}
-
 static void sti_hda_connector_destroy(struct drm_connector *connector)
 {
 	struct sti_hda_connector *hda_connector
@@ -615,7 +609,6 @@ static void sti_hda_connector_destroy(struct drm_connector *connector)
 static const struct drm_connector_funcs sti_hda_connector_funcs = {
 	.dpms = drm_atomic_helper_connector_dpms,
 	.fill_modes = drm_helper_probe_single_connector_modes,
-	.detect = sti_hda_connector_detect,
 	.destroy = sti_hda_connector_destroy,
 	.reset = drm_atomic_helper_connector_reset,
 	.atomic_duplicate_state = drm_atomic_helper_connector_duplicate_state,
@@ -663,9 +656,8 @@ static int sti_hda_bind(struct device *dev, struct device *master, void *data)
 
 	bridge->driver_private = hda;
 	bridge->funcs = &sti_hda_bridge_funcs;
-	drm_bridge_attach(drm_dev, bridge);
+	drm_bridge_attach(encoder, bridge, NULL);
 
-	encoder->bridge = bridge;
 	connector->encoder = encoder;
 
 	drm_connector = (struct drm_connector *)connector;

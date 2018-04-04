@@ -93,6 +93,7 @@ struct skl {
 	int supend_active;
 
 	struct work_struct probe_work;
+	struct sst_acpi_mach *mach;
 };
 
 #define skl_to_ebus(s)	(&(s)->ebus)
@@ -142,11 +143,9 @@ const struct skl_dsp_ops *skl_get_dsp_ops(int pci_id);
 void skl_update_d0i3c(struct device *dev, bool enable);
 int skl_nhlt_create_sysfs(struct skl *skl);
 void skl_nhlt_remove_sysfs(struct skl *skl);
-void skl_fill_clk_ipc(struct skl_clk_rate_cfg_table *rcfg, u8 clk_type);
-int skl_send_clk_dma_control(struct skl *skl,
-		struct skl_clk_rate_cfg_table *rcfg,
-		u32 vbus_id, u8 clk_type, bool enable);
 void skl_get_clks(struct skl *skl, struct skl_ssp_clk *ssp_clks);
 struct skl_clk_parent_src *skl_get_parent_clk(u8 clk_id);
+int skl_dsp_set_dma_control(struct skl_sst *ctx, u32 *caps,
+				u32 caps_size, u32 node_id);
 
 #endif /* __SOUND_SOC_SKL_H */

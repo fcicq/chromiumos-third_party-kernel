@@ -330,6 +330,7 @@ struct usb_host_bos {
 	struct usb_ss_cap_descriptor	*ss_cap;
 	struct usb_ssp_cap_descriptor	*ssp_cap;
 	struct usb_ss_container_id_descriptor	*ss_id;
+	struct usb_ptm_cap_descriptor	*ptm_cap;
 };
 
 int __usb_get_extra_descriptor(char *buffer, unsigned size,
@@ -1862,6 +1863,10 @@ usb_maxpacket(struct usb_device *udev, int pipe, int is_out)
 	/* NOTE:  only 0x07ff bits are for packet size... */
 	return usb_endpoint_maxp(&ep->desc);
 }
+
+/* ----------------------------------------------------------------------- */
+
+extern void usb_file_drop_privileges(struct file *file);
 
 /* ----------------------------------------------------------------------- */
 

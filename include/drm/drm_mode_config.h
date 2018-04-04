@@ -34,6 +34,7 @@ struct drm_file;
 struct drm_device;
 struct drm_atomic_state;
 struct drm_mode_fb_cmd2;
+struct drm_format_info;
 
 /**
  * struct drm_mode_config_funcs - basic driver provided mode setting functions
@@ -68,6 +69,19 @@ struct drm_mode_config_funcs {
 	struct drm_framebuffer *(*fb_create)(struct drm_device *dev,
 					     struct drm_file *file_priv,
 					     const struct drm_mode_fb_cmd2 *mode_cmd);
+
+	/**
+	 * @get_format_info:
+	 *
+	 * Allows a driver to return custom format information for special
+	 * fb layouts (eg. ones with auxiliary compression control planes).
+	 *
+	 * RETURNS:
+	 *
+	 * The format information specific to the given fb metadata, or
+	 * NULL if none is found.
+	 */
+	const struct drm_format_info *(*get_format_info)(const struct drm_mode_fb_cmd2 *mode_cmd);
 
 	/**
 	 * @output_poll_changed:
@@ -511,8 +525,6 @@ struct drm_mode_config {
 	 * connectors must be of and active must be set to disabled, too.
 	 */
 	struct drm_property *prop_mode_id;
-	struct drm_property *content_protection_property;
-	struct drm_property *content_protection_ksv_property;
 
 	/**
 	 * @dvi_i_subconnector_property: Optional DVI-I property to
@@ -655,6 +667,12 @@ struct drm_mode_config {
 	 * Whether the driver supports fb modifiers in the ADDFB2.1 ioctl call.
 	 */
 	bool allow_fb_modifiers;
+
+	/**
+	 * @modifiers: Plane property to list support modifier/format
+	 * combination.
+	 */
+	struct drm_property *modifiers_property;
 
 	/* cursor size */
 	uint32_t cursor_width, cursor_height;

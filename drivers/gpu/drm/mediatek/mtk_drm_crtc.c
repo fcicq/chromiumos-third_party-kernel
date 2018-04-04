@@ -13,6 +13,7 @@
 
 #include <asm/barrier.h>
 #include <drm/drmP.h>
+#include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_plane_helper.h>
@@ -432,7 +433,7 @@ static void mtk_drm_crtc_atomic_flush(struct drm_crtc *crtc,
 					  cmdq_handle);
 	}
 
-	mtk_atomic_state_get(old_atomic_state);
+	drm_atomic_state_get(old_atomic_state);
 
 	cmdq_rec_flush_async_callback(cmdq_handle, ddp_cmdq_cb,
 				      old_crtc_state, NULL, NULL);

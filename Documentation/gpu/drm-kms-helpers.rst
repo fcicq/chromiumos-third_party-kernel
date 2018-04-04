@@ -111,6 +111,8 @@ Framebuffer CMA Helper Functions Reference
 .. kernel-doc:: drivers/gpu/drm/drm_fb_cma_helper.c
    :export:
 
+.. _drm_bridges:
+
 Bridges
 =======
 
@@ -126,8 +128,23 @@ Default bridge callback sequence
 .. kernel-doc:: drivers/gpu/drm/drm_bridge.c
    :doc: bridge callbacks
 
+
+Bridge Helper Reference
+-------------------------
+
+.. kernel-doc:: include/drm/drm_bridge.h
+   :internal:
+
 .. kernel-doc:: drivers/gpu/drm/drm_bridge.c
    :export:
+
+Panel-Bridge Helper Reference
+-----------------------------
+
+.. kernel-doc:: drivers/gpu/drm/bridge/panel.c
+   :export:
+
+.. _drm_panel_helper:
 
 Panel Helper Reference
 ======================

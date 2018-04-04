@@ -587,6 +587,23 @@
 # define DP_VSC_EXT_CEA_SDP_SUPPORTED			(1 << 6)  /* DP 1.4 */
 # define DP_VSC_EXT_CEA_SDP_CHAINING_SUPPORTED		(1 << 7)  /* DP 1.4 */
 
+#define DP_AUX_HDCP_BKSV		0x68000
+#define DP_AUX_HDCP_RI_PRIME		0x68005
+#define DP_AUX_HDCP_AKSV		0x68007
+#define DP_AUX_HDCP_AN			0x6800C
+#define DP_AUX_HDCP_V_PRIME(h)		(0x68014 + h * 4)
+#define DP_AUX_HDCP_BCAPS		0x68028
+# define DP_BCAPS_REPEATER_PRESENT	BIT(1)
+# define DP_BCAPS_HDCP_CAPABLE		BIT(0)
+#define DP_AUX_HDCP_BSTATUS		0x68029
+# define DP_BSTATUS_REAUTH_REQ		BIT(3)
+# define DP_BSTATUS_LINK_FAILURE	BIT(2)
+# define DP_BSTATUS_R0_PRIME_READY	BIT(1)
+# define DP_BSTATUS_READY		BIT(0)
+#define DP_AUX_HDCP_BINFO		0x6802A
+#define DP_AUX_HDCP_KSV_FIFO		0x6802C
+#define DP_AUX_HDCP_AINFO		0x6803B
+
 /* DP 1.2 Sideband message defines */
 /* peer device type - DP 1.2a Table 2-92 */
 #define DP_PEER_DEVICE_NONE		0x0
@@ -847,5 +864,56 @@ void drm_dp_downstream_debug(struct seq_file *m, const u8 dpcd[DP_RECEIVER_CAP_S
 void drm_dp_aux_init(struct drm_dp_aux *aux);
 int drm_dp_aux_register(struct drm_dp_aux *aux);
 void drm_dp_aux_unregister(struct drm_dp_aux *aux);
+
+struct drm_dp_dpcd_ident {
+	u8 oui[3];
+	u8 device_id[6];
+	u8 hw_rev;
+	u8 sw_major_rev;
+	u8 sw_minor_rev;
+} __packed;
+
+/**
+ * struct drm_dp_desc - DP branch/sink device descriptor
+ * @ident: DP device identification from DPCD 0x400 (sink) or 0x500 (branch).
+ * @quirks: Quirks; use drm_dp_has_quirk() to query for the quirks.
+ */
+struct drm_dp_desc {
+	struct drm_dp_dpcd_ident ident;
+	u32 quirks;
+};
+
+int drm_dp_read_desc(struct drm_dp_aux *aux, struct drm_dp_desc *desc,
+		     bool is_branch);
+
+/**
+ * enum drm_dp_quirk - Display Port sink/branch device specific quirks
+ *
+ * Display Port sink and branch devices in the wild have a variety of bugs, try
+ * to collect them here. The quirks are shared, but it's up to the drivers to
+ * implement workarounds for them.
+ */
+enum drm_dp_quirk {
+	/**
+	 * @DP_DPCD_QUIRK_LIMITED_M_N:
+	 *
+	 * The device requires main link attributes Mvid and Nvid to be limited
+	 * to 16 bits.
+	 */
+	DP_DPCD_QUIRK_LIMITED_M_N,
+};
+
+/**
+ * drm_dp_has_quirk() - does the DP device have a specific quirk
+ * @desc: Device decriptor filled by drm_dp_read_desc()
+ * @quirk: Quirk to query for
+ *
+ * Return true if DP device identified by @desc has @quirk.
+ */
+static inline bool
+drm_dp_has_quirk(const struct drm_dp_desc *desc, enum drm_dp_quirk quirk)
+{
+	return desc->quirks & BIT(quirk);
+}
 
 #endif /* _DRM_DP_HELPER_H_ */

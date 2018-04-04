@@ -30,7 +30,7 @@
 #define CR50_SLEEP_DELAY_MSEC			1000
 #define CR50_WAKE_START_DELAY_MSEC		1
 #define CR50_ACCESS_DELAY_MSEC			2
-#define CR50_FLOW_CONTROL_MSEC			100
+#define CR50_FLOW_CONTROL_MSEC			TPM2_TIMEOUT_A
 
 #define MAX_SPI_FRAMESIZE			64
 
@@ -154,8 +154,11 @@ static int cr50_spi_flow_control(struct cr50_spi_phy *phy)
 		ret = spi_sync_locked(phy->spi_device, &m);
 		if (ret < 0)
 			return ret;
-		if (time_after(jiffies, timeout_jiffies))
+		if (time_after(jiffies, timeout_jiffies)) {
+			dev_warn(&phy->spi_device->dev,
+				 "Timeout during flow control\n");
 			return -EBUSY;
+		}
 	} while (!(phy->rx_buf[0] & 0x01));
 	return 0;
 }
@@ -171,6 +174,7 @@ static int cr50_spi_xfer_bytes(struct tpm_tis_data *data, u32 addr,
 		.len = 4,
 		.cs_change = 1,
 	};
+	struct spi_transfer spi_cs_deassert = {};
 	int ret;
 
 	if (len > MAX_SPI_FRAMESIZE)
@@ -195,11 +199,11 @@ static int cr50_spi_xfer_bytes(struct tpm_tis_data *data, u32 addr,
 	spi_bus_lock(phy->spi_device->master);
 	ret = spi_sync_locked(phy->spi_device, &m);
 	if (ret < 0)
-		goto exit;
+		goto err;
 
 	ret = cr50_spi_flow_control(phy);
 	if (ret < 0)
-		goto exit;
+		goto err;
 
 	spi_xfer.cs_change = 0;
 	spi_xfer.len = len;
@@ -214,10 +218,21 @@ static int cr50_spi_xfer_bytes(struct tpm_tis_data *data, u32 addr,
 	spi_message_add_tail(&spi_xfer, &m);
 	reinit_completion(&phy->tpm_ready);
 	ret = spi_sync_locked(phy->spi_device, &m);
+	if (ret < 0)
+		goto err;
 	if (!do_write)
 		memcpy(buf, phy->rx_buf, len);
+	goto done;
 
-exit:
+err:
+	/* Send an empty message to deassert CS - it could have been
+	 * left asserted if we exited before the payload transmission.
+	 */
+	spi_message_init(&m);
+	spi_message_add_tail(&spi_cs_deassert, &m);
+	spi_sync_locked(phy->spi_device, &m);
+
+done:
 	spi_bus_unlock(phy->spi_device->master);
 	phy->last_access_jiffies = jiffies;
 	mutex_unlock(&phy->time_track_mutex);
@@ -349,9 +364,6 @@ static int cr50_spi_probe(struct spi_device *dev)
 	cr50_get_fw_version(&phy->priv, fw_ver);
 	dev_info(&dev->dev, "Cr50 firmware version: %s\n", fw_ver);
 
-	/* Disable deep-sleep, ignore if command failed. */
-	cr50_control_deep_sleep(spi_get_drvdata(dev), 0);
-
 	return 0;
 }
 
@@ -378,7 +390,6 @@ static void cr50_spi_shutdown(struct spi_device *dev)
 {
 	struct tpm_chip *chip = spi_get_drvdata(dev);
 
-	cr50_control_deep_sleep(chip, 1);
 	tpm_chip_unregister(chip);
 	tpm_tis_remove(chip);
 	dev_info(&dev->dev, "gentle shutdown done\n");

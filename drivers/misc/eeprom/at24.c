@@ -260,6 +260,9 @@ static ssize_t at24_read(struct at24_data *at24,
 	if (unlikely(!count))
 		return count;
 
+	if (off + count > at24->chip.byte_len)
+		return -EINVAL;
+
 	client = at24_translate_offset(at24, (unsigned int *)&off);
 
 	ret = pm_runtime_get_sync(&client->dev);
@@ -323,6 +326,9 @@ static ssize_t at24_eeprom_write(struct at24_data *at24, const char *buf,
 	ssize_t status = 0;
 	unsigned long timeout, write_time;
 	unsigned next_page;
+
+	if (offset + count > at24->chip.byte_len)
+		return -EINVAL;
 
 	/* Get corresponding I2C address and adjust offset */
 	client = at24_translate_offset(at24, &offset);

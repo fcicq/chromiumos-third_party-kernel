@@ -392,10 +392,12 @@ static int byt_sd_probe_slot(struct sdhci_pci_slot *slot)
 {
 	slot->host->mmc->caps |= MMC_CAP_WAIT_WHILE_BUSY |
 				 MMC_CAP_AGGRESSIVE_PM;
+
+	slot->host->mmc->pm_flags |= MMC_PM_KEEP_POWER |
+				     MMC_PM_WAKE_SDIO_IRQ;
 	slot->cd_con_id = NULL;
 	slot->cd_idx = 0;
 	slot->cd_override_level = true;
-	slot->cd_wake = true;
 	if (slot->chip->pdev->device == PCI_DEVICE_ID_INTEL_BXT_SD ||
 	    slot->chip->pdev->device == PCI_DEVICE_ID_INTEL_BXTM_SD ||
 	    slot->chip->pdev->device == PCI_DEVICE_ID_INTEL_APL_SD)
@@ -1594,14 +1596,6 @@ static int sdhci_pci_suspend(struct device *dev)
 			goto err_pci_suspend;
 	}
 
-	if (pm_flags & MMC_PM_KEEP_POWER) {
-		if (pm_flags & MMC_PM_WAKE_SDIO_IRQ)
-			device_init_wakeup(dev, true);
-		else
-			device_init_wakeup(dev, false);
-	} else
-		device_init_wakeup(dev, false);
-
 	return 0;
 
 err_pci_suspend:
@@ -1833,8 +1827,6 @@ static struct sdhci_pci_slot *sdhci_pci_probe_slot(
 				 slot->cd_override_level, 0, NULL)) {
 		dev_warn(&pdev->dev, "failed to setup card detect gpio\n");
 		slot->cd_idx = -1;
-	} else if (slot->cd_wake) {
-		mmc_gpio_cd_enable_wake(host->mmc);
 	}
 
 	ret = sdhci_add_host(host);
@@ -1928,6 +1920,7 @@ static int sdhci_pci_probe(struct pci_dev *pdev,
 
 	u8 slots, first_bar;
 	int ret, i;
+	mmc_pm_flag_t pm_flags = 0;
 
 	BUG_ON(pdev == NULL);
 	BUG_ON(ent == NULL);
@@ -1996,7 +1989,12 @@ static int sdhci_pci_probe(struct pci_dev *pdev,
 		}
 
 		chip->slots[i] = slot;
+		pm_flags |= slot->host->mmc->pm_flags;
 	}
+
+	device_init_wakeup(&chip->pdev->dev,
+                                  (pm_flags & MMC_PM_KEEP_POWER) &&
+                                  (pm_flags & MMC_PM_WAKE_SDIO_IRQ));
 
 	if (chip->allow_runtime_pm)
 		sdhci_pci_runtime_pm_allow(&pdev->dev);

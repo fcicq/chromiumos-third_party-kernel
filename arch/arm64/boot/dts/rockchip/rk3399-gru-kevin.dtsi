@@ -49,6 +49,7 @@
  */
 
 #include "rk3399-gru.dtsi"
+#include <dt-bindings/input/gpio-keys.h>
 #include <include/dt-bindings/input/linux-event-codes.h>
 
 /*
@@ -136,6 +137,8 @@
 		gpios = <&gpio0 13 GPIO_ACTIVE_LOW>;
 		linux,code = <SW_PEN_INSERTED>;
 		linux,input-type = <EV_SW>;
+		/* Wakeup only when ejecting */
+		wakeup-event-action = <EV_ACT_DEASSERTED>;
 		wakeup-source;
 	};
 };

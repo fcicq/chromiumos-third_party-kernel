@@ -147,8 +147,13 @@ done:
 
 static void rt5514_schedule_copy(struct rt5514_dsp *rt5514_dsp)
 {
+	size_t period_bytes;
 	u8 buf[8];
 
+	if (!rt5514_dsp->substream)
+		return;
+
+	period_bytes = snd_pcm_lib_period_bytes(rt5514_dsp->substream);
 	rt5514_dsp->get_size = 0;
 
 	/**
@@ -175,6 +180,10 @@ static void rt5514_schedule_copy(struct rt5514_dsp *rt5514_dsp)
 		rt5514_dsp->buf_rp = (rt5514_dsp->buf_rp / 8) * 8;
 
 	rt5514_dsp->buf_size = rt5514_dsp->buf_limit - rt5514_dsp->buf_base;
+
+	if (rt5514_dsp->buf_size % period_bytes)
+		rt5514_dsp->buf_size = (rt5514_dsp->buf_size / period_bytes) *
+			period_bytes;
 
 	if (rt5514_dsp->buf_base && rt5514_dsp->buf_limit &&
 		rt5514_dsp->buf_rp && rt5514_dsp->buf_size)
@@ -370,6 +379,7 @@ int rt5514_spi_burst_read(unsigned int addr, u8 *rxbuf, size_t len)
 
 	return true;
 }
+EXPORT_SYMBOL_GPL(rt5514_spi_burst_read);
 
 /**
  * rt5514_spi_burst_write - Write data to SPI by rt5514 address.
@@ -464,10 +474,23 @@ static int rt5514_suspend(struct device *dev)
 
 static int rt5514_resume(struct device *dev)
 {
+	struct snd_soc_platform *platform = snd_soc_lookup_platform(dev);
+	struct rt5514_dsp *rt5514_dsp =
+		snd_soc_platform_get_drvdata(platform);
 	int irq = to_spi_device(dev)->irq;
+	u8 buf[8];
 
 	if (device_may_wakeup(dev))
 		disable_irq_wake(irq);
+
+	if (rt5514_dsp) {
+		if (rt5514_dsp->substream) {
+			rt5514_spi_burst_read(RT5514_IRQ_CTRL, (u8 *)&buf,
+				sizeof(buf));
+			if (buf[0] & RT5514_IRQ_STATUS_BIT)
+				rt5514_schedule_copy(rt5514_dsp);
+		}
+	}
 
 	return 0;
 }

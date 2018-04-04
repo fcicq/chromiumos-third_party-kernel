@@ -41,6 +41,9 @@
 #include <linux/pm.h>
 #include <linux/of.h>
 #include <linux/of_platform.h>
+#ifdef CONFIG_X86
+#include <asm/i8259.h>
+#endif
 
 /* this is for "generic access to PC-style RTC" using CMOS_READ/CMOS_WRITE */
 #include <asm-generic/rtc.h>
@@ -900,6 +903,9 @@ static inline int cmos_poweroff(struct device *dev)
 
 #ifdef	CONFIG_PM_SLEEP
 
+static void cmos_check_acpi_rtc_status(struct device *dev,
+				       unsigned char *rtc_control);
+
 static int cmos_resume(struct device *dev)
 {
 	struct cmos_rtc	*cmos = dev_get_drvdata(dev);
@@ -939,6 +945,9 @@ static int cmos_resume(struct device *dev)
 			tmp &= ~RTC_AIE;
 			hpet_mask_rtc_irq_bit(RTC_AIE);
 		} while (mask & RTC_AIE);
+
+		if (tmp & RTC_AIE)
+			cmos_check_acpi_rtc_status(dev, &tmp);
 	}
 	spin_unlock_irq(&rtc_lock);
 
@@ -976,6 +985,20 @@ static SIMPLE_DEV_PM_OPS(cmos_pm_ops, cmos_suspend, cmos_resume);
 static u32 rtc_handler(void *context)
 {
 	struct device *dev = context;
+	struct cmos_rtc *cmos = dev_get_drvdata(dev);
+	unsigned char rtc_control = 0;
+	unsigned char rtc_intr;
+
+	spin_lock_irq(&rtc_lock);
+	if (cmos_rtc.suspend_ctrl)
+		rtc_control = CMOS_READ(RTC_CONTROL);
+	if (rtc_control & RTC_AIE) {
+		cmos_rtc.suspend_ctrl &= ~RTC_AIE;
+		CMOS_WRITE(rtc_control, RTC_CONTROL);
+		rtc_intr = CMOS_READ(RTC_INTR_FLAGS);
+		rtc_update_irq(cmos->rtc, 1, rtc_intr);
+	}
+	spin_unlock_irq(&rtc_lock);
 
 	pm_wakeup_event(dev, 0);
 	acpi_clear_event(ACPI_EVENT_RTC);
@@ -1042,9 +1065,36 @@ static void cmos_wake_setup(struct device *dev)
 	device_init_wakeup(dev, 1);
 }
 
+static void cmos_check_acpi_rtc_status(struct device *dev,
+				       unsigned char *rtc_control)
+{
+	struct cmos_rtc *cmos = dev_get_drvdata(dev);
+	acpi_event_status rtc_status;
+	acpi_status status;
+
+	if (acpi_gbl_FADT.flags & ACPI_FADT_FIXED_RTC)
+		return;
+
+	status = acpi_get_event_status(ACPI_EVENT_RTC, &rtc_status);
+	if (ACPI_FAILURE(status)) {
+		dev_err(dev, "Could not get RTC status\n");
+	} else if (rtc_status & ACPI_EVENT_FLAG_SET) {
+		unsigned char mask;
+		*rtc_control &= ~RTC_AIE;
+		CMOS_WRITE(*rtc_control, RTC_CONTROL);
+		mask = CMOS_READ(RTC_INTR_FLAGS);
+		rtc_update_irq(cmos->rtc, 1, mask);
+	}
+}
+
 #else
 
 static void cmos_wake_setup(struct device *dev)
+{
+}
+
+static void cmos_check_acpi_rtc_status(struct device *dev,
+				       unsigned char *rtc_control)
 {
 }
 
@@ -1058,17 +1108,23 @@ static int cmos_pnp_probe(struct pnp_dev *pnp, const struct pnp_device_id *id)
 {
 	cmos_wake_setup(&pnp->dev);
 
-	if (pnp_port_start(pnp, 0) == 0x70 && !pnp_irq_valid(pnp, 0))
+	if (pnp_port_start(pnp, 0) == 0x70 && !pnp_irq_valid(pnp, 0)) {
+		unsigned int irq = 0;
+#ifdef CONFIG_X86
 		/* Some machines contain a PNP entry for the RTC, but
 		 * don't define the IRQ. It should always be safe to
-		 * hardcode it in these cases
+		 * hardcode it on systems with a legacy PIC.
 		 */
+		if (nr_legacy_irqs())
+			irq = 8;
+#endif
 		return cmos_do_probe(&pnp->dev,
-				pnp_get_resource(pnp, IORESOURCE_IO, 0), 8);
-	else
+				pnp_get_resource(pnp, IORESOURCE_IO, 0), irq);
+	} else {
 		return cmos_do_probe(&pnp->dev,
 				pnp_get_resource(pnp, IORESOURCE_IO, 0),
 				pnp_irq(pnp, 0));
+	}
 }
 
 static void __exit cmos_pnp_remove(struct pnp_dev *pnp)

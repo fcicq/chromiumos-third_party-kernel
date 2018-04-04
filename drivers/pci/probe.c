@@ -1423,8 +1423,16 @@ static void program_hpp_type0(struct pci_dev *dev, struct hpp_type0 *hpp)
 
 static void program_hpp_type1(struct pci_dev *dev, struct hpp_type1 *hpp)
 {
-	if (hpp)
-		dev_warn(&dev->dev, "PCI-X settings not supported\n");
+	int pos;
+
+	if (!hpp)
+		return;
+
+	pos = pci_find_capability(dev, PCI_CAP_ID_PCIX);
+	if (!pos)
+		return;
+
+	dev_warn(&dev->dev, "PCI-X settings not supported\n");
 }
 
 static bool pcie_root_rcb_set(struct pci_dev *dev)
@@ -1448,6 +1456,9 @@ static void program_hpp_type2(struct pci_dev *dev, struct hpp_type2 *hpp)
 	u32 reg32;
 
 	if (!hpp)
+		return;
+
+	if (!pci_is_pcie(dev))
 		return;
 
 	if (hpp->revision > 1) {
@@ -1726,34 +1737,6 @@ static void pci_set_msi_domain(struct pci_dev *dev)
 	dev_set_msi_domain(&dev->dev, d);
 }
 
-/**
- * pci_dma_configure - Setup DMA configuration
- * @dev: ptr to pci_dev struct of the PCI device
- *
- * Function to update PCI devices's DMA configuration using the same
- * info from the OF node or ACPI node of host bridge's parent (if any).
- */
-static void pci_dma_configure(struct pci_dev *dev)
-{
-	struct device *bridge = pci_get_host_bridge_device(dev);
-
-	if (IS_ENABLED(CONFIG_OF) &&
-		bridge->parent && bridge->parent->of_node) {
-			of_dma_configure(&dev->dev, bridge->parent->of_node);
-	} else if (has_acpi_companion(bridge)) {
-		struct acpi_device *adev = to_acpi_device_node(bridge->fwnode);
-		enum dev_dma_attr attr = acpi_get_dma_attr(adev);
-
-		if (attr == DEV_DMA_NOT_SUPPORTED)
-			dev_warn(&dev->dev, "DMA not supported.\n");
-		else
-			arch_setup_dma_ops(&dev->dev, 0, 0, NULL,
-					   attr == DEV_DMA_COHERENT);
-	}
-
-	pci_put_host_bridge_device(bridge);
-}
-
 void pci_device_add(struct pci_dev *dev, struct pci_bus *bus)
 {
 	int ret;
@@ -1767,7 +1750,6 @@ void pci_device_add(struct pci_dev *dev, struct pci_bus *bus)
 	dev->dev.dma_mask = &dev->dma_mask;
 	dev->dev.dma_parms = &dev->dma_parms;
 	dev->dev.coherent_dma_mask = 0xffffffffull;
-	pci_dma_configure(dev);
 
 	pci_set_dma_max_seg_size(dev, 65536);
 	pci_set_dma_seg_boundary(dev, 0xffffffff);

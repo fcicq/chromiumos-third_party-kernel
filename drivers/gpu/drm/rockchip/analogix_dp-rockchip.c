@@ -206,16 +206,14 @@ static void rockchip_dp_drm_encoder_enable(struct drm_encoder *encoder)
 	int ret;
 	u32 val;
 
-	switch (vop_get_crtc_vop_id(encoder->crtc)) {
-	case RK3399_VOP_LIT:
-		val = dp->data->lcdsel_lit;
-		break;
-	case RK3399_VOP_BIG:
-		val = dp->data->lcdsel_big;
-		break;
-	default:
+	ret = drm_of_encoder_active_endpoint_id(dp->dev->of_node, encoder);
+	if (ret < 0)
 		return;
-	}
+
+	if (ret)
+		val = dp->data->lcdsel_lit;
+	else
+		val = dp->data->lcdsel_big;
 
 	dev_dbg(dp->dev, "vop %s output to dp\n", (ret) ? "LIT" : "BIG");
 
@@ -245,26 +243,14 @@ rockchip_dp_drm_encoder_atomic_check(struct drm_encoder *encoder,
 	struct rockchip_crtc_state *s = to_rockchip_crtc_state(crtc_state);
 	struct drm_display_info *di = &conn_state->connector->display_info;
 
-	switch (vop_get_crtc_vop_id(crtc_state->crtc)) {
-	case RK3399_VOP_LIT:
-		/*
-		 * For RK3399, VOP Lit must code the out mode to RGB888,
-		 * VOP Big must code the out mode to RGB10.
-		 */
-		s->output_mode = ROCKCHIP_OUT_MODE_P888;
-		break;
-	default:
-		/*
-		 * The hardware IC designed that VOP must output the RGB10 video
-		 * format to eDP contoller, and if eDP panel only support RGB8,
-		 * then eDP contoller should cut down the video data, not via VOP
-		 * contoller, that's why we need to hardcode the VOP output mode
-		 * to RGA10 here.
-		 */
-		s->output_mode = ROCKCHIP_OUT_MODE_AAAA;
-		break;
-	}
-
+	/*
+	 * The hardware IC designed that VOP must output the RGB10 video
+	 * format to eDP contoller, and if eDP panel only support RGB8,
+	 * then eDP contoller should cut down the video data, not via VOP
+	 * contoller, that's why we need to hardcode the VOP output mode
+	 * to RGA10 here.
+	 */
+	s->output_mode = ROCKCHIP_OUT_MODE_AAAA;
 	s->output_bpc = di->bpc;
 	s->output_type = DRM_MODE_CONNECTOR_eDP;
 
@@ -525,7 +511,7 @@ static const struct of_device_id rockchip_dp_dt_ids[] = {
 };
 MODULE_DEVICE_TABLE(of, rockchip_dp_dt_ids);
 
-static struct platform_driver rockchip_dp_driver = {
+struct platform_driver rockchip_dp_driver = {
 	.probe = rockchip_dp_probe,
 	.remove = rockchip_dp_remove,
 	.driver = {
@@ -535,10 +521,3 @@ static struct platform_driver rockchip_dp_driver = {
 		   .of_match_table = of_match_ptr(rockchip_dp_dt_ids),
 	},
 };
-
-module_platform_driver(rockchip_dp_driver);
-
-MODULE_AUTHOR("Yakir Yang <ykk@rock-chips.com>");
-MODULE_AUTHOR("Jeff chen <jeff.chen@rock-chips.com>");
-MODULE_DESCRIPTION("Rockchip Specific Analogix-DP Driver Extension");
-MODULE_LICENSE("GPL v2");

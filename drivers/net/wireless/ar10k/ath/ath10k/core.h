@@ -695,6 +695,12 @@ struct ath10k {
 			size_t board_size;
 			size_t board_ext_size;
 		} fw;
+
+		const struct ath10k_hw_ops *hw_ops;
+
+		/* hw specific clock control parameters */
+		const struct ath10k_hw_clk_params *hw_clk;
+		int target_cpu_freq;
 	} hw_params;
 
 	const struct firmware *board;

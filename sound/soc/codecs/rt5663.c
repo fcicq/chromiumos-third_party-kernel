@@ -42,7 +42,7 @@ struct rt5663_priv {
 	struct snd_soc_codec *codec;
 	struct rt5663_platform_data pdata;
 	struct regmap *regmap;
-	struct delayed_work jack_detect_work;
+	struct delayed_work jack_detect_work, jd_unplug_work;
 	struct snd_soc_jack *hs_jack;
 	struct timer_list btn_check_timer;
 
@@ -1549,6 +1549,10 @@ static int rt5663_jack_detect(struct snd_soc_codec *codec, int jack_insert)
 			RT5663_IRQ_POW_SAV_MASK, RT5663_IRQ_POW_SAV_EN);
 		snd_soc_update_bits(codec, RT5663_IRQ_1,
 			RT5663_EN_IRQ_JD1_MASK, RT5663_EN_IRQ_JD1_EN);
+		snd_soc_update_bits(codec, RT5663_EM_JACK_TYPE_1,
+			RT5663_EM_JD_MASK, RT5663_EM_JD_RST);
+		snd_soc_update_bits(codec, RT5663_EM_JACK_TYPE_1,
+			RT5663_EM_JD_MASK, RT5663_EM_JD_NOR);
 
 		while (true) {
 			regmap_read(rt5663->regmap, RT5663_INT_ST_2, &val);
@@ -1639,7 +1643,8 @@ static irqreturn_t rt5663_irq(int irq, void *data)
 {
 	struct rt5663_priv *rt5663 = data;
 
-	dev_dbg(rt5663->codec->dev, "%s IRQ queue work\n", __func__);
+	dev_dbg(regmap_get_device(rt5663->regmap), "%s IRQ queue work\n",
+		__func__);
 
 	queue_delayed_work(system_wq, &rt5663->jack_detect_work,
 		msecs_to_jiffies(250));
@@ -1750,8 +1755,15 @@ static void rt5663_jack_detect_work(struct work_struct *work)
 				break;
 			}
 			/* button release or spurious interrput*/
-			if (btn_type == 0)
+			if (btn_type == 0) {
 				report =  rt5663->jack_type;
+				cancel_delayed_work_sync(
+					&rt5663->jd_unplug_work);
+			} else {
+				queue_delayed_work(system_wq,
+					&rt5663->jd_unplug_work,
+					msecs_to_jiffies(500));
+			}
 		}
 	} else {
 		/* jack out */
@@ -1770,6 +1782,37 @@ static void rt5663_jack_detect_work(struct work_struct *work)
 	snd_soc_jack_report(rt5663->hs_jack, report, SND_JACK_HEADSET |
 			    SND_JACK_BTN_0 | SND_JACK_BTN_1 |
 			    SND_JACK_BTN_2 | SND_JACK_BTN_3);
+}
+
+static void rt5663_jd_unplug_work(struct work_struct *work)
+{
+	struct rt5663_priv *rt5663 =
+		container_of(work, struct rt5663_priv, jd_unplug_work.work);
+	struct snd_soc_codec *codec = rt5663->codec;
+
+	if (!codec)
+		return;
+
+	if (!rt5663_check_jd_status(codec)) {
+		/* jack out */
+		switch (rt5663->codec_ver) {
+		case CODEC_VER_1:
+			rt5663_v2_jack_detect(rt5663->codec, 0);
+			break;
+		case CODEC_VER_0:
+			rt5663_jack_detect(rt5663->codec, 0);
+			break;
+		default:
+			dev_err(codec->dev, "Unknown CODEC Version\n");
+		}
+
+		snd_soc_jack_report(rt5663->hs_jack, 0, SND_JACK_HEADSET |
+				    SND_JACK_BTN_0 | SND_JACK_BTN_1 |
+				    SND_JACK_BTN_2 | SND_JACK_BTN_3);
+	} else {
+		queue_delayed_work(system_wq, &rt5663->jd_unplug_work,
+			msecs_to_jiffies(500));
+	}
 }
 
 static const struct snd_kcontrol_new rt5663_snd_controls[] = {
@@ -3218,7 +3261,16 @@ static int rt5663_i2c_probe(struct i2c_client *i2c,
 			ret);
 		return ret;
 	}
-	regmap_read(regmap, RT5663_VENDOR_ID_2, &val);
+
+	ret = regmap_read(regmap, RT5663_VENDOR_ID_2, &val);
+	if (ret || (val != RT5663_DEVICE_ID_2 && val != RT5663_DEVICE_ID_1)) {
+		dev_err(&i2c->dev,
+			"Device with ID register %#x is not rt5663,"
+			" retry one time.\n", val);
+		msleep(100);
+		regmap_read(regmap, RT5663_VENDOR_ID_2, &val);
+	}
+
 	switch (val) {
 	case RT5663_DEVICE_ID_2:
 		rt5663->regmap = devm_regmap_init_i2c(i2c, &rt5663_v2_regmap);
@@ -3337,6 +3389,7 @@ static int rt5663_i2c_probe(struct i2c_client *i2c,
 	}
 
 	INIT_DELAYED_WORK(&rt5663->jack_detect_work, rt5663_jack_detect_work);
+	INIT_DELAYED_WORK(&rt5663->jd_unplug_work, rt5663_jd_unplug_work);
 
 	if (i2c->irq) {
 		ret = request_irq(i2c->irq, rt5663_irq,

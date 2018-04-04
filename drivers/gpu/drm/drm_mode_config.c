@@ -20,6 +20,7 @@
  * OF THIS SOFTWARE.
  */
 
+#include <drm/drm_encoder.h>
 #include <drm/drm_mode_config.h>
 #include <drm/drmP.h>
 
@@ -238,13 +239,6 @@ static const struct drm_prop_enum_list drm_plane_type_enum_list[] = {
 	{ DRM_PLANE_TYPE_CURSOR, "Cursor" },
 };
 
-static struct drm_prop_enum_list drm_cp_enum_list[] = {
-        { DRM_MODE_CONTENT_PROTECTION_UNDESIRED, "Undesired" },
-        { DRM_MODE_CONTENT_PROTECTION_DESIRED, "Desired" },
-};
-
-DRM_ENUM_NAME_FN(drm_get_content_protection_name, drm_cp_enum_list)
-
 static const struct drm_prop_enum_list drm_dirty_info_enum_list[] = {
 	{ DRM_MODE_DIRTY_OFF,      "Off"      },
 	{ DRM_MODE_DIRTY_ON,       "On"       },
@@ -387,15 +381,12 @@ static int drm_mode_create_standard_properties(struct drm_device *dev)
 		return -ENOMEM;
 	dev->mode_config.gamma_lut_size_property = prop;
 
-	prop = drm_property_create_enum(dev, 0,
-	                                "Content Protection", drm_cp_enum_list,
-					ARRAY_SIZE(drm_cp_enum_list));
-	dev->mode_config.content_protection_property = prop;
-
-	prop = drm_property_create_range(dev, DRM_MODE_PROP_IMMUTABLE,
-	                                 "Content Protection KSV", 0,
-					 0xFFFFFFFFFF);
-	dev->mode_config.content_protection_ksv_property = prop;
+	prop = drm_property_create(dev,
+				   DRM_MODE_PROP_IMMUTABLE | DRM_MODE_PROP_BLOB,
+				   "IN_FORMATS", 0);
+	if (!prop)
+		return -ENOMEM;
+	dev->mode_config.modifiers_property = prop;
 
 	return 0;
 }

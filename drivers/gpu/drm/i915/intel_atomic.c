@@ -247,7 +247,18 @@ int intel_atomic_setup_scalers(struct drm_i915_private *dev_priv,
 		}
 
 		/* set scaler mode */
-		if (num_scalers_need == 1 && intel_crtc->pipe != PIPE_C) {
+		if ((INTEL_GEN(dev_priv) >= 9) &&
+		    plane_state && plane_state->base.fb &&
+		    plane_state->base.fb->format->format ==
+		    DRM_FORMAT_NV12) {
+                        if (INTEL_GEN(dev_priv) == 9 &&
+                             !IS_GEMINILAKE(dev_priv))
+                                 scaler_state->scalers[*scaler_id].mode =
+                                         SKL_PS_SCALER_MODE_NV12;
+                        else
+                                 scaler_state->scalers[*scaler_id].mode =
+				         PS_SCALER_MODE_PLANAR;
+		} else if (num_scalers_need == 1 && intel_crtc->pipe != PIPE_C) {
 			/*
 			 * when only 1 scaler is in use on either pipe A or B,
 			 * scaler 0 operates in high quality (HQ) mode.

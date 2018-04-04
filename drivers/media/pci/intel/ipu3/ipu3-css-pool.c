@@ -37,6 +37,20 @@ void ipu3_css_dma_free(struct device *dma_dev, struct ipu3_css_map *map)
 	if (map->vaddr)
 		dma_free_coherent(dma_dev, map->size, map->vaddr, map->daddr);
 	map->vaddr = NULL;
+	map->size = 0;
+}
+
+int ipu3_css_dma_buffer_resize(struct device *dma_dev,
+			       struct ipu3_css_map *map, size_t size)
+{
+	if (map->size < size) {
+		dev_warn(dma_dev, "dma buffer is resized from %zu to %zu",
+			map->size, size);
+		ipu3_css_dma_free(dma_dev, map);
+		return ipu3_css_dma_alloc(dma_dev, map, size);
+	}
+
+	return 0;
 }
 
 void ipu3_css_pool_cleanup(struct device *dma_dev, struct ipu3_css_pool *pool)

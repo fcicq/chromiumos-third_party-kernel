@@ -22,9 +22,11 @@
 #define CIO2_DMA_MASK			DMA_BIT_MASK(39)
 #define CIO2_QUEUES			2 /* 1 for each sensor */
 
+#define CIO2_IMAGE_MAX_WIDTH				4224
+#define CIO2_IMAGE_MAX_LENGTH				3136
+
 #define CIO2_MAX_LOPS			8 /* 32MB = 8xFBPT_entry */
 #define CIO2_MAX_BUFFERS		(PAGE_SIZE / 16 / CIO2_MAX_LOPS)
-#define CIO2_MAX_SUBDEVS		4 /* 4 ports */
 
 #define CIO2_PAD_SINK			0 /* sinking data */
 #define CIO2_PAD_SOURCE			1 /* sourcing data */
@@ -255,7 +257,7 @@
 #define CIO2_PBM_WMCTRL1_MID1_2CK	(16 << CIO2_PBM_WMCTRL1_MID1_2CK_SHIFT)
 #define CIO2_PBM_WMCTRL1_MID2_2CK	(21 << CIO2_PBM_WMCTRL1_MID2_2CK_SHIFT)
 
-#define CIO2_PBM_WMCTRL2_HWM_2CK	40
+#define CIO2_PBM_WMCTRL2_HWM_2CK	20
 #define CIO2_PBM_WMCTRL2_LWM_2CK	22
 #define CIO2_PBM_WMCTRL2_OBFFWM_2CK	2
 #define CIO2_PBM_WMCTRL2_TRANSDYN	1
@@ -309,11 +311,16 @@ struct cio2_csi2_timing {
 	s32 dat_settle;
 };
 
+struct csi2_bus_info {
+	u32 port;
+	u32 lanes;
+};
+
 struct cio2_queue {
 	/* mutex to be used by vb2_queue */
 	struct mutex lock;
 	struct media_pipeline pipe;
-	struct intel_acpi_camera_csi2 csi2;
+	struct csi2_bus_info csi2;
 	struct v4l2_subdev *sensor;
 	void __iomem *csi_rx_base;
 
@@ -326,7 +333,7 @@ struct cio2_queue {
 	/* Video device, /dev/videoX */
 	struct video_device vdev;
 	struct media_pad vdev_pad;
-	u32 pixelformat;
+	struct v4l2_pix_format_mplane format;
 	struct vb2_queue vbq;
 
 	/* Buffer queue handling */
@@ -350,7 +357,6 @@ struct cio2_device {
 	bool streaming;
 
 	struct v4l2_async_notifier notifier;
-	struct v4l2_async_subdev *async_subdevs[CIO2_MAX_SUBDEVS];
 	struct media_device media_dev;
 
 	/*
@@ -370,6 +376,7 @@ struct cio2_buffer {
 	struct vb2_v4l2_buffer vbb;
 	u32 *lop;
 	dma_addr_t lop_bus_addr;
+	unsigned int offset;
 };
 
 /**************** Virtual channel ****************/
@@ -424,6 +431,11 @@ struct __packed cio2_fbpt_entry {
 static inline struct cio2_queue *file_to_cio2_queue(struct file *file)
 {
 	return container_of(video_devdata(file), struct cio2_queue, vdev);
+}
+
+static inline struct cio2_queue *vb2q_to_cio2_queue(struct vb2_queue *vq)
+{
+	return container_of(vq, struct cio2_queue, vbq);
 }
 
 #endif

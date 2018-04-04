@@ -58,3 +58,16 @@ config DRM_I915_SW_FENCE_DEBUG_OBJECTS
           Recommended for driver developers only.
 
           If in doubt, say "N".
+
+config DRM_I915_DEBUG_VBLANK_EVADE
+	bool "Enable extra debug warnings for vblank evasion"
+	depends on DRM_I915
+	default n
+	help
+	  Choose this option to turn on extra debug warnings for the
+	  vblank evade mechanism. This gives a warning every time the
+	  the deadline allotted for the vblank evade critical section
+	  is exceeded, even if there isn't an actual risk of missing
+	  the vblank.
+
+	  If in doubt, say "N".

@@ -57,6 +57,7 @@ static bool acpi_nondev_subnode_extract(const union acpi_object *desc,
 
 	dn->name = link->package.elements[0].string.pointer;
 	dn->fwnode.type = FWNODE_ACPI_DATA;
+	dn->fwnode.ops = &acpi_fwnode_ops;
 	dn->parent = parent;
 	INIT_LIST_HEAD(&dn->data.subnodes);
 
@@ -587,7 +588,7 @@ int __acpi_node_get_property_reference(struct fwnode_handle *fwnode,
 
 	ret = acpi_data_get_property(data, propname, ACPI_TYPE_ANY, &obj);
 	if (ret)
-		return ret;
+		return ret == -EINVAL ? -ENOENT : -EINVAL;
 
 	/*
 	 * The simplest case is when the value is a single reference.  Just
@@ -599,7 +600,7 @@ int __acpi_node_get_property_reference(struct fwnode_handle *fwnode,
 
 		ret = acpi_bus_get_device(obj->reference.handle, &device);
 		if (ret)
-			return ret;
+			return ret == -ENODEV ? -EINVAL : ret;
 
 		args->adev = device;
 		args->nargs = 0;
@@ -615,8 +616,10 @@ int __acpi_node_get_property_reference(struct fwnode_handle *fwnode,
 	 * The index argument is then used to determine which reference
 	 * the caller wants (along with the arguments).
 	 */
-	if (obj->type != ACPI_TYPE_PACKAGE || index >= obj->package.count)
-		return -EPROTO;
+	if (obj->type != ACPI_TYPE_PACKAGE)
+		return -EINVAL;
+	if (index >= obj->package.count)
+		return -ENOENT;
 
 	element = obj->package.elements;
 	end = element + obj->package.count;
@@ -714,6 +717,8 @@ static int acpi_data_prop_read_single(struct acpi_device_data *data,
 			return ret;
 
 		*(char **)val = obj->string.pointer;
+
+		return 1;
 	} else {
 		ret = -EINVAL;
 	}
@@ -723,7 +728,15 @@ static int acpi_data_prop_read_single(struct acpi_device_data *data,
 int acpi_dev_prop_read_single(struct acpi_device *adev, const char *propname,
 			      enum dev_prop_type proptype, void *val)
 {
-	return adev ? acpi_data_prop_read_single(&adev->data, propname, proptype, val) : -EINVAL;
+	int ret;
+
+	if (!adev)
+		return -EINVAL;
+
+	ret = acpi_data_prop_read_single(&adev->data, propname, proptype, val);
+	if (ret < 0 || proptype != ACPI_TYPE_STRING)
+		return ret;
+	return 0;
 }
 
 static int acpi_copy_property_array_u8(const union acpi_object *items, u8 *val,
@@ -799,7 +812,7 @@ static int acpi_copy_property_array_string(const union acpi_object *items,
 
 		val[i] = items[i].string.pointer;
 	}
-	return 0;
+	return nval;
 }
 
 static int acpi_data_prop_read(struct acpi_device_data *data,
@@ -813,7 +826,7 @@ static int acpi_data_prop_read(struct acpi_device_data *data,
 
 	if (val && nval == 1) {
 		ret = acpi_data_prop_read_single(data, propname, proptype, val);
-		if (!ret)
+		if (ret >= 0)
 			return ret;
 	}
 
@@ -824,7 +837,7 @@ static int acpi_data_prop_read(struct acpi_device_data *data,
 	if (!val)
 		return obj->package.count;
 
-	if (nval > obj->package.count)
+	if (proptype != DEV_PROP_STRING && nval > obj->package.count)
 		return -EOVERFLOW;
 	else if (nval <= 0)
 		return -EINVAL;
@@ -845,7 +858,9 @@ static int acpi_data_prop_read(struct acpi_device_data *data,
 		ret = acpi_copy_property_array_u64(items, (u64 *)val, nval);
 		break;
 	case DEV_PROP_STRING:
-		ret = acpi_copy_property_array_string(items, (char **)val, nval);
+		ret = acpi_copy_property_array_string(
+			items, (char **)val,
+			min_t(u32, nval, obj->package.count));
 		break;
 	default:
 		ret = -EINVAL;
@@ -1034,7 +1049,7 @@ static struct fwnode_handle *acpi_graph_get_child_prop_value(
 	fwnode_for_each_child_node(fwnode, child) {
 		u32 nr;
 
-		if (!fwnode_property_read_u32(fwnode, prop_name, &nr))
+		if (fwnode_property_read_u32(child, prop_name, &nr))
 			continue;
 
 		if (val == nr)
@@ -1107,3 +1122,146 @@ int acpi_graph_get_remote_endpoint(struct fwnode_handle *fwnode,
 
 	return 0;
 }
+
+static bool acpi_fwnode_device_is_available(struct fwnode_handle *fwnode)
+{
+	if (!is_acpi_device_node(fwnode))
+		return false;
+
+	return acpi_device_is_present(to_acpi_device_node(fwnode));
+}
+
+static bool acpi_fwnode_property_present(struct fwnode_handle *fwnode,
+					 const char *propname)
+{
+	return !acpi_node_prop_get(fwnode, propname, NULL);
+}
+
+static int acpi_fwnode_property_read_int_array(struct fwnode_handle *fwnode,
+					       const char *propname,
+					       unsigned int elem_size,
+					       void *val, size_t nval)
+{
+	enum dev_prop_type type;
+
+	switch (elem_size) {
+	case sizeof(u8):
+		type = DEV_PROP_U8;
+		break;
+	case sizeof(u16):
+		type = DEV_PROP_U16;
+		break;
+	case sizeof(u32):
+		type = DEV_PROP_U32;
+		break;
+	case sizeof(u64):
+		type = DEV_PROP_U64;
+		break;
+	default:
+		return -ENXIO;
+	}
+
+	return acpi_node_prop_read(fwnode, propname, type, val, nval);
+}
+
+static int acpi_fwnode_property_read_string_array(struct fwnode_handle *fwnode,
+						  const char *propname,
+						  const char **val, size_t nval)
+{
+	return acpi_node_prop_read(fwnode, propname, DEV_PROP_STRING,
+				   val, nval);
+}
+
+static struct fwnode_handle *
+acpi_fwnode_get_named_child_node(struct fwnode_handle *fwnode,
+				 const char *childname)
+{
+	struct fwnode_handle *child;
+
+	/*
+	 * Find first matching named child node of this fwnode.
+	 * For ACPI this will be a data only sub-node.
+	 */
+	fwnode_for_each_child_node(fwnode, child)
+		if (acpi_data_node_match(child, childname))
+			return child;
+
+	return NULL;
+}
+
+static int
+acpi_fwnode_get_reference_args(struct fwnode_handle *fwnode,
+			       const char *prop, const char *nargs_prop,
+			       unsigned int args_count, unsigned int index,
+			       struct fwnode_reference_args *args)
+{
+	struct acpi_reference_args acpi_args;
+	unsigned int i;
+	int ret;
+
+	ret = __acpi_node_get_property_reference(fwnode, prop, index,
+						 args_count, &acpi_args);
+	if (ret < 0)
+		return ret;
+	if (!args)
+		return 0;
+
+	args->nargs = acpi_args.nargs;
+	args->fwnode = acpi_fwnode_handle(acpi_args.adev);
+
+	for (i = 0; i < NR_OF_FWNODE_REFERENCE_ARGS; i++)
+		args->args[i] = i < acpi_args.nargs ? acpi_args.args[i] : 0;
+
+	return 0;
+}
+
+static struct fwnode_handle *
+acpi_fwnode_graph_get_next_endpoint(struct fwnode_handle *fwnode,
+				    struct fwnode_handle *prev)
+{
+	struct fwnode_handle *endpoint;
+
+	endpoint = acpi_graph_get_next_endpoint(fwnode, prev);
+	if (IS_ERR(endpoint))
+		return NULL;
+
+	return endpoint;
+}
+
+static struct fwnode_handle *
+acpi_fwnode_graph_get_remote_endpoint(struct fwnode_handle *fwnode)
+{
+	struct fwnode_handle *endpoint = NULL;
+
+	acpi_graph_get_remote_endpoint(fwnode, NULL, NULL, &endpoint);
+
+	return endpoint;
+}
+
+static int acpi_fwnode_graph_parse_endpoint(struct fwnode_handle *fwnode,
+					    struct fwnode_endpoint *endpoint)
+{
+	struct fwnode_handle *port_fwnode = fwnode_get_parent(fwnode);
+
+	endpoint->local_fwnode = fwnode;
+
+	fwnode_property_read_u32(port_fwnode, "port", &endpoint->port);
+	fwnode_property_read_u32(fwnode, "endpoint", &endpoint->id);
+
+	return 0;
+}
+
+const struct fwnode_operations acpi_fwnode_ops = {
+	.device_is_available = acpi_fwnode_device_is_available,
+	.property_present = acpi_fwnode_property_present,
+	.property_read_int_array = acpi_fwnode_property_read_int_array,
+	.property_read_string_array = acpi_fwnode_property_read_string_array,
+	.get_parent = acpi_node_get_parent,
+	.get_next_child_node = acpi_get_next_subnode,
+	.get_named_child_node = acpi_fwnode_get_named_child_node,
+	.get_reference_args = acpi_fwnode_get_reference_args,
+	.graph_get_next_endpoint = acpi_fwnode_graph_get_next_endpoint,
+	.graph_get_remote_endpoint = acpi_fwnode_graph_get_remote_endpoint,
+	.graph_get_port_parent = acpi_node_get_parent,
+	.graph_parse_endpoint = acpi_fwnode_graph_parse_endpoint,
+};

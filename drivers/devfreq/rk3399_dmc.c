@@ -562,6 +562,7 @@ static int rk3399_dmcfreq_target(struct device *dev, unsigned long *freq,
 	rk3399_dfi_calc_top_threshold(dmcfreq->devfreq);
 	devfreq_event_set_event(dmcfreq->edev);
 out:
+	*freq = dmcfreq->rate;
 	mutex_unlock(&dmcfreq->lock);
 	return err;
 }
@@ -695,7 +696,7 @@ int rockchip_dmcfreq_unblock(struct devfreq *devfreq)
 	int ret = 0;
 
 	mutex_lock(&dmcfreq->en_lock);
-	if (dmcfreq->num_sync_nb <= 1 && dmcfreq->disable_count > 0) {
+	if (dmcfreq->num_sync_nb <= 1 && dmcfreq->disable_count == 1) {
 		rockchip_ddrclk_set_timeout_en(dmcfreq->dmc_clk, true);
 		ret = devfreq_resume_device(devfreq);
 	}

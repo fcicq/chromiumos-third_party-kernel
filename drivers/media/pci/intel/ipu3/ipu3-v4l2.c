@@ -92,6 +92,74 @@ static int ipu3_subdev_set_fmt(struct v4l2_subdev *sd,
 	return 0;
 }
 
+static int ipu3_subdev_get_selection(struct v4l2_subdev *sd,
+				     struct v4l2_subdev_pad_config *cfg,
+				     struct v4l2_subdev_selection *sel)
+{
+	struct ipu3_mem2mem2_device *m2m2 =
+		container_of(sd, struct ipu3_mem2mem2_device, subdev);
+	struct imgu_device *imgu =
+		container_of(m2m2, struct imgu_device, mem2mem2);
+	struct v4l2_rect *try_sel, *rect;
+
+	if (sel->pad != IMGU_NODE_IN)
+		return -EINVAL;
+
+	switch (sel->target) {
+	case V4L2_SEL_TGT_CROP:
+		try_sel = v4l2_subdev_get_try_crop(sd, cfg, sel->pad);
+		rect = &imgu->rect.eff;
+		break;
+	case V4L2_SEL_TGT_COMPOSE:
+		try_sel = v4l2_subdev_get_try_compose(sd, cfg, sel->pad);
+		rect = &imgu->rect.bds;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	if (sel->which == V4L2_SUBDEV_FORMAT_TRY)
+		sel->r = *try_sel;
+	else
+		sel->r = *rect;
+
+	return 0;
+}
+
+static int ipu3_subdev_set_selection(struct v4l2_subdev *sd,
+				     struct v4l2_subdev_pad_config *cfg,
+				     struct v4l2_subdev_selection *sel)
+{
+	struct ipu3_mem2mem2_device *m2m2 =
+		container_of(sd, struct ipu3_mem2mem2_device, subdev);
+	struct imgu_device *imgu =
+		container_of(m2m2, struct imgu_device, mem2mem2);
+	struct v4l2_rect *try_sel, *rect;
+
+	if (sel->pad != IMGU_NODE_IN)
+		return -EINVAL;
+
+	switch (sel->target) {
+	case V4L2_SEL_TGT_CROP:
+		try_sel = v4l2_subdev_get_try_crop(sd, cfg, sel->pad);
+		rect = &imgu->rect.eff;
+		break;
+	case V4L2_SEL_TGT_COMPOSE:
+		try_sel = v4l2_subdev_get_try_compose(sd, cfg, sel->pad);
+		rect = &imgu->rect.bds;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	if (sel->which == V4L2_SUBDEV_FORMAT_TRY)
+		*try_sel = sel->r;
+	else
+		*rect = sel->r;
+
+	return 0;
+}
+
 /******************** media_entity_operations ********************/
 
 static int ipu3_link_setup(struct media_entity *entity,
@@ -132,15 +200,19 @@ static void ipu3_vb2_buf_queue(struct vb2_buffer *vb)
 	}
 
 	if (queue == IPU3_CSS_QUEUE_PARAMS) {
-		unsigned int need_bytes = sizeof(struct ipu3_uapi_params);
+		unsigned long need_bytes = sizeof(struct ipu3_uapi_params);
+		unsigned long payload = vb2_get_plane_payload(vb, 0);
 		struct vb2_v4l2_buffer *buf =
 			container_of(vb, struct vb2_v4l2_buffer, vb2_buf);
 		int r = -EINVAL;
 
-		if (vb2_get_plane_payload(vb, 0) >= need_bytes)
+		if (payload == 0) {
+			payload = need_bytes;
+			vb2_set_plane_payload(vb, 0, payload);
+		}
+		if (payload >= need_bytes)
 			r = ipu3_css_set_parameters(&imgu->css,
-						vb2_plane_vaddr(vb, 0),
-						NULL, 0, NULL, 0);
+						vb2_plane_vaddr(vb, 0));
 		buf->flags = V4L2_BUF_FLAG_DONE;
 		vb2_buffer_done(vb, r == 0 ? VB2_BUF_STATE_DONE
 					   : VB2_BUF_STATE_ERROR);
@@ -179,28 +251,23 @@ static int ipu3_vb2_queue_setup(struct vb2_queue *vq,
 	struct imgu_video_device *node =
 		container_of(vq, struct imgu_video_device, vbq);
 	const struct v4l2_format *fmt = &node->vdev_fmt;
-	const struct v4l2_pix_format *pix = &fmt->fmt.pix;
+
+	*num_planes = 1;
+	*num_buffers = clamp_val(*num_buffers, 1, VB2_MAX_FRAME);
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 5, 0)
 	alloc_ctxs[0] = m2m2->vb2_alloc_ctx;
 #else
 	alloc_devs[0] = m2m2->vb2_alloc_dev;
 #endif
-
-	if (*num_planes) {
-		/*
-		 * Only single plane is supported
-		 */
-		if (*num_planes != 1 || sizes[0] < pix->sizeimage)
-			return -EINVAL;
+	if (vq->type == V4L2_BUF_TYPE_META_CAPTURE ||
+	    vq->type == V4L2_BUF_TYPE_META_OUTPUT) {
+		sizes[0] = fmt->fmt.meta.buffersize;
+	} else {
+		sizes[0] = fmt->fmt.pix_mp.plane_fmt[0].sizeimage;
 	}
 
-	*num_planes = 1;
-	sizes[0] = pix->sizeimage;
-	*num_buffers = clamp_val(*num_buffers, 1, VB2_MAX_FRAME);
-
 	/* Initialize buffer queue */
-
 	INIT_LIST_HEAD(&node->buffers);
 
 	return 0;
@@ -229,7 +296,7 @@ static void ipu3_return_all_buffers(struct ipu3_mem2mem2_device *m2m2,
 					enum vb2_buffer_state state)
 {
 	struct imgu_device *imgu =
-		container_of(m2m2, struct imgu_device, mem2mem2);
+			container_of(m2m2, struct imgu_device, mem2mem2);
 	struct ipu3_mem2mem2_buffer *b, *b0;
 
 	/* Return all buffers */
@@ -323,11 +390,7 @@ static int ipu3_videoc_querycap(struct file *file, void *fh,
 
 	strlcpy(cap->driver, m2m2->name, sizeof(cap->driver));
 	strlcpy(cap->card, m2m2->model, sizeof(cap->card));
-	snprintf(cap->bus_info, sizeof(cap->bus_info), "%s", node->name);
-	cap->device_caps = V4L2_CAP_STREAMING;
-	cap->device_caps |= node->output ?
-		V4L2_CAP_VIDEO_OUTPUT : V4L2_CAP_VIDEO_CAPTURE;
-	cap->capabilities = cap->device_caps | V4L2_CAP_DEVICE_CAPS;
+	snprintf(cap->bus_info, sizeof(cap->bus_info), "PCI:%s", node->name);
 
 	return 0;
 }
@@ -352,8 +415,8 @@ static int mem2mem2_fmt(struct ipu3_mem2mem2_device *m2m2_dev,
 {
 	struct imgu_device *imgu =
 		container_of(m2m2_dev, struct imgu_device, mem2mem2);
-	struct v4l2_pix_format try_fmts[IPU3_CSS_QUEUES];
-	struct v4l2_pix_format *fmts[IPU3_CSS_QUEUES];
+	struct v4l2_pix_format_mplane try_fmts[IPU3_CSS_QUEUES];
+	struct v4l2_pix_format_mplane *fmts[IPU3_CSS_QUEUES] = { NULL };
 	struct v4l2_rect *rects[IPU3_CSS_RECTS] = { NULL };
 	unsigned int i;
 	int css_q, r;
@@ -378,11 +441,17 @@ static int mem2mem2_fmt(struct ipu3_mem2mem2_device *m2m2_dev,
 
 		if (inode < 0)
 			return -EINVAL;
+
+		/* Skip the meta node */
+		if (inode == IMGU_NODE_STAT_3A || inode == IMGU_NODE_PARAMS)
+			continue;
+
 		if (try) {
-			try_fmts[i] = m2m2_dev->nodes[inode].vdev_fmt.fmt.pix;
+			try_fmts[i] =
+				m2m2_dev->nodes[inode].vdev_fmt.fmt.pix_mp;
 			fmts[i] = &try_fmts[i];
 		} else {
-			fmts[i] = &m2m2_dev->nodes[inode].vdev_fmt.fmt.pix;
+			fmts[i] = &m2m2_dev->nodes[inode].vdev_fmt.fmt.pix_mp;
 		}
 
 		/* CSS expects some format on OUT queue */
@@ -408,7 +477,7 @@ static int mem2mem2_fmt(struct ipu3_mem2mem2_device *m2m2_dev,
 	 * before we return success from this function, so set it here.
 	 */
 	css_q = imgu_node_to_queue(node);
-	*fmts[css_q] = f->fmt.pix;
+	*fmts[css_q] = f->fmt.pix_mp;
 
 	if (try)
 		r = ipu3_css_fmt_try(&imgu->css, fmts, rects);
@@ -417,55 +486,6 @@ static int mem2mem2_fmt(struct ipu3_mem2mem2_device *m2m2_dev,
 
 	/* fmt_try returns the binary number in the firmware blob */
 	return r < 0 ? r : 0;
-}
-
-static int mem2mem2_s_selection(struct ipu3_mem2mem2_device *m2m2_dev,
-				     int node, struct v4l2_selection *s)
-{
-	struct imgu_device *const imgu =
-		container_of(m2m2_dev, struct imgu_device, mem2mem2);
-	struct v4l2_rect *rect = NULL;
-
-	if (node != IPU3_CSS_QUEUE_IN)
-		return -ENOIOCTLCMD;
-
-	switch (s->target) {
-	case V4L2_SEL_TGT_CROP:
-		rect = &imgu->rect.eff;
-		break;
-	case V4L2_SEL_TGT_COMPOSE:
-		rect = &imgu->rect.bds;
-		break;
-	default:
-		return -EINVAL;
-	}
-
-	*rect = s->r;
-
-	return 0;
-}
-
-static int mem2mem2_g_selection(struct ipu3_mem2mem2_device *m2m2_dev,
-				     int node, struct v4l2_selection *s)
-{
-	struct imgu_device *const imgu =
-		container_of(m2m2_dev, struct imgu_device, mem2mem2);
-
-	if (node != IPU3_CSS_QUEUE_IN)
-		return -ENOIOCTLCMD;
-
-	switch (s->target) {
-	case V4L2_SEL_TGT_CROP:
-		s->r = imgu->rect.eff;
-		break;
-	case V4L2_SEL_TGT_COMPOSE:
-		s->r = imgu->rect.bds;
-		break;
-	default:
-		return -EINVAL;
-	}
-
-	return 0;
 }
 
 static int ipu3_videoc_try_fmt(struct file *file, void *fh,
@@ -491,36 +511,31 @@ static int ipu3_videoc_s_fmt(struct file *file, void *fh,
 	return r;
 }
 
-static int ipu3_videoc_s_selection(struct file *file, void *fh,
-				     struct v4l2_selection *s)
+static int ipu3_meta_enum_format(struct file *file, void *fh,
+				  struct v4l2_fmtdesc *f)
 {
-	struct ipu3_mem2mem2_device *m2m2 = video_drvdata(file);
 	struct imgu_video_device *node = file_to_intel_ipu3_node(file);
 
-	if (!m2m2->ops)
-		return -ENOIOCTLCMD;
-
-	if (s->type != node->vdev_fmt.type)
+	/* Each node is dedicated to only one meta format */
+	if (f->index > 0 || f->type != node->vbq.type)
 		return -EINVAL;
 
-	return mem2mem2_s_selection(m2m2, node - m2m2->nodes, s);
+	f->pixelformat = node->vdev_fmt.fmt.meta.dataformat;
 
+	return 0;
 }
 
-static int ipu3_videoc_g_selection(struct file *file, void *fh,
-				     struct v4l2_selection *s)
+static int ipu3_videoc_g_meta_fmt(struct file *file, void *fh,
+				struct v4l2_format *f)
 {
-	struct ipu3_mem2mem2_device *m2m2 = video_drvdata(file);
 	struct imgu_video_device *node = file_to_intel_ipu3_node(file);
 
-	if (!m2m2->ops)
-		return -ENOIOCTLCMD;
-
-	if (s->type != node->vdev_fmt.type)
+	if (f->type != node->vbq.type)
 		return -EINVAL;
 
-	return mem2mem2_g_selection(m2m2, node - m2m2->nodes, s);
+	f->fmt = node->vdev_fmt.fmt;
 
+	return 0;
 }
 
 /******************** function pointers ********************/
@@ -533,6 +548,9 @@ static const struct v4l2_subdev_pad_ops ipu3_subdev_pad_ops = {
 	.link_validate = v4l2_subdev_link_validate_default,
 	.get_fmt = ipu3_subdev_get_fmt,
 	.set_fmt = ipu3_subdev_set_fmt,
+
+	.get_selection = ipu3_subdev_get_selection,
+	.set_selection = ipu3_subdev_set_selection,
 };
 
 static const struct v4l2_subdev_ops ipu3_subdev_ops = {
@@ -571,16 +589,13 @@ static const struct v4l2_file_operations ipu3_v4l2_fops = {
 static const struct v4l2_ioctl_ops ipu3_v4l2_ioctl_ops = {
 	.vidioc_querycap = ipu3_videoc_querycap,
 
-	.vidioc_g_fmt_vid_cap = ipu3_videoc_g_fmt,
-	.vidioc_s_fmt_vid_cap = ipu3_videoc_s_fmt,
-	.vidioc_try_fmt_vid_cap = ipu3_videoc_try_fmt,
+	.vidioc_g_fmt_vid_cap_mplane = ipu3_videoc_g_fmt,
+	.vidioc_s_fmt_vid_cap_mplane = ipu3_videoc_s_fmt,
+	.vidioc_try_fmt_vid_cap_mplane = ipu3_videoc_try_fmt,
 
-	.vidioc_s_selection = ipu3_videoc_s_selection,
-	.vidioc_g_selection = ipu3_videoc_g_selection,
-
-	.vidioc_g_fmt_vid_out = ipu3_videoc_g_fmt,
-	.vidioc_s_fmt_vid_out = ipu3_videoc_s_fmt,
-	.vidioc_try_fmt_vid_out = ipu3_videoc_try_fmt,
+	.vidioc_g_fmt_vid_out_mplane = ipu3_videoc_g_fmt,
+	.vidioc_s_fmt_vid_out_mplane = ipu3_videoc_s_fmt,
+	.vidioc_try_fmt_vid_out_mplane = ipu3_videoc_try_fmt,
 
 	/* buffer queue management */
 	.vidioc_reqbufs = vb2_ioctl_reqbufs,
@@ -594,11 +609,78 @@ static const struct v4l2_ioctl_ops ipu3_v4l2_ioctl_ops = {
 	.vidioc_expbuf = vb2_ioctl_expbuf,
 };
 
+static const struct v4l2_ioctl_ops ipu3_v4l2_meta_ioctl_ops = {
+	.vidioc_querycap = ipu3_videoc_querycap,
+
+	/* meta capture */
+	.vidioc_enum_fmt_meta_cap = ipu3_meta_enum_format,
+	.vidioc_g_fmt_meta_cap = ipu3_videoc_g_meta_fmt,
+	.vidioc_s_fmt_meta_cap = ipu3_videoc_g_meta_fmt,
+	.vidioc_try_fmt_meta_cap = ipu3_videoc_g_meta_fmt,
+
+	/* meta output */
+	.vidioc_enum_fmt_meta_out = ipu3_meta_enum_format,
+	.vidioc_g_fmt_meta_out = ipu3_videoc_g_meta_fmt,
+	.vidioc_s_fmt_meta_out = ipu3_videoc_g_meta_fmt,
+	.vidioc_try_fmt_meta_out = ipu3_videoc_g_meta_fmt,
+
+	.vidioc_reqbufs = vb2_ioctl_reqbufs,
+	.vidioc_create_bufs = vb2_ioctl_create_bufs,
+	.vidioc_prepare_buf = vb2_ioctl_prepare_buf,
+	.vidioc_querybuf = vb2_ioctl_querybuf,
+	.vidioc_qbuf = vb2_ioctl_qbuf,
+	.vidioc_dqbuf = vb2_ioctl_dqbuf,
+	.vidioc_streamon = vb2_ioctl_streamon,
+	.vidioc_streamoff = vb2_ioctl_streamoff,
+	.vidioc_expbuf = vb2_ioctl_expbuf,
+};
+
 /******************** Framework registration ********************/
+
+/* helper function to config node's video properties */
+static void ipu3_node_to_v4l2(u32 node, struct video_device *vdev,
+			  struct v4l2_format *f)
+{
+	u32 cap;
+
+	/* Should not happen */
+	WARN_ON(node >= IMGU_NODE_NUM);
+
+	switch (node) {
+	case IMGU_NODE_IN:
+		cap = V4L2_CAP_VIDEO_OUTPUT_MPLANE;
+		f->type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
+		vdev->ioctl_ops = &ipu3_v4l2_ioctl_ops;
+		break;
+	case IMGU_NODE_PARAMS:
+		cap = V4L2_CAP_META_OUTPUT;
+		f->type = V4L2_BUF_TYPE_META_OUTPUT;
+		f->fmt.meta.dataformat = V4L2_META_FMT_IPU3_PARAMS;
+		vdev->ioctl_ops = &ipu3_v4l2_meta_ioctl_ops;
+		ipu3_css_meta_fmt_set(&f->fmt.meta);
+		break;
+	case IMGU_NODE_STAT_3A:
+		cap = V4L2_CAP_META_CAPTURE;
+		f->type = V4L2_BUF_TYPE_META_CAPTURE;
+		f->fmt.meta.dataformat = V4L2_META_FMT_IPU3_STAT_3A;
+		vdev->ioctl_ops = &ipu3_v4l2_meta_ioctl_ops;
+		ipu3_css_meta_fmt_set(&f->fmt.meta);
+		break;
+	default:
+		cap = V4L2_CAP_VIDEO_CAPTURE_MPLANE;
+		f->type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+		vdev->ioctl_ops = &ipu3_v4l2_ioctl_ops;
+	}
+
+	vdev->device_caps = V4L2_CAP_STREAMING | cap;
+}
 
 int ipu3_v4l2_register(struct imgu_device *dev)
 {
 	struct ipu3_mem2mem2_device *m2m2 = &dev->mem2mem2;
+	struct v4l2_mbus_framefmt def_bus_fmt;
+	struct v4l2_pix_format_mplane def_pix_fmt;
+
 	int i, r;
 
 	/* Initialize miscellaneous variables */
@@ -674,12 +756,35 @@ int ipu3_v4l2_register(struct imgu_device *dev)
 		goto fail_subdevs;
 	}
 
+	/* Initialize formats to default values */
+	def_bus_fmt.width = 352;
+	def_bus_fmt.height = 288;
+	def_bus_fmt.code = MEDIA_BUS_FMT_UYVY8_2X8;
+	def_bus_fmt.field = V4L2_FIELD_NONE;
+	def_bus_fmt.colorspace = V4L2_COLORSPACE_RAW;
+	def_bus_fmt.ycbcr_enc = V4L2_YCBCR_ENC_DEFAULT;
+	def_bus_fmt.quantization = V4L2_QUANTIZATION_DEFAULT;
+	def_bus_fmt.xfer_func = V4L2_XFER_FUNC_DEFAULT;
+
+	def_pix_fmt.width = def_bus_fmt.width;
+	def_pix_fmt.height = def_bus_fmt.height;
+	def_pix_fmt.pixelformat = V4L2_PIX_FMT_YUYV;
+	def_pix_fmt.field = def_bus_fmt.field;
+	def_pix_fmt.num_planes = 1;
+	def_pix_fmt.plane_fmt[0].bytesperline = def_pix_fmt.width * 2;
+	def_pix_fmt.plane_fmt[0].sizeimage =
+		def_pix_fmt.height * def_pix_fmt.plane_fmt[0].bytesperline;
+	def_pix_fmt.flags = 0;
+	def_pix_fmt.colorspace = def_bus_fmt.colorspace;
+	def_pix_fmt.ycbcr_enc = def_bus_fmt.ycbcr_enc;
+	def_pix_fmt.quantization = def_bus_fmt.quantization;
+	def_pix_fmt.xfer_func = def_bus_fmt.xfer_func;
+
 	/* Create video nodes and links */
 	for (i = 0; i < m2m2->num_nodes; i++) {
 		struct imgu_video_device *node = &m2m2->nodes[i];
 		struct video_device *vdev = &node->vdev;
 		struct vb2_queue *vbq = &node->vbq;
-		struct v4l2_mbus_framefmt *fmt;
 		u32 flags;
 
 		/* Initialize miscellaneous variables */
@@ -687,32 +792,11 @@ int ipu3_v4l2_register(struct imgu_device *dev)
 		INIT_LIST_HEAD(&node->buffers);
 
 		/* Initialize formats to default values */
-		fmt = &node->pad_fmt;
-		fmt->width = 352;
-		fmt->height = 288;
-		fmt->code = MEDIA_BUS_FMT_UYVY8_2X8;
-		fmt->field = V4L2_FIELD_NONE;
-		fmt->colorspace = V4L2_COLORSPACE_RAW;
-		fmt->ycbcr_enc = V4L2_YCBCR_ENC_DEFAULT;
-		fmt->quantization = V4L2_QUANTIZATION_DEFAULT;
-		fmt->xfer_func = V4L2_XFER_FUNC_DEFAULT;
-		fmt = &node->pad_fmt;
-		node->vdev_fmt.type = node->output ?
-			V4L2_BUF_TYPE_VIDEO_OUTPUT :
-			V4L2_BUF_TYPE_VIDEO_CAPTURE;
-		node->vdev_fmt.fmt.pix.width = fmt->width;
-		node->vdev_fmt.fmt.pix.height = fmt->height;
-		node->vdev_fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
-		node->vdev_fmt.fmt.pix.field = fmt->field;
-		node->vdev_fmt.fmt.pix.bytesperline = fmt->width * 2;
-		node->vdev_fmt.fmt.pix.sizeimage =
-			node->vdev_fmt.fmt.pix.bytesperline * fmt->height;
-		node->vdev_fmt.fmt.pix.colorspace = fmt->colorspace;
-		node->vdev_fmt.fmt.pix.priv = 0;
-		node->vdev_fmt.fmt.pix.flags = 0;
-		node->vdev_fmt.fmt.pix.ycbcr_enc = fmt->ycbcr_enc;
-		node->vdev_fmt.fmt.pix.quantization = fmt->quantization;
-		node->vdev_fmt.fmt.pix.xfer_func = fmt->xfer_func;
+		node->pad_fmt = def_bus_fmt;
+		ipu3_node_to_v4l2(i, vdev, &node->vdev_fmt);
+		if (node->vdev_fmt.type == V4L2_BUF_TYPE_VIDEO_OUTPUT ||
+			node->vdev_fmt.type == V4L2_BUF_TYPE_VIDEO_CAPTURE)
+			node->vdev_fmt.fmt.pix_mp = def_pix_fmt;
 
 		/* Initialize media entities */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 5, 0)
@@ -730,8 +814,7 @@ int ipu3_v4l2_register(struct imgu_device *dev)
 		vdev->entity.ops = NULL;
 
 		/* Initialize vbq */
-		vbq->type = node->output ?
-		    V4L2_BUF_TYPE_VIDEO_OUTPUT : V4L2_BUF_TYPE_VIDEO_CAPTURE;
+		vbq->type = node->vdev_fmt.type;
 		vbq->io_modes = VB2_USERPTR | VB2_MMAP | VB2_DMABUF;
 		vbq->ops = &ipu3_vb2_ops;
 		vbq->mem_ops = m2m2->vb2_mem_ops;
@@ -751,10 +834,10 @@ int ipu3_v4l2_register(struct imgu_device *dev)
 		}
 
 		/* Initialize vdev */
-		strlcpy(vdev->name, node->name, sizeof(vdev->name));
+		snprintf(vdev->name, sizeof(vdev->name), "%s %s",
+			 m2m2->name, node->name);
 		vdev->release = video_device_release_empty;
 		vdev->fops = &m2m2->v4l2_file_ops;
-		vdev->ioctl_ops = &ipu3_v4l2_ioctl_ops;
 		vdev->lock = &node->lock;
 		vdev->v4l2_dev = &m2m2->v4l2_dev;
 		vdev->queue = &node->vbq;
@@ -858,13 +941,5 @@ void ipu3_v4l2_buffer_done(struct vb2_buffer *vb,
 
 	list_del(&b->list);
 	vb2_buffer_done(&b->vbb.vb2_buf, state);
-};
+}
 EXPORT_SYMBOL_GPL(ipu3_v4l2_buffer_done);
-
-MODULE_AUTHOR("Tuukka Toivonen <tuukka.toivonen@intel.com>");
-MODULE_AUTHOR("Tianshu Qiu <tian.shu.qiu@intel.com>");
-MODULE_AUTHOR("Jian Xu Zheng <jian.xu.zheng@intel.com>");
-MODULE_AUTHOR("Yuning Pu <yuning.pu@intel.com>");
-MODULE_AUTHOR("Yong Zhi <yong.zhi@intel.com>");
-MODULE_LICENSE("GPL v2");
-MODULE_DESCRIPTION("Intel IPU3 Camera Sub-system (ImgU) driver");

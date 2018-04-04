@@ -27,14 +27,20 @@
 #include <linux/pm_runtime.h>
 #include <linux/property.h>
 #include <linux/vmalloc.h>
-#include <media/intel-acpi-camera.h>
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-event.h>
+#include <media/v4l2-fwnode.h>
 #include <media/v4l2-ioctl.h>
 #include <media/videobuf2-dma-sg.h>
 
 #include "ipu3-cio2.h"
+
+struct ipu3_cio2_fmt {
+	u32 mbus_code;
+	u32 fourcc;
+	u8 mipicode;
+};
 
 /*
  * These are raw formats used in Intel's third generation of
@@ -42,12 +48,49 @@
  * 10bit raw bayer packed, 32 bytes for every 25 pixels,
  * last LSB 6 bits unused.
  */
-static const u32 cio2_csi2_fmts[] = {
-	V4L2_PIX_FMT_IPU3_SRGGB10,
-	V4L2_PIX_FMT_IPU3_SGBRG10,
-	V4L2_PIX_FMT_IPU3_SGRBG10,
-	V4L2_PIX_FMT_IPU3_SBGGR10,
+static const struct ipu3_cio2_fmt formats[] = {
+	{	/* put default entry at beginning */
+		.mbus_code	= MEDIA_BUS_FMT_SGRBG10_1X10,
+		.fourcc		= V4L2_PIX_FMT_IPU3_SGRBG10,
+		.mipicode	= 0x2b,
+	}, {
+		.mbus_code	= MEDIA_BUS_FMT_SGBRG10_1X10,
+		.fourcc		= V4L2_PIX_FMT_IPU3_SGBRG10,
+		.mipicode	= 0x2b,
+	}, {
+		.mbus_code	= MEDIA_BUS_FMT_SBGGR10_1X10,
+		.fourcc		= V4L2_PIX_FMT_IPU3_SBGGR10,
+		.mipicode	= 0x2b,
+	}, {
+		.mbus_code	= MEDIA_BUS_FMT_SRGGB10_1X10,
+		.fourcc		= V4L2_PIX_FMT_IPU3_SRGGB10,
+		.mipicode	= 0x2b,
+	},
 };
+
+#define NUM_FORMATS ARRAY_SIZE(formats)
+
+/*
+ * cio2_find_format - lookup color format by fourcc or/and media bus code
+ * @pixelformat: fourcc to match, ignored if null
+ * @mbus_code: media bus code to match, ignored if null
+ */
+static const struct ipu3_cio2_fmt *cio2_find_format(const u32 *pixelformat,
+						    const u32 *mbus_code)
+{
+	unsigned int i;
+
+	for (i = 0; i < NUM_FORMATS; i++) {
+		if (pixelformat && *pixelformat != formats[i].fourcc)
+			continue;
+		if (mbus_code && *mbus_code != formats[i].mbus_code)
+			continue;
+
+		return &formats[i];
+	}
+
+	return NULL;
+}
 
 static inline u32 cio2_bytesperline(const unsigned int width)
 {
@@ -146,8 +189,7 @@ static void cio2_fbpt_entry_init_buf(struct cio2_device *cio2,
 	dma_addr_t lop_bus_addr = b->lop_bus_addr;
 	int remaining;
 
-	entry[0].first_entry.first_page_offset =
-		offset_in_page(vb2_plane_vaddr(vb, 0));
+	entry[0].first_entry.first_page_offset = b->offset;
 	remaining = length + entry[0].first_entry.first_page_offset;
 	entry[1].second_entry.num_of_pages =
 		DIV_ROUND_UP(remaining, CIO2_PAGE_SIZE);
@@ -265,7 +307,7 @@ static void cio2_fbpt_exit(struct cio2_queue *q, struct device *dev)
  * reg_rx_csi_dly_cnt_termen_clane     0     0    38     0
  * reg_rx_csi_dly_cnt_settle_clane    95    -8   300   -16
  * Data lanes
- * reg_rx_csi_dly_cnt_termen_dlane0    0     0    35
+ * reg_rx_csi_dly_cnt_termen_dlane0    0     0    35     4
  * reg_rx_csi_dly_cnt_settle_dlane0   85    -2   145    -6
  * reg_rx_csi_dly_cnt_termen_dlane1    0     0    35     4
  * reg_rx_csi_dly_cnt_settle_dlane1   85    -2   145    -6
@@ -351,26 +393,6 @@ static int cio2_csi2_calc_timing(struct cio2_device *cio2, struct cio2_queue *q,
 	return 0;
 };
 
-static int cio2_hw_mbus_to_mipicode(__u32 code)
-{
-	static const struct {
-		u32 mbuscode;
-		u8 mipicode;
-	} mbus2mipi[] = {
-		{ MEDIA_BUS_FMT_SBGGR10_1X10, 0x2b },
-		{ MEDIA_BUS_FMT_SGBRG10_1X10, 0x2b },
-		{ MEDIA_BUS_FMT_SGRBG10_1X10, 0x2b },
-		{ MEDIA_BUS_FMT_SRGGB10_1X10, 0x2b },
-	};
-	unsigned int i;
-
-	for (i = 0; i < ARRAY_SIZE(mbus2mipi); i++)
-		if (mbus2mipi[i].mbuscode == code)
-			return mbus2mipi[i].mipicode;
-
-	return -EINVAL;
-}
-
 static int cio2_hw_init(struct cio2_device *cio2, struct cio2_queue *q)
 {
 	static const int NUM_VCS = 4;
@@ -379,16 +401,16 @@ static int cio2_hw_init(struct cio2_device *cio2, struct cio2_queue *q)
 	static const int FBPT_WIDTH = DIV_ROUND_UP(CIO2_MAX_LOPS,
 					CIO2_FBPT_SUBENTRY_UNIT);
 	const u32 num_buffers1 = CIO2_MAX_BUFFERS - 1;
+	const struct ipu3_cio2_fmt *fmt;
 	void __iomem *const base = cio2->base;
-	u8 mipicode, lanes, csi2bus = q->csi2.port;
+	u8 lanes, csi2bus = q->csi2.port;
 	u8 sensor_vc = SENSOR_VIR_CH_DFLT;
 	struct cio2_csi2_timing timing;
 	int i, r;
 
-	mipicode = r = cio2_hw_mbus_to_mipicode(
-			q->subdev_fmt.code);
-	if (r < 0)
-		return r;
+	fmt = cio2_find_format(NULL, &q->subdev_fmt.code);
+	if (!fmt)
+		return -EINVAL;
 
 	lanes = r = q->csi2.lanes;
 	if (r < 0)
@@ -445,7 +467,7 @@ static int cio2_hw_init(struct cio2_device *cio2, struct cio2_queue *q)
 	       base + CIO2_REG_PXM_PXF_FMT_CFG0(csi2bus));
 	writel(SID << CIO2_MIPIBE_LP_LUT_ENTRY_SID_SHIFT |
 	       sensor_vc << CIO2_MIPIBE_LP_LUT_ENTRY_VC_SHIFT |
-	       mipicode << CIO2_MIPIBE_LP_LUT_ENTRY_FORMAT_TYPE_SHIFT,
+	       fmt->mipicode << CIO2_MIPIBE_LP_LUT_ENTRY_FORMAT_TYPE_SHIFT,
 	       q->csi_rx_base + CIO2_REG_MIPIBE_LP_LUT_ENTRY(ENTRY));
 	writel(0, q->csi_rx_base + CIO2_REG_MIPIBE_COMP_FORMAT(sensor_vc));
 	writel(0, q->csi_rx_base + CIO2_REG_MIPIBE_FORCE_RAW8);
@@ -595,7 +617,6 @@ static void cio2_buffer_done(struct cio2_device *cio2, unsigned int dma_chan)
 		b = q->bufs[q->bufs_first];
 		if (b) {
 			u64 ns = ktime_get_ns();
-			int bytes = entry[1].second_entry.num_of_bytes;
 
 			q->bufs[q->bufs_first] = NULL;
 			atomic_dec(&q->bufs_queued);
@@ -603,7 +624,6 @@ static void cio2_buffer_done(struct cio2_device *cio2, unsigned int dma_chan)
 				"buffer %i done\n", b->vbb.vb2_buf.index);
 
 			/* Fill vb2 buffer entries and tell it's ready */
-			vb2_set_plane_payload(&b->vbb.vb2_buf, 0, bytes);
 			b->vbb.timestamp = ns_to_timeval(ns);
 			b->vbb.flags = V4L2_BUF_FLAG_DONE;
 			b->vbb.field = V4L2_FIELD_NONE;
@@ -824,31 +844,15 @@ static int cio2_vb2_queue_setup(struct vb2_queue *vq, const void *parg,
 				unsigned int sizes[], void *alloc_ctxs[])
 {
 	struct cio2_device *cio2 = vb2_get_drv_priv(vq);
-	struct cio2_queue *q = container_of(vq, struct cio2_queue, vbq);
-	u32 width = q->subdev_fmt.width;
-	u32 height = q->subdev_fmt.height;
-	u32 pixelformat = q->pixelformat;
-	unsigned int i, szimage;
-	int r = 0;
+	struct cio2_queue *q = vb2q_to_cio2_queue(vq);
+	unsigned int i;
 
-	for (i = 0; i < ARRAY_SIZE(cio2_csi2_fmts); i++) {
-		if (pixelformat == cio2_csi2_fmts[i])
-			break;
+	*num_planes = q->format.num_planes;
+
+	for (i = 0; i < *num_planes; ++i) {
+		sizes[i] = q->format.plane_fmt[i].sizeimage;
+		alloc_ctxs[i] = cio2->vb2_alloc_ctx;
 	}
-
-	alloc_ctxs[0] = cio2->vb2_alloc_ctx;
-	szimage = cio2_bytesperline(width) * height;
-
-	if (*num_planes) {
-		/*
-		 * Only single plane is supported
-		 */
-		if (*num_planes != 1 || sizes[0] < szimage)
-			return -EINVAL;
-	}
-
-	*num_planes = 1;
-	sizes[0] = szimage;
 
 	*num_buffers = clamp_val(*num_buffers, 1, CIO2_MAX_BUFFERS);
 
@@ -861,7 +865,7 @@ static int cio2_vb2_queue_setup(struct vb2_queue *vq, const void *parg,
 	q->bufs_first = 0;
 	q->bufs_next = 0;
 
-	return r;
+	return 0;
 }
 
 /* Called after each buffer is allocated */
@@ -872,8 +876,8 @@ static int cio2_vb2_buf_init(struct vb2_buffer *vb)
 	struct cio2_buffer *b =
 		container_of(vb, struct cio2_buffer, vbb.vb2_buf);
 	unsigned int length = vb->planes[0].length;
-	int lops  = DIV_ROUND_UP(DIV_ROUND_UP(length, CIO2_PAGE_SIZE) + 1,
-				 CIO2_PAGE_SIZE / sizeof(u32));
+	unsigned int pages = DIV_ROUND_UP(length, CIO2_PAGE_SIZE), nr = 0;
+	int lops  = DIV_ROUND_UP(pages + 1, CIO2_PAGE_SIZE / sizeof(u32));
 	u32 *lop;
 	struct sg_table *sg;
 	struct sg_page_iter sg_iter;
@@ -894,8 +898,15 @@ static int cio2_vb2_buf_init(struct vb2_buffer *vb)
 	if (!sg)
 		return -ENOMEM;
 
-	for_each_sg_page(sg->sgl, &sg_iter, sg->nents, 0)
+	if (sg->nents && sg->sgl)
+		b->offset = sg->sgl->offset;
+
+	for_each_sg_page(sg->sgl, &sg_iter, sg->nents, 0) {
+		if (nr++ > pages)
+			break;
 		*lop++ = sg_page_iter_dma_address(&sg_iter) >> PAGE_SHIFT;
+	}
+
 	*lop++ = cio2->dummy_page_bus_addr >> PAGE_SHIFT;
 
 	return 0;
@@ -910,44 +921,69 @@ static void cio2_vb2_buf_queue(struct vb2_buffer *vb)
 	struct cio2_buffer *b =
 		container_of(vb, struct cio2_buffer, vbb.vb2_buf);
 	struct cio2_fbpt_entry *entry;
-	unsigned int next = q->bufs_next;
+	unsigned long flags;
+	unsigned int i, j, next = q->bufs_next;
 	int bufs_queued = atomic_inc_return(&q->bufs_queued);
+	u32 fbpt_rp;
 
-	if (vb2_start_streaming_called(&q->vbq)) {
-		u32 fbpt_rp =
-			(readl(cio2->base + CIO2_REG_CDMARI(CIO2_DMA_CHAN))
-			 >> CIO2_CDMARI_FBPT_RP_SHIFT)
-			& CIO2_CDMARI_FBPT_RP_MASK;
+	dev_dbg(&cio2->pci_dev->dev, "queue buffer %d\n", vb->index);
 
+	/*
+	 * This code queues the buffer to the CIO2 DMA engine, which starts
+	 * running once streaming has started. It is possible that this code
+	 * gets pre-empted due to increased CPU load. Upon this, the driver
+	 * does not get an opportunity to queue new buffers to the CIO2 DMA
+	 * engine. When the DMA engine encounters an FBPT entry without the
+	 * VALID bit set, the DMA engine halts, which requires a restart of
+	 * the DMA engine and sensor, to continue streaming.
+	 * This is not desired and is highly unlikely given that there are
+	 * 32 FBPT entries that the DMA engine needs to process, to run into
+	 * an FBPT entry, without the VALID bit set. We try to mitigate this
+	 * by disabling interrupts for the duration of this queueing.
+	 */
+	local_irq_save(flags);
+
+	fbpt_rp = (readl(cio2->base + CIO2_REG_CDMARI(CIO2_DMA_CHAN))
+		   >> CIO2_CDMARI_FBPT_RP_SHIFT) & CIO2_CDMARI_FBPT_RP_MASK;
+
+	/*
+	 * fbpt_rp is the fbpt entry that the dma is currently working
+	 * on, but since it could jump to next entry at any time,
+	 * assume that we might already be there.
+	 */
+	fbpt_rp = (fbpt_rp + 1) % CIO2_MAX_BUFFERS;
+
+	if (bufs_queued <= 1 || fbpt_rp == next)
+		/* Buffers were drained */
+		next = (fbpt_rp + 1) % CIO2_MAX_BUFFERS;
+
+	for (i = 0; i < CIO2_MAX_BUFFERS; i++) {
 		/*
-		 * fbpt_rp is the fbpt entry that the dma is currently working
-		 * on, but since it could jump to next entry at any time,
-		 * assume that we might already be there.
+		 * We have allocated CIO2_MAX_BUFFERS circularly for the
+		 * hw, the user has requested N buffer queue. The driver
+		 * ensures N <= CIO2_MAX_BUFFERS and guarantees that whenever
+		 * user queues a buffer, there necessarily is a free buffer.
 		 */
-		fbpt_rp = (fbpt_rp + 1) % CIO2_MAX_BUFFERS;
+		if (!q->bufs[next]) {
+			q->bufs[next] = b;
+			entry = &q->fbpt[next * CIO2_MAX_LOPS];
+			cio2_fbpt_entry_init_buf(cio2, b, entry);
+			local_irq_restore(flags);
+			q->bufs_next = (next + 1) % CIO2_MAX_BUFFERS;
+			for (j = 0; j < vb->num_planes; j++)
+				vb2_set_plane_payload(vb, i,
+					q->format.plane_fmt[j].sizeimage);
+			return;
+		}
 
-		if (bufs_queued <= 1)
-			next = fbpt_rp + 1;	/* Buffers were drained */
-		else if (fbpt_rp == next)
-			next++;
-		next %= CIO2_MAX_BUFFERS;
-	}
-
-	while (q->bufs[next]) {
-		/*
-		 * If the entry is used, get the next one,
-		 * We can not break here if all are filled,
-		 * Will wait for one free, otherwise it will crash
-		 */
-		dev_dbg(&cio2->pci_dev->dev,
-			"entry %i was already full!\n", next);
+		dev_dbg(&cio2->pci_dev->dev, "entry %i was full!\n", next);
 		next = (next + 1) % CIO2_MAX_BUFFERS;
 	}
 
-	q->bufs[next] = b;
-	entry = &q->fbpt[next * CIO2_MAX_LOPS];
-	cio2_fbpt_entry_init_buf(cio2, b, entry);
-	q->bufs_next = (next + 1) % CIO2_MAX_BUFFERS;
+	local_irq_restore(flags);
+	dev_err(&cio2->pci_dev->dev, "error: all cio2 entries were full!\n");
+	atomic_dec(&q->bufs_queued);
+	vb2_buffer_done(vb, VB2_BUF_STATE_ERROR);
 }
 
 /* Called when each buffer is freed */
@@ -1059,7 +1095,7 @@ static int cio2_v4l2_querycap(struct file *file, void *fh,
 	strlcpy(cap->card, CIO2_DEVICE_NAME, sizeof(cap->card));
 	snprintf(cap->bus_info, sizeof(cap->bus_info),
 		 "PCI:%s", pci_name(cio2->pci_dev));
-	cap->device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
+	cap->device_caps = V4L2_CAP_VIDEO_CAPTURE_MPLANE | V4L2_CAP_STREAMING;
 	cap->capabilities = cap->device_caps | V4L2_CAP_DEVICE_CAPS;
 
 	return 0;
@@ -1068,10 +1104,10 @@ static int cio2_v4l2_querycap(struct file *file, void *fh,
 static int cio2_v4l2_enum_fmt(struct file *file, void *fh,
 			      struct v4l2_fmtdesc *f)
 {
-	if (f->index >= ARRAY_SIZE(cio2_csi2_fmts))
+	if (f->index >= NUM_FORMATS)
 		return -EINVAL;
 
-	f->pixelformat = cio2_csi2_fmts[f->index];
+	f->pixelformat = formats[f->index].fourcc;
 
 	return 0;
 }
@@ -1081,38 +1117,41 @@ static int cio2_v4l2_g_fmt(struct file *file, void *fh, struct v4l2_format *f)
 {
 	struct cio2_queue *q = file_to_cio2_queue(file);
 
-	memset(&f->fmt, 0, sizeof(f->fmt));
-
-	f->fmt.pix.width = q->subdev_fmt.width;
-	f->fmt.pix.height = q->subdev_fmt.height;
-	f->fmt.pix.pixelformat = q->pixelformat;
-	f->fmt.pix.field = V4L2_FIELD_NONE;
-	f->fmt.pix.bytesperline = cio2_bytesperline(f->fmt.pix.width);
-	f->fmt.pix.sizeimage = f->fmt.pix.bytesperline * f->fmt.pix.height;
-	f->fmt.pix.colorspace = V4L2_COLORSPACE_RAW;
+	f->fmt.pix_mp = q->format;
 
 	return 0;
 }
 
 static int cio2_v4l2_try_fmt(struct file *file, void *fh, struct v4l2_format *f)
 {
-	u32 pixelformat = f->fmt.pix.pixelformat;
-	unsigned int i;
+	const struct ipu3_cio2_fmt *fmt;
+	struct v4l2_pix_format_mplane *mpix = &f->fmt.pix_mp;
 
-	cio2_v4l2_g_fmt(file, fh, f);
+	fmt = cio2_find_format(&mpix->pixelformat, NULL);
+	if (!fmt)
+		fmt = &formats[0];
 
-	for (i = 0; i < ARRAY_SIZE(cio2_csi2_fmts); i++) {
-		if (pixelformat == cio2_csi2_fmts[i])
-			break;
-	}
+	/* Only supports up to 4224x3136 */
+	if (mpix->width > CIO2_IMAGE_MAX_WIDTH)
+		mpix->width = CIO2_IMAGE_MAX_WIDTH;
+	if (mpix->height > CIO2_IMAGE_MAX_LENGTH)
+		mpix->height = CIO2_IMAGE_MAX_LENGTH;
 
-	/* Use SRGGB10 as default if not found */
-	if (i >= ARRAY_SIZE(cio2_csi2_fmts))
-		pixelformat = V4L2_PIX_FMT_IPU3_SRGGB10;
+	mpix->num_planes = 1;
+	mpix->pixelformat = fmt->fourcc;
+	mpix->colorspace = V4L2_COLORSPACE_RAW;
+	mpix->field = V4L2_FIELD_NONE;
+	memset(mpix->reserved, 0, sizeof(mpix->reserved));
+	mpix->plane_fmt[0].bytesperline = cio2_bytesperline(mpix->width);
+	mpix->plane_fmt[0].sizeimage = mpix->plane_fmt[0].bytesperline *
+							mpix->height;
+	memset(mpix->plane_fmt[0].reserved, 0,
+	       sizeof(mpix->plane_fmt[0].reserved));
 
-	f->fmt.pix.pixelformat = pixelformat;
-	f->fmt.pix.bytesperline = cio2_bytesperline(f->fmt.pix.width);
-	f->fmt.pix.sizeimage = f->fmt.pix.bytesperline * f->fmt.pix.height;
+	/* use default */
+	mpix->ycbcr_enc = V4L2_YCBCR_ENC_DEFAULT;
+	mpix->quantization = V4L2_QUANTIZATION_DEFAULT;
+	mpix->xfer_func = V4L2_XFER_FUNC_DEFAULT;
 
 	return 0;
 }
@@ -1122,7 +1161,7 @@ static int cio2_v4l2_s_fmt(struct file *file, void *fh, struct v4l2_format *f)
 	struct cio2_queue *q = file_to_cio2_queue(file);
 
 	cio2_v4l2_try_fmt(file, fh, f);
-	q->pixelformat = f->fmt.pix.pixelformat;
+	q->format = f->fmt.pix_mp;
 
 	return 0;
 }
@@ -1138,10 +1177,10 @@ static const struct v4l2_file_operations cio2_v4l2_fops = {
 
 static const struct v4l2_ioctl_ops cio2_v4l2_ioctl_ops = {
 	.vidioc_querycap = cio2_v4l2_querycap,
-	.vidioc_enum_fmt_vid_cap = cio2_v4l2_enum_fmt,
-	.vidioc_g_fmt_vid_cap = cio2_v4l2_g_fmt,
-	.vidioc_s_fmt_vid_cap = cio2_v4l2_s_fmt,
-	.vidioc_try_fmt_vid_cap = cio2_v4l2_try_fmt,
+	.vidioc_enum_fmt_vid_cap_mplane = cio2_v4l2_enum_fmt,
+	.vidioc_g_fmt_vid_cap_mplane = cio2_v4l2_g_fmt,
+	.vidioc_s_fmt_vid_cap_mplane = cio2_v4l2_s_fmt,
+	.vidioc_try_fmt_vid_cap_mplane = cio2_v4l2_try_fmt,
 	.vidioc_reqbufs = vb2_ioctl_reqbufs,
 	.vidioc_create_bufs = vb2_ioctl_create_bufs,
 	.vidioc_prepare_buf = vb2_ioctl_prepare_buf,
@@ -1225,17 +1264,10 @@ static int cio2_subdev_enum_mbus_code(struct v4l2_subdev *sd,
 				      struct v4l2_subdev_pad_config *cfg,
 				      struct v4l2_subdev_mbus_code_enum *code)
 {
-	static const u32 codes[] = {
-		MEDIA_BUS_FMT_SRGGB10_1X10,
-		MEDIA_BUS_FMT_SBGGR10_1X10,
-		MEDIA_BUS_FMT_SGBRG10_1X10,
-		MEDIA_BUS_FMT_SGRBG10_1X10,
-	};
-
-	if (code->index >= ARRAY_SIZE(codes))
+	if (code->index >= NUM_FORMATS)
 		return -EINVAL;
 
-	code->code = codes[code->index];
+	code->code = formats[code->index].mbus_code;
 
 	return 0;
 }
@@ -1262,28 +1294,10 @@ static const struct v4l2_subdev_ops cio2_subdev_ops = {
 
 /******* V4L2 sub-device asynchronous registration callbacks***********/
 
-/* Match by ACPI id */
-static bool cio2_notifier_match(struct device *dev,
-				struct v4l2_async_subdev *asd)
-{
-	struct acpi_device *adev = ACPI_COMPANION(dev);
-
-	if (!adev)
-		return false;
-
-	return strcmp(asd->match.custom.priv, acpi_device_hid(adev)) == 0;
-}
-
-static int cio2_subdev_source_pad(struct v4l2_subdev *subdev)
-{
-	int pad;
-
-	for (pad = 0; pad < subdev->entity.num_pads; pad++)
-		if (subdev->entity.pads[pad].flags & MEDIA_PAD_FL_SOURCE)
-			return pad;
-
-	return -ENXIO;
-}
+struct sensor_async_subdev {
+	struct v4l2_async_subdev asd;
+	struct csi2_bus_info csi2;
+};
 
 /* The .bound() notifier callback when a match is found */
 static int cio2_notifier_bound(struct v4l2_async_notifier *notifier,
@@ -1291,68 +1305,34 @@ static int cio2_notifier_bound(struct v4l2_async_notifier *notifier,
 			       struct v4l2_async_subdev *asd)
 {
 	struct cio2_device *cio2 = container_of(notifier,
-						struct cio2_device, notifier);
-	struct acpi_handle *ahandle = ACPI_HANDLE(sd->dev);
+					struct cio2_device, notifier);
+	struct sensor_async_subdev *s_asd = container_of(asd,
+					struct sensor_async_subdev, asd);
 	struct cio2_queue *q;
-	int pad, i, r;
-	u64 camd;
 
-	if (!ahandle)
-		return -ENODEV;
+	if (cio2->queue[s_asd->csi2.port].sensor)
+		return -EBUSY;
 
-	camd = intel_acpi_camera_camd(ahandle);
-	if (camd == INTEL_ACPI_CAMERA_UNKNOWN ||
-	    camd == INTEL_ACPI_CAMERA_SENSOR) {
+	q = &cio2->queue[s_asd->csi2.port];
 
-		/* Find first free slot for the subdev */
-		for (i = 0; i < CIO2_QUEUES; i++)
-			if (!cio2->queue[i].sensor)
-				break;
-		if (i >= CIO2_QUEUES) {
-			dev_err(&cio2->pci_dev->dev, "too many subdevs\n");
-			return -ENOSPC;
-		}
-		q = &cio2->queue[i];
-
-		/* Find the pad to connect from the external subdev */
-		pad = cio2_subdev_source_pad(sd);
-		if (pad < 0) {
-			dev_err(&cio2->pci_dev->dev,
-				"sub device %s entity has no output pad\n",
-					sd->name);
-			return pad;
-		}
-
-		r = intel_acpi_camera_csi2(ahandle, &q->csi2);
-		if (r)
-			return -ENODEV;
-
-		q->sensor = sd;
-		q->csi_rx_base = cio2->base + CIO2_REG_PIPE_BASE(q->csi2.port);
-
-		dev_info(&cio2->pci_dev->dev, "bound sub device %s to %s\n",
-			 (char *)asd->match.custom.priv, sd->name);
-	}
+	q->csi2 = s_asd->csi2;
+	q->sensor = sd;
+	q->csi_rx_base = cio2->base + CIO2_REG_PIPE_BASE(q->csi2.port);
 
 	return 0;
 }
 
-/* The.unbind callback */
+/* The .unbind callback */
 static void cio2_notifier_unbind(struct v4l2_async_notifier *notifier,
 				 struct v4l2_subdev *sd,
 				 struct v4l2_async_subdev *asd)
 {
 	struct cio2_device *cio2 = container_of(notifier,
 						struct cio2_device, notifier);
-	int i;
+	struct sensor_async_subdev *s_asd = container_of(asd,
+					struct sensor_async_subdev, asd);
 
-	/* Note: sensor may here point to unallocated memory. Do not access. */
-	for (i = 0; i < CIO2_QUEUES; i++) {
-		if (cio2->queue[i].sensor == sd) {
-			cio2->queue[i].sensor = NULL;
-			return;
-		}
-	}
+	cio2->queue[s_asd->csi2.port].sensor = NULL;
 }
 
 /* .complete() is called after all subdevices have been located */
@@ -1360,106 +1340,99 @@ static int cio2_notifier_complete(struct v4l2_async_notifier *notifier)
 {
 	struct cio2_device *cio2 = container_of(notifier, struct cio2_device,
 						notifier);
-	int source_pad, i, r;
+	struct sensor_async_subdev *s_asd;
+	struct cio2_queue *q;
+	unsigned int i, pad;
+	int ret;
 
-	for (i = 0; i < CIO2_QUEUES; i++) {
-		if (!cio2->queue[i].sensor)
-			continue;
-		source_pad = cio2_subdev_source_pad(cio2->queue[i].sensor);
-		if (source_pad < 0)
-			return source_pad;
-		r = media_entity_create_link(
-			&cio2->queue[i].sensor->entity, source_pad,
-			&cio2->queue[i].subdev.entity, CIO2_PAD_SINK,
-			MEDIA_LNK_FL_ENABLED | MEDIA_LNK_FL_IMMUTABLE);
-		if (r) {
-			dev_err(&cio2->pci_dev->dev, "failed to create link for %s\n",
+	for (i = 0; i < notifier->num_subdevs; i++) {
+		s_asd = container_of(cio2->notifier.subdevs[i],
+				     struct sensor_async_subdev,
+				     asd);
+		q = &cio2->queue[s_asd->csi2.port];
+
+		for (pad = 0; pad < q->sensor->entity.num_pads; pad++)
+			if (q->sensor->entity.pads[pad].flags &
+					MEDIA_PAD_FL_SOURCE)
+			break;
+
+		if (pad == q->sensor->entity.num_pads) {
+			dev_err(&cio2->pci_dev->dev,
+				"failed to find src pad for %s\n",
+				q->sensor->name);
+
+			return -ENXIO;
+		}
+
+		ret = media_entity_create_link(
+				&q->sensor->entity, pad,
+				&q->subdev.entity, CIO2_PAD_SINK,
+				MEDIA_LNK_FL_ENABLED);
+		if (ret) {
+			dev_err(&cio2->pci_dev->dev,
+				"failed to create link for %s\n",
 				cio2->queue[i].sensor->name);
-			return r;
+
+			return ret;
 		}
 	}
 
 	return v4l2_device_register_subdev_nodes(&cio2->v4l2_dev);
 }
 
-/* Callback routine to discover the interested devices */
-static acpi_status cio2_notifier_acpi_walk(acpi_handle ahandle, u32 lvl,
-					   void *cio2_ptr, void **rv)
+static int cio2_fwnode_parse(struct device *dev,
+			     struct v4l2_fwnode_endpoint *vep,
+			     struct v4l2_async_subdev *asd)
 {
-	struct cio2_device *cio2 = cio2_ptr;
-	struct acpi_device *adev = NULL;
-	struct v4l2_async_subdev *asd;
-	struct intel_acpi_camera_csi2 csi2;
-	int r;
-	u64 camd = intel_acpi_camera_camd(ahandle);
+	struct sensor_async_subdev *s_asd =
+			container_of(asd, struct sensor_async_subdev, asd);
 
-	if (camd == INTEL_ACPI_CAMERA_UNKNOWN ||
-	    camd == INTEL_ACPI_CAMERA_SENSOR ||
-	    camd == INTEL_ACPI_CAMERA_VCM) {
-
-		r = acpi_bus_get_device(ahandle, &adev);
-		if (r || !adev || !adev->status.present)
-			return AE_OK;	/* Continue to next device */
-
-		if (camd != INTEL_ACPI_CAMERA_VCM) {
-			r = intel_acpi_camera_csi2(ahandle, &csi2);
-			if (r)
-				return AE_OK;	/* Continue to next device */
-		}
-		/* Found a MIPI camera device. Add it to our devices list. */
-
-		if (cio2->notifier.num_subdevs >= CIO2_MAX_SUBDEVS)
-			return AE_LIMIT;
-
-		asd = devm_kzalloc(&cio2->pci_dev->dev,
-				   sizeof(*asd), GFP_KERNEL);
-		if (!asd)
-			return AE_NO_MEMORY;
-
-		/* Criteria to identify a match */
-		asd->match_type = V4L2_ASYNC_MATCH_CUSTOM;
-		asd->match.custom.match = cio2_notifier_match;
-		asd->match.custom.priv = (void *)acpi_device_hid(adev);
-		cio2->async_subdevs[cio2->notifier.num_subdevs++] = asd;
-
-		dev_info(&cio2->pci_dev->dev, "waiting for sensor %s\n",
-			 (char *)asd->match.custom.priv);
+	if (vep->bus_type != V4L2_MBUS_CSI2) {
+		dev_err(dev, "Only CSI2 bus type is currently supported\n");
+		return -EINVAL;
 	}
-	return AE_OK;
+
+	s_asd->csi2.port = vep->base.port;
+	s_asd->csi2.lanes = vep->bus.mipi_csi2.num_data_lanes;
+
+	return 0;
 }
 
-/*
- * Go through all ACPI nodes and add connected MIPI devices to V4L2 notifier.
- */
+static const struct v4l2_async_notifier_operations cio2_async_ops = {
+	.bound = cio2_notifier_bound,
+	.unbind = cio2_notifier_unbind,
+	.complete = cio2_notifier_complete,
+};
+
 static int cio2_notifier_init(struct cio2_device *cio2)
 {
-	int r;
+	int ret;
 
-	cio2->notifier.subdevs = cio2->async_subdevs;
-	cio2->notifier.num_subdevs = 0;
-	cio2->notifier.bound = cio2_notifier_bound;
-	cio2->notifier.unbind = cio2_notifier_unbind;
-	cio2->notifier.complete = cio2_notifier_complete;
+	ret = v4l2_async_notifier_parse_fwnode_endpoints(
+		&cio2->pci_dev->dev, &cio2->notifier,
+		sizeof(struct sensor_async_subdev),
+		cio2_fwnode_parse);
+	if (ret < 0)
+		return ret;
 
-	acpi_walk_namespace(ACPI_TYPE_DEVICE, ACPI_ROOT_OBJECT,
-			    ACPI_UINT32_MAX,
-			    cio2_notifier_acpi_walk, NULL, cio2, NULL);
 	if (!cio2->notifier.num_subdevs)
 		return -ENODEV;		/* No subdevices */
 
-	r = v4l2_async_notifier_register(&cio2->v4l2_dev, &cio2->notifier);
-	if (r) {
-		cio2->notifier.num_subdevs = 0;
+	cio2->notifier.ops = &cio2_async_ops;
+	ret = v4l2_async_notifier_register(&cio2->v4l2_dev, &cio2->notifier);
+	if (ret) {
 		dev_err(&cio2->pci_dev->dev,
-			"failed to register v4l2 async notifier\n");
+			"failed to register async notifier : %d\n", ret);
+		v4l2_async_notifier_cleanup(&cio2->notifier);
 	}
-	return r;
+
+	return ret;
 }
 
 static void cio2_notifier_exit(struct cio2_device *cio2)
 {
-	if (cio2->notifier.num_subdevs > 0)
-		v4l2_async_notifier_unregister(&cio2->notifier);
+	v4l2_async_notifier_unregister(&cio2->notifier);
+	v4l2_async_notifier_cleanup(&cio2->notifier);
 }
 
 static int cio2_link_validate(struct media_link *link)
@@ -1472,12 +1445,11 @@ static const struct media_entity_operations cio2_media_ops = {
 	.link_validate = cio2_link_validate,
 };
 
-int cio2_queue_init(struct cio2_device *cio2, struct cio2_queue *q)
+static int cio2_queue_init(struct cio2_device *cio2, struct cio2_queue *q)
 {
 	static const u32 default_width = 1936;
 	static const u32 default_height = 1096;
-	static const u32 default_mbusfmt = MEDIA_BUS_FMT_SRGGB10_1X10;
-
+	const struct ipu3_cio2_fmt dflt_fmt = formats[0];
 	struct video_device *vdev = &q->vdev;
 	struct vb2_queue *vbq = &q->vbq;
 	struct v4l2_subdev *subdev = &q->subdev;
@@ -1491,15 +1463,23 @@ int cio2_queue_init(struct cio2_device *cio2, struct cio2_queue *q)
 	fmt = &q->subdev_fmt;
 	fmt->width = default_width;
 	fmt->height = default_height;
-	fmt->code = default_mbusfmt;
+	fmt->code = dflt_fmt.mbus_code;
 	fmt->field = V4L2_FIELD_NONE;
 	fmt->colorspace = V4L2_COLORSPACE_RAW;
 	fmt->ycbcr_enc = V4L2_YCBCR_ENC_DEFAULT;
 	fmt->quantization = V4L2_QUANTIZATION_DEFAULT;
 	fmt->xfer_func = V4L2_XFER_FUNC_DEFAULT;
 
-	q->pixelformat = V4L2_PIX_FMT_IPU3_SRGGB10;
-
+	q->format.width = default_width;
+	q->format.height = default_height;
+	q->format.pixelformat = dflt_fmt.fourcc;
+	q->format.colorspace = V4L2_COLORSPACE_RAW;
+	q->format.field = V4L2_FIELD_NONE;
+	q->format.num_planes = 1;
+	q->format.plane_fmt[0].bytesperline =
+				cio2_bytesperline(q->format.width);
+	q->format.plane_fmt[0].sizeimage = q->format.plane_fmt[0].bytesperline *
+						q->format.height;
 	/* Initialize fbpt */
 	r = cio2_fbpt_init(cio2, q);
 	if (r)
@@ -1530,7 +1510,7 @@ int cio2_queue_init(struct cio2_device *cio2, struct cio2_queue *q)
 	subdev->flags = V4L2_SUBDEV_FL_HAS_DEVNODE | V4L2_SUBDEV_FL_HAS_EVENTS;
 	subdev->owner = THIS_MODULE;
 	snprintf(subdev->name, sizeof(subdev->name),
-		 CIO2_ENTITY_NAME ":%li", q - cio2->queue);
+		 CIO2_ENTITY_NAME " %td", q - cio2->queue);
 	v4l2_set_subdevdata(subdev, cio2);
 	r = v4l2_device_register_subdev(&cio2->v4l2_dev, subdev);
 	if (r) {
@@ -1540,7 +1520,7 @@ int cio2_queue_init(struct cio2_device *cio2, struct cio2_queue *q)
 	}
 
 	/* Initialize vbq */
-	vbq->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	vbq->type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 	vbq->io_modes = VB2_USERPTR | VB2_MMAP | VB2_DMABUF;
 	vbq->ops = &cio2_vb2_ops;
 	vbq->mem_ops = &vb2_dma_sg_memops;
@@ -1558,7 +1538,7 @@ int cio2_queue_init(struct cio2_device *cio2, struct cio2_queue *q)
 
 	/* Initialize vdev */
 	snprintf(vdev->name, sizeof(vdev->name),
-		 "%s:%li", CIO2_NAME, q - cio2->queue);
+		 "%s %td", CIO2_NAME, q - cio2->queue);
 	vdev->release = video_device_release_empty;
 	vdev->fops = &cio2_v4l2_fops;
 	vdev->ioctl_ops = &cio2_v4l2_ioctl_ops;

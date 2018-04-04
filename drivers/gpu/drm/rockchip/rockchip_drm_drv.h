@@ -62,6 +62,7 @@ struct rockchip_crtc_state {
 	struct drm_crtc_state base;
 	int output_type;
 	int output_mode;
+	int output_flags;
 	int output_bpc;
 	bool needs_dmcfreq_block;
 };
@@ -109,4 +110,27 @@ void rockchip_drm_enable_dmc(struct rockchip_drm_private *priv);
 void rockchip_drm_disable_dmc(struct rockchip_drm_private *priv);
 void rockchip_drm_set_win_enabled(struct drm_crtc *ctrc, bool enabled);
 
+#ifdef CONFIG_ROCKCHIP_CDN_DP
+extern bool is_connector_cdn_dp(struct drm_connector *connector);
+extern void cdn_dp_hdcp_atomic_disable(struct drm_connector *connector);
+extern void cdn_dp_hdcp_atomic_enable(struct drm_connector *connector);
+#else
+static inline bool is_connector_cdn_dp(struct drm_connector *encoder)
+{
+	return false;
+}
+static inline void cdn_dp_hdcp_atomic_disable(struct drm_connector *connector)
+{
+}
+static inline void cdn_dp_hdcp_atomic_enable(struct drm_connector *connector)
+{
+}
+#endif
+
+extern struct platform_driver cdn_dp_driver;
+extern struct platform_driver dw_hdmi_rockchip_pltfm_driver;
+extern struct platform_driver dw_mipi_dsi_rockchip_driver;
+extern struct platform_driver inno_hdmi_driver;
+extern struct platform_driver rockchip_dp_driver;
+extern struct platform_driver vop_platform_driver;
 #endif /* _ROCKCHIP_DRM_DRV_H_ */

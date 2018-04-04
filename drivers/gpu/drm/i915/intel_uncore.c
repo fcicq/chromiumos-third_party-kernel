@@ -1585,12 +1585,13 @@ int intel_wait_for_register_fw(struct drm_i915_private *dev_priv,
 }
 
 /**
- * intel_wait_for_register - wait until register matches expected state
+ * __intel_wait_for_register - wait until register matches expected state
  * @dev_priv: the i915 device
  * @reg: the register to read
  * @mask: mask to apply to register value
  * @value: expected value
  * @timeout_ms: timeout in millisecond
+ * @out_value: optional placeholder to hold registry value
  *
  * This routine waits until the target register @reg contains the expected
  * @value after applying the @mask, i.e. it waits until
@@ -1599,23 +1600,29 @@ int intel_wait_for_register_fw(struct drm_i915_private *dev_priv,
  *
  * Returns 0 if the register matches the desired condition, or -ETIMEOUT.
  */
-int intel_wait_for_register(struct drm_i915_private *dev_priv,
+int __intel_wait_for_register(struct drm_i915_private *dev_priv,
 			    i915_reg_t reg,
 			    const u32 mask,
 			    const u32 value,
-			    const unsigned long timeout_ms)
+			    const unsigned long timeout_ms,
+			    u32 *out_value)
 {
 
 	unsigned fw =
 		intel_uncore_forcewake_for_reg(dev_priv, reg, FW_REG_READ);
+	u32 reg_value;
 	int ret;
 
 	intel_uncore_forcewake_get(dev_priv, fw);
 	ret = wait_for_us((I915_READ_FW(reg) & mask) == value, 2);
 	intel_uncore_forcewake_put(dev_priv, fw);
 	if (ret)
-		ret = wait_for((I915_READ_NOTRACE(reg) & mask) == value,
-			       timeout_ms);
+		ret = __wait_for(reg_value = I915_READ_NOTRACE(reg),
+				 (reg_value & mask) == value,
+				 timeout_ms * 1000, 1000);
+
+	if (out_value)
+		*out_value = reg_value;
 
 	return ret;
 }

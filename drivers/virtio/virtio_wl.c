@@ -40,6 +40,7 @@ cleaner to write.
 
 #include <linux/anon_inodes.h>
 #include <linux/cdev.h>
+#include <linux/compat.h>
 #include <linux/completion.h>
 #include <linux/err.h>
 #include <linux/fdtable.h>
@@ -401,7 +402,7 @@ static void virtwl_vfd_remove(struct virtwl_vfd *vfd)
 	virtwl_vfd_lock_unlink(vfd);
 
 	mutex_lock(vq_lock);
-	list_for_each_entry_safe(next, qentry, &vfd->in_queue, list) {
+	list_for_each_entry_safe(qentry, next, &vfd->in_queue, list) {
 		vq_return_inbuf_locked(vq, qentry->hdr);
 		list_del(&qentry->list);
 		kfree(qentry);
@@ -479,6 +480,7 @@ static ssize_t vfd_out_locked(struct virtwl_vfd *vfd, char __user *buffer,
 	return read_count;
 }
 
+/* must hold both vfd->lock and vi->vfds_lock */
 static size_t vfd_out_vfds_locked(struct virtwl_vfd *vfd,
 				  struct virtwl_vfd **vfds, size_t count)
 {
@@ -506,16 +508,7 @@ static size_t vfd_out_vfds_locked(struct virtwl_vfd *vfd,
 
 		for (i = 0; i < vfds_to_read; i++) {
 			uint32_t vfd_id = le32_to_cpu(vfds_le[i]);
-			/*
-			This is an inversion of the typical locking order
-			(vi->vfds_lock before vfd->lock). The reason this is
-			safe from deadlocks is because the lock held as a
-			precondition of this function call is always for a
-			different vfd than the one received on this vfd's queue.
-			*/
-			mutex_lock(&vi->vfds_lock);
 			vfds[read_count] = idr_find(&vi->vfds, vfd_id);
-			mutex_unlock(&vi->vfds_lock);
 			if (vfds[read_count]) {
 				read_count++;
 			} else {
@@ -573,14 +566,17 @@ static ssize_t virtwl_vfd_recv(struct file *filp, char __user *buffer,
 			       size_t *vfd_count)
 {
 	struct virtwl_vfd *vfd = filp->private_data;
+	struct virtwl_info *vi = vfd->vi;
 	ssize_t read_count = 0;
 	size_t vfd_read_count = 0;
 
+	mutex_lock(&vi->vfds_lock);
 	mutex_lock(&vfd->lock);
 
 	while (read_count == 0 && vfd_read_count == 0) {
 		while (list_empty(&vfd->in_queue)) {
 			mutex_unlock(&vfd->lock);
+			mutex_unlock(&vi->vfds_lock);
 			if (filp->f_flags & O_NONBLOCK)
 				return -EAGAIN;
 
@@ -588,6 +584,7 @@ static ssize_t virtwl_vfd_recv(struct file *filp, char __user *buffer,
 				!list_empty(&vfd->in_queue)))
 				return -ERESTARTSYS;
 
+			mutex_lock(&vi->vfds_lock);
 			mutex_lock(&vfd->lock);
 		}
 
@@ -603,6 +600,7 @@ static ssize_t virtwl_vfd_recv(struct file *filp, char __user *buffer,
 
 out_unlock:
 	mutex_unlock(&vfd->lock);
+	mutex_unlock(&vi->vfds_lock);
 	return read_count;
 }
 
@@ -869,16 +867,14 @@ free_ctrl_new:
 	return ERR_PTR(ret);
 }
 
-static long virtwl_ioctl_send(struct file *filp, unsigned long arg)
+static long virtwl_ioctl_send(struct file *filp, void __user *ptr)
 {
 	struct virtwl_vfd *vfd = filp->private_data;
-	struct virtwl_ioctl_send ioctl_send;
-	void __user *user_data = (void __user *)arg +
-				 sizeof(struct virtwl_ioctl_send);
+	struct virtwl_ioctl_txn ioctl_send;
+	void __user *user_data = ptr + sizeof(struct virtwl_ioctl_txn);
 	int ret;
 
-	ret = copy_from_user(&ioctl_send, (void __user *)arg,
-			     sizeof(struct virtwl_ioctl_send));
+	ret = copy_from_user(&ioctl_send, ptr, sizeof(struct virtwl_ioctl_txn));
 	if (ret)
 		return -EFAULT;
 
@@ -891,12 +887,11 @@ static long virtwl_ioctl_send(struct file *filp, unsigned long arg)
 		       filp->f_flags & O_NONBLOCK);
 }
 
-static long virtwl_ioctl_recv(struct file *filp, unsigned long arg)
+static long virtwl_ioctl_recv(struct file *filp, void __user *ptr)
 {
-	struct virtwl_ioctl_recv ioctl_recv;
-	void __user *user_data = (void __user *)arg +
-				 sizeof(struct virtwl_ioctl_recv);
-	int __user *user_fds = (int __user *)arg;
+	struct virtwl_ioctl_txn ioctl_recv;
+	void __user *user_data = ptr + sizeof(struct virtwl_ioctl_txn);
+	int __user *user_fds = (int __user *)ptr;
 	size_t vfd_count = VIRTWL_SEND_MAX_ALLOCS;
 	struct virtwl_vfd *vfds[VIRTWL_SEND_MAX_ALLOCS] = { 0 };
 	int fds[VIRTWL_SEND_MAX_ALLOCS];
@@ -907,8 +902,7 @@ static long virtwl_ioctl_recv(struct file *filp, unsigned long arg)
 	for (i = 0; i < VIRTWL_SEND_MAX_ALLOCS; i++)
 		fds[i] = -1;
 
-	ret = copy_from_user(&ioctl_recv, (void __user *)arg,
-			     sizeof(struct virtwl_ioctl_recv));
+	ret = copy_from_user(&ioctl_recv, ptr, sizeof(struct virtwl_ioctl_txn));
 	if (ret)
 		return -EFAULT;
 
@@ -922,7 +916,7 @@ static long virtwl_ioctl_recv(struct file *filp, unsigned long arg)
 	if (ret < 0)
 		return ret;
 
-	ret = copy_to_user(&((struct virtwl_ioctl_recv __user *)arg)->len, &ret,
+	ret = copy_to_user(&((struct virtwl_ioctl_txn __user *)ptr)->len, &ret,
 			   sizeof(ioctl_recv.len));
 	if (ret) {
 		ret = -EFAULT;
@@ -959,27 +953,31 @@ free_vfds:
 }
 
 static long virtwl_vfd_ioctl(struct file *filp, unsigned int cmd,
-			     unsigned long arg)
+			     void __user *ptr)
 {
 	switch (cmd) {
 	case VIRTWL_IOCTL_SEND:
-		return virtwl_ioctl_send(filp, arg);
+		return virtwl_ioctl_send(filp, ptr);
 	case VIRTWL_IOCTL_RECV:
-		return virtwl_ioctl_recv(filp, arg);
+		return virtwl_ioctl_recv(filp, ptr);
 	default:
 		return -ENOTTY;
 	}
 }
 
-static long virtwl_ioctl_new(struct file *filp, unsigned long arg)
+static long virtwl_ioctl_new(struct file *filp, void __user *ptr)
 {
 	struct virtwl_info *vi = filp->private_data;
 	struct virtwl_vfd *vfd;
 	struct virtwl_ioctl_new ioctl_new;
 	int ret;
 
-	ret = copy_from_user(&ioctl_new, (void __user *)arg,
-			     sizeof(struct virtwl_ioctl_new));
+	/* Early check for user error. */
+	ret = !access_ok(VERIFY_WRITE, ptr, sizeof(struct virtwl_ioctl_new));
+	if (ret)
+		return -EFAULT;
+
+	ret = copy_from_user(&ioctl_new, ptr, sizeof(struct virtwl_ioctl_new));
 	if (ret)
 		return -EFAULT;
 
@@ -998,8 +996,7 @@ static long virtwl_ioctl_new(struct file *filp, unsigned long arg)
 	}
 
 	ioctl_new.fd = ret;
-	ret = copy_to_user((void __user *)arg, &ioctl_new,
-			   sizeof(struct virtwl_ioctl_new));
+	ret = copy_to_user(ptr, &ioctl_new, sizeof(struct virtwl_ioctl_new));
 	if (ret) {
 		/* The release operation will handle freeing this alloc */
 		sys_close(ioctl_new.fd);
@@ -1009,37 +1006,34 @@ static long virtwl_ioctl_new(struct file *filp, unsigned long arg)
 	return 0;
 }
 
-static long virtwl_ioctl(struct file *filp, unsigned int cmd,
-		          unsigned long arg)
+static long virtwl_ioctl_ptr(struct file *filp, unsigned int cmd,
+			     void __user *ptr)
 {
-	int err = 0;
-
-	if (_IOC_TYPE(cmd) != VIRTWL_IOCTL_BASE)
-		return -ENOTTY;
-	if (_IOC_NR(cmd) > VIRTWL_IOCTL_MAXNR)
-		return -ENOTTY;
-
-	if (_IOC_DIR(cmd) & _IOC_READ) {
-		err = !access_ok(VERIFY_WRITE, (void __user *)arg,
-				 _IOC_SIZE(cmd));
-	} else if (_IOC_DIR(cmd) & _IOC_WRITE) {
-		err = !access_ok(VERIFY_READ, (void __user *)arg,
-				 _IOC_SIZE(cmd));
-	}
-
-	if (err)
-		return -EFAULT;
-
 	if (filp->f_op == &virtwl_vfd_fops)
-		return virtwl_vfd_ioctl(filp, cmd, arg);
+		return virtwl_vfd_ioctl(filp, cmd, ptr);
 
 	switch (cmd) {
 	case VIRTWL_IOCTL_NEW:
-		return virtwl_ioctl_new(filp, arg);
+		return virtwl_ioctl_new(filp, ptr);
 	default:
 		return -ENOTTY;
 	}
 }
+
+static long virtwl_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+	return virtwl_ioctl_ptr(filp, cmd, (void __user *)arg);
+}
+
+#ifdef CONFIG_COMPAT
+static long virtwl_ioctl_compat(struct file *filp, unsigned int cmd,
+				unsigned long arg)
+{
+	return virtwl_ioctl_ptr(filp, cmd, compat_ptr(arg));
+}
+#else
+#define virtwl_ioctl_compat NULL
+#endif
 
 static int virtwl_release(struct inode *inodep, struct file *filp)
 {
@@ -1050,6 +1044,7 @@ static struct file_operations virtwl_fops =
 {
 	.open = virtwl_open,
 	.unlocked_ioctl = virtwl_ioctl,
+	.compat_ioctl = virtwl_ioctl_compat,
 	.release = virtwl_release,
 };
 
@@ -1058,6 +1053,7 @@ static struct file_operations virtwl_vfd_fops =
 	.mmap = virtwl_vfd_mmap,
 	.poll = virtwl_vfd_poll,
 	.unlocked_ioctl = virtwl_ioctl,
+	.compat_ioctl = virtwl_ioctl_compat,
 	.release = virtwl_vfd_release,
 };
 

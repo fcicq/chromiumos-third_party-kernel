@@ -128,6 +128,15 @@ rockchip_fb_alloc(struct drm_device *dev, const struct drm_mode_fb_cmd2 *mode_cm
 	int ret;
 	int i;
 
+	/* The DRM_FORMAT_MOD_CHROMEOS_ROCKCHIP_AFBC modifier
+	 * indicates support for AFBC buffers only up to 2560 pixels
+	 * wide.
+	 */
+	if ((mode_cmd->flags & DRM_MODE_FB_MODIFIERS) &&
+	    mode_cmd->modifier[0] == DRM_FORMAT_MOD_CHROMEOS_ROCKCHIP_AFBC &&
+	    mode_cmd->width > 2560)
+		return ERR_PTR(-EINVAL);
+
 	rockchip_fb = kzalloc(sizeof(*rockchip_fb), GFP_KERNEL);
 	if (!rockchip_fb)
 		return ERR_PTR(-ENOMEM);
@@ -330,6 +339,50 @@ rockchip_drm_psr_inhibit_put_state(struct drm_atomic_state *state)
 }
 
 static void
+rockchip_atomic_disable_hdcp(struct drm_atomic_state *old_state)
+{
+	struct drm_connector *conn;
+	struct drm_connector_state *old_conn_state;
+	int i;
+
+	for_each_connector_in_state(old_state, conn, old_conn_state, i) {
+		uint64_t new, old;
+		if (!is_connector_cdn_dp(conn))
+			continue;
+
+		old = old_conn_state->content_protection;
+		new = conn->state->content_protection;
+		if ((new != old &&
+		     new == DRM_MODE_CONTENT_PROTECTION_UNDESIRED) ||
+		    (!conn->state->crtc && old_conn_state->crtc))
+			cdn_dp_hdcp_atomic_disable(conn);
+	}
+}
+
+static void
+rockchip_atomic_enable_hdcp(struct drm_atomic_state *old_state)
+{
+	struct drm_connector *conn;
+	struct drm_connector_state *old_conn_state;
+	int i;
+
+	for_each_connector_in_state(old_state, conn, old_conn_state, i) {
+		uint64_t new, old;
+		if (!is_connector_cdn_dp(conn))
+			continue;
+
+		old = old_conn_state->content_protection;
+		new = conn->state->content_protection;
+		if (!conn->state->crtc ||
+		    new != DRM_MODE_CONTENT_PROTECTION_DESIRED ||
+		    (new == old && old_conn_state->crtc == conn->state->crtc))
+			continue;
+
+		cdn_dp_hdcp_atomic_enable(conn);
+	}
+}
+
+static void
 rockchip_atomic_commit_complete(struct rockchip_atomic_commit *commit)
 {
 	struct drm_atomic_state *state = commit->state;
@@ -360,11 +413,15 @@ rockchip_atomic_commit_complete(struct rockchip_atomic_commit *commit)
 
 	mutex_lock(&commit->hw_lock);
 
+	rockchip_atomic_disable_hdcp(state);
+
 	drm_atomic_helper_commit_modeset_disables(dev, state);
 
 	drm_atomic_helper_commit_modeset_enables(dev, state);
 
 	drm_atomic_helper_commit_planes(dev, state, true);
+
+	rockchip_atomic_enable_hdcp(state);
 
 	mutex_unlock(&commit->hw_lock);
 
@@ -473,8 +530,12 @@ void rockchip_drm_mode_config_init(struct drm_device *dev)
 	 * set max width and height as default value(4096x4096).
 	 * this value would be used to check framebuffer size limitation
 	 * at drm_mode_addfb().
+	 *
+	 * We don't deal well with modes wider than 3840, so let's
+	 * lower max_width a bit.
+	 * https://bugs.chromium.org/p/chromium/issues/detail?id=761104
 	 */
-	dev->mode_config.max_width = 4096;
+	dev->mode_config.max_width = 3840;
 	dev->mode_config.max_height = 4096;
 
 	dev->mode_config.allow_fb_modifiers = true;

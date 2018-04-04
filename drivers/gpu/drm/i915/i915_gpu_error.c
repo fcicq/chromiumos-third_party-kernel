@@ -370,10 +370,8 @@ static void err_print_capabilities(struct drm_i915_error_state_buf *m,
 				   const struct intel_device_info *info)
 {
 #define PRINT_FLAG(x)  err_printf(m, #x ": %s\n", yesno(info->x))
-#define SEP_SEMICOLON ;
-	DEV_INFO_FOR_EACH_FLAG(PRINT_FLAG, SEP_SEMICOLON);
+	DEV_INFO_FOR_EACH_FLAG(PRINT_FLAG);
 #undef PRINT_FLAG
-#undef SEP_SEMICOLON
 }
 
 int i915_error_state_to_str(struct drm_i915_error_state_buf *m,
@@ -408,6 +406,7 @@ int i915_error_state_to_str(struct drm_i915_error_state_buf *m,
 	}
 	err_printf(m, "Reset count: %u\n", error->reset_count);
 	err_printf(m, "Suspend count: %u\n", error->suspend_count);
+	err_printf(m, "Platform: %s\n", intel_platform_name(error->device_info.platform));
 	err_printf(m, "PCI ID: 0x%04x\n", pdev->device);
 	err_printf(m, "PCI Revision: 0x%02x\n", pdev->revision);
 	err_printf(m, "PCI Subsystem: %04x:%04x\n",

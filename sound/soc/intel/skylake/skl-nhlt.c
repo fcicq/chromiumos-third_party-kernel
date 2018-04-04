@@ -27,6 +27,7 @@ static u8 OSC_UUID[16] = {0x6E, 0x88, 0x9F, 0xA6, 0xEB, 0x6C, 0x94, 0x45,
 
 #define DSDT_NHLT_PATH "\\_SB.PCI0.HDAS"
 
+
 struct nhlt_acpi_table *skl_nhlt_init(struct device *dev)
 {
 	acpi_handle handle;
@@ -268,18 +269,19 @@ void skl_nhlt_remove_sysfs(struct skl *skl)
 void skl_get_ssp_clks(struct skl *skl, struct skl_ssp_clk *ssp_clks,
 				struct nhlt_fmt *fmt, u8 id)
 {
-	struct nhlt_fmt_cfg *fmt_cfg;
+	struct skl_i2s_config_blob_ext *i2s_config_ext;
 	struct skl_i2s_config_blob_legacy *i2s_config;
-	struct wav_fmt_ext *wav_fmt;
 	struct skl_clk_parent_src *parent;
 	struct skl_ssp_clk *sclk, *sclkfs;
+	struct nhlt_fmt_cfg *fmt_cfg;
+	struct wav_fmt_ext *wav_fmt;
 	unsigned long rate = 0;
-	u16 channels, bps;
-	u32 fs;
-	u8 clk_src;
-	int rate_index = 0;
-	int i, j;
 	bool present = false;
+	int rate_index = 0;
+	u16 channels, bps;
+	u8 clk_src;
+	int i, j;
+	u32 fs;
 
 	sclk = &ssp_clks[SKL_SCLK_OFS];
 	sclkfs = &ssp_clks[SKL_SCLKFS_OFS];
@@ -296,31 +298,28 @@ void skl_get_ssp_clks(struct skl *skl, struct skl_ssp_clk *ssp_clks,
 		fs = wav_fmt->fmt.samples_per_sec;
 
 		/*
-		 * In case of TDM configuration on the same ssp, there can
+		 * In case of TDM configuration on a ssp, there can
 		 * be more than one blob in which channel masks are
 		 * different for each usecase for a specific rate and bps.
-		 * But the sclk rate will be based on the total number of
-		 * channels used for that endpoint.
+		 * But the sclk rate will be generated for the total
+		 * number of channels used for that endpoint.
 		 *
-		 * So there is a blob which represent the superset of all
-		 * the channels used for that endpoint. Select the rate that
-		 * matches with the blob which has the number of channels is
-		 * equall to all channel for that endpoint.
+		 * So for the given fs and bps, choose blob which has
+		 * the superset of all channels for that endpoint and
+		 * derive the rate.
 		 */
 		for (j = i; j < fmt->fmt_count; j++) {
 			fmt_cfg = &fmt->fmt_config[j];
 			wav_fmt = &fmt_cfg->fmt_ext;
 			if ((fs == wav_fmt->fmt.samples_per_sec) &&
-					(bps == wav_fmt->fmt.bits_per_sample) &&
-					(channels < wav_fmt->fmt.channels)) {
-
-				channels = wav_fmt->fmt.channels;
-			}
+			   (bps == wav_fmt->fmt.bits_per_sample))
+				channels = max_t(u16, channels,
+						wav_fmt->fmt.channels);
 		}
 
 		rate = channels * bps * fs;
 
-		/* check if the rate is already present */
+		/* check if the rate is added already to the given SSP's sclk */
 		for (j = 0; (sclk[id].rate_cfg[j].rate != 0) &&
 				(j < SKL_MAX_CLK_RATES); j++) {
 			if (sclk[id].rate_cfg[j].rate == rate) {
@@ -331,23 +330,34 @@ void skl_get_ssp_clks(struct skl *skl, struct skl_ssp_clk *ssp_clks,
 
 		/* Fill rate and parent for sclk/sclkfs */
 		if (!present) {
+			i2s_config_ext = (struct skl_i2s_config_blob_ext *)
+						fmt->fmt_config[0].config.caps;
+
+			/* MCLK Divider Source Select */
+			if (is_legacy_blob(i2s_config_ext->hdr.sig)) {
+				i2s_config = ext_to_legacy_blob(i2s_config_ext);
+				clk_src = get_clk_src(i2s_config->mclk,
+						SKL_MNDSS_DIV_CLK_SRC_MASK);
+			} else {
+				clk_src = get_clk_src(i2s_config_ext->mclk,
+						SKL_MNDSS_DIV_CLK_SRC_MASK);
+			}
+
+			parent = skl_get_parent_clk(clk_src);
+
+			/*
+			 * Do not copy the config data if there is no parent
+			 * clock available for this clock source select
+			 */
+			if (!parent)
+				continue;
+
 			sclk[id].rate_cfg[rate_index].rate = rate;
 			sclk[id].rate_cfg[rate_index].config = fmt_cfg;
 			sclkfs[id].rate_cfg[rate_index].rate = rate;
 			sclkfs[id].rate_cfg[rate_index].config = fmt_cfg;
-
-			/* MCLK Divider Source Select */
-			i2s_config = (struct skl_i2s_config_blob_legacy *)
-						fmt->fmt_config[0].config.caps;
-			clk_src = ((i2s_config->mclk.mdivctrl)
-					& SKL_MNDSS_DIV_CLK_SRC_MASK) >>
-					SKL_MNDSS_DIV_CLK_SRC_SHIFT;
-
-			parent = skl_get_parent_clk(clk_src);
-			if (parent) {
-				sclk[id].parent_name = parent->name;
-				sclkfs[id].parent_name = parent->name;
-			}
+			sclk[id].parent_name = parent->name;
+			sclkfs[id].parent_name = parent->name;
 
 			rate_index++;
 		}
@@ -357,31 +367,40 @@ void skl_get_ssp_clks(struct skl *skl, struct skl_ssp_clk *ssp_clks,
 void skl_get_mclk(struct skl *skl, struct skl_ssp_clk *mclk,
 				struct nhlt_fmt *fmt, u8 id)
 {
-	struct nhlt_specific_cfg *fmt_cfg;
+	struct skl_i2s_config_blob_ext *i2s_config_ext;
 	struct skl_i2s_config_blob_legacy *i2s_config;
+	struct nhlt_specific_cfg *fmt_cfg;
 	struct skl_clk_parent_src *parent;
 	u32 clkdiv, div_ratio;
 	u8 clk_src;
 
 	fmt_cfg = &fmt->fmt_config[0].config;
-	i2s_config = (struct skl_i2s_config_blob_legacy *)fmt_cfg->caps;
+	i2s_config_ext = (struct skl_i2s_config_blob_ext *)fmt_cfg->caps;
 
-	/* MCLK Divider Source Select */
-	clk_src = ((i2s_config->mclk.mdivctrl) & SKL_MCLK_DIV_CLK_SRC_MASK) >>
-						SKL_MCLK_DIV_CLK_SRC_SHIFT;
+	/* MCLK Divider Source Select and divider */
+	if (is_legacy_blob(i2s_config_ext->hdr.sig)) {
+		i2s_config = ext_to_legacy_blob(i2s_config_ext);
+		clk_src = get_clk_src(i2s_config->mclk,
+				SKL_MCLK_DIV_CLK_SRC_MASK);
+		clkdiv = i2s_config->mclk.mdivr &
+				SKL_MCLK_DIV_RATIO_MASK;
+	} else {
+		clk_src = get_clk_src(i2s_config_ext->mclk,
+				SKL_MCLK_DIV_CLK_SRC_MASK);
+		clkdiv = i2s_config_ext->mclk.mdivr[0] &
+				SKL_MCLK_DIV_RATIO_MASK;
+	}
 
+	/* bypass divider */
+	div_ratio = 1;
 
-	clkdiv = i2s_config->mclk.mdivr & SKL_MCLK_DIV_RATIO_MASK;
-
-	if (clkdiv == 0xfff) /* bypass divider */
-		div_ratio = 1;
-	else
+	if (clkdiv != SKL_MCLK_DIV_RATIO_MASK)
 		/* Divider is 2 + clkdiv */
 		div_ratio = clkdiv + 2;
 
 	/* Calculate MCLK rate from source using div value */
 	parent = skl_get_parent_clk(clk_src);
-	if (parent == NULL)
+	if (!parent)
 		return;
 
 	mclk[id].rate_cfg[0].rate = parent->rate/div_ratio;

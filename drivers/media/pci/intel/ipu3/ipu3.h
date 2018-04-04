@@ -36,9 +36,7 @@
 #define IMGU_NODE_VF			3 /* Preview */
 #define IMGU_NODE_PV			4 /* Postview for still capture */
 #define IMGU_NODE_STAT_3A		5 /* 3A statistics */
-#define IMGU_NODE_STAT_DVS		6 /* DVS statistics */
-#define IMGU_NODE_STAT_LACE		7 /* Lace statistics */
-#define IMGU_NODE_NUM			8
+#define IMGU_NODE_NUM			6
 
 #define file_to_intel_ipu3_node(__file) \
 	container_of(video_devdata(__file), struct imgu_video_device, vdev)
@@ -144,9 +142,7 @@ struct imgu_device {
 
 	/* Internally enabled queues */
 	struct {
-		size_t dummybuf_size;
-		void *dummybuf_vaddr;
-		dma_addr_t dummybuf_daddr;
+		struct ipu3_css_map dmap;
 		struct ipu3_css_buffer dummybufs[IMGU_MAX_QUEUE_DEPTH];
 	} queues[IPU3_CSS_QUEUES];
 	struct imgu_video_device mem2mem2_nodes[IMGU_NODE_NUM];
@@ -168,7 +164,7 @@ struct imgu_device {
 	 */
 	struct mutex lock;
 	/* Forbit streaming and buffer queuing during system suspend. */
-	struct mutex qbuf_lock;
+	atomic_t qbuf_barrier;
 	struct {
 		struct v4l2_rect eff; /* effective resolution */
 		struct v4l2_rect bds; /* bayer-domain scaled resolution*/

@@ -27,6 +27,10 @@
 #include <linux/ctype.h>
 #include <drm/drm_mode_object.h>
 
+#include <uapi/drm/drm_mode.h>
+
+struct drm_device;
+
 struct drm_connector_helper_funcs;
 struct drm_device;
 struct drm_crtc;
@@ -199,6 +203,12 @@ struct drm_connector_state {
 	struct drm_encoder *best_encoder;
 
 	struct drm_atomic_state *state;
+
+	/**
+	 * @content_protection: Connector property to request content
+	 * protection. This is most commonly used for HDCP.
+	 */
+	unsigned int content_protection;
 };
 
 /**
@@ -246,6 +256,9 @@ struct drm_connector_funcs {
 	 * force is set to false whilst polling, true when checking the
 	 * connector due to a user request. force can be used by the driver to
 	 * avoid expensive, destructive operations during automated probing.
+	 *
+	 * This callback is optional, if not implemented the connector will be
+	 * considered as always being attached.
 	 *
 	 * FIXME:
 	 *
@@ -543,6 +556,7 @@ struct drm_cmdline_mode {
  * @tile_v_loc: vertical location of this tile
  * @tile_h_size: horizontal size of this tile.
  * @tile_v_size: vertical size of this tile.
+ * @content_protection_property: Optional property to control content protection
  *
  * Each connector may be connected to one or more CRTCs, or may be clonable by
  * another connector if they can share a CRTC.  Each connector also has a specific
@@ -592,6 +606,12 @@ struct drm_connector {
 
 	struct drm_property_blob *edid_blob_ptr;
 	struct drm_object_properties properties;
+
+	/**
+	 * @content_protection_property: DRM ENUM property for content
+	 * protection
+	 */
+	struct drm_property *content_protection_property;
 
 	/**
 	 * @path_blob_ptr:
@@ -747,17 +767,19 @@ static inline void drm_connector_unreference(struct drm_connector *connector)
 const char *drm_get_connector_status_name(enum drm_connector_status status);
 const char *drm_get_subpixel_order_name(enum subpixel_order order);
 const char *drm_get_dpms_name(int val);
-extern const char *drm_get_content_protection_name(int val);
 const char *drm_get_dvi_i_subconnector_name(int val);
 const char *drm_get_dvi_i_select_name(int val);
 const char *drm_get_tv_subconnector_name(int val);
 const char *drm_get_tv_select_name(int val);
+const char *drm_get_content_protection_name(int val);
 
 int drm_mode_create_dvi_i_properties(struct drm_device *dev);
 int drm_mode_create_tv_properties(struct drm_device *dev,
 				  unsigned int num_modes,
 				  const char * const modes[]);
 int drm_mode_create_scaling_mode_property(struct drm_device *dev);
+int drm_connector_attach_content_protection_property(
+		struct drm_connector *connector);
 int drm_mode_create_aspect_ratio_property(struct drm_device *dev);
 int drm_mode_create_suggested_offset_properties(struct drm_device *dev);
 

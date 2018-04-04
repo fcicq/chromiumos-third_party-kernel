@@ -88,17 +88,48 @@ static void __rockchip_vpu_dequeue_run_locked(struct rockchip_vpu_ctx *ctx)
 	src = list_first_entry(&ctx->src_queue, struct rockchip_vpu_buf, list);
 	dst = list_first_entry(&ctx->dst_queue, struct rockchip_vpu_buf, list);
 
-	list_del(&src->list);
-	list_del(&dst->list);
+	list_del_init(&src->list);
+	list_del_init(&dst->list);
 
 	ctx->run.src = src;
 	ctx->run.dst = dst;
+}
+
+static bool rockchip_vpu_ctx_is_flush(struct rockchip_vpu_ctx *ctx)
+{
+	return ctx->run.src == &ctx->flush_buf;
+}
+
+static void rockchip_vpu_flush_done(struct rockchip_vpu_ctx *ctx)
+{
+	struct vb2_v4l2_buffer *vb2_dst = &ctx->run.dst->b;
+	static const struct v4l2_event event = {
+		.type = V4L2_EVENT_EOS,
+	};
+	int i;
+
+	vb2_dst->flags |= V4L2_BUF_FLAG_LAST;
+	for (i = 0; i < vb2_dst->vb2_buf.num_planes; i++)
+		vb2_set_plane_payload(&vb2_dst->vb2_buf, i, 0);
+	vb2_buffer_done(&vb2_dst->vb2_buf, VB2_BUF_STATE_DONE);
+
+	v4l2_event_queue_fh(&ctx->fh, &event);
 }
 
 static struct rockchip_vpu_ctx *
 rockchip_vpu_encode_after_decode_war(struct rockchip_vpu_ctx *ctx)
 {
 	struct rockchip_vpu_dev *dev = ctx->dev;
+	struct rockchip_vpu_buf *src;
+
+	/*
+	 * Flush buffer is a no-op, so no need for the workaround.
+	 * Since ctx was dequeued from ready_ctxs list, we know that it has
+	 * at least one buffer in each queue.
+	 */
+	src = list_first_entry(&ctx->src_queue, struct rockchip_vpu_buf, list);
+	if (src == &ctx->flush_buf)
+		return ctx;
 
 	if (!dev->dummy_encode_ctx)
 		return ctx;
@@ -148,14 +179,23 @@ static void rockchip_vpu_try_run(struct rockchip_vpu_dev *dev)
 	}
 
 	dev->current_ctx = ctx;
-	dev->was_decoding = !rockchip_vpu_ctx_is_encoder(ctx);
+
+	if (rockchip_vpu_ctx_is_flush(ctx))
+		ctx->stopped = true;
+	else
+		dev->was_decoding = !rockchip_vpu_ctx_is_encoder(ctx);
 
 out:
 	spin_unlock_irqrestore(&dev->irqlock, flags);
 
 	if (ctx) {
-		rockchip_vpu_prepare_run(ctx);
-		rockchip_vpu_run(ctx);
+		if (rockchip_vpu_ctx_is_flush(ctx)) {
+			/* Flush is an entirely software operation. */
+			rockchip_vpu_run_done(ctx, VB2_BUF_STATE_DONE);
+		} else {
+			rockchip_vpu_prepare_run(ctx);
+			rockchip_vpu_run(ctx);
+		}
 	}
 
 	vpu_debug_leave();
@@ -166,6 +206,10 @@ static void __rockchip_vpu_try_context_locked(struct rockchip_vpu_dev *dev,
 {
 	if (!list_empty(&ctx->list))
 		/* Context already queued. */
+		return;
+
+	if (ctx->stopped)
+		/* No processing until we are started again. */
 		return;
 
 	if (!list_empty(&ctx->dst_queue) && !list_empty(&ctx->src_queue))
@@ -180,16 +224,20 @@ void rockchip_vpu_run_done(struct rockchip_vpu_ctx *ctx,
 
 	vpu_debug_enter();
 
-	if (ctx->run_ops->run_done)
-		ctx->run_ops->run_done(ctx, result);
+	if (rockchip_vpu_ctx_is_flush(ctx)) {
+		rockchip_vpu_flush_done(ctx);
+	} else {
+		if (ctx->run_ops->run_done)
+			ctx->run_ops->run_done(ctx, result);
 
-	if (!rockchip_vpu_ctx_is_dummy_encode(ctx)) {
-		struct vb2_v4l2_buffer *vb2_src = &ctx->run.src->b;
-		struct vb2_v4l2_buffer *vb2_dst = &ctx->run.dst->b;
+		if (!rockchip_vpu_ctx_is_dummy_encode(ctx)) {
+			struct vb2_v4l2_buffer *vb2_src = &ctx->run.src->b;
+			struct vb2_v4l2_buffer *vb2_dst = &ctx->run.dst->b;
 
-		vb2_dst->timestamp = vb2_src->timestamp;
-		vb2_buffer_done(&vb2_src->vb2_buf, result);
-		vb2_buffer_done(&vb2_dst->vb2_buf, result);
+			vb2_dst->timestamp = vb2_src->timestamp;
+			vb2_buffer_done(&vb2_src->vb2_buf, result);
+			vb2_buffer_done(&vb2_dst->vb2_buf, result);
+		}
 	}
 
 	dev->current_ctx = NULL;
@@ -388,6 +436,7 @@ static int rockchip_vpu_open(struct file *filp)
 	INIT_LIST_HEAD(&ctx->src_queue);
 	INIT_LIST_HEAD(&ctx->dst_queue);
 	INIT_LIST_HEAD(&ctx->list);
+	INIT_LIST_HEAD(&ctx->flush_buf.list);
 
 	if (vdev == dev->vfd_enc) {
 		/* only for encoder */

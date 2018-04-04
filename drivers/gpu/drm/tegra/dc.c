@@ -660,7 +660,7 @@ static struct drm_plane *tegra_dc_primary_plane_create(struct drm_device *drm,
 
 	err = drm_universal_plane_init(drm, &plane->base, possible_crtcs,
 				       &tegra_primary_plane_funcs, formats,
-				       num_formats, NULL, 0,
+				       num_formats, NULL,
 				       DRM_PLANE_TYPE_PRIMARY, NULL);
 	if (err < 0) {
 		kfree(plane);
@@ -828,7 +828,7 @@ static struct drm_plane *tegra_dc_cursor_plane_create(struct drm_device *drm,
 
 	err = drm_universal_plane_init(drm, &plane->base, 1 << dc->pipe,
 				       &tegra_cursor_plane_funcs, formats,
-				       num_formats, NULL, 0,
+				       num_formats, NULL,
 				       DRM_PLANE_TYPE_CURSOR, NULL);
 	if (err < 0) {
 		kfree(plane);
@@ -892,7 +892,7 @@ static struct drm_plane *tegra_dc_overlay_plane_create(struct drm_device *drm,
 
 	err = drm_universal_plane_init(drm, &plane->base, 1 << dc->pipe,
 				       &tegra_overlay_plane_funcs, formats,
-				       num_formats, NULL, 0,
+				       num_formats, NULL,
 				       DRM_PLANE_TYPE_OVERLAY, NULL);
 	if (err < 0) {
 		kfree(plane);

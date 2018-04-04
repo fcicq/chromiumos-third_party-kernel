@@ -43,40 +43,31 @@
 #include "rockchip_drm_psr.h"
 #include "rockchip_drm_vop.h"
 
-#define __REG_SET_RELAXED(x, off, mask, shift, v, write_mask) \
-		vop_mask_write(x, off, mask, shift, v, write_mask, true)
-
-#define __REG_SET_NORMAL(x, off, mask, shift, v, write_mask) \
-		vop_mask_write(x, off, mask, shift, v, write_mask, false)
-
-#define REG_SET(x, base, reg, v, mode) \
-		__REG_SET_##mode(x, base + reg.offset, \
-				 reg.mask, reg.shift, v, reg.write_mask)
-#define REG_SET_MASK(x, base, reg, mask, v, mode) \
-		__REG_SET_##mode(x, base + reg.offset, \
-				 mask, reg.shift, v, reg.write_mask)
-
 #define VOP_WIN_SET(x, win, name, v) \
-		REG_SET(x, win->base, win->phy->name, v, RELAXED)
+		vop_reg_set(vop, &win->phy->name, win->base, ~0, v, #name)
 #define VOP_SCL_SET(x, win, name, v) \
-		REG_SET(x, win->base, win->phy->scl->name, v, RELAXED)
+		vop_reg_set(vop, &win->phy->scl->name, win->base, ~0, v, #name)
 #define VOP_SCL_SET_EXT(x, win, name, v) \
-		REG_SET(x, win->base, win->phy->scl->ext->name, v, RELAXED)
-#define VOP_CTRL_SET(x, name, v) \
-		REG_SET(x, 0, (x)->data->ctrl->name, v, NORMAL)
+		vop_reg_set(vop, &win->phy->scl->ext->name, \
+			    win->base, ~0, v, #name)
 #define VOP_AFBDC_SET(x, name, v) \
 		if (vop->data->afbdc) \
-			REG_SET(x, 0, (x)->data->afbdc->name, v, RELAXED)
+			vop_reg_set(vop, &vop->data->afbdc->name, 0, ~0, v, #name)
 
-#define VOP_YUV2YUV_SET(x, name, v) \
-		if ((x)->data->yuv2yuv) \
-			REG_SET(x, 0, (x)->data->yuv2yuv->name, v, RELAXED)
+#define VOP_WIN_YUV2YUV_SET(x, win_yuv2yuv, name, v)     \
+		if (win_yuv2yuv->name.mask) \
+			vop_reg_set(vop, &win_yuv2yuv->name, 0, ~0, v, #name)
 
-#define VOP_INTR_GET(vop, name) \
-		vop_read_reg(vop, 0, &vop->data->ctrl->name)
+#define VOP_WIN_YUV2YUV_COEFFICIENT_SET(x, win_yuv2yuv, name, v)     \
+		if (win_yuv2yuv->phy->name.mask) \
+			vop_reg_set(vop, &win_yuv2yuv->phy->name, win_yuv2yuv->base, ~0, v, #name)
 
-#define VOP_INTR_SET(vop, name, mask, v) \
-		REG_SET_MASK(vop, 0, vop->data->intr->name, mask, v, NORMAL)
+#define VOP_INTR_SET_MASK(vop, name, mask, v) \
+		vop_reg_set(vop, &vop->data->intr->name, 0, mask, v, #name)
+
+#define VOP_REG_SET(vop, group, name, v) \
+		    vop_reg_set(vop, &vop->data->group->name, 0, ~0, v, #name)
+
 #define VOP_INTR_SET_TYPE(vop, name, type, v) \
 	do { \
 		int i, reg = 0, mask = 0; \
@@ -86,13 +77,13 @@
 				mask |= 1 << i; \
 			} \
 		} \
-		VOP_INTR_SET(vop, name, mask, reg); \
+		VOP_INTR_SET_MASK(vop, name, mask, reg); \
 	} while (0)
 #define VOP_INTR_GET_TYPE(vop, name, type) \
 		vop_get_intr_type(vop, &vop->data->intr->name, type)
 
 #define VOP_WIN_GET(x, win, name) \
-		vop_read_reg(x, win->base, &win->phy->name)
+		vop_read_reg(x, win->offset, win->phy->name)
 
 #define VOP_WIN_GET_YRGBADDR(vop, win) \
 		vop_readl(vop, win->base + win->phy->yrgb_mst.offset)
@@ -105,7 +96,7 @@
 
 /*
  * The coefficients of the following matrix are all fixed points.
- * The format is 3.10 for the 3x3 part of the matrix, and 10.12 for the offsets.
+ * The format is S2.10 for the 3x3 part of the matrix, and S9.12 for the offsets.
  * They are all represented in two's complement.
  */
 static const uint32_t bt601_yuv2rgb[] = {
@@ -122,6 +113,7 @@ enum vop_pending {
 struct vop_win {
 	struct drm_plane base;
 	const struct vop_win_data *data;
+	const struct vop_win_yuv2yuv_data *yuv2yuv_data;
 	struct vop *vop;
 };
 
@@ -175,14 +167,6 @@ struct vop {
 	struct vop_win win[];
 };
 
-enum vop_id vop_get_crtc_vop_id(struct drm_crtc *crtc)
-{
-	struct vop *vop = to_vop(crtc);
-
-	return vop->data->id;
-}
-EXPORT_SYMBOL_GPL(vop_get_crtc_vop_id);
-
 static inline void vop_writel(struct vop *vop, uint32_t offset, uint32_t v)
 {
 	writel(v, vop->regs + offset);
@@ -200,15 +184,23 @@ static inline uint32_t vop_read_reg(struct vop *vop, uint32_t base,
 	return (vop_readl(vop, base + reg->offset) >> reg->shift) & reg->mask;
 }
 
-static inline void vop_mask_write(struct vop *vop, uint32_t offset,
-				  uint32_t mask, uint32_t shift, uint32_t v,
-				  bool write_mask, bool relaxed)
+static void vop_reg_set(struct vop *vop, const struct vop_reg *reg,
+			uint32_t _offset, uint32_t _mask, uint32_t v,
+			const char *reg_name)
 {
-	if (!mask)
-		return;
+	int offset, mask, shift;
 
-	if (write_mask) {
-		v = (v << shift) | (mask << (shift + 16));
+	if (!reg || !reg->mask) {
+		dev_dbg(vop->dev, "Warning: not support %s\n", reg_name);
+		return;
+	}
+
+	offset = reg->offset + _offset;
+	mask = reg->mask & _mask;
+	shift = reg->shift;
+
+	if (reg->write_mask) {
+		v = ((v << shift) & 0xffff) | (mask << (shift + 16));
 	} else {
 		uint32_t cached_val = vop->regsbak[offset >> 2];
 
@@ -216,7 +208,7 @@ static inline void vop_mask_write(struct vop *vop, uint32_t offset,
 		vop->regsbak[offset >> 2] = v;
 	}
 
-	if (relaxed)
+	if (reg->relaxed)
 		writel_relaxed(v, vop->regs + offset);
 	else
 		writel(v, vop->regs + offset);
@@ -236,14 +228,9 @@ static inline uint32_t vop_get_intr_type(struct vop *vop,
 	return ret;
 }
 
-static int vop_win_id(struct vop *vop, struct vop_win *win)
-{
-	return (win - vop->win) / sizeof(*win);
-}
-
 static inline void vop_cfg_done(struct vop *vop)
 {
-	VOP_CTRL_SET(vop, cfg_done, 1);
+	VOP_REG_SET(vop, common, cfg_done, 1);
 }
 
 static bool has_rb_swapped(uint32_t format)
@@ -334,6 +321,9 @@ static uint16_t scl_vop_cal_scale(enum scale_mode mode, uint32_t src,
 {
 	uint16_t val = 1 << SCL_FT_DEFAULT_FIXPOINT_SHIFT;
 
+	if (vskiplines)
+		*vskiplines = 0;
+
 	if (is_horizontal) {
 		if (mode == SCALE_UP)
 			val = GET_SCL_FT_BIC(src, dst);
@@ -374,7 +364,7 @@ static void scl_vop_cal_scl_fac(struct vop *vop, const struct vop_win_data *win,
 	uint16_t vsu_mode;
 	uint16_t lb_mode;
 	uint32_t val;
-	int vskiplines = 0;
+	int vskiplines;
 
 	if (dst_w > 3840) {
 		DRM_DEV_ERROR(vop->dev, "Maximum dst width (3840) exceeded\n");
@@ -388,9 +378,9 @@ static void scl_vop_cal_scl_fac(struct vop *vop, const struct vop_win_data *win,
 			    scl_cal_scale2(src_h, dst_h));
 		if (is_yuv) {
 			VOP_SCL_SET(vop, win, scale_cbcr_x,
-				    scl_cal_scale2(src_w, dst_w));
+				    scl_cal_scale2(cbcr_src_w, dst_w));
 			VOP_SCL_SET(vop, win, scale_cbcr_y,
-				    scl_cal_scale2(src_h, dst_h));
+				    scl_cal_scale2(cbcr_src_h, dst_h));
 		}
 		return;
 	}
@@ -551,7 +541,7 @@ static void vop_line_flag_irq_put(struct vop *vop)
 static int vop_enable(struct drm_crtc *crtc)
 {
 	struct vop *vop = to_vop(crtc);
-	int ret;
+	int ret, i;
 
 	if (vop->is_enabled)
 		return 0;
@@ -559,7 +549,7 @@ static int vop_enable(struct drm_crtc *crtc)
 	ret = pm_runtime_get_sync(vop->dev);
 	if (ret < 0) {
 		dev_err(vop->dev, "failed to get pm runtime: %d\n", ret);
-		goto err_put_pm_runtime;
+		return ret;
 	}
 
 	ret = clk_enable(vop->hclk);
@@ -587,6 +577,26 @@ static int vop_enable(struct drm_crtc *crtc)
 	}
 
 	memcpy(vop->regs, vop->regsbak, vop->len);
+	/*
+	 * We need to make sure that all windows are disabled before we
+	 * enable the crtc. Otherwise we might try to scan from a destroyed
+	 * buffer later.
+	 */
+	for (i = 0; i < vop->data->win_size; i++) {
+		struct vop_win *vop_win = &vop->win[i];
+		const struct vop_win_data *win = vop_win->data;
+
+		spin_lock(&vop->reg_lock);
+		VOP_WIN_SET(vop, win, enable, 0);
+		vop->win_enabled &= ~BIT(i);
+		spin_unlock(&vop->reg_lock);
+	}
+
+	if (vop->data->afbdc) {
+		VOP_AFBDC_SET(vop, enable, 0);
+		vop->afbdc_win = NULL;
+	}
+
 	vop_cfg_done(vop);
 
 	/*
@@ -596,7 +606,7 @@ static int vop_enable(struct drm_crtc *crtc)
 
 	spin_lock(&vop->reg_lock);
 
-	VOP_CTRL_SET(vop, standby, 0);
+	VOP_REG_SET(vop, common, standby, 1);
 
 	spin_unlock(&vop->reg_lock);
 
@@ -644,33 +654,11 @@ static void vop_crtc_disable(struct drm_crtc *crtc)
 {
 	struct vop *vop = to_vop(crtc);
 	struct rockchip_drm_private *priv = crtc->dev->dev_private;
-	int i;
 
 	if (!vop->is_enabled)
 		return;
 
 	rockchip_dmcfreq_unregister_clk_sync_nb(priv->devfreq, &vop->dmc_nb);
-	/*
-	 * We need to make sure that all windows are disabled before we
-	 * disable that crtc. Otherwise we might try to scan from a destroyed
-	 * buffer later.
-	 */
-	for (i = 0; i < vop->data->win_size; i++) {
-		struct vop_win *vop_win = &vop->win[i];
-		const struct vop_win_data *win = vop_win->data;
-
-		spin_lock(&vop->reg_lock);
-		VOP_WIN_SET(vop, win, enable, 0);
-		vop->win_enabled &= ~BIT(i);
-		spin_unlock(&vop->reg_lock);
-	}
-
-	if (vop->data->afbdc) {
-		VOP_AFBDC_SET(vop, enable, 0);
-		vop->afbdc_win = NULL;
-	}
-
-	vop_cfg_done(vop);
 
 	drm_crtc_vblank_off(crtc);
 
@@ -686,7 +674,7 @@ static void vop_crtc_disable(struct drm_crtc *crtc)
 
 	spin_lock(&vop->reg_lock);
 
-	VOP_CTRL_SET(vop, standby, 1);
+	VOP_REG_SET(vop, common, standby, 1);
 
 	spin_unlock(&vop->reg_lock);
 
@@ -762,11 +750,20 @@ static int vop_plane_atomic_check(struct drm_plane *plane,
 	 * Src.x1 can be odd when do clip, but yuv plane start point
 	 * need align with 2 pixel.
 	 */
-	if (is_yuv_support(fb->format->format) && ((state->src.x1 >> 16) % 2))
+	if (is_yuv_support(fb->format->format) && ((state->src.x1 >> 16) % 2)) {
+		DRM_ERROR("Invalid Source: Yuv format not support odd xpos\n");
 		return -EINVAL;
+	}
 
 	if (is_yuv_support(fb->format->format) && (state->rotation != DRM_ROTATE_0))
 		return -EINVAL;
+
+	if (state->ctm) {
+		if (state->ctm->length != sizeof(struct drm_color_ctm)) {
+			DRM_ERROR("Invalid PLANE_CTM blob size.\n");
+			return -EINVAL;
+		}
+	}
 
 	if (!((state->rotation == DRM_REFLECT_Y) || (state->rotation == DRM_ROTATE_0)))
 		return -EINVAL;
@@ -828,6 +825,7 @@ static void vop_plane_atomic_update(struct drm_plane *plane,
 	struct drm_crtc *crtc = state->crtc;
 	struct vop_win *vop_win = to_vop_win(plane);
 	const struct vop_win_data *win = vop_win->data;
+	const struct vop_win_yuv2yuv_data *win_yuv2yuv = vop_win->yuv2yuv_data;
 	struct vop *vop = to_vop(state->crtc);
 	struct drm_framebuffer *fb = state->fb;
 	unsigned int actual_w, actual_h;
@@ -893,7 +891,7 @@ static void vop_plane_atomic_update(struct drm_plane *plane,
 
 		VOP_AFBDC_SET(vop, format, afbdc_format | 1 << 4);
 		VOP_AFBDC_SET(vop, hreg_block_split, 0);
-		VOP_AFBDC_SET(vop, win_sel, vop_win_id(vop, vop_win));
+		VOP_AFBDC_SET(vop, win_sel, win_index);
 		VOP_AFBDC_SET(vop, hdr_ptr, dma_addr);
 		VOP_AFBDC_SET(vop, pic_size, act_info);
 
@@ -901,15 +899,11 @@ static void vop_plane_atomic_update(struct drm_plane *plane,
 	}
 
 	VOP_WIN_SET(vop, win, format, format);
-	VOP_WIN_SET(vop, win, yrgb_vir, fb->pitches[0] >> 2);
+	VOP_WIN_SET(vop, win, yrgb_vir, DIV_ROUND_UP(fb->pitches[0], 4));
 	VOP_WIN_SET(vop, win, yrgb_mst, dma_addr);
 	VOP_WIN_SET(vop, win, y_mir_en, state->rotation == DRM_REFLECT_Y);
 
-	if (!win_index) {
-		VOP_YUV2YUV_SET(vop, win0_y2r_en, is_yuv);
-	} else if (win_index == 1) {
-		VOP_YUV2YUV_SET(vop, win1_y2r_en, is_yuv);
-	}
+	VOP_WIN_YUV2YUV_SET(vop, win_yuv2yuv, y2r_en, is_yuv);
 
 	if (is_yuv) {
 		int hsub = drm_format_horz_chroma_subsampling(fb->format->format);
@@ -923,19 +917,35 @@ static void vop_plane_atomic_update(struct drm_plane *plane,
 		offset += (src->y1 >> 16) * fb->pitches[1] / vsub;
 
 		dma_addr = rk_uv_obj->dma_addr + offset + fb->offsets[1];
-		VOP_WIN_SET(vop, win, uv_vir, fb->pitches[1] >> 2);
+		VOP_WIN_SET(vop, win, uv_vir, DIV_ROUND_UP(fb->pitches[1], 4));
 		VOP_WIN_SET(vop, win, uv_mst, dma_addr);
 
-		for (i = 0; i < 12; i++) {
-			if (!win_index) {
-				VOP_YUV2YUV_SET(vop,
-						win0_y2r_coefficients[i],
-						bt601_yuv2rgb[i]);
-			} else {
-				VOP_YUV2YUV_SET(vop,
-						win1_y2r_coefficients[i],
-						bt601_yuv2rgb[i]);
-			}
+		for (i = 0; i < NUM_YUV2YUV_COEFFICIENTS; i++) {
+			VOP_WIN_YUV2YUV_COEFFICIENT_SET(vop,
+							win_yuv2yuv,
+							y2r_coefficients[i],
+							bt601_yuv2rgb[i]);
+		}
+	}
+
+	VOP_WIN_YUV2YUV_SET(vop, win_yuv2yuv, r2r_en, !!state->ctm);
+	if (state->ctm) {
+		struct drm_color_ctm *color_ctm =
+			(struct drm_color_ctm*)state->ctm->data;
+		/*
+		 * Convert matrix values from sign and fixed point U31.32 to
+		 * two's complement S3.10.
+		 */
+		for (i = 0; i < 9; i++) {
+			uint64_t input = color_ctm->matrix[i];
+			uint64_t abs_coeff = GENMASK_ULL(62, 0) & input;
+			s64 val = (input & BIT_ULL(63)) ?
+				-(abs_coeff >> 22) : (abs_coeff >> 22);
+			val = clamp_val(val, -4 << 10, (4 << 10) - 1);
+			VOP_WIN_YUV2YUV_COEFFICIENT_SET(vop,
+							win_yuv2yuv,
+							r2r_coefficients[i],
+							val);
 		}
 	}
 
@@ -1111,6 +1121,26 @@ static int vop_plane_update(struct drm_plane *plane,
 					      src_x, src_y, src_w, src_h);
 }
 
+static bool vop_plane_format_mod_supported(struct drm_plane *plane,
+					   uint32_t format,
+					   uint64_t modifier)
+{
+	switch (modifier) {
+	case DRM_FORMAT_MOD_CHROMEOS_ROCKCHIP_AFBC:
+		switch (format) {
+		case DRM_FORMAT_XRGB8888:
+		case DRM_FORMAT_ARGB8888:
+		case DRM_FORMAT_XBGR8888:
+		case DRM_FORMAT_ABGR8888:
+			return true;
+		default:
+			return false;
+		}
+	default:
+		return true;
+	}
+}
+
 static const struct drm_plane_funcs vop_plane_funcs = {
 	.update_plane	= vop_plane_update,
 	.disable_plane	= drm_atomic_helper_disable_plane,
@@ -1118,6 +1148,7 @@ static const struct drm_plane_funcs vop_plane_funcs = {
 	.reset = drm_atomic_helper_plane_reset,
 	.atomic_duplicate_state = drm_atomic_helper_plane_duplicate_state,
 	.atomic_destroy_state = drm_atomic_helper_plane_destroy_state,
+	.format_mod_supported = vop_plane_format_mod_supported,
 };
 
 static int vop_crtc_enable_vblank(struct drm_crtc *crtc)
@@ -1203,6 +1234,7 @@ static bool vop_crtc_mode_fixup(struct drm_crtc *crtc,
 static void vop_crtc_enable(struct drm_crtc *crtc)
 {
 	struct vop *vop = to_vop(crtc);
+	const struct vop_data *vop_data = vop->data;
 	struct rockchip_crtc_state *s = to_rockchip_crtc_state(crtc->state);
 	struct drm_display_mode *adjusted_mode = &crtc->state->adjusted_mode;
 	struct rockchip_drm_private *priv = crtc->dev->dev_private;
@@ -1225,98 +1257,72 @@ static void vop_crtc_enable(struct drm_crtc *crtc)
 		return;
 	}
 
-	/*
-	 * If dclk rate is zero, mean that scanout is stop,
-	 * we don't need wait any more.
-	 */
-	if (clk_get_rate(vop->dclk)) {
-		/*
-		 * Rk3288 vop timing register is immediately, when configure
-		 * display timing on display time, may cause tearing.
-		 *
-		 * Vop standby will take effect at end of current frame,
-		 * if dsp hold valid irq happen, it means standby complete.
-		 *
-		 * mode set:
-		 *    standby and wait complete --> |----
-		 *                                  | display time
-		 *                                  |----
-		 *                                  |---> dsp hold irq
-		 *     configure display timing --> |
-		 *         standby exit             |
-		 *                                  | new frame start.
-		 */
-
-		reinit_completion(&vop->dsp_hold_completion);
-		vop_dsp_hold_valid_irq_enable(vop);
-
-		spin_lock(&vop->reg_lock);
-
-		VOP_CTRL_SET(vop, standby, 1);
-
-		spin_unlock(&vop->reg_lock);
-
-		wait_for_completion(&vop->dsp_hold_completion);
-
-		vop_dsp_hold_valid_irq_disable(vop);
-	}
-
 	pin_pol = BIT(DCLK_INVERT);
 	pin_pol |= (adjusted_mode->flags & DRM_MODE_FLAG_PHSYNC) ?
 		   BIT(HSYNC_POSITIVE) : 0;
 	pin_pol |= (adjusted_mode->flags & DRM_MODE_FLAG_PVSYNC) ?
 		   BIT(VSYNC_POSITIVE) : 0;
-	VOP_CTRL_SET(vop, pin_pol, pin_pol);
+	VOP_REG_SET(vop, output, pin_pol, pin_pol);
+	VOP_REG_SET(vop, output, mipi_dual_channel_en, 0);
 
 	switch (s->output_type) {
 	case DRM_MODE_CONNECTOR_LVDS:
-		VOP_CTRL_SET(vop, rgb_en, 1);
-		VOP_CTRL_SET(vop, rgb_pin_pol, pin_pol);
+		VOP_REG_SET(vop, output, rgb_en, 1);
+		VOP_REG_SET(vop, output, rgb_pin_pol, pin_pol);
 		break;
 	case DRM_MODE_CONNECTOR_eDP:
-		VOP_CTRL_SET(vop, edp_pin_pol, pin_pol);
-		VOP_CTRL_SET(vop, edp_en, 1);
+		VOP_REG_SET(vop, output, edp_pin_pol, pin_pol);
+		VOP_REG_SET(vop, output, edp_en, 1);
 		break;
 	case DRM_MODE_CONNECTOR_HDMIA:
-		VOP_CTRL_SET(vop, hdmi_pin_pol, pin_pol);
-		VOP_CTRL_SET(vop, hdmi_en, 1);
+		VOP_REG_SET(vop, output, hdmi_pin_pol, pin_pol);
+		VOP_REG_SET(vop, output, hdmi_en, 1);
 		break;
 	case DRM_MODE_CONNECTOR_DSI:
-		VOP_CTRL_SET(vop, mipi_pin_pol, pin_pol);
-		VOP_CTRL_SET(vop, mipi_en, 1);
+		VOP_REG_SET(vop, output, mipi_pin_pol, pin_pol);
+		VOP_REG_SET(vop, output, mipi_en, 1);
+		VOP_REG_SET(vop, output, mipi_dual_channel_en,
+			   !!(s->output_flags & ROCKCHIP_OUTPUT_DSI_DUAL_CHANNEL));
 		break;
 	case DRM_MODE_CONNECTOR_DisplayPort:
 		pin_pol &= ~BIT(DCLK_INVERT);
-		VOP_CTRL_SET(vop, dp_pin_pol, pin_pol);
-		VOP_CTRL_SET(vop, dp_en, 1);
+		VOP_REG_SET(vop, output, dp_pin_pol, pin_pol);
+		VOP_REG_SET(vop, output, dp_en, 1);
 		break;
 	default:
 		DRM_DEV_ERROR(vop->dev, "unsupported connector_type [%d]\n",
 			      s->output_type);
 	}
 	if (s->output_mode == ROCKCHIP_OUT_MODE_AAAA && s->output_bpc == 8)
-		VOP_CTRL_SET(vop, pre_dither_down, 1);
+		VOP_REG_SET(vop, common, pre_dither_down, 1);
 	else
-		VOP_CTRL_SET(vop, pre_dither_down, 0);
-	VOP_CTRL_SET(vop, out_mode, s->output_mode);
+		VOP_REG_SET(vop, common, pre_dither_down, 0);
 
-	VOP_CTRL_SET(vop, htotal_pw, (htotal << 16) | hsync_len);
+	/*
+	 * if vop is not support RGB10 output, need force RGB10 to RGB888.
+	 */
+	if (s->output_mode == ROCKCHIP_OUT_MODE_AAAA &&
+	    !(vop_data->feature & VOP_FEATURE_OUTPUT_RGB10))
+		s->output_mode = ROCKCHIP_OUT_MODE_P888;
+	VOP_REG_SET(vop, common, out_mode, s->output_mode);
+
+	VOP_REG_SET(vop, modeset, htotal_pw, (htotal << 16) | hsync_len);
 	val = hact_st << 16;
 	val |= hact_end;
-	VOP_CTRL_SET(vop, hact_st_end, val);
-	VOP_CTRL_SET(vop, hpost_st_end, val);
+	VOP_REG_SET(vop, modeset, hact_st_end, val);
+	VOP_REG_SET(vop, modeset, hpost_st_end, val);
 
-	VOP_CTRL_SET(vop, vtotal_pw, (vtotal << 16) | vsync_len);
+	VOP_REG_SET(vop, modeset, vtotal_pw, (vtotal << 16) | vsync_len);
 	val = vact_st << 16;
 	val |= vact_end;
-	VOP_CTRL_SET(vop, vact_st_end, val);
-	VOP_CTRL_SET(vop, vpost_st_end, val);
+	VOP_REG_SET(vop, modeset, vact_st_end, val);
+	VOP_REG_SET(vop, modeset, vpost_st_end, val);
 
-	VOP_CTRL_SET(vop, line_flag_num[0], vact_end);
+	VOP_REG_SET(vop, intr, line_flag_num[0], vact_end);
 
 	clk_set_rate(vop->dclk, adjusted_mode->clock * 1000);
 
-	VOP_CTRL_SET(vop, standby, 0);
+	VOP_REG_SET(vop, common, standby, 0);
 	rockchip_dmcfreq_register_clk_sync_nb(priv->devfreq, &vop->dmc_nb);
 }
 
@@ -1572,7 +1578,6 @@ static int vop_create_crtc(struct vop *vop)
 					       win_data->phy->data_formats,
 					       win_data->phy->nformats,
 					       win_data->phy->format_modifiers,
-					       win_data->phy->nformat_modifiers,
 					       win_data->type, NULL);
 		if (ret) {
 			DRM_DEV_ERROR(vop->dev, "failed to init plane %d\n",
@@ -1590,11 +1595,13 @@ static int vop_create_crtc(struct vop *vop)
 
 	ret = drm_crtc_init_with_planes(drm_dev, crtc, primary, cursor,
 					&vop_crtc_funcs, NULL);
+	drm_plane_enable_color_mgmt(cursor, true);
 
 	drm_object_attach_property(&primary->base,
 				   rotation_property,
 				   DRM_ROTATE_0);
 
+	drm_plane_enable_color_mgmt(primary, true);
 	if (ret)
 		goto err_cleanup_planes;
 
@@ -1618,7 +1625,6 @@ static int vop_create_crtc(struct vop *vop)
 					       win_data->phy->data_formats,
 					       win_data->phy->nformats,
 					       win_data->phy->format_modifiers,
-					       win_data->phy->nformat_modifiers,
 					       win_data->type, NULL);
 		if (ret) {
 			DRM_DEV_ERROR(vop->dev, "failed to init overlay %d\n",
@@ -1629,6 +1635,7 @@ static int vop_create_crtc(struct vop *vop)
 		drm_object_attach_property(&vop_win->base.base,
 					   rotation_property,
 					   DRM_ROTATE_0);
+		drm_plane_enable_color_mgmt(&vop_win->base, true);
 	}
 
 	port = of_get_child_by_name(dev->of_node, "port");
@@ -1691,7 +1698,6 @@ static void vop_destroy_crtc(struct vop *vop)
 static int vop_initial(struct vop *vop)
 {
 	const struct vop_data *vop_data = vop->data;
-	const struct vop_reg_data *init_table = vop_data->init_table;
 	struct reset_control *ahb_rst, *axi_rst;
 	int i, ret;
 
@@ -1711,10 +1717,16 @@ static int vop_initial(struct vop *vop)
 		return PTR_ERR(vop->dclk);
 	}
 
+	ret = pm_runtime_get_sync(vop->dev);
+	if (ret < 0) {
+		dev_err(vop->dev, "failed to get pm runtime: %d\n", ret);
+		return ret;
+	}
+
 	ret = clk_prepare(vop->dclk);
 	if (ret < 0) {
 		dev_err(vop->dev, "failed to prepare dclk\n");
-		return ret;
+		goto err_put_pm_runtime;
 	}
 
 	/* Enable both the hclk and aclk to setup the vop */
@@ -1758,13 +1770,14 @@ static int vop_initial(struct vop *vop)
 
 	memcpy(vop->regsbak, vop->regs, vop->len);
 
-	for (i = 0; i < vop_data->table_size; i++)
-		vop_writel(vop, init_table[i].offset, init_table[i].value);
+	VOP_REG_SET(vop, misc, global_regdone_en, 1);
+	VOP_REG_SET(vop, common, dsp_blank, 0);
 
 	for (i = 0; i < vop_data->win_size; i++) {
 		const struct vop_win_data *win = &vop_data->win[i];
 
 		VOP_WIN_SET(vop, win, enable, 0);
+		VOP_WIN_SET(vop, win, gate, 1);
 		vop->win_enabled &= ~BIT(i);
 	}
 
@@ -1788,6 +1801,8 @@ static int vop_initial(struct vop *vop)
 
 	vop->is_enabled = false;
 
+	pm_runtime_put_sync(vop->dev);
+
 	return 0;
 
 err_disable_aclk:
@@ -1796,6 +1811,8 @@ err_disable_hclk:
 	clk_disable_unprepare(vop->hclk);
 err_unprepare_dclk:
 	clk_unprepare(vop->dclk);
+err_put_pm_runtime:
+	pm_runtime_put_sync(vop->dev);
 	return ret;
 }
 
@@ -1813,6 +1830,7 @@ static void vop_win_init(struct vop *vop)
 
 		vop_win->data = win_data;
 		vop_win->vop = vop;
+		vop_win->yuv2yuv_data = &vop_data->win_yuv2yuv[i];
 	}
 }
 
@@ -1894,12 +1912,6 @@ static int vop_bind(struct device *dev, struct device *master, void *data)
 	if (!vop->regsbak)
 		return -ENOMEM;
 
-	ret = vop_initial(vop);
-	if (ret < 0) {
-		dev_err(&pdev->dev, "cannot initial vop dev - err %d\n", ret);
-		return ret;
-	}
-
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0) {
 		dev_err(dev, "cannot find irq for vop\n");
@@ -1925,8 +1937,17 @@ static int vop_bind(struct device *dev, struct device *master, void *data)
 
 	pm_runtime_enable(&pdev->dev);
 
+	ret = vop_initial(vop);
+	if (ret < 0) {
+		dev_err(&pdev->dev, "cannot initial vop dev - err %d\n", ret);
+		goto err_disable_pm_runtime;
+	}
+
 	return 0;
 
+err_disable_pm_runtime:
+	pm_runtime_disable(&pdev->dev);
+	vop_destroy_crtc(vop);
 err_enable_irq:
 	enable_irq(vop->irq); /* To balance out the disable_irq above */
 	return ret;
@@ -1938,6 +1959,10 @@ static void vop_unbind(struct device *dev, struct device *master, void *data)
 
 	pm_runtime_disable(dev);
 	vop_destroy_crtc(vop);
+
+	clk_unprepare(vop->aclk);
+	clk_unprepare(vop->hclk);
+	clk_unprepare(vop->dclk);
 }
 
 const struct component_ops vop_component_ops = {

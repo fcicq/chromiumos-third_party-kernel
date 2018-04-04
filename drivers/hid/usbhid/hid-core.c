@@ -734,15 +734,8 @@ void usbhid_close(struct hid_device *hid)
 		spin_unlock_irq(&usbhid->lock);
 		hid_cancel_delayed_stuff(usbhid);
 		if (!(hid->quirks & HID_QUIRK_ALWAYS_POLL)) {
-			int autopm_error;
-
-			autopm_error = usb_autopm_get_interface(usbhid->intf);
-
 			usb_kill_urb(usbhid->urbin);
 			usbhid->intf->needs_remote_wakeup = 0;
-
-			if (!autopm_error)
-				usb_autopm_put_interface(usbhid->intf);
 		}
 	} else {
 		spin_unlock_irq(&usbhid->lock);
@@ -976,6 +969,8 @@ static int usbhid_parse(struct hid_device *hid)
 	unsigned int rsize = 0;
 	char *rdesc;
 	int ret, n;
+	int num_descriptors;
+	size_t offset = offsetof(struct hid_descriptor, desc);
 
 	quirks = usbhid_lookup_quirk(le16_to_cpu(dev->descriptor.idVendor),
 			le16_to_cpu(dev->descriptor.idProduct));
@@ -998,10 +993,18 @@ static int usbhid_parse(struct hid_device *hid)
 		return -ENODEV;
 	}
 
+	if (hdesc->bLength < sizeof(struct hid_descriptor)) {
+		dbg_hid("hid descriptor is too short\n");
+		return -EINVAL;
+	}
+
 	hid->version = le16_to_cpu(hdesc->bcdHID);
 	hid->country = hdesc->bCountryCode;
 
-	for (n = 0; n < hdesc->bNumDescriptors; n++)
+	num_descriptors = min_t(int, hdesc->bNumDescriptors,
+	       (hdesc->bLength - offset) / sizeof(struct hid_class_descriptor));
+
+	for (n = 0; n < num_descriptors; n++)
 		if (hdesc->desc[n].bDescriptorType == HID_DT_REPORT)
 			rsize = le16_to_cpu(hdesc->desc[n].wDescriptorLength);
 
@@ -1173,16 +1176,8 @@ static void usbhid_stop(struct hid_device *hid)
 	if (WARN_ON(!usbhid))
 		return;
 
-	if (hid->quirks & HID_QUIRK_ALWAYS_POLL) {
-		int autopm_error;
-
-		autopm_error = usb_autopm_get_interface(usbhid->intf);
-
+	if (hid->quirks & HID_QUIRK_ALWAYS_POLL)
 		usbhid->intf->needs_remote_wakeup = 0;
-
-		if (!autopm_error)
-			usb_autopm_put_interface(usbhid->intf);
-	}
 
 	clear_bit(HID_STARTED, &usbhid->iofl);
 	spin_lock_irq(&usbhid->lock);	/* Sync with error and led handlers */

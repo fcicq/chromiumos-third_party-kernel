@@ -14,6 +14,7 @@
  */
 
 #include <linux/dma-iommu.h>
+#include <linux/gfp.h>
 #include <linux/iova.h>
 #include <linux/iommu.h>
 #include <linux/iopoll.h>
@@ -145,7 +146,7 @@ static u32 *ipu3_mmu_alloc_page_table(u32 pteval)
 	u32 *pt;
 	int pte;
 
-	pt = kmalloc(IPU3_PT_PTES * sizeof(*pt), GFP_KERNEL);
+	pt = (u32 *)__get_free_page(GFP_KERNEL);
 	if (!pt)
 		return NULL;
 
@@ -163,7 +164,7 @@ static u32 *ipu3_mmu_alloc_page_table(u32 pteval)
  */
 static void ipu3_mmu_free_page_table(u32 *pt)
 {
-	kfree(pt);
+	free_page((unsigned long)pt);
 }
 
 /**
@@ -211,7 +212,7 @@ static struct iommu_domain *ipu3_mmu_domain_alloc(unsigned int type)
 	 * The MMU does not have a "valid" bit, so we have to use a dummy
 	 * page for invalid entries.
 	 */
-	mmu_dom->dummy_page = kzalloc(IPU3_PAGE_SIZE, GFP_KERNEL);
+	mmu_dom->dummy_page = (void *)__get_free_page(GFP_KERNEL);
 	if (!mmu_dom->dummy_page)
 		goto fail_cookie;
 	pteval = IPU3_ADDR2PTE(virt_to_phys(mmu_dom->dummy_page));
@@ -241,7 +242,7 @@ static struct iommu_domain *ipu3_mmu_domain_alloc(unsigned int type)
 fail_l2pt:
 	ipu3_mmu_free_page_table(mmu_dom->dummy_l2pt);
 fail_page:
-	kfree(mmu_dom->dummy_page);
+	free_page((unsigned long)mmu_dom->dummy_page);
 fail_cookie:
 	iommu_put_dma_cookie(&mmu_dom->domain);
 fail_domain:
@@ -262,7 +263,7 @@ static void ipu3_mmu_domain_free(struct iommu_domain *domain)
 	vfree(mmu_dom->l2pts);
 
 	ipu3_mmu_free_page_table(mmu_dom->dummy_l2pt);
-	kfree(mmu_dom->dummy_page);
+	free_page((unsigned long)mmu_dom->dummy_page);
 	iommu_put_dma_cookie(domain);
 
 	kfree(mmu_dom);

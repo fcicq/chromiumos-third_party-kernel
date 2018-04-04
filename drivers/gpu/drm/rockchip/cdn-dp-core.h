@@ -77,6 +77,9 @@ enum {
 	CDN_DP_HDCP_KEY_LEN = 308,
 };
 
+/*
+ * Size must be divisible by 6
+ */
 struct cdn_dp_hdcp_key_1x {
 	u8 ksv[CDN_DP_HDCP_KSV_LEN];
 	u8 device_key[CDN_DP_HDCP_DPK_LEN];
@@ -126,7 +129,10 @@ struct cdn_dp_device {
 	u8 dpcd[DP_RECEIVER_CAP_SIZE];
 	bool sink_has_audio;
 
+	bool hdcp_enabled;
+	bool hdcp_desired;
 	struct cdn_dp_hdcp_key_1x key;
 	struct delayed_work hdcp_event_work;
+	struct work_struct hdcp_prop_work;
 };
 #endif  /* _CDN_DP_CORE_H */

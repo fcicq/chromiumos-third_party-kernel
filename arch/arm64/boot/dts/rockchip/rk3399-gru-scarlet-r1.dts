@@ -48,13 +48,6 @@
 
 / {
 	model = "Google Scarlet";
-	compatible = "google,scarlet-rev15", "google,scarlet-rev14",
-		     "google,scarlet-rev13", "google,scarlet-rev12",
-		     "google,scarlet-rev11", "google,scarlet-rev10",
-		     "google,scarlet-rev9", "google,scarlet-rev8",
-		     "google,scarlet-rev7", "google,scarlet-rev6",
-		     "google,scarlet-rev5", "google,scarlet-rev4",
-		     "google,scarlet-rev3", "google,scarlet-rev2",
-		     "google,scarlet-rev1", "google,scarlet",
-		     "google,gru", "rockchip,rk3399";
+	compatible = "google,scarlet-rev1-sku7", "google,scarlet-rev1",
+		     "google,scarlet", "google,gru", "rockchip,rk3399";
 };

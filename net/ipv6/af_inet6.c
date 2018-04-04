@@ -204,7 +204,6 @@ lookup_protocol:
 	np->mcast_hops	= IPV6_DEFAULT_MCASTHOPS;
 	np->mc_loop	= 1;
 	np->pmtudisc	= IPV6_PMTUDISC_WANT;
-	np->autoflowlabel = ip6_default_np_autolabel(sock_net(sk));
 	sk->sk_ipv6only	= net->ipv6.sysctl.bindv6only;
 
 	/* Init the ipv4 part of the socket since we can have sockets
@@ -483,21 +482,6 @@ int inet6_getname(struct socket *sock, struct sockaddr *uaddr,
 }
 EXPORT_SYMBOL(inet6_getname);
 
-int inet6_killaddr_ioctl(struct net *net, void __user *arg) {
-	struct in6_ifreq ireq;
-	struct sockaddr_in6 sin6;
-
-	if (!capable(CAP_NET_ADMIN))
-		return -EACCES;
-
-	if (copy_from_user(&ireq, arg, sizeof(struct in6_ifreq)))
-		return -EFAULT;
-
-	sin6.sin6_family = AF_INET6;
-	sin6.sin6_addr = ireq.ifr6_addr;
-	return tcp_nuke_addr(net, (struct sockaddr *) &sin6);
-}
-
 int inet6_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 {
 	struct sock *sk = sock->sk;
@@ -521,8 +505,6 @@ int inet6_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 		return addrconf_del_ifaddr(net, (void __user *) arg);
 	case SIOCSIFDSTADDR:
 		return addrconf_set_dstaddr(net, (void __user *) arg);
-	case SIOCKILLADDR:
-		return inet6_killaddr_ioctl(net, (void __user *) arg);
 	default:
 		if (!sk->sk_prot->ioctl)
 			return -ENOIOCTLCMD;
@@ -915,12 +897,12 @@ static int __init inet6_init(void)
 	err = register_pernet_subsys(&inet6_net_ops);
 	if (err)
 		goto register_pernet_fail;
-	err = icmpv6_init();
-	if (err)
-		goto icmp_fail;
 	err = ip6_mr_init();
 	if (err)
 		goto ipmr_fail;
+	err = icmpv6_init();
+	if (err)
+		goto icmp_fail;
 	err = ndisc_init();
 	if (err)
 		goto ndisc_fail;
@@ -1038,10 +1020,10 @@ igmp_fail:
 	ndisc_cleanup();
 ndisc_fail:
 	ip6_mr_cleanup();
-ipmr_fail:
-	icmpv6_cleanup();
 icmp_fail:
 	unregister_pernet_subsys(&inet6_net_ops);
+ipmr_fail:
+	icmpv6_cleanup();
 register_pernet_fail:
 	sock_unregister(PF_INET6);
 	rtnl_unregister_all(PF_INET6);

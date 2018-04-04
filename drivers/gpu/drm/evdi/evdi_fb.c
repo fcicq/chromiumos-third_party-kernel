@@ -61,12 +61,12 @@ struct drm_clip_rect evdi_framebuffer_sanitize_rect(
 	}
 
 	if (rect.x2 > fb->base.width) {
-		EVDI_WARN("Wrong clip rect: x2 > fb.width\n");
+		EVDI_VERBOSE("Wrong clip rect: x2 > fb.width\n");
 		rect.x2 = fb->base.width;
 	}
 
 	if (rect.y2 > fb->base.height) {
-		EVDI_WARN("Wrong clip rect: y2 > fb.height\n");
+		EVDI_VERBOSE("Wrong clip rect: y2 > fb.height\n");
 		rect.y2 = fb->base.height;
 	}
 
@@ -264,8 +264,6 @@ static void evdi_user_framebuffer_destroy(struct drm_framebuffer *fb)
 	struct evdi_framebuffer *ufb = to_evdi_fb(fb);
 
 	EVDI_CHECKPT();
-	if (ufb->obj->vmapping)
-		evdi_gem_vunmap(ufb->obj);
 
 	if (ufb->obj)
 		drm_gem_object_unreference_unlocked(&ufb->obj->base);
@@ -487,6 +485,16 @@ void evdi_fbdev_unplug(struct drm_device *dev)
 	}
 }
 
+int evdi_fb_get_bpp(uint32_t format)
+{
+	const struct drm_format_info *info;
+
+	info = drm_format_info(format);
+	if (info && info->depth)
+		return info->cpp[0] * 8;
+	return 0;
+}
+
 struct drm_framebuffer *evdi_fb_user_fb_create(
 					struct drm_device *dev,
 					struct drm_file *file,
@@ -497,22 +505,7 @@ struct drm_framebuffer *evdi_fb_user_fb_create(
 	int ret;
 	uint32_t size;
 
-	int bpp;
-	const struct drm_format_info *info;
-
-	info = drm_format_info(mode_cmd->pixel_format);
-	if (!info || !info->depth) {
-		struct drm_format_name_buf format_name;
-
-		DRM_DEBUG_KMS("unsupported pixel format %s\n",
-			     drm_get_format_name(mode_cmd->pixel_format,
-						&format_name));
-
-		bpp = 0;
-	}
-	else
-		bpp = info->cpp[0] * 8;
-
+	int bpp = evdi_fb_get_bpp(mode_cmd->pixel_format);
 	if (bpp != 32) {
 		EVDI_ERROR("Unsupported bpp (%d)\n", bpp);
 		return ERR_PTR(-EINVAL);

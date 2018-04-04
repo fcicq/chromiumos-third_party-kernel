@@ -15,9 +15,19 @@
 #ifndef _ROCKCHIP_DRM_VOP_H
 #define _ROCKCHIP_DRM_VOP_H
 
+/*
+ * major: IP major version, used for IP structure
+ * minor: big feature change under same structure
+ */
+#define VOP_VERSION(major, minor)	((major) << 8 | (minor))
+#define VOP_MAJOR(version)		((version) >> 8)
+#define VOP_MINOR(version)		((version) & 0xff)
+
 #define AFBDC_FMT_RGB565	0x0
 #define AFBDC_FMT_U8U8U8U8	0x5
 #define AFBDC_FMT_U8U8U8	0x4
+
+#define NUM_YUV2YUV_COEFFICIENTS 12
 
 enum vop_data_format {
 	VOP_FMT_ARGB8888 = 0,
@@ -28,49 +38,53 @@ enum vop_data_format {
 	VOP_FMT_YUV444SP,
 };
 
-struct vop_reg_data {
-	uint32_t offset;
-	uint32_t value;
-};
-
 struct vop_reg {
-	uint32_t offset;
-	uint32_t shift;
 	uint32_t mask;
+	uint16_t offset;
+	uint8_t shift;
 	bool write_mask;
+	bool relaxed;
 };
 
-struct vop_ctrl {
-	struct vop_reg standby;
-	struct vop_reg data_blank;
-	struct vop_reg gate_en;
-	struct vop_reg mmu_en;
-	struct vop_reg rgb_en;
+struct vop_modeset {
+	struct vop_reg htotal_pw;
+	struct vop_reg hact_st_end;
+	struct vop_reg hpost_st_end;
+	struct vop_reg vtotal_pw;
+	struct vop_reg vact_st_end;
+	struct vop_reg vpost_st_end;
+};
+
+struct vop_output {
+	struct vop_reg pin_pol;
+	struct vop_reg dp_pin_pol;
+	struct vop_reg edp_pin_pol;
+	struct vop_reg hdmi_pin_pol;
+	struct vop_reg mipi_pin_pol;
+	struct vop_reg rgb_pin_pol;
+	struct vop_reg dp_en;
 	struct vop_reg edp_en;
 	struct vop_reg hdmi_en;
 	struct vop_reg mipi_en;
-	struct vop_reg dp_en;
-	struct vop_reg out_mode;
+	struct vop_reg mipi_dual_channel_en;
+	struct vop_reg rgb_en;
+};
+
+struct vop_common {
+	struct vop_reg cfg_done;
+	struct vop_reg dsp_blank;
+	struct vop_reg data_blank;
 	struct vop_reg pre_dither_down;
 	struct vop_reg dither_down;
 	struct vop_reg dither_up;
-	struct vop_reg pin_pol;
-	struct vop_reg rgb_pin_pol;
-	struct vop_reg hdmi_pin_pol;
-	struct vop_reg edp_pin_pol;
-	struct vop_reg mipi_pin_pol;
-	struct vop_reg dp_pin_pol;
+	struct vop_reg gate_en;
+	struct vop_reg mmu_en;
+	struct vop_reg out_mode;
+	struct vop_reg standby;
+};
 
-	struct vop_reg htotal_pw;
-	struct vop_reg hact_st_end;
-	struct vop_reg vtotal_pw;
-	struct vop_reg vact_st_end;
-	struct vop_reg hpost_st_end;
-	struct vop_reg vpost_st_end;
-
-	struct vop_reg line_flag_num[2];
-
-	struct vop_reg cfg_done;
+struct vop_misc {
+	struct vop_reg global_regdone_en;
 };
 
 struct vop_afbdc {
@@ -83,19 +97,11 @@ struct vop_afbdc {
 	struct vop_reg rstn;
 };
 
-struct vop_yuv2yuv {
-	struct vop_reg win0_enable;
-	struct vop_reg win0_y2r_en;
-	struct vop_reg win0_y2r_coefficients[12];
-
-	struct vop_reg win1_enable;
-	struct vop_reg win1_y2r_en;
-	struct vop_reg win1_y2r_coefficients[12];
-};
-
 struct vop_intr {
 	const int *intrs;
 	uint32_t nintrs;
+
+	struct vop_reg line_flag_num[2];
 	struct vop_reg enable;
 	struct vop_reg clear;
 	struct vop_reg status;
@@ -134,14 +140,19 @@ struct vop_scl_regs {
 	struct vop_reg scale_cbcr_y;
 };
 
+struct vop_yuv2yuv_phy {
+	struct vop_reg y2r_coefficients[NUM_YUV2YUV_COEFFICIENTS];
+	struct vop_reg r2r_coefficients[NUM_YUV2YUV_COEFFICIENTS];
+};
+
 struct vop_win_phy {
 	const struct vop_scl_regs *scl;
 	const uint32_t *data_formats;
 	uint32_t nformats;
-	const struct drm_format_modifier *format_modifiers;
-	uint32_t nformat_modifiers;
+	const uint64_t *format_modifiers;
 
 	struct vop_reg enable;
+	struct vop_reg gate;
 	struct vop_reg format;
 	struct vop_reg rb_swap;
 	struct vop_reg y_mir_en;
@@ -157,29 +168,33 @@ struct vop_win_phy {
 	struct vop_reg src_alpha_ctl;
 };
 
+struct vop_win_yuv2yuv_data {
+	uint32_t base;
+	const struct vop_yuv2yuv_phy *phy;
+	struct vop_reg y2r_en;
+	struct vop_reg r2r_en;
+};
+
 struct vop_win_data {
 	uint32_t base;
 	const struct vop_win_phy *phy;
 	enum drm_plane_type type;
 };
 
-enum vop_id {
-	RK3036_VOP,
-	RK3288_VOP,
-	RK3399_VOP_BIG,
-	RK3399_VOP_LIT,
-};
-
 struct vop_data {
-	const struct vop_reg_data *init_table;
-	uint32_t id;
-	unsigned int table_size;
-	const struct vop_ctrl *ctrl;
+	uint32_t version;
 	const struct vop_intr *intr;
+	const struct vop_common *common;
+	const struct vop_misc *misc;
+	const struct vop_modeset *modeset;
+	const struct vop_output *output;
 	const struct vop_afbdc *afbdc;
-	const struct vop_yuv2yuv *yuv2yuv;
+	const struct vop_win_yuv2yuv_data *win_yuv2yuv;
 	const struct vop_win_data *win;
 	unsigned int win_size;
+
+#define VOP_FEATURE_OUTPUT_RGB10	BIT(0)
+	u64 feature;
 };
 
 /* interrupt define */
@@ -229,6 +244,8 @@ struct vop_data {
 #define ROCKCHIP_OUT_MODE_P565	2
 /* for use special outface */
 #define ROCKCHIP_OUT_MODE_AAAA	15
+
+#define ROCKCHIP_OUTPUT_DSI_DUAL_CHANNEL	BIT(0)
 
 enum alpha_mode {
 	ALPHA_STRAIGHT,
@@ -361,8 +378,6 @@ static inline int scl_vop_cal_lb_mode(int width, bool is_yuv)
 
 	return lb_mode;
 }
-
-enum vop_id vop_get_crtc_vop_id(struct drm_crtc *crtc);
 
 extern const struct component_ops vop_component_ops;
 #endif /* _ROCKCHIP_DRM_VOP_H */

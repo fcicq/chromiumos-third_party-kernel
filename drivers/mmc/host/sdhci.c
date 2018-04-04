@@ -14,6 +14,7 @@
  */
 
 #include <linux/delay.h>
+#include <linux/ktime.h>
 #include <linux/highmem.h>
 #include <linux/io.h>
 #include <linux/module.h>
@@ -173,7 +174,7 @@ static void sdhci_disable_card_detection(struct sdhci_host *host)
 
 void sdhci_reset(struct sdhci_host *host, u8 mask)
 {
-	unsigned long timeout;
+	ktime_t timeout;
 
 	sdhci_writeb(host, mask, SDHCI_SOFTWARE_RESET);
 
@@ -185,18 +186,17 @@ void sdhci_reset(struct sdhci_host *host, u8 mask)
 	}
 
 	/* Wait max 100 ms */
-	timeout = 100;
+	timeout = ktime_add_ms(ktime_get(), 100);
 
 	/* hw clears the bit when it's done */
 	while (sdhci_readb(host, SDHCI_SOFTWARE_RESET) & mask) {
-		if (timeout == 0) {
+		if (ktime_after(ktime_get(), timeout)) {
 			pr_err("%s: Reset 0x%x never completed.\n",
 				mmc_hostname(host->mmc), (int)mask);
 			sdhci_dumpregs(host);
 			return;
 		}
-		timeout--;
-		mdelay(1);
+		udelay(10);
 	}
 }
 EXPORT_SYMBOL_GPL(sdhci_reset);
@@ -1096,7 +1096,7 @@ void sdhci_set_clock(struct sdhci_host *host, unsigned int clock)
 	int div = 0; /* Initialized for compiler warning */
 	int real_div = div, clk_mul = 1;
 	u16 clk = 0;
-	unsigned long timeout;
+	ktime_t timeout;
 	bool switch_base_clk = false;
 
 	host->mmc->actual_clock = 0;
@@ -1192,18 +1192,17 @@ clock_set:
 	sdhci_writew(host, clk, SDHCI_CLOCK_CONTROL);
 
 	/* Wait max 20 ms */
-	timeout = 20;
+	timeout = ktime_add_ms(ktime_get(), 20);
 	while (!((clk = sdhci_readw(host, SDHCI_CLOCK_CONTROL))
 		& SDHCI_CLOCK_INT_STABLE)) {
-		if (timeout == 0) {
+		if (ktime_after(ktime_get(), timeout)) {
 			pr_err("%s: Internal clock never stabilised.\n",
 			       mmc_hostname(host->mmc));
 			sdhci_dumpregs(host);
 			return;
 		}
-		timeout--;
 		spin_unlock_irq(&host->lock);
-		usleep_range(900, 1100);
+		udelay(10);
 		spin_lock_irq(&host->lock);
 	}
 
@@ -2680,6 +2679,7 @@ int sdhci_suspend_host(struct sdhci_host *host)
 		free_irq(host->irq, host);
 	} else {
 		sdhci_enable_irq_wakeups(host);
+		enable_irq_wake(host->mmc->slot.cd_irq);
 		enable_irq_wake(host->irq);
 	}
 	return 0;
@@ -2715,6 +2715,7 @@ int sdhci_resume_host(struct sdhci_host *host)
 		if (ret)
 			return ret;
 	} else {
+		disable_irq_wake(host->mmc->slot.cd_irq);
 		sdhci_disable_irq_wakeups(host);
 		disable_irq_wake(host->irq);
 	}

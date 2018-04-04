@@ -41,6 +41,16 @@
 #define FILTER_SIZE             4
 #define MIN_ENVELOPE            8
 
+/*
+ * pre-allocated buffer size for CSS ABI, auxiliary frames
+ * after BDS and before GDC. Those values should be tuned
+ * to big enough to avoid buffer re-allocation when
+ * streaming to lower streaming latency.
+ */
+#define CSS_ABI_SIZE    136
+#define CSS_BDS_SIZE    (4480 * 3200 * 3)
+#define CSS_GDC_SIZE    (4224 * 3200 * 12 / 8)
+
 /* Formats supported by IPU3 Camera Sub System */
 static const struct ipu3_css_format ipu3_css_formats[] = {
 	{
@@ -90,37 +100,6 @@ static const struct ipu3_css_format ipu3_css_formats[] = {
 		.bytesperpixel_num = 64,
 		.width_align = 2 * IPU3_UAPI_ISP_VEC_ELEMS,
 		.flags = IPU3_CSS_FORMAT_FL_IN,
-	}, {	/* Parameter pseudo-format */
-
-		.pixelformat = V4L2_META_FMT_IPU3_PARAMS,
-		.colorspace = V4L2_COLORSPACE_DEFAULT,
-		.bytesperpixel_num = sizeof(struct ipu3_uapi_params) *
-					IPU3_CSS_FORMAT_BPP_DEN,
-		.width_align = 1,
-		.flags = IPU3_CSS_FORMAT_FL_PARAMS,
-
-	}, {	/* Statistics pseudo-formats */
-
-		.pixelformat = V4L2_META_FMT_IPU3_STAT_3A,
-		.colorspace = V4L2_COLORSPACE_DEFAULT,
-		.bytesperpixel_num = sizeof(struct ipu3_uapi_stats_3a) *
-					IPU3_CSS_FORMAT_BPP_DEN,
-		.width_align = 1,
-		.flags = IPU3_CSS_FORMAT_FL_STAT_3A,
-	}, {
-		.pixelformat = V4L2_META_FMT_IPU3_STAT_DVS,
-		.colorspace = V4L2_COLORSPACE_DEFAULT,
-		.bytesperpixel_num = sizeof(struct ipu3_uapi_stats_dvs) *
-					IPU3_CSS_FORMAT_BPP_DEN,
-		.width_align = 1,
-		.flags = IPU3_CSS_FORMAT_FL_STAT_DVS,
-	}, {
-		.pixelformat = V4L2_META_FMT_IPU3_STAT_LACE,
-		.colorspace = V4L2_COLORSPACE_DEFAULT,
-		.bytesperpixel_num = sizeof(struct ipu3_uapi_stats_lace) *
-					IPU3_CSS_FORMAT_BPP_DEN,
-		.width_align = 1,
-		.flags = IPU3_CSS_FORMAT_FL_STAT_LACE,
 	},
 };
 
@@ -144,18 +123,15 @@ static const struct {
 		IMGU_ABI_QUEUE_F_ID,
 		offsetof(struct imgu_abi_buffer, payload.s3a.data_ptr)
 	},
-	[IPU3_CSS_QUEUE_STAT_DVS] = {
-		IMGU_ABI_QUEUE_G_ID,
-		offsetof(struct imgu_abi_buffer, payload.skc_dvs_statistics)
-	}
 };
 
 /* Initialize queue based on given format, adjust format as needed */
 static int ipu3_css_queue_init(struct ipu3_css_queue *queue,
-			       struct v4l2_pix_format *fmt, u32 flags)
+			       struct v4l2_pix_format_mplane *fmt, u32 flags)
 {
-	struct v4l2_pix_format *const f = &queue->pix_fmt;
+	struct v4l2_pix_format_mplane *const f = &queue->fmt.mpix;
 	unsigned int i;
+	u32 sizeimage;
 
 	INIT_LIST_HEAD(&queue->bufs);
 
@@ -173,38 +149,36 @@ static int ipu3_css_queue_init(struct ipu3_css_queue *queue,
 	if (!queue->css_fmt)
 		return -EINVAL;	/* Could not find any suitable format */
 
-	queue->pix_fmt = *fmt;
-	queue->pix_fmt.pixelformat = queue->css_fmt->pixelformat;
-	if (queue->css_fmt->flags & IPU3_CSS_FORMAT_FL_PSEUDO) {
-		f->width = 1;
-		f->height = 1;
-	} else {
-		f->width = ALIGN(clamp_t(u32, f->width,
-				IPU3_CSS_MIN_RES, IPU3_CSS_MAX_RES), 2);
-		f->height = ALIGN(clamp_t(u32, f->height,
-				IPU3_CSS_MIN_RES, IPU3_CSS_MAX_RES), 2);
-	}
+	queue->fmt.mpix = *fmt;
+
+	f->width = ALIGN(clamp_t(u32, f->width,
+			IPU3_CSS_MIN_RES, IPU3_CSS_MAX_RES), 2);
+	f->height = ALIGN(clamp_t(u32, f->height,
+			IPU3_CSS_MIN_RES, IPU3_CSS_MAX_RES), 2);
 	queue->width_pad = ALIGN(f->width, queue->css_fmt->width_align);
 	if (queue->css_fmt->frame_format != IMGU_ABI_FRAME_FORMAT_RAW_PACKED)
-		f->bytesperline = DIV_ROUND_UP(queue->width_pad *
+		f->plane_fmt[0].bytesperline = DIV_ROUND_UP(queue->width_pad *
 					queue->css_fmt->bytesperpixel_num,
 					IPU3_CSS_FORMAT_BPP_DEN);
 	else
 		/* For packed raw, alignment for bpl is by 50 to the width */
-		f->bytesperline = DIV_ROUND_UP(f->width,
+		f->plane_fmt[0].bytesperline = DIV_ROUND_UP(f->width,
 					IPU3_CSS_FORMAT_BPP_DEN) *
 					queue->css_fmt->bytesperpixel_num;
-	f->sizeimage = f->height * f->bytesperline;
-	if (queue->css_fmt->chroma_decim)
-		f->sizeimage += 2 * f->sizeimage / queue->css_fmt->chroma_decim;
+	sizeimage = f->height * f->plane_fmt[0].bytesperline;
 
+	if (queue->css_fmt->chroma_decim)
+		sizeimage += 2 * sizeimage / queue->css_fmt->chroma_decim;
+
+	f->plane_fmt[0].sizeimage = sizeimage;
 	f->field = V4L2_FIELD_NONE;
 	f->colorspace = queue->css_fmt->colorspace;
-	f->priv = 0;
+	f->num_planes = 1;
 	f->flags = 0;
 	f->ycbcr_enc = V4L2_YCBCR_ENC_DEFAULT;
 	f->quantization = V4L2_QUANTIZATION_DEFAULT;
 	f->xfer_func = V4L2_XFER_FUNC_DEFAULT;
+	memset(f->reserved, 0, sizeof(f->reserved));
 
 	return 0;
 }
@@ -330,25 +304,75 @@ fail:
 int ipu3_css_set_powerdown(struct device *dev, void __iomem *base)
 {
 	dev_dbg(dev, "power down.\n");
-	/* Clear the CSS busy signal */
-	readl(base + IMGU_REG_GP_BUSY);
-	writel(0, base + IMGU_REG_GP_BUSY);
 
-	/* Wait for idle signal */
+	/* wait for cio idle signal */
+	if (ipu3_hw_wait(base, IMGU_REG_CIO_GATE_BURST_STATE,
+			 IMGU_CIO_GATE_BURST_MASK, 0))
+		dev_warn(dev, "wait cio gate idle timeout");
+
+	/* wait for css idle signal */
 	if (ipu3_hw_wait(base, IMGU_REG_STATE, IMGU_STATE_IDLE_STS,
 			 IMGU_STATE_IDLE_STS))
-		dev_warn(dev, "failed to set CSS idle\n");
+		dev_warn(dev, "wait css idle timeout\n");
 
-	/* Reset the css */
-	writel(readl(base + IMGU_REG_PM_CTRL) | IMGU_PM_CTRL_CSS_PWRDN,
-		base + IMGU_REG_PM_CTRL);
+	/* do halt-halted handshake with css */
+	writel(1, base + IMGU_REG_GP_HALT);
+	if (ipu3_hw_wait(base, IMGU_REG_STATE, IMGU_STATE_HALT_STS,
+			     IMGU_STATE_HALT_STS))
+		dev_warn(dev, "failed to halt css");
 
-	/* Wait for power down signal */
-	if (ipu3_hw_wait(base, IMGU_REG_STATE, IMGU_STATE_POWER_DOWN,
-			     IMGU_STATE_POWER_DOWN))
-		dev_warn(dev, "failed to set CSS power down\n");
+	/* de-assert the busy bit */
+	writel(0, base + IMGU_REG_GP_BUSY);
 
 	return 0;
+}
+
+static void ipu3_css_hw_enable_irq(struct ipu3_css *css)
+{
+	void __iomem *const base = css->base;
+	u32 val, i;
+
+	/* Set up interrupts */
+
+	/*
+	 * Enable IRQ on the SP which signals that SP goes to idle
+	 * (aka ready state) and set trigger to pulse
+	 */
+	val = readl(base + IMGU_REG_SP_CTRL(0)) | IMGU_CTRL_IRQ_READY;
+	writel(val, base + IMGU_REG_SP_CTRL(0));
+	writel(val | IMGU_CTRL_IRQ_CLEAR, base + IMGU_REG_SP_CTRL(0));
+
+	/* Enable IRQs from the IMGU wrapper */
+	writel(IMGU_REG_INT_CSS_IRQ, base + IMGU_REG_INT_ENABLE);
+	/* Clear */
+	writel(IMGU_REG_INT_CSS_IRQ, base + IMGU_REG_INT_STATUS);
+
+	/* Enable IRQs from main IRQ controller */
+	writel(~0, base + IMGU_REG_IRQCTRL_EDGE_NOT_PULSE(IMGU_IRQCTRL_MAIN));
+	writel(0, base + IMGU_REG_IRQCTRL_MASK(IMGU_IRQCTRL_MAIN));
+	writel(IMGU_IRQCTRL_IRQ_MASK,
+		base + IMGU_REG_IRQCTRL_EDGE(IMGU_IRQCTRL_MAIN));
+	writel(IMGU_IRQCTRL_IRQ_MASK,
+		base + IMGU_REG_IRQCTRL_ENABLE(IMGU_IRQCTRL_MAIN));
+	writel(IMGU_IRQCTRL_IRQ_MASK,
+		base + IMGU_REG_IRQCTRL_CLEAR(IMGU_IRQCTRL_MAIN));
+	writel(IMGU_IRQCTRL_IRQ_MASK,
+		base + IMGU_REG_IRQCTRL_MASK(IMGU_IRQCTRL_MAIN));
+	/* Wait for write complete */
+	readl(base + IMGU_REG_IRQCTRL_ENABLE(IMGU_IRQCTRL_MAIN));
+
+	/* Enable IRQs from SP0 and SP1 controllers */
+	for (i = IMGU_IRQCTRL_SP0; i <= IMGU_IRQCTRL_SP1; i++) {
+		writel(~0, base + IMGU_REG_IRQCTRL_EDGE_NOT_PULSE(i));
+		writel(0, base + IMGU_REG_IRQCTRL_MASK(i));
+		writel(IMGU_IRQCTRL_IRQ_MASK, base + IMGU_REG_IRQCTRL_EDGE(i));
+		writel(IMGU_IRQCTRL_IRQ_MASK,
+			base + IMGU_REG_IRQCTRL_ENABLE(i));
+		writel(IMGU_IRQCTRL_IRQ_MASK, base + IMGU_REG_IRQCTRL_CLEAR(i));
+		writel(IMGU_IRQCTRL_IRQ_MASK, base + IMGU_REG_IRQCTRL_MASK(i));
+		/* Wait for write complete */
+		readl(base + IMGU_REG_IRQCTRL_ENABLE(i));
+	}
 }
 
 static int ipu3_css_hw_init(struct ipu3_css *css)
@@ -405,48 +429,6 @@ static int ipu3_css_hw_init(struct ipu3_css *css)
 	struct device *dev = css->dev;
 	void __iomem *const base = css->base;
 	u32 val, i;
-
-	/* Set up interrupts */
-
-	/*
-	 * Enable IRQ on the SP which signals that SP goes to idle
-	 * (aka ready state) and set trigger to pulse
-	 */
-	val = readl(base + IMGU_REG_SP_CTRL(0)) | IMGU_CTRL_IRQ_READY;
-	writel(val, base + IMGU_REG_SP_CTRL(0));
-	writel(val | IMGU_CTRL_IRQ_CLEAR, base + IMGU_REG_SP_CTRL(0));
-
-	/* Enable IRQs from the IMGU wrapper */
-	writel(IMGU_REG_INT_CSS_IRQ, base + IMGU_REG_INT_ENABLE);
-	/* Clear */
-	writel(IMGU_REG_INT_CSS_IRQ, base + IMGU_REG_INT_STATUS);
-
-	/* Enable IRQs from main IRQ controller */
-	writel(~0, base + IMGU_REG_IRQCTRL_EDGE_NOT_PULSE(IMGU_IRQCTRL_MAIN));
-	writel(0, base + IMGU_REG_IRQCTRL_MASK(IMGU_IRQCTRL_MAIN));
-	writel(IMGU_IRQCTRL_IRQ_MASK,
-		base + IMGU_REG_IRQCTRL_EDGE(IMGU_IRQCTRL_MAIN));
-	writel(IMGU_IRQCTRL_IRQ_MASK,
-		base + IMGU_REG_IRQCTRL_ENABLE(IMGU_IRQCTRL_MAIN));
-	writel(IMGU_IRQCTRL_IRQ_MASK,
-		base + IMGU_REG_IRQCTRL_CLEAR(IMGU_IRQCTRL_MAIN));
-	writel(IMGU_IRQCTRL_IRQ_MASK,
-		base + IMGU_REG_IRQCTRL_MASK(IMGU_IRQCTRL_MAIN));
-	/* Wait for write complete */
-	readl(base + IMGU_REG_IRQCTRL_ENABLE(IMGU_IRQCTRL_MAIN));
-
-	/* Enable IRQs from SP0 and SP1 controllers */
-	for (i = IMGU_IRQCTRL_SP0; i <= IMGU_IRQCTRL_SP1; i++) {
-		writel(~0, base + IMGU_REG_IRQCTRL_EDGE_NOT_PULSE(i));
-		writel(0, base + IMGU_REG_IRQCTRL_MASK(i));
-		writel(IMGU_IRQCTRL_IRQ_MASK, base + IMGU_REG_IRQCTRL_EDGE(i));
-		writel(IMGU_IRQCTRL_IRQ_MASK,
-			base + IMGU_REG_IRQCTRL_ENABLE(i));
-		writel(IMGU_IRQCTRL_IRQ_MASK, base + IMGU_REG_IRQCTRL_CLEAR(i));
-		writel(IMGU_IRQCTRL_IRQ_MASK, base + IMGU_REG_IRQCTRL_MASK(i));
-		/* Wait for write complete */
-		readl(base + IMGU_REG_IRQCTRL_ENABLE(i));
-	}
 
 	/* Set instruction cache address and inv bit for ISP, SP, and SP1 */
 	for (i = 0; i < IMGU_NUM_SP; i++) {
@@ -640,6 +622,26 @@ static int ipu3_css_hw_start(struct ipu3_css *css)
 	return 0;
 }
 
+static void ipu3_css_hw_stop(struct ipu3_css *css)
+{
+	void __iomem *const base = css->base;
+	struct imgu_fw_info *bi = &css->fwp->binary_header[css->fw_sp[0]];
+
+	/* Stop fw */
+	writel(IMGU_ABI_SP_COMM_COMMAND_TERMINATE,
+		base + IMGU_REG_SP_DMEM_BASE(0) +
+		bi->info.sp.host_sp_com + IMGU_ABI_SP_COMM_COMMAND);
+	if (ipu3_hw_wait(css->base, IMGU_REG_SP_CTRL(0),
+		IMGU_CTRL_IDLE, IMGU_CTRL_IDLE))
+		dev_err(css->dev, "wait sp0 idle timeout.\n");
+	if (readl(base + IMGU_REG_SP_DMEM_BASE(0) + bi->info.sp.sw_state) !=
+		IMGU_ABI_SP_SWSTATE_TERMINATED)
+		dev_err(css->dev, "sp0 is not terminated.\n");
+	if (ipu3_hw_wait(css->base, IMGU_REG_ISP_CTRL,
+		IMGU_CTRL_IDLE, IMGU_CTRL_IDLE))
+		dev_err(css->dev, "wait isp idle timeout\n");
+}
+
 static void ipu3_css_hw_cleanup(struct ipu3_css *css)
 {
 	void __iomem *const base = css->base;
@@ -667,9 +669,6 @@ static void ipu3_css_pipeline_cleanup(struct ipu3_css *css)
 	struct imgu_fw_info *bi = &css->fwp->binary_header[css->current_binary];
 	int pipe = 0;
 	int i;
-
-	if (css->current_binary < 0)
-		return;
 
 	ipu3_css_pool_cleanup(css->dma_dev, &css->pool.parameter_set_info);
 	ipu3_css_pool_cleanup(css->dma_dev, &css->pool.acc);
@@ -726,9 +725,6 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	enum imgu_abi_param_class c = IMGU_ABI_PARAM_CLASS_CONFIG;
 	enum imgu_abi_memories m = IMGU_ABI_MEM_ISP_DMEM0;
 
-	if (css->current_binary == -1)
-		return -EAGAIN;
-
 	/* Configure iterator */
 
 	cfg_iter = ipu3_css_fw_pipeline_params(
@@ -739,9 +735,9 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 		goto bad_firmware;
 
 	cfg_iter->input_info.res.width =
-	    css->queue[IPU3_CSS_QUEUE_IN].pix_fmt.width;
+	    css->queue[IPU3_CSS_QUEUE_IN].fmt.mpix.width;
 	cfg_iter->input_info.res.height =
-	    css->queue[IPU3_CSS_QUEUE_IN].pix_fmt.height;
+	    css->queue[IPU3_CSS_QUEUE_IN].fmt.mpix.height;
 	cfg_iter->input_info.padded_width =
 	    css->queue[IPU3_CSS_QUEUE_IN].width_pad;
 	cfg_iter->input_info.format =
@@ -766,9 +762,9 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	cfg_iter->internal_info.raw_type = IMGU_ABI_RAW_TYPE_BAYER;
 
 	cfg_iter->output_info.res.width =
-	    css->queue[IPU3_CSS_QUEUE_OUT].pix_fmt.width;
+	    css->queue[IPU3_CSS_QUEUE_OUT].fmt.mpix.width;
 	cfg_iter->output_info.res.height =
-	    css->queue[IPU3_CSS_QUEUE_OUT].pix_fmt.height;
+	    css->queue[IPU3_CSS_QUEUE_OUT].fmt.mpix.height;
 	cfg_iter->output_info.padded_width =
 	    css->queue[IPU3_CSS_QUEUE_OUT].width_pad;
 	cfg_iter->output_info.format =
@@ -780,9 +776,9 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	cfg_iter->output_info.raw_type = IMGU_ABI_RAW_TYPE_BAYER;
 
 	cfg_iter->vf_info.res.width =
-	    css->queue[IPU3_CSS_QUEUE_VF].pix_fmt.width;
+	    css->queue[IPU3_CSS_QUEUE_VF].fmt.mpix.width;
 	cfg_iter->vf_info.res.height =
-	    css->queue[IPU3_CSS_QUEUE_VF].pix_fmt.height;
+	    css->queue[IPU3_CSS_QUEUE_VF].fmt.mpix.height;
 	cfg_iter->vf_info.padded_width =
 	    css->queue[IPU3_CSS_QUEUE_VF].width_pad;
 	cfg_iter->vf_info.format =
@@ -945,9 +941,9 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	sp_stage->frames.effective_in_res.height =
 		css->rect[IPU3_CSS_RECT_EFFECTIVE].height;
 	sp_stage->frames.in.info.res.width =
-	    css->queue[IPU3_CSS_QUEUE_IN].pix_fmt.width;
+	    css->queue[IPU3_CSS_QUEUE_IN].fmt.mpix.width;
 	sp_stage->frames.in.info.res.height =
-	    css->queue[IPU3_CSS_QUEUE_IN].pix_fmt.height;
+	    css->queue[IPU3_CSS_QUEUE_IN].fmt.mpix.height;
 	sp_stage->frames.in.info.padded_width =
 	    css->queue[IPU3_CSS_QUEUE_IN].width_pad;
 	sp_stage->frames.in.info.format =
@@ -962,9 +958,9 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	    IMGU_ABI_BUFFER_TYPE_INPUT_FRAME;
 
 	sp_stage->frames.out[0].info.res.width =
-	    css->queue[IPU3_CSS_QUEUE_OUT].pix_fmt.width;
+	    css->queue[IPU3_CSS_QUEUE_OUT].fmt.mpix.width;
 	sp_stage->frames.out[0].info.res.height =
-	    css->queue[IPU3_CSS_QUEUE_OUT].pix_fmt.height;
+	    css->queue[IPU3_CSS_QUEUE_OUT].fmt.mpix.height;
 	sp_stage->frames.out[0].info.padded_width =
 	    css->queue[IPU3_CSS_QUEUE_OUT].width_pad;
 	sp_stage->frames.out[0].info.format =
@@ -976,7 +972,7 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	sp_stage->frames.out[0].info.raw_type = IMGU_ABI_RAW_TYPE_BAYER;
 	sp_stage->frames.out[0].planes.nv.uv.offset =
 	    css->queue[IPU3_CSS_QUEUE_OUT].width_pad *
-	    css->queue[IPU3_CSS_QUEUE_OUT].pix_fmt.height;
+	    css->queue[IPU3_CSS_QUEUE_OUT].fmt.mpix.height;
 	sp_stage->frames.out[0].buf_attr.buf_src.queue_id = IMGU_ABI_QUEUE_D_ID;
 	sp_stage->frames.out[0].buf_attr.buf_type =
 	    IMGU_ABI_BUFFER_TYPE_OUTPUT_FRAME;
@@ -999,9 +995,9 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	sp_stage->frames.internal_frame_info.raw_type = IMGU_ABI_RAW_TYPE_BAYER;
 
 	sp_stage->frames.out_vf.info.res.width =
-	    css->queue[IPU3_CSS_QUEUE_VF].pix_fmt.width;
+	    css->queue[IPU3_CSS_QUEUE_VF].fmt.mpix.width;
 	sp_stage->frames.out_vf.info.res.height =
-	    css->queue[IPU3_CSS_QUEUE_VF].pix_fmt.height;
+	    css->queue[IPU3_CSS_QUEUE_VF].fmt.mpix.height;
 	sp_stage->frames.out_vf.info.padded_width =
 	    css->queue[IPU3_CSS_QUEUE_VF].width_pad;
 	sp_stage->frames.out_vf.info.format =
@@ -1013,10 +1009,10 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	sp_stage->frames.out_vf.info.raw_type = IMGU_ABI_RAW_TYPE_BAYER;
 	sp_stage->frames.out_vf.planes.yuv.u.offset =
 	    css->queue[IPU3_CSS_QUEUE_VF].width_pad *
-	    css->queue[IPU3_CSS_QUEUE_VF].pix_fmt.height;
+	    css->queue[IPU3_CSS_QUEUE_VF].fmt.mpix.height;
 	sp_stage->frames.out_vf.planes.yuv.v.offset =
 	    css->queue[IPU3_CSS_QUEUE_VF].width_pad *
-	    css->queue[IPU3_CSS_QUEUE_VF].pix_fmt.height * 5 / 4;
+	    css->queue[IPU3_CSS_QUEUE_VF].fmt.mpix.height * 5 / 4;
 	sp_stage->frames.out_vf.buf_attr.buf_src.queue_id = IMGU_ABI_QUEUE_E_ID;
 	sp_stage->frames.out_vf.buf_attr.buf_type =
 	    IMGU_ABI_BUFFER_TYPE_VF_OUTPUT_FRAME;
@@ -1043,7 +1039,7 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	sp_stage->sp_enable_xnr = 0;
 	sp_stage->num_stripes = stripes;
 	sp_stage->enable.s3a = 1;
-	sp_stage->enable.dvs_stats = 1;
+	sp_stage->enable.dvs_stats = 0;
 
 	sp_stage->xmem_bin_addr = css->binary[css->current_binary].daddr;
 	sp_stage->xmem_map_addr = css->sp_ddr_ptrs.daddr;
@@ -1086,9 +1082,9 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	if (ipu3_css_pool_init(css->dma_dev, &css->pool.parameter_set_info,
 			       sizeof(struct imgu_abi_parameter_set_info)) ||
 	    ipu3_css_pool_init(css->dma_dev, &css->pool.acc,
-			       sizeof(struct ipu3_uapi_acc_param)) ||
+			       sizeof(struct imgu_abi_acc_param)) ||
 	    ipu3_css_pool_init(css->dma_dev, &css->pool.gdc,
-				sizeof(struct ipu3_uapi_gdc_warp_param) *
+				sizeof(struct imgu_abi_gdc_warp_param) *
 				3 * cfg_dvs->num_horizontal_blocks / 2 *
 				cfg_dvs->num_vertical_blocks) ||
 	    ipu3_css_pool_init(css->dma_dev, &css->pool.obgrid,
@@ -1211,6 +1207,125 @@ static int ipu3_css_dequeue_data(struct ipu3_css *css, int queue, u32 *data)
 	return 0;
 }
 
+/* Free binary-specific resources */
+static void ipu3_css_binary_cleanup(struct ipu3_css *css)
+{
+	int i, j;
+
+	for (j = 0; j < IMGU_ABI_PARAM_CLASS_NUM - 1; j++)
+		for (i = 0; i < IMGU_ABI_NUM_MEMORIES; i++)
+			ipu3_css_dma_free(css->dma_dev,
+					  &css->binary_params_cs[j][i]);
+
+	for (i = 0; i < IPU3_CSS_AUX_FRAMES; i++)
+		ipu3_css_dma_free(
+			css->dma_dev,
+			&css->aux_frames[IPU3_CSS_AUX_FRAME_REF].mem[i]);
+
+	for (i = 0; i < IPU3_CSS_AUX_FRAMES; i++)
+		ipu3_css_dma_free(
+			css->dma_dev,
+			&css->aux_frames[IPU3_CSS_AUX_FRAME_TNR].mem[i]);
+}
+
+static int ipu3_css_binary_preallocate(struct ipu3_css *css)
+{
+	int i, j;
+
+	for (j = IMGU_ABI_PARAM_CLASS_CONFIG;
+	     j < IMGU_ABI_PARAM_CLASS_NUM; j++)
+		for (i = 0; i < IMGU_ABI_NUM_MEMORIES; i++) {
+			if (ipu3_css_dma_alloc(
+				css->dma_dev,
+				&css->binary_params_cs[j - 1][i],
+				CSS_ABI_SIZE))
+				goto out_of_memory;
+	}
+
+	for (i = 0; i < IPU3_CSS_AUX_FRAMES; i++)
+		if (ipu3_css_dma_alloc(
+			css->dma_dev,
+			&css->aux_frames[IPU3_CSS_AUX_FRAME_REF].mem[i],
+			CSS_BDS_SIZE))
+			goto out_of_memory;
+
+	for (i = 0; i < IPU3_CSS_AUX_FRAMES; i++)
+		if (ipu3_css_dma_alloc(
+			css->dma_dev,
+			&css->aux_frames[IPU3_CSS_AUX_FRAME_TNR].mem[i],
+			CSS_GDC_SIZE))
+			goto out_of_memory;
+
+	return 0;
+
+out_of_memory:
+	ipu3_css_binary_cleanup(css);
+	return -ENOMEM;
+}
+
+/* allocate binary-specific resources */
+static int ipu3_css_binary_setup(struct ipu3_css *css)
+{
+	struct imgu_fw_info *bi = &css->fwp->binary_header[css->current_binary];
+	int i, j, size;
+	static const int BYPC = 2;	/* Bytes per component */
+	unsigned int w, h;
+
+	/* Allocate parameter memory blocks for this binary */
+	for (j = IMGU_ABI_PARAM_CLASS_CONFIG; j < IMGU_ABI_PARAM_CLASS_NUM; j++)
+		for (i = 0; i < IMGU_ABI_NUM_MEMORIES; i++)
+			if (ipu3_css_dma_buffer_resize(
+			    css->dma_dev,
+			    &css->binary_params_cs[j - 1][i],
+			    bi->info.isp.sp.mem_initializers.params[j][i].size))
+				goto out_of_memory;
+
+	/* Allocate internal frame buffers */
+
+	/* Reference frames for DVS, FRAME_FORMAT_YUV420_16 */
+	css->aux_frames[IPU3_CSS_AUX_FRAME_REF].bytesperpixel = BYPC;
+	css->aux_frames[IPU3_CSS_AUX_FRAME_REF].width =
+					css->rect[IPU3_CSS_RECT_BDS].width;
+	h = ALIGN(css->rect[IPU3_CSS_RECT_BDS].height,
+		  IMGU_DVS_BLOCK_H) + 2 * IMGU_GDC_BUF_Y;
+	css->aux_frames[IPU3_CSS_AUX_FRAME_REF].height = h;
+	w = ALIGN(css->rect[IPU3_CSS_RECT_BDS].width,
+		  2 * IPU3_UAPI_ISP_VEC_ELEMS) + 2 * IMGU_GDC_BUF_X;
+	css->aux_frames[IPU3_CSS_AUX_FRAME_REF].bytesperline =
+		css->aux_frames[IPU3_CSS_AUX_FRAME_REF].bytesperpixel * w;
+	size = w * h * BYPC + (w / 2) * (h / 2) * BYPC * 2;
+	for (i = 0; i < IPU3_CSS_AUX_FRAMES; i++)
+		if (ipu3_css_dma_buffer_resize(
+			    css->dma_dev,
+			    &css->aux_frames[IPU3_CSS_AUX_FRAME_REF].mem[i],
+			    size))
+			goto out_of_memory;
+
+	/* TNR frames for temporal noise reduction, FRAME_FORMAT_YUV_LINE */
+	css->aux_frames[IPU3_CSS_AUX_FRAME_TNR].bytesperpixel = 1;
+	w = roundup(css->rect[IPU3_CSS_RECT_GDC].width,
+		    bi->info.isp.sp.block.block_width *
+		    IPU3_UAPI_ISP_VEC_ELEMS);
+	css->aux_frames[IPU3_CSS_AUX_FRAME_TNR].width = w;
+	h = roundup(css->rect[IPU3_CSS_RECT_GDC].height,
+		    bi->info.isp.sp.block.output_block_height);
+	css->aux_frames[IPU3_CSS_AUX_FRAME_TNR].height = h;
+	css->aux_frames[IPU3_CSS_AUX_FRAME_TNR].bytesperline = w;
+	size = w * ALIGN(h * 3 / 2 + 3, 2);	/* +3 for vf_pp prefetch */
+	for (i = 0; i < IPU3_CSS_AUX_FRAMES; i++)
+		if (ipu3_css_dma_buffer_resize(
+			    css->dma_dev,
+			    &css->aux_frames[IPU3_CSS_AUX_FRAME_TNR].mem[i],
+			    size))
+			goto out_of_memory;
+
+	return 0;
+
+out_of_memory:
+	ipu3_css_binary_cleanup(css);
+	return -ENOMEM;
+}
+
 int ipu3_css_start_streaming(struct ipu3_css *css)
 {
 	u32 data;
@@ -1218,6 +1333,10 @@ int ipu3_css_start_streaming(struct ipu3_css *css)
 
 	if (css->streaming)
 		return -EPROTO;
+
+	r = ipu3_css_binary_setup(css);
+	if (r < 0)
+		return r;
 
 	r = ipu3_css_hw_init(css);
 	if (r < 0)
@@ -1234,8 +1353,10 @@ int ipu3_css_start_streaming(struct ipu3_css *css)
 	css->streaming = true;
 	css->frame = 0;
 
+	ipu3_css_hw_enable_irq(css);
+
 	/* Initialize parameters to default */
-	r = ipu3_css_set_parameters(css, NULL, NULL, 0, NULL, 0);
+	r = ipu3_css_set_parameters(css, NULL);
 	if (r < 0)
 		goto fail;
 
@@ -1260,6 +1381,7 @@ fail:
 	css->streaming = false;
 	ipu3_css_hw_cleanup(css);
 	ipu3_css_pipeline_cleanup(css);
+	ipu3_css_binary_cleanup(css);
 
 	return r;
 }
@@ -1272,15 +1394,19 @@ void ipu3_css_stop_streaming(struct ipu3_css *css)
 	if (!css->streaming)
 		return;
 
+	ipu3_css_hw_stop(css);
+
 	ipu3_css_hw_cleanup(css);
 
 	ipu3_css_pipeline_cleanup(css);
 
+	spin_lock(&css->qlock);
 	for (q = 0; q < IPU3_CSS_QUEUES; q++)
 		list_for_each_entry_safe(b, b0, &css->queue[q].bufs, list) {
 			b->state = IPU3_CSS_BUFFER_FAILED;
 			list_del(&b->list);
 		}
+	spin_unlock(&css->qlock);
 
 	css->streaming = false;
 }
@@ -1289,36 +1415,17 @@ bool ipu3_css_queue_empty(struct ipu3_css *css)
 {
 	int q;
 
+	spin_lock(&css->qlock);
 	for (q = 0; q < IPU3_CSS_QUEUES; q++)
 		if (!list_empty(&css->queue[q].bufs))
-			return false;
-	return true;
+			break;
+	spin_unlock(&css->qlock);
+	return (q == IPU3_CSS_QUEUES);
 }
 
 bool ipu3_css_is_streaming(struct ipu3_css *css)
 {
 	return css->streaming;
-}
-
-/* Free binary-specific resources which were allocated in ipu3_css_fmt_set */
-static void ipu3_css_binary_cleanup(struct ipu3_css *css)
-{
-	int i, j;
-
-	for (j = 0; j < IMGU_ABI_PARAM_CLASS_NUM - 1; j++)
-		for (i = 0; i < IMGU_ABI_NUM_MEMORIES; i++)
-			ipu3_css_dma_free(css->dma_dev,
-				&css->binary_params_cs[j][i]);
-
-	for (i = 0; i < IPU3_CSS_AUX_FRAMES; i++)
-		ipu3_css_dma_free(css->dma_dev,
-			&css->aux_frames[IPU3_CSS_AUX_FRAME_REF].mem[i]);
-
-	for (i = 0; i < IPU3_CSS_AUX_FRAMES; i++)
-		ipu3_css_dma_free(css->dma_dev,
-			&css->aux_frames[IPU3_CSS_AUX_FRAME_TNR].mem[i]);
-
-	css->current_binary = -1;
 }
 
 void ipu3_css_cleanup(struct ipu3_css *css)
@@ -1359,8 +1466,9 @@ int ipu3_css_init(struct device *dev, struct ipu3_css *css,
 	css->dma_dev = dma_dev;
 	css->base = base;
 	css->iomem_length = length;
-	css->current_binary = -1;
+	css->current_binary = IPU3_CSS_DEFAULT_BINARY;
 	css->pipe_id = IPU3_CSS_PIPE_ID_NUM;
+	spin_lock_init(&css->qlock);
 
 	for (q = 0; q < IPU3_CSS_QUEUES; q++) {
 		r = ipu3_css_queue_init(&css->queue[q], NULL, 0);
@@ -1401,8 +1509,13 @@ int ipu3_css_init(struct device *dev, struct ipu3_css *css,
 						sizeof(struct imgu_abi_buffer)))
 				goto error_no_memory;
 
+	if (ipu3_css_binary_preallocate(css))
+		goto error_binary_setup;
+
 	return 0;
 
+error_binary_setup:
+	ipu3_css_binary_cleanup(css);
 error_no_memory:
 	ipu3_css_cleanup(css);
 
@@ -1426,9 +1539,12 @@ static int ipu3_css_find_binary(struct ipu3_css *css,
 	const int binary_nr = css->fwp->file_header.binary_nr;
 	const char *name;
 
-	const struct v4l2_pix_format *in = &queue[IPU3_CSS_QUEUE_IN].pix_fmt;
-	const struct v4l2_pix_format *out = &queue[IPU3_CSS_QUEUE_OUT].pix_fmt;
-	const struct v4l2_pix_format *vf = &queue[IPU3_CSS_QUEUE_VF].pix_fmt;
+	const struct v4l2_pix_format_mplane *in =
+			&queue[IPU3_CSS_QUEUE_IN].fmt.mpix;
+	const struct v4l2_pix_format_mplane *out =
+			&queue[IPU3_CSS_QUEUE_OUT].fmt.mpix;
+	const struct v4l2_pix_format_mplane *vf =
+			&queue[IPU3_CSS_QUEUE_VF].fmt.mpix;
 	unsigned int binary_mode = (css->pipe_id == IPU3_CSS_PIPE_ID_CAPTURE) ?
 		IA_CSS_BINARY_MODE_PRIMARY : IA_CSS_BINARY_MODE_VIDEO;
 
@@ -1541,7 +1657,7 @@ static int ipu3_css_find_binary(struct ipu3_css *css,
  * is found.
  */
 int ipu3_css_fmt_try(struct ipu3_css *css,
-		     struct v4l2_pix_format *fmts[IPU3_CSS_QUEUES],
+		     struct v4l2_pix_format_mplane *fmts[IPU3_CSS_QUEUES],
 		     struct v4l2_rect *rects[IPU3_CSS_RECTS])
 {
 	static const u32 EFF_ALIGN_W = 2;
@@ -1555,8 +1671,6 @@ int ipu3_css_fmt_try(struct ipu3_css *css,
 		[IPU3_CSS_QUEUE_OUT] = "out",
 		[IPU3_CSS_QUEUE_VF] = "vf",
 		[IPU3_CSS_QUEUE_STAT_3A]   = "3a",
-		[IPU3_CSS_QUEUE_STAT_DVS]  = "dvs",
-		[IPU3_CSS_QUEUE_STAT_LACE] = "lace",
 	};
 	static const char *rnames[IPU3_CSS_RECTS] = {
 		[IPU3_CSS_RECT_EFFECTIVE] = "effective resolution",
@@ -1566,9 +1680,12 @@ int ipu3_css_fmt_try(struct ipu3_css *css,
 	};
 	struct ipu3_css_queue q[IPU3_CSS_QUEUES];
 	struct v4l2_rect r[IPU3_CSS_RECTS] = { };
-	struct v4l2_pix_format *const in  = &q[IPU3_CSS_QUEUE_IN].pix_fmt;
-	struct v4l2_pix_format *const out = &q[IPU3_CSS_QUEUE_OUT].pix_fmt;
-	struct v4l2_pix_format *const vf  = &q[IPU3_CSS_QUEUE_VF].pix_fmt;
+	struct v4l2_pix_format_mplane *const in =
+			&q[IPU3_CSS_QUEUE_IN].fmt.mpix;
+	struct v4l2_pix_format_mplane *const out =
+			&q[IPU3_CSS_QUEUE_OUT].fmt.mpix;
+	struct v4l2_pix_format_mplane *const vf =
+			&q[IPU3_CSS_QUEUE_VF].fmt.mpix;
 	struct v4l2_rect       *const eff = &r[IPU3_CSS_RECT_EFFECTIVE];
 	struct v4l2_rect       *const bds = &r[IPU3_CSS_RECT_BDS];
 	struct v4l2_rect       *const env = &r[IPU3_CSS_RECT_ENVELOPE];
@@ -1664,13 +1781,13 @@ int ipu3_css_fmt_try(struct ipu3_css *css,
 	/* Final adjustment and set back the queried formats */
 	for (i = 0; i < IPU3_CSS_QUEUES; i++) {
 		if (fmts[i]) {
-			if (ipu3_css_queue_init(&q[i], &q[i].pix_fmt,
+			if (ipu3_css_queue_init(&q[i], &q[i].fmt.mpix,
 						IPU3_CSS_QUEUE_TO_FLAGS(i))) {
 				dev_err(css->dev,
 					"final resolution adjustment failed\n");
 				return -EINVAL;
 			}
-			*fmts[i] = q[i].pix_fmt;
+			*fmts[i] = q[i].fmt.mpix;
 		}
 	}
 
@@ -1688,18 +1805,13 @@ int ipu3_css_fmt_try(struct ipu3_css *css,
 }
 
 int ipu3_css_fmt_set(struct ipu3_css *css,
-		     struct v4l2_pix_format *fmts[IPU3_CSS_QUEUES],
+		     struct v4l2_pix_format_mplane *fmts[IPU3_CSS_QUEUES],
 		     struct v4l2_rect *rects[IPU3_CSS_RECTS])
 {
-	static const int BYPC = 2;	/* Bytes per component */
-	struct imgu_fw_info *bi;
 	struct v4l2_rect rect_data[IPU3_CSS_RECTS];
 	struct v4l2_rect *all_rects[IPU3_CSS_RECTS];
-	int i, j, r;
-	unsigned int w, h;
-	int size;
+	int i, r;
 
-	ipu3_css_binary_cleanup(css);
 	for (i = 0; i < IPU3_CSS_RECTS; i++) {
 		if (rects[i])
 			rect_data[i] = *rects[i];
@@ -1710,8 +1822,7 @@ int ipu3_css_fmt_set(struct ipu3_css *css,
 	r = ipu3_css_fmt_try(css, fmts, all_rects);
 	if (r < 0)
 		return r;
-	css->current_binary = r;
-	bi = &css->fwp->binary_header[r];
+	css->current_binary = (unsigned int)r;
 
 	for (i = 0; i < IPU3_CSS_QUEUES; i++)
 		if (ipu3_css_queue_init(&css->queue[i], fmts[i],
@@ -1723,55 +1834,23 @@ int ipu3_css_fmt_set(struct ipu3_css *css,
 			*rects[i] = rect_data[i];
 	}
 
-	/* Allocate parameter memory blocks for this binary */
+	return 0;
+}
 
-	for (j = IMGU_ABI_PARAM_CLASS_CONFIG; j < IMGU_ABI_PARAM_CLASS_NUM; j++)
-		for (i = 0; i < IMGU_ABI_NUM_MEMORIES; i++)
-			if (ipu3_css_dma_alloc(css->dma_dev,
-			    &css->binary_params_cs[j - 1][i],
-			    bi->info.isp.sp.mem_initializers.params[j][i].size))
-				goto out_of_memory;
-
-	/* Allocate internal frame buffers */
-
-	/* Reference frames for DVS, FRAME_FORMAT_YUV420_16 */
-	css->aux_frames[IPU3_CSS_AUX_FRAME_REF].bytesperpixel = BYPC;
-	css->aux_frames[IPU3_CSS_AUX_FRAME_REF].width =
-	    css->rect[IPU3_CSS_RECT_BDS].width;
-	css->aux_frames[IPU3_CSS_AUX_FRAME_REF].height = h =
-	    ALIGN(css->rect[IPU3_CSS_RECT_BDS].height,
-		  IMGU_DVS_BLOCK_H) + 2 * IMGU_GDC_BUF_Y;
-	w = ALIGN(css->rect[IPU3_CSS_RECT_BDS].width,
-		  2 * IPU3_UAPI_ISP_VEC_ELEMS) + 2 * IMGU_GDC_BUF_X;
-	css->aux_frames[IPU3_CSS_AUX_FRAME_REF].bytesperline =
-	    css->aux_frames[IPU3_CSS_AUX_FRAME_REF].bytesperpixel * w;
-	size = w * h * BYPC + (w / 2) * (h / 2) * BYPC * 2;
-	for (i = 0; i < IPU3_CSS_AUX_FRAMES; i++)
-		if (ipu3_css_dma_alloc(css->dma_dev,
-			&css->aux_frames[IPU3_CSS_AUX_FRAME_REF].mem[i], size))
-			goto out_of_memory;
-
-	/* TNR frames for temporal noise reduction, FRAME_FORMAT_YUV_LINE */
-	css->aux_frames[IPU3_CSS_AUX_FRAME_TNR].bytesperpixel = 1;
-	css->aux_frames[IPU3_CSS_AUX_FRAME_TNR].width = w =
-		roundup(css->rect[IPU3_CSS_RECT_GDC].width,
-			bi->info.isp.sp.block.block_width *
-			IPU3_UAPI_ISP_VEC_ELEMS);
-	css->aux_frames[IPU3_CSS_AUX_FRAME_TNR].height = h =
-		roundup(css->rect[IPU3_CSS_RECT_GDC].height,
-			bi->info.isp.sp.block.output_block_height);
-	css->aux_frames[IPU3_CSS_AUX_FRAME_TNR].bytesperline = w;
-	size = w * ALIGN(h * 3 / 2 + 3, 2);	/* +3 for vf_pp prefetch */
-	for (i = 0; i < IPU3_CSS_AUX_FRAMES; i++)
-		if (ipu3_css_dma_alloc(css->dma_dev,
-			&css->aux_frames[IPU3_CSS_AUX_FRAME_TNR].mem[i], size))
-			goto out_of_memory;
+int ipu3_css_meta_fmt_set(struct v4l2_meta_format *fmt)
+{
+	switch (fmt->dataformat) {
+	case V4L2_META_FMT_IPU3_PARAMS:
+		fmt->buffersize = sizeof(struct ipu3_uapi_params);
+		break;
+	case V4L2_META_FMT_IPU3_STAT_3A:
+		fmt->buffersize = sizeof(struct ipu3_uapi_stats_3a);
+		break;
+	default:
+		return -EINVAL;
+	}
 
 	return 0;
-
-out_of_memory:
-	ipu3_css_binary_cleanup(css);
-	return -ENOMEM;
 }
 
 /*
@@ -1818,7 +1897,9 @@ int ipu3_css_buf_queue(struct ipu3_css *css, struct ipu3_css_buffer *b)
 		abi_buf->payload.frame.padded_width =
 			css->queue[IPU3_CSS_QUEUE_VF].width_pad;
 
+	spin_lock(&css->qlock);
 	list_add_tail(&b->list, &css->queue[b->queue].bufs);
+	spin_unlock(&css->qlock);
 	b->state = IPU3_CSS_BUFFER_QUEUED;
 
 	data = css->abi_buffers[b->queue][b->queue_pos].daddr;
@@ -1859,8 +1940,6 @@ struct ipu3_css_buffer *ipu3_css_buf_dequeue(struct ipu3_css *css)
 		[IMGU_ABI_EVTTYPE_OUT_FRAME_DONE] = IPU3_CSS_QUEUE_OUT,
 		[IMGU_ABI_EVTTYPE_VF_OUT_FRAME_DONE] = IPU3_CSS_QUEUE_VF,
 		[IMGU_ABI_EVTTYPE_3A_STATS_DONE] = IPU3_CSS_QUEUE_STAT_3A,
-		[IMGU_ABI_EVTTYPE_DIS_STATS_DONE] = IPU3_CSS_QUEUE_STAT_DVS,
-		[IMGU_ABI_EVTTYPE_LACE_STATS_DONE] = IPU3_CSS_QUEUE_STAT_LACE,
 	};
 	struct ipu3_css_buffer *b = ERR_PTR(-EAGAIN);
 	u32 event, daddr;
@@ -1880,9 +1959,7 @@ struct ipu3_css_buffer *ipu3_css_buf_dequeue(struct ipu3_css *css)
 	case IMGU_ABI_EVTTYPE_OUT_FRAME_DONE:
 	case IMGU_ABI_EVTTYPE_VF_OUT_FRAME_DONE:
 	case IMGU_ABI_EVTTYPE_3A_STATS_DONE:
-	case IMGU_ABI_EVTTYPE_DIS_STATS_DONE:
 	case IMGU_ABI_EVTTYPE_INPUT_FRAME_DONE:
-	case IMGU_ABI_EVTTYPE_LACE_STATS_DONE:
 		pipe = (event & IMGU_ABI_EVTTYPE_PIPE_MASK) >>
 		    IMGU_ABI_EVTTYPE_PIPE_SHIFT;
 		pipeid = (event & IMGU_ABI_EVTTYPE_PIPEID_MASK) >>
@@ -1913,7 +1990,9 @@ struct ipu3_css_buffer *ipu3_css_buf_dequeue(struct ipu3_css *css)
 			return ERR_PTR(-EIO);
 		}
 
+		spin_lock(&css->qlock);
 		if (list_empty(&css->queue[queue].bufs)) {
+			spin_unlock(&css->qlock);
 			dev_err(css->dev, "event on empty queue\n");
 			return ERR_PTR(-EIO);
 		}
@@ -1921,11 +2000,13 @@ struct ipu3_css_buffer *ipu3_css_buf_dequeue(struct ipu3_css *css)
 				     struct ipu3_css_buffer, list);
 		if (queue != b->queue ||
 		    daddr != css->abi_buffers[b->queue][b->queue_pos].daddr) {
+			spin_unlock(&css->qlock);
 			dev_err(css->dev, "dequeued bad buffer 0x%x\n", daddr);
 			return ERR_PTR(-EIO);
 		}
 		b->state = IPU3_CSS_BUFFER_DONE;
 		list_del(&b->list);
+		spin_unlock(&css->qlock);
 		break;
 	case IMGU_ABI_EVTTYPE_PIPELINE_DONE:
 		dev_dbg(css->dev, "event: pipeline done 0x%x for frame %ld\n",
@@ -1975,11 +2056,7 @@ struct ipu3_css_buffer *ipu3_css_buf_dequeue(struct ipu3_css *css)
  * parameters or negative value on error.
  */
 int ipu3_css_set_parameters(struct ipu3_css *css,
-			    struct ipu3_uapi_params *set_params,
-			    struct ipu3_uapi_gdc_warp_param *set_gdc,
-			    unsigned int gdc_bytes,
-			    struct ipu3_uapi_obgrid_param *set_obgrid,
-			    unsigned int obgrid_bytes)
+			    struct ipu3_uapi_params *set_params)
 {
 	static const unsigned int queue_id = IMGU_ABI_QUEUE_A_ID;
 	const int stage = 0, thread = 0;
@@ -1991,8 +2068,8 @@ int ipu3_css_set_parameters(struct ipu3_css *css,
 
 	/* Destination buffers which are filled here */
 	struct imgu_abi_parameter_set_info *param_set;
-	struct ipu3_uapi_acc_param *acc = NULL;
-	struct ipu3_uapi_gdc_warp_param *gdc = NULL;
+	struct imgu_abi_acc_param *acc = NULL;
+	struct imgu_abi_gdc_warp_param *gdc = NULL;
 	struct ipu3_uapi_obgrid_param *obgrid = NULL;
 	const struct ipu3_css_map *map;
 	void *vmem0 = NULL;
@@ -2074,31 +2151,31 @@ int ipu3_css_set_parameters(struct ipu3_css *css,
 
 	/* Get a new gdc only if a new gdc is given, or none yet */
 	if (bi->info.isp.sp.enable.dvs_6axis) {
-		if (set_params && !set_params->use.gdc)
-			set_gdc = NULL;
-		if (set_gdc || !ipu3_css_pool_last(&css->pool.gdc, 0)->vaddr) {
+		unsigned int a = IPU3_CSS_AUX_FRAME_REF;
+		unsigned int g = IPU3_CSS_RECT_GDC;
+		unsigned int e = IPU3_CSS_RECT_ENVELOPE;
+
+		if (!ipu3_css_pool_last(&css->pool.gdc, 0)->vaddr) {
 			if (ipu3_css_pool_get(&css->pool.gdc, css->frame) < 0)
 				goto fail;
 
 			map = ipu3_css_pool_last(&css->pool.gdc, 0);
 			gdc =  map->vaddr;
-			s = IPU3_CSS_AUX_FRAME_REF;
 			/* Config geometric distortion correction table (gdc) */
 			ipu3_css_cfg_gdc_table(gdc,
-				css->aux_frames[s].bytesperline /
-				css->aux_frames[s].bytesperpixel,
-				css->aux_frames[s].height,
-				css->rect[IPU3_CSS_RECT_GDC].width,
-				css->rect[IPU3_CSS_RECT_GDC].height);
+					       css->aux_frames[a].bytesperline /
+					       css->aux_frames[a].bytesperpixel,
+					       css->aux_frames[a].height,
+					       css->rect[g].width,
+					       css->rect[g].height,
+					       css->rect[e].width + FILTER_SIZE,
+					       css->rect[e].height +
+					       FILTER_SIZE);
 		}
 	}
 
 	/* Get a new obgrid only if a new obgrid is given, or none yet */
-	if (set_params && !set_params->use.obgrid)
-		set_obgrid = NULL;
-	if (set_obgrid && obgrid_bytes < obgrid_size / stripes)
-		goto fail;
-	if (set_obgrid || (set_params && set_params->use.obgrid_param) ||
+	if ((set_params && set_params->use.obgrid_param) ||
 		!ipu3_css_pool_last(&css->pool.obgrid, 0)->vaddr) {
 		if (ipu3_css_pool_get(&css->pool.obgrid, css->frame) < 0)
 			goto fail;
@@ -2106,13 +2183,7 @@ int ipu3_css_set_parameters(struct ipu3_css *css,
 		obgrid = map->vaddr;
 
 		/* Configure optical black level grid (obgrid) */
-		if (set_obgrid) {
-			for (s = 0; s < stripes; s++)
-				memcpy((void *)obgrid +
-					(obgrid_size / stripes) * s, set_obgrid,
-					obgrid_size / stripes);
-
-		} else if (set_params && set_params->use.obgrid_param) {
+		if (set_params && set_params->use.obgrid_param) {
 			for (s = 0; s < obgrid_size / sizeof(*obgrid); s++)
 				obgrid[s] = set_params->obgrid_param;
 		} else {

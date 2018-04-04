@@ -188,8 +188,8 @@ static void release_pmc_hardware(void) {}
 
 static bool check_hw_exists(void)
 {
-	u64 val, val_fail, val_new= ~0;
-	int i, reg, reg_fail, ret = 0;
+	u64 val, val_fail = -1, val_new= ~0;
+	int i, reg, reg_fail = -1, ret = 0;
 	int bios_fail = 0;
 	int reg_safe = -1;
 
@@ -481,6 +481,9 @@ int x86_pmu_hw_config(struct perf_event *event)
 
 			/* Support for IP fixup */
 			if (x86_pmu.lbr_nr || x86_pmu.intel_cap.pebs_format >= 2)
+				precise++;
+
+			if (x86_pmu.pebs_prec_dist)
 				precise++;
 		}
 

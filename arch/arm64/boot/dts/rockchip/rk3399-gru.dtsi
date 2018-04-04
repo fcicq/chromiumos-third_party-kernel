@@ -496,16 +496,6 @@
 		};
 	};
 
-	io_domains: io-domains {
-		compatible = "rockchip,rk3399-io-voltage-domain";
-		rockchip,grf = <&grf>;
-
-		bt656-supply = <&pp1800_ap_io>;		/* APIO2_VDD;  2a 2b */
-		audio-supply = <&pp1800_audio>;		/* APIO5_VDD;  3d 4a */
-		sdmmc-supply = <&ppvar_sd_card_io>;	/* SDMMC0_VDD; 4b    */
-		gpio1830-supply = <&pp3000_ap>;		/* APIO4_VDD;  4c 4d */
-	};
-
 	max98357a: max98357a {
 		#sound-dai-cells = <0>;
 		status = "okay";
@@ -516,13 +506,6 @@
 		compatible = "maxim,max98357a";
 		sdmode-gpios = <&gpio1 2 GPIO_ACTIVE_HIGH>;
 		sdmode-delay = <2>;
-	};
-
-	pmu-io-domains {
-		compatible = "rockchip,rk3399-pmu-io-voltage-domain";
-		rockchip,grf = <&pmugrf>;
-
-		pmu1830-supply = <&pp1800_pmu>;		/* PMUIO2_VDD */
 	};
 
 	sound: sound {
@@ -540,22 +523,19 @@
 		wake_on_bt: wake-on-bt {
 			label = "Wake-on-Bluetooth";
 			gpios = <&gpio0 3 GPIO_ACTIVE_LOW>;
-			linux,code = <KEY_WAKEUP>;
+			linux,code = <KEY_RESERVED>;
 			wakeup-source;
 		};
 	};
 };
 
+/* Don't use vopl for dp, save it for edp */
+/delete-node/ &vopl_out_dp;
+/delete-node/ &dp_in_vopl;
+
 &cdn_dp {
 	status = "okay";
 	extcon = <&usbc_extcon0>, <&usbc_extcon1>;
-
-	ports {
-		/* Don't use vopl for dp, save it for edp */
-		dp_in: port {
-			/delete-node/ endpoint@1;
-		};
-	};
 };
 
 &dmc_opp_table {
@@ -637,7 +617,11 @@
 		<&cru PCLK_PERIHP>,
 		<&cru ACLK_PERILP0>, <&cru HCLK_PERILP0>,
 		<&cru PCLK_PERILP0>, <&cru ACLK_CCI>,
-		<&cru HCLK_PERILP1>, <&cru PCLK_PERILP1>;
+		<&cru HCLK_PERILP1>, <&cru PCLK_PERILP1>,
+		<&cru ACLK_VIO>,
+		<&cru ACLK_GIC_PRE>,
+		<&cru PCLK_DDR>,
+		<&cru ACLK_HDCP>;
 	assigned-clock-rates =
 		<600000000>, <800000000>,
 		<1000000000>,
@@ -645,7 +629,11 @@
 		<37500000>,
 		<100000000>, <100000000>,
 		<50000000>, <800000000>,
-		<100000000>, <50000000>;
+		<100000000>, <50000000>,
+		<400000000>,
+		<200000000>,
+		<200000000>,
+		<400000000>;
 };
 
 &display_subsystem {
@@ -761,6 +749,15 @@ ap_i2c_audio: &i2c8 {
 	status = "okay";
 };
 
+&io_domains {
+	status = "okay";
+
+	bt656-supply = <&pp1800_ap_io>;		/* APIO2_VDD;  2a 2b */
+	audio-supply = <&pp1800_audio>;		/* APIO5_VDD;  3d 4a */
+	sdmmc-supply = <&ppvar_sd_card_io>;	/* SDMMC0_VDD; 4b    */
+	gpio1830-supply = <&pp3000_ap>;		/* APIO4_VDD;  4c 4d */
+};
+
 &pcie0 {
 	status = "okay";
 	pinctrl-names = "default";
@@ -794,6 +791,12 @@ ap_i2c_audio: &i2c8 {
 
 &pcie_phy {
 	status = "okay";
+};
+
+&pmu_io_domains {
+	status = "okay";
+
+	pmu1830-supply = <&pp1800_pmu>;		/* PMUIO2_VDD */
 };
 
 &pwm0 {
@@ -1053,11 +1056,6 @@ ap_i2c_audio: &i2c8 {
 	status = "okay";
 	assigned-clocks = <&cru ACLK_VOP1>, <&cru HCLK_VOP1>, <&cru DCLK_VOP1>;
 	assigned-clock-rates = <400000000>, <200000000>, <100000000>;
-
-	/* Don't use vopl for dp, save it for edp */
-	vopl_out: port {
-		/delete-node/ endpoint@1;
-	};
 };
 
 &vopl_mmu {

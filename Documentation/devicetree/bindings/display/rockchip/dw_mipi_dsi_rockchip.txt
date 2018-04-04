@@ -14,12 +14,17 @@ Required properties:
 - rockchip,grf: this soc should set GRF regs to mux vopl/vopb.
 - ports: contain a port node with endpoint definitions as defined in [2].
   For vopb,set the reg = <0> and set the reg = <1> for vopl.
+- video port 0 for the VOP input, the remote endpoint maybe vopb or vopl
+- video port 1 for either a panel or subsequent encoder
 
 Optional properties:
 - power-domains: a phandle to mipi dsi power domain node.
+- resets: list of phandle + reset specifier pairs, as described in [3].
+- reset-names: string reset name, must be "apb".
 
 [1] Documentation/devicetree/bindings/clock/clock-bindings.txt
 [2] Documentation/devicetree/bindings/media/video-interfaces.txt
+[3] Documentation/devicetree/bindings/reset/reset.txt
 
 Example:
 	mipi_dsi: mipi@ff960000 {
@@ -30,17 +35,20 @@ Example:
 		interrupts = <GIC_SPI 83 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&cru SCLK_MIPI_24M>, <&cru PCLK_MIPI_DSI0>;
 		clock-names = "ref", "pclk";
+		resets = <&cru SRST_MIPIDSI0>;
+		reset-names = "apb";
 		rockchip,grf = <&grf>;
 		status = "okay";
 
 		ports {
 			#address-cells = <1>;
 			#size-cells = <0>;
-			reg = <1>;
 
-			mipi_in: port {
+			mipi_in: port@0 {
+				reg = <0>;
 				#address-cells = <1>;
 				#size-cells = <0>;
+
 				mipi_in_vopb: endpoint@0 {
 					reg = <0>;
 					remote-endpoint = <&vopb_out_mipi>;
@@ -48,6 +56,14 @@ Example:
 				mipi_in_vopl: endpoint@1 {
 					reg = <1>;
 					remote-endpoint = <&vopl_out_mipi>;
+				};
+			};
+
+			mipi_out: port@1 {
+				reg = <1>;
+
+				mipi_out_panel: endpoint {
+					remote-endpoint = <&panel_in_mipi>;
 				};
 			};
 		};
@@ -61,5 +77,11 @@ Example:
 			pinctrl-0 = <&lcd_en>;
 			backlight = <&backlight>;
 			status = "okay";
+
+			port {
+				panel_in_mipi: endpoint {
+					remote-endpoint = <&mipi_out_panel>;
+				};
+			};
 		};
 	};

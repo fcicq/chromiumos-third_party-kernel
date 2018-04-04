@@ -67,12 +67,11 @@ static int i915_capabilities(struct seq_file *m, void *data)
 	const struct intel_device_info *info = INTEL_INFO(dev_priv);
 
 	seq_printf(m, "gen: %d\n", INTEL_GEN(dev_priv));
+	seq_printf(m, "platform: %s\n", intel_platform_name(info->platform));
 	seq_printf(m, "pch: %d\n", INTEL_PCH_TYPE(dev_priv));
 #define PRINT_FLAG(x)  seq_printf(m, #x ": %s\n", yesno(info->x))
-#define SEP_SEMICOLON ;
-	DEV_INFO_FOR_EACH_FLAG(PRINT_FLAG, SEP_SEMICOLON);
+	DEV_INFO_FOR_EACH_FLAG(PRINT_FLAG);
 #undef PRINT_FLAG
-#undef SEP_SEMICOLON
 
 	return 0;
 }

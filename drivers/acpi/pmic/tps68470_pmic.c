@@ -2,19 +2,19 @@
  * TI TPS68470 PMIC operation region driver
  *
  * Copyright (C) 2017 Intel Corporation. All rights reserved.
+ *
  * Author: Rajmohan Mani <rajmohan.mani@intel.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
  * 2 as published by the Free Software Foundation.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * This program is distributed "as is" WITHOUT ANY WARRANTY of any
+ * kind, whether express or implied; without even the implied warranty
+ * of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  * Based on drivers/acpi/pmic/intel_pmic* drivers
- *
  */
 
 #include <linux/acpi.h>
@@ -294,8 +294,7 @@ static acpi_status tps68470_pmic_common_handler(u32 function,
 	if (bits != 32)
 		return AE_BAD_PARAMETER;
 
-	ret = pmic_get_reg_bit(address, tbl,
-				  tbl_size, &reg, &bitmask);
+	ret = pmic_get_reg_bit(address, tbl, tbl_size, &reg, &bitmask);
 	if (ret < 0)
 		return AE_BAD_PARAMETER;
 
