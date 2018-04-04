@@ -816,6 +816,10 @@ int security_file_open(struct file *file, const struct cred *cred)
 {
 	int ret;
 
+	ret = chromiumos_security_file_open(file, cred);
+	if (ret)
+		return ret;
+
 	ret = security_ops->file_open(file, cred);
 	if (ret)
 		return ret;

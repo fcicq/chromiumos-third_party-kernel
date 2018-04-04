@@ -1,5 +1,5 @@
 /*
- * Google Veyron Rialto Rev0 board device tree source
+ * Google Veyron Rialto Rev0-2 board device tree source
  *
  * Copyright 2015 Google, Inc
  *
@@ -24,8 +24,8 @@
 
 / {
 	model = "Google Rialto";
-	compatible = "google,veyron-rialto-rev3", "google,veyron-rialto-rev2",
-		     "google,veyron-rialto-rev1", "google,veyron-rialto-rev0",
+	compatible = "google,veyron-rialto-rev2", "google,veyron-rialto-rev1",
+		     "google,veyron-rialto-rev0",
 		     "google,veyron-rialto", "google,veyron", "rockchip,rk3288";
 
 	gpio-keys {
