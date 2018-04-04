@@ -329,6 +329,14 @@ struct mesh_sta {
 	u32 bitrate_avg;
 };
 
+/* To collect multicast broadcast stats */
+struct mc_bc_stats {
+	u64 mc_pkts;
+	u64 mc_bytes;
+	u64 bc_pkts;
+	u64 bc_bytes;
+};
+
 /**
  * struct sta_info - STA information
  *
@@ -490,6 +498,7 @@ struct sta_info {
 	/* Updated from TX path only, no locking requirements */
 	u64 tx_packets[IEEE80211_NUM_ACS];
 	u64 tx_bytes[IEEE80211_NUM_ACS];
+	struct mc_bc_stats mc_bc_stat;
 	struct ieee80211_tx_rate last_tx_rate;
 	int last_rx_rate_idx;
 	u32 last_rx_rate_flag;

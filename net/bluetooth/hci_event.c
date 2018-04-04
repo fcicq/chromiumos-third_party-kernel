@@ -1072,7 +1072,8 @@ static void hci_cc_le_set_adv_enable(struct hci_dev *hdev, struct sk_buff *skb)
 	} else {
 		hci_dev_clear_flag(hdev, HCI_LE_ADV);
 	}
-
+	hci_dev_clear_flag(hdev, HCI_LE_ADV_CHANGE_IN_PROGRESS);
+	hdev->count_adv_change_in_progress--;
 	hci_dev_unlock(hdev);
 }
 
@@ -1142,6 +1143,8 @@ static void hci_cc_le_set_scan_enable(struct hci_dev *hdev,
 		return;
 
 	hci_dev_lock(hdev);
+	hci_dev_clear_flag(hdev, HCI_LE_SCAN_CHANGE_IN_PROGRESS);
+	hdev->count_scan_change_in_progress--;
 
 	switch (cp->enable) {
 	case LE_SCAN_ENABLE:
@@ -1877,6 +1880,7 @@ static void hci_cs_disconnect(struct hci_dev *hdev, u8 status)
 {
 	struct hci_cp_disconnect *cp;
 	struct hci_conn *conn;
+	u8 type;
 
 	if (!status)
 		return;
@@ -1891,6 +1895,23 @@ static void hci_cs_disconnect(struct hci_dev *hdev, u8 status)
 	if (conn)
 		mgmt_disconnect_failed(hdev, &conn->dst, conn->type,
 				       conn->dst_type, status);
+
+	/* If the disconnection failed for any reason, the upper layer does
+	 * not retry to disconnect in current implementation. Hence, we need
+	 * to do some basic cleanup here.
+	 * TODO(b/72355862): Intel to fix the controller firmware
+	 * The disconnect failure occurs sometimes on Intel 7265 controller
+	 * as follows:
+	 *     > HCI Event: Command Status (0x0f) plen 4
+	 *         Disconnect (0x01|0x0006) ncmd 1
+	 *           Status: Unknown Connection Identifier (0x02)
+	 */
+	BT_DBG("Do some disconnect cleanup.");
+
+	type = conn->type;
+	hci_conn_del(conn);
+	if (type == LE_LINK)
+		hci_req_reenable_advertising(hdev);
 
 	hci_dev_unlock(hdev);
 }
@@ -4469,11 +4490,6 @@ static void hci_le_conn_complete_evt(struct hci_dev *hdev, struct sk_buff *skb)
 	BT_DBG("%s status 0x%2.2x", hdev->name, ev->status);
 
 	hci_dev_lock(hdev);
-
-	/* All controllers implicitly stop advertising in the event of a
-	 * connection, so ensure that the state bit is cleared.
-	 */
-	hci_dev_clear_flag(hdev, HCI_LE_ADV);
 
 	conn = hci_lookup_le_connect(hdev);
 	if (!conn) {

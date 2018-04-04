@@ -430,6 +430,7 @@ struct ath10k_sta {
 #endif
 
 	u8 tpc;
+	u8 ampdu_subframe_count;
 	u32 peer_ps_state;
 
 	struct ath10k_smart_ant_sta *smart_ant_sta;
@@ -1095,6 +1096,11 @@ struct ath10k {
 	u32	atf_release_limit;
 	u32	atf_bytes_send;
 	u32	atf_bytes_send_last_interval;
+	u32	atf_max_num_pending_tx;
+	u32	atf_txq_limit_min;
+	u32	atf_txq_limit_max;
+	u32	atf_quantum;
+	u32	atf_quantum_mesh;
 	/* must be last */
 	u8 drv_priv[0] __aligned(sizeof(void *));
 };

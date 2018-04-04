@@ -72,6 +72,9 @@ enum ath_pktlog_type {
 #define ATH10K_TPC_MAX_VAL 70
 #define ATH10K_TPC_MIN_VAL 0
 
+#define ATH10K_AMPDU_SUBFRAME_COUNT_MAX 64
+#define ATH10K_AMPDU_SUBFRAME_COUNT_MIN 0
+
 extern unsigned int ath10k_debug_mask;
 
 __printf(2, 3) void ath10k_info(struct ath10k *ar, const char *fmt, ...);
@@ -97,6 +100,9 @@ struct ath10k_fw_crash_data *
 ath10k_debug_get_new_fw_crash_data(struct ath10k *ar);
 
 void ath10k_debug_dbglog_add(struct ath10k *ar, u8 *buffer, int len);
+
+int ath10k_debug_fw_devcoredump(struct ath10k *ar);
+
 #define ATH10K_DFS_STAT_INC(ar, c) (ar->debug.dfs_stats.c++)
 
 void ath10k_debug_get_et_strings(struct ieee80211_hw *hw,
@@ -156,6 +162,11 @@ static inline struct ath10k_fw_crash_data *
 ath10k_debug_get_new_fw_crash_data(struct ath10k *ar)
 {
 	return NULL;
+}
+
+static inline int ath10k_debug_fw_devcoredump(struct ath10k *ar)
+{
+	return 0;
 }
 
 #define ATH10K_DFS_STAT_INC(ar, c) do { } while (0)

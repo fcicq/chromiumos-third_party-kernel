@@ -839,6 +839,7 @@ struct wmi_cmd_map {
 	u32 ext_resource_cfg_cmdid;
 	u32 set_coex_param_cmdid;
 	u32 pdev_bss_chan_info_request_cmdid;
+	u32 pdev_get_tpc_table_cmdid;
 #ifdef CONFIG_ATH10K_SMART_ANTENNA
 	u32 pdev_set_smart_ant_cmdid;
 	u32 pdev_set_rx_ant_cmdid;
@@ -1660,6 +1661,19 @@ enum wmi_10_4_cmd_id {
 	WMI_10_4_SET_PERIODIC_CHANNEL_STATS_CONFIG,
 	WMI_10_4_PEER_BWF_REQUEST_CMDID,
 	WMI_10_4_BTCOEX_CFG_CMDID,
+	WMI_10_4_PEER_TX_MU_TXMIT_COUNT_CMDID,
+	WMI_10_4_PEER_TX_MU_TXMIT_RSTCNT_CMDID,
+	WMI_10_4_PEER_GID_USERPOS_LIST_CMDID,
+	WMI_10_4_PDEV_CHECK_CAL_VERSION_CMDID,
+	WMI_10_4_COEX_VERSION_CFG_CMID,
+	WMI_10_4_PDEV_GET_RX_FILTER_CMDID,
+	WMI_10_4_PDEV_EXTENDED_NSS_CFG_CMDID,
+	WMI_10_4_VDEV_SET_SCAN_NAC_RSSI_CMDID,
+	WMI_10_4_PROG_GPIO_BAND_SELECT_CMDID,
+	WMI_10_4_CONFIG_SMART_LOGGING_CMDID,
+	WMI_10_4_DEBUG_FATAL_CONDITION_CMDID,
+	WMI_10_4_GET_TSF_TIMER_CMDID,
+	WMI_10_4_PDEV_GET_TPC_TABLE_CMDID,
 	WMI_10_4_PDEV_UTF_CMDID = WMI_10_4_END_CMDID - 1,
 };
 
@@ -1723,6 +1737,16 @@ enum wmi_10_4_event_id {
 	WMI_10_4_PDEV_NFCAL_POWER_ALL_CHANNELS_EVENTID,
 	WMI_10_4_PDEV_BSS_CHAN_INFO_EVENTID,
 	WMI_10_4_MU_REPORT_EVENTID,
+	WMI_10_4_TX_DATA_TRAFFIC_CTRL_EVENTID,
+	WMI_10_4_PEER_TX_MU_TXMIT_COUNT_EVENTID,
+	WMI_10_4_PEER_GID_USERPOS_LIST_EVENTID,
+	WMI_10_4_PDEV_CHECK_CAL_VERSION_EVENTID,
+	WMI_10_4_ATF_PEER_STATS_EVENTID,
+	WMI_10_4_PDEV_GET_RX_FILTER_EVENTID,
+	WMI_10_4_NAC_RSSI_EVENTID,
+	WMI_10_4_DEBUG_FATAL_CONDITION_EVENTID,
+	WMI_10_4_GET_TSF_TIMER_RESP_EVENTID,
+	WMI_10_4_PDEV_TPC_TABLE_EVENTID,
 	WMI_10_4_PDEV_UTF_EVENTID = WMI_10_4_END_EVENTID - 1,
 };
 
@@ -3805,12 +3829,18 @@ struct wmi_pdev_get_tpc_config_cmd {
 	__le32 param;
 } __packed;
 
+struct wmi_pdev_get_tpc_table_cmd {
+	/* parameter  */
+	__le32 param;
+} __packed;
+
 #define WMI_TPC_CONFIG_PARAM		1
-#define WMI_TPC_RATE_MAX		160
+#define WMI_TPC_RATE_MAX		240
 #define WMI_TPC_TX_N_CHAIN		4
 #define WMI_TPC_PREAM_TABLE_MAX		10
 #define WMI_TPC_FLAG			3
 #define WMI_TPC_BUF_SIZE		10
+#define WMI_TPC_BEAMFORMING		2
 
 enum wmi_tpc_table_type {
 	WMI_TPC_TABLE_TYPE_CDD = 0,
@@ -3846,6 +3876,26 @@ struct wmi_pdev_tpc_config_event {
 struct wmi_peer_sta_ps_state_chg_event {
 	struct wmi_mac_addr peer_macaddr;
 	__le32 peer_ps_state;
+} __packed;
+
+struct wmi_pdev_tpc_final_table_event {
+	__le32 reg_domain;
+	__le32 chan_freq;
+	__le32 phy_mode;
+	__le32 twice_antenna_reduction;
+	__le32 twice_max_rd_power;
+	a_sle32 twice_antenna_gain;
+	__le32 power_limit;
+	__le32 rate_max;
+	__le32 num_tx_chain;
+	__le32 ctl;
+	__le32 flags;
+	s8 max_reg_allow_pow[WMI_TPC_TX_N_CHAIN];
+	s8 max_reg_allow_pow_agcdd[WMI_TPC_TX_N_CHAIN][WMI_TPC_TX_N_CHAIN];
+	s8 max_reg_allow_pow_agstbc[WMI_TPC_TX_N_CHAIN][WMI_TPC_TX_N_CHAIN];
+	s8 max_reg_allow_pow_agtxbf[WMI_TPC_TX_N_CHAIN][WMI_TPC_TX_N_CHAIN];
+	u8 rates_array[WMI_TPC_RATE_MAX];
+	u8 ctl_power_table[WMI_TPC_BEAMFORMING][WMI_TPC_TX_N_CHAIN][WMI_TPC_TX_N_CHAIN];
 } __packed;
 
 /* Transmit power scale factor. */

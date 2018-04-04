@@ -2346,6 +2346,28 @@ ieee80211_rx_h_mesh_fwding(struct ieee80211_rx_data *rx)
 }
 #endif
 
+/* Calculates the no. of multicast and broadcast data packets and bytes */
+static inline void ieee80211_mc_bc_stats(char* dst, struct ieee80211_rx_data *rx)
+{
+	struct ieee80211_sub_if_data *sdata = rx->sdata;
+	struct net_device *dev = sdata->dev;
+	struct pcpu_sw_netstats *tstats = this_cpu_ptr(dev->tstats);
+
+	if (is_multicast_ether_addr(dst) && rx->sta) {
+		if (is_broadcast_ether_addr(dst)) {
+			rx->sta->mc_bc_stat.bc_pkts++;
+			rx->sta->mc_bc_stat.bc_bytes += rx->skb->len;
+		} else {
+			rx->sta->mc_bc_stat.mc_pkts++;
+			rx->sta->mc_bc_stat.mc_bytes += rx->skb->len;
+		}
+		/* Counts the no.of reveived MC/BC packets per interface */
+		u64_stats_update_begin(&tstats->syncp);
+		tstats->multicast++;
+		u64_stats_update_end(&tstats->syncp);
+	}
+}
+
 static ieee80211_rx_result debug_noinline
 ieee80211_rx_h_data(struct ieee80211_rx_data *rx)
 {
@@ -2388,6 +2410,9 @@ ieee80211_rx_h_data(struct ieee80211_rx_data *rx)
 	err = __ieee80211_data_to_8023(rx, &port_control);
 	if (unlikely(err))
 		return RX_DROP_UNUSABLE;
+
+	/* Get the multicat broadcast stats */
+	ieee80211_mc_bc_stats(((struct ethhdr *)rx->skb->data)->h_dest, rx);
 
 	if (!ieee80211_frame_allowed(rx, fc))
 		return RX_DROP_MONITOR;
