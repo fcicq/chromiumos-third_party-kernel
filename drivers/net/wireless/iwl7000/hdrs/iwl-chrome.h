@@ -460,14 +460,6 @@ int __must_check kstrtobool_from_user(const char __user *s, size_t count, bool *
 #endif /* < 4.6 */
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,7,0)
-/* We don't really care much about alignment, since nl80211 isn't using
- * this for hot paths. So just implement it using nla_put_u64().
- */
-static inline int nla_put_u64_64bit(struct sk_buff *skb, int attrtype,
-				    u64 value, int padattr)
-{
-	return nla_put_u64(skb, attrtype, value);
-}
 #define nla_put_s64 iwl7000_nla_put_s64
 static inline int nla_put_s64(struct sk_buff *skb, int attrtype, s64 value,
 			      int padattr)
