@@ -41,7 +41,7 @@
 #include "diag_ipc_logging.h"
 #include "diagfwd_peripheral.h"
 
-#include <linux/coresight-stm.h>
+//#include <linux/coresight-stm.h>
 #include <linux/kernel.h>
 #ifdef CONFIG_COMPAT
 #include <linux/compat.h>
@@ -3053,7 +3053,7 @@ static int diag_user_process_apps_data(const char __user *buf, int len,
 				       int pkt_type)
 {
 	int ret = 0;
-	int stm_size = 0;
+//	int stm_size = 0;
 	const int mempool = POOL_TYPE_COPY;
 	unsigned char *user_space_data = NULL;
 	struct diag_md_session_t *session_info = NULL;
@@ -3094,6 +3094,7 @@ static int diag_user_process_apps_data(const char __user *buf, int len,
 		return -EBADMSG;
 	}
 
+#if 0
 	if (driver->stm_state[APPS_DATA] &&
 	    (pkt_type >= DATA_TYPE_EVENT) && (pkt_type <= DATA_TYPE_LOG)) {
 		stm_size = stm_log_inv_ts(OST_ENTITY_DIAG, 0, user_space_data,
@@ -3107,7 +3108,7 @@ static int diag_user_process_apps_data(const char __user *buf, int len,
 
 		return 0;
 	}
-
+#endif
 	mutex_lock(&apps_data_mutex);
 	mutex_lock(&driver->hdlc_disable_mutex);
 	mutex_lock(&driver->md_session_lock);
