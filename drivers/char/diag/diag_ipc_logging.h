@@ -1,4 +1,4 @@
-/* Copyright (c) 2015, 2017 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015, 2017-2018 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -13,7 +13,9 @@
 #ifndef DIAGIPCLOG_H
 #define DIAGIPCLOG_H
 
+#ifdef DIAG_DEBUG
 #include <linux/ipc_logging.h>
+#endif
 
 #define DIAG_IPC_LOG_PAGES	50
 
@@ -25,7 +27,7 @@
 #define DIAG_DEBUG_POWER	0x0020
 #define DIAG_DEBUG_BRIDGE	0x0040
 
-#define DIAG_DEBUG
+//#define DIAG_DEBUG
 
 #ifdef DIAG_DEBUG
 extern uint16_t diag_debug_mask;
