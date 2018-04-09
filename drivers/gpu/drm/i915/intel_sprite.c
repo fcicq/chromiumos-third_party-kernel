@@ -775,6 +775,7 @@ intel_check_sprite_plane(struct drm_plane *plane,
 	int max_scale, min_scale;
 	bool can_scale;
 	int ret;
+	uint32_t pixel_format = 0;
 
 	*src = drm_plane_state_src(&state->base);
 	*dst = drm_plane_state_dest(&state->base);
@@ -798,11 +799,14 @@ intel_check_sprite_plane(struct drm_plane *plane,
 
 	/* setup can_scale, min_scale, max_scale */
 	if (INTEL_GEN(dev_priv) >= 9) {
+		if (state->base.fb)
+			pixel_format = state->base.fb->format->format;
 		/* use scaler when colorkey is not required */
 		if (state->ckey.flags == I915_SET_COLORKEY_NONE) {
 			can_scale = 1;
 			min_scale = 1;
-			max_scale = skl_max_scale(intel_crtc, crtc_state);
+			max_scale =
+				skl_max_scale(intel_crtc, crtc_state, pixel_format);
 		} else {
 			can_scale = 0;
 			min_scale = DRM_PLANE_HELPER_NO_SCALING;
