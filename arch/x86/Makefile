@@ -124,10 +124,6 @@ else
         cflags-$(CONFIG_GENERIC_CPU) += $(call cc-option,-mtune=generic)
         KBUILD_CFLAGS += $(cflags-y)
 
-ifeq ($(cc-name),clang)
-        KBUILD_CFLAGS += -msahf
-endif
-
         KBUILD_CFLAGS += -mno-red-zone
         KBUILD_CFLAGS += -mcmodel=kernel
 
