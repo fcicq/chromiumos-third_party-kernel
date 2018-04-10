@@ -78,6 +78,7 @@ int chromiumos_security_sb_mount(const char *dev_name, struct path *path,
 	}
 #endif
 
+#ifdef CONFIG_SECURITY_CHROMIUMOS_NO_UNPRIVILEGED_UNSAFE_MOUNTS
 	if (!(flags & (MS_BIND | MS_MOVE | MS_SHARED | MS_PRIVATE | MS_SLAVE |
 		       MS_UNBINDABLE)) &&
 	    !capable(CAP_SYS_ADMIN)) {
@@ -122,6 +123,7 @@ int chromiumos_security_sb_mount(const char *dev_name, struct path *path,
 			return -EPERM;
 		}
 	}
+#endif /* CONFIG_SECURITY_CHROMIUMOS_NO_UNPRIVILEGED_UNSAFE_MOUNTS */
 
 	return 0;
 }
