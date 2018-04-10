@@ -1825,6 +1825,10 @@ static struct sdhci_pci_slot *sdhci_pci_probe_slot(
 	if (slot->cd_idx >= 0) {
 		ret = mmc_gpiod_request_cd(host->mmc, slot->cd_con_id, slot->cd_idx,
 					   slot->cd_override_level, 0, NULL);
+
+		if (ret == 0)
+			mmc_detect_change(host->mmc, msecs_to_jiffies(200));
+
 		if (ret == -EPROBE_DEFER)
 			goto remove;
 
