@@ -34,8 +34,10 @@
 #include "diagfwd_socket.h"
 #include "diag_ipc_logging.h"
 
+#ifdef DIAG_SSR
 #include <soc/qcom/subsystem_notif.h>
 #include <soc/qcom/subsystem_restart.h>
+#endif
 
 #define DIAG_SVC_ID		0x1001
 
@@ -53,7 +55,9 @@
 #define INST_ID_DCI		4
 
 struct qmi_handle *cntl_qmi;
+#ifdef DIAG_SSR
 static uint64_t bootup_req[NUM_SOCKET_SUBSYSTEMS];
+#endif
 
 struct diag_socket_info socket_data[NUM_PERIPHERALS] = {
 	{
@@ -220,6 +224,7 @@ struct diag_socket_info socket_dci_cmd[NUM_PERIPHERALS] = {
 	},
 };
 
+#ifdef DIAG_SSR
 struct restart_notifier_block {
 	unsigned int processor;
 	char *name;
@@ -292,6 +297,7 @@ static struct restart_notifier_block restart_notifiers[] = {
 	{SOCKET_SLPI, "slpi", .nb.notifier_call = restart_notifier_cb},
 	{SOCKET_CDSP, "cdsp", .nb.notifier_call = restart_notifier_cb},
 };
+#endif
 
 void diag_socket_invalidate(void *ctxt, struct diagfwd_info *fwd_ctxt)
 {
@@ -489,12 +495,14 @@ static void __socket_close_channel(struct diag_socket_info *info)
 	if (!info || !info->hdl)
 		return;
 
+#ifdef DIAG_SSR
 	if (bootup_req[info->peripheral] == PEPIPHERAL_SSR_UP) {
 		DIAG_LOG(DIAG_DEBUG_PERIPHERALS,
 			"diag: %s is up, stopping cleanup: bootup_req = %d\n",
 			info->name, (int)bootup_req[info->peripheral]);
 		return;
 	}
+#endif
 
 	memset(&info->remote_addr, 0, sizeof(info->remote_addr));
 	diagfwd_channel_close(info->fwd_ctxt);
@@ -965,11 +973,13 @@ static struct qmi_ops diag_qmi_cntl_ops = {
 int diag_socket_init(void)
 {
 	struct diag_socket_info *info = NULL;
-	struct restart_notifier_block *nb;
 	int peripheral;
-	void *handle;
 	int rc;
+#ifdef DIAG_SSR
+	struct restart_notifier_block *nb;
+	void *handle;
 	int i;
+#endif
 
 	for (peripheral = 0; peripheral < NUM_PERIPHERALS; peripheral++) {
 		info = &socket_cntl[peripheral];
@@ -984,6 +994,7 @@ int diag_socket_init(void)
 		__diag_socket_init(&socket_dci_cmd[peripheral]);
 	}
 
+#ifdef DIAG_SSR
 	for (i = 0; i < ARRAY_SIZE(restart_notifiers); i++) {
 		nb = &restart_notifiers[i];
 		handle = subsys_notif_register_notifier(nb->name, &nb->nb);
@@ -991,6 +1002,7 @@ int diag_socket_init(void)
 			 "%s: registering notifier for '%s', handle=%p\n",
 			 __func__, nb->name, handle);
 	}
+#endif
 
 	cntl_qmi = kzalloc(sizeof(*cntl_qmi), GFP_KERNEL);
 	if (!cntl_qmi) {
