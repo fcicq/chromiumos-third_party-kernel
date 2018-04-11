@@ -328,6 +328,7 @@ extern struct attribute_group cros_ec_pd_attr_group;
 extern struct attribute_group cros_ec_lightbar_attr_group;
 extern struct attribute_group cros_ec_vbc_attr_group;
 extern struct attribute_group cros_usb_pd_charger_attr_group;
+extern struct attribute_group cros_ec_usb_attr_group;
 
 /**
  * cros_ec_get_next_event - Retrieve the EC event.

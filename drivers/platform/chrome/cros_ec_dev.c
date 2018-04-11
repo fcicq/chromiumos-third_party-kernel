@@ -43,6 +43,9 @@ static const struct attribute_group *cros_ec_groups[] = {
 #if IS_ENABLED(CONFIG_MFD_CROS_EC_PD_UPDATE)
 	&cros_ec_pd_attr_group,
 #endif
+#if IS_ENABLED(CONFIG_CROS_EC_SYSFS_USB)
+	&cros_ec_usb_attr_group,
+#endif
 #if IS_ENABLED(CONFIG_CHARGER_CROS_USB_PD)
 	&cros_usb_pd_charger_attr_group,
 #endif
