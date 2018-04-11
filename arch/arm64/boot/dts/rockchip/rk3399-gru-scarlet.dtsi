@@ -162,19 +162,21 @@
 	 *
 	 * This is a hack to make sure the Bluetooth part of the QCA6174A
 	 * is reset at boot by toggling BT_EN. At boot BT_EN is first set
-	 * to low through pinctrl (see bt_en_1v8_l). The fake bt_3v3
-	 * regulator is configured as a supply of the wlan_3v3 regulator
-	 * below. When wlan_3v3 is enabled early in the boot process it
-	 * also enables its supply regulator bt_3v3, which changes BT_EN
-	 * to high.
+	 * to low when the bt_3v3 regulator is registered (in disabled
+	 * state). The fake regulator is configured as a supply of the
+	 * wlan_3v3 regulator below. When wlan_3v3 is enabled early in
+	 * the boot process it also enables its supply regulator bt_3v3,
+	 * which changes BT_EN to high.
 	 */
 	bt_3v3: bt-3v3 {
 		compatible = "regulator-fixed";
 		regulator-name = "bt_3v3";
 
-		/* Note the bt_en_1v8_l pinctrl */
 		enable-active-high;
 		gpio = <&gpio0 8 GPIO_ACTIVE_HIGH>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&bt_en_1v8_l>;
 
 		vin-supply = <&pp3300_s3>;
 	};
@@ -183,9 +185,17 @@
 		compatible = "regulator-fixed";
 		regulator-name = "wlan_3v3";
 
-		/* Note the wlan_pd_1v8_l pinctrl */
+		/*
+		 * The WL_EN pin is driven low when the regulator is
+		 * registered, and transitions to high when the PCIe bus
+		 * is powered up.
+		 */
 		enable-active-high;
 		gpio = <&gpio0 4 GPIO_ACTIVE_HIGH>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&wlan_pd_1v8_l>;
+
 		/*
 		 * Require minimum 10ms from power-on (e.g., PD#) to init PCIe.
 		 * TODO (b/64444991): how long to assert PD#?
@@ -724,9 +734,7 @@ camera: &i2c7 {
 &pinctrl {
 	pinctrl-0 = <
 		&ap_pwroff	/* AP will auto-assert this when in S3 */
-		&bt_en_1v8_l
 		&clk_32k	/* This pin is always 32k on gru boards */
-		&wlan_pd_1v8_l	/* Drive this low ASAP */
 		&wlan_rf_kill_1v8_l
 	>;
 
@@ -802,11 +810,11 @@ camera: &i2c7 {
 
 &wifi {
 	bt_en_1v8_l: bt-en-1v8-l {
-		rockchip,pins = <0 8 RK_FUNC_GPIO &pcfg_output_low>;
+		rockchip,pins = <0 8 RK_FUNC_GPIO &pcfg_pull_none>;
 	};
 
 	wlan_pd_1v8_l: wlan-pd-1v8-l {
-		rockchip,pins = <0 4 RK_FUNC_GPIO &pcfg_output_low>;
+		rockchip,pins = <0 4 RK_FUNC_GPIO &pcfg_pull_none>;
 	};
 
 	/* Default pull-up, but just to be clear */
