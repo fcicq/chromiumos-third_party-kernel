@@ -346,4 +346,8 @@ static inline int pci_dev_specific_reset(struct pci_dev *dev, int probe)
 }
 #endif
 
+int pcie_flr(struct pci_dev *dev, int probe);
+void pci_dev_restore(struct pci_dev *dev);
+void pci_dev_save_and_disable(struct pci_dev *dev);
+
 #endif /* DRIVERS_PCI_H */
