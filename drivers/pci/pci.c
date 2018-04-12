@@ -3736,7 +3736,7 @@ int pci_wait_for_pending_transaction(struct pci_dev *dev)
 }
 EXPORT_SYMBOL(pci_wait_for_pending_transaction);
 
-static int pcie_flr(struct pci_dev *dev, int probe)
+int pcie_flr(struct pci_dev *dev, int probe)
 {
 	u32 cap;
 
@@ -4003,7 +4003,7 @@ static void pci_reset_notify(struct pci_dev *dev, bool prepare)
 		err_handler->reset_notify(dev, prepare);
 }
 
-static void pci_dev_save_and_disable(struct pci_dev *dev)
+void pci_dev_save_and_disable(struct pci_dev *dev)
 {
 	pci_reset_notify(dev, true);
 
@@ -4025,7 +4025,7 @@ static void pci_dev_save_and_disable(struct pci_dev *dev)
 	pci_write_config_word(dev, PCI_COMMAND, PCI_COMMAND_INTX_DISABLE);
 }
 
-static void pci_dev_restore(struct pci_dev *dev)
+void pci_dev_restore(struct pci_dev *dev)
 {
 	pci_restore_state(dev);
 	pci_reset_notify(dev, false);
