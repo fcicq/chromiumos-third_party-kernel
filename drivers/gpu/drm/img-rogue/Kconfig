@@ -15,34 +15,16 @@ config DRM_POWERVR_ROGUE_1_9
 	  Say Y here if your SoC contains a PowerVR Rogue GPU. For more
 	  information, see <http://www.imgtec.com/powervr/>.
 
-config DRM_POWERVR_ROGUE_1_8
-	tristate "PowerVR Rogue"
-	depends on ARM64 || X86
-	depends on HAS_IOMEM
-	depends on DRM
-	depends on (DRM_POWERVR_ROGUE_1_9!=m && m) || (DRM_POWERVR_ROGUE_1_9!=y && y)
-	select DRM_KMS_HELPER
-	select GPU_TRACEPOINTS
-	select PM_DEVFREQ
-	select DEVFREQ_GOV_SIMPLE_ONDEMAND
-	select PM_OPP
-	select DEVFREQ_THERMAL
-	help
-	  Driver for PowerVR Rogue graphics hardware 1.8.
-
-	  Say Y here if your SoC contains a PowerVR Rogue GPU. For more
-	  information, see <http://www.imgtec.com/powervr/>.
-
 config DRM_POWERVR_ROGUE_DEBUG
 	bool "Enable PowerVR Rogue debug features"
-	depends on DRM_POWERVR_ROGUE_1_8 || DRM_POWERVR_ROGUE_1_9
+	depends on DRM_POWERVR_ROGUE_1_9
 	default n
 	help
 	  Add additional debug features to the PowerVR Rogue driver.
 
 config DRM_POWERVR_ROGUE_PDUMP
 	bool "Enable PowerVR Rogue PDUMP tracing."
-	depends on DRM_POWERVR_ROGUE_1_8 || DRM_POWERVR_ROGUE_1_9
+	depends on DRM_POWERVR_ROGUE_1_9
 	default n
 	help
 	  Enable PDUMP.
