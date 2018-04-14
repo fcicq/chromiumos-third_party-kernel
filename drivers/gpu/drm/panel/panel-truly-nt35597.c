@@ -13,6 +13,7 @@
  */
 
 #include <linux/gpio/consumer.h>
+#include <linux/leds.h>
 #include <linux/of_graph.h>
 #include <linux/regulator/consumer.h>
 #include <linux/pinctrl/consumer.h>
@@ -24,6 +25,9 @@
 #include <drm/drmP.h>
 #include <drm/drm_panel.h>
 #include <drm/drm_mipi_dsi.h>
+
+#define BL_NODE_NAME_SIZE 32
+#define PRIM_DISPLAY_NODE 0
 
 static const char * const regulator_names[] = {
 	"vdda",
@@ -51,6 +55,8 @@ struct truly_wqxga {
 	struct gpio_desc *mode_gpio;
 
 	struct backlight_device *backlight;
+	/* WLED params */
+	struct led_trigger *wled;
 	struct videomode vm;
 
 	struct mipi_dsi_device *dsi[2];
@@ -454,6 +460,82 @@ static void truly_wqxga_panel_del(struct truly_wqxga *ctx)
 		drm_panel_remove(&ctx->panel);
 }
 
+static void truly_wqxga_bkl_unregister(struct truly_wqxga *ctx)
+{
+	if (ctx->backlight)
+		put_device(&ctx->backlight->dev);
+}
+
+static int truly_backlight_device_update_status(struct backlight_device *bd)
+{
+	int brightness;
+	int max_brightness;
+	int rc = 0;
+	struct truly_wqxga *ctx = dev_get_drvdata(&bd->dev);
+
+	brightness = bd->props.brightness;
+	max_brightness = bd->props.max_brightness;
+
+	if ((bd->props.power != FB_BLANK_UNBLANK) ||
+		(bd->props.state & BL_CORE_FBBLANK) ||
+		  (bd->props.state & BL_CORE_SUSPENDED))
+		brightness = 0;
+
+	if (brightness > max_brightness)
+		brightness = max_brightness;
+
+	if (ctx->wled)
+		led_trigger_event(ctx->wled, brightness);
+
+	return rc;
+}
+
+static int truly_backlight_device_get_brightness(struct backlight_device *bd)
+{
+	return bd->props.brightness;
+}
+
+static const struct backlight_ops truly_backlight_device_ops = {
+	.update_status = truly_backlight_device_update_status,
+	.get_brightness = truly_backlight_device_get_brightness,
+};
+
+static int truly_backlight_setup(struct truly_wqxga *ctx)
+{
+	struct backlight_properties props;
+	char bl_node_name[BL_NODE_NAME_SIZE];
+
+	if (!ctx->backlight) {
+		memset(&props, 0, sizeof(props));
+		props.type = BACKLIGHT_RAW;
+		props.power = FB_BLANK_UNBLANK;
+		props.max_brightness = 4096;
+
+		snprintf(bl_node_name, BL_NODE_NAME_SIZE, "panel%u-backlight",
+				 PRIM_DISPLAY_NODE);
+
+		ctx->backlight =  backlight_device_register(bl_node_name,
+				ctx->dev, ctx,
+				&truly_backlight_device_ops, &props);
+
+		if (IS_ERR_OR_NULL(ctx->backlight)) {
+			pr_err("Failed to register backlight\n");
+			ctx->backlight = NULL;
+			return -ENODEV;
+		}
+
+		/* Register with the LED driver interface */
+		led_trigger_register_simple("bkl-trigger", &ctx->wled);
+
+		if (!ctx->wled) {
+			pr_err("backlight led registration failed\n");
+			return -ENODEV;
+		}
+	}
+
+	return 0;
+}
+
 static int truly_wqxga_probe(struct mipi_dsi_device *dsi)
 {
 	struct device *dev = &dsi->dev;
@@ -530,6 +612,12 @@ static int truly_wqxga_probe(struct mipi_dsi_device *dsi)
 		goto err_panel_add;
 	}
 
+	ret = truly_backlight_setup(ctx);
+	if (ret) {
+		dev_err(dev, "backlight setup failed\n");
+		goto err_backlight;
+	}
+
 	ret = mipi_dsi_attach(dsi);
 	if (ret < 0) {
 		dev_err(dev, "master dsi attach failed\n");
@@ -549,6 +637,8 @@ static int truly_wqxga_probe(struct mipi_dsi_device *dsi)
 err_dsi_attach_sec:
 	mipi_dsi_detach(ctx->dsi[0]);
 err_dsi_attach:
+	truly_wqxga_bkl_unregister(ctx);
+err_backlight:
 	truly_wqxga_panel_del(ctx);
 err_panel_add:
 	mipi_dsi_device_unregister(secondary);
@@ -570,6 +660,7 @@ static int truly_wqxga_remove(struct mipi_dsi_device *dsi)
 			mipi_dsi_detach(ctx->dsi[1]);
 			mipi_dsi_device_unregister(ctx->dsi[1]);
 		}
+		truly_wqxga_bkl_unregister(ctx);
 		truly_wqxga_panel_del(ctx);
 		kfree(ctx);
 	}
