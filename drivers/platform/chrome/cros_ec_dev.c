@@ -636,6 +636,24 @@ static void cros_ec_rtc_register(struct cros_ec_dev *ec)
 		dev_err(ec->dev, "failed to add cros-ec-rtc device: %d\n", ret);
 }
 
+static const struct mfd_cell cros_ec_cec_devs[] = {
+	{
+		.name = "cros-ec-cec",
+		.id   = -1,
+	},
+};
+
+static void cros_ec_cec_register(struct cros_ec_dev *ec)
+{
+	int ret;
+
+	ret = mfd_add_devices(ec->dev, 0, cros_ec_cec_devs,
+			      ARRAY_SIZE(cros_ec_cec_devs),
+			      NULL, 0, NULL);
+	if (ret)
+		dev_err(ec->dev, "failed to add cros-ec-cec device: %d\n", ret);
+}
+
 static int ec_device_probe(struct platform_device *pdev)
 {
 	int retval = -ENOMEM;
@@ -719,6 +737,10 @@ static int ec_device_probe(struct platform_device *pdev)
 	/* check whether this EC instance has RTC host command support */
 	if (cros_ec_check_features(ec, EC_FEATURE_RTC))
 		cros_ec_rtc_register(ec);
+
+	/* check whether this EC instance has CEC command support */
+	if (cros_ec_check_features(ec, EC_FEATURE_CEC))
+		cros_ec_cec_register(ec);
 
 	/* Take control of the lightbar from the EC. */
 	lb_manual_suspend_ctrl(ec, 1);
