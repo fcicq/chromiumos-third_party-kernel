@@ -38,6 +38,7 @@
 #include <drm/drm_dp_mst_helper.h>
 #include <drm/drm_rect.h>
 #include <drm/drm_atomic.h>
+#include <media/cec-notifier.h>
 
 /**
  * __wait_for - magic wait macro
@@ -923,6 +924,7 @@ struct intel_hdmi {
 			       const struct drm_display_mode *adjusted_mode);
 	bool (*infoframe_enabled)(struct drm_encoder *encoder,
 				  const struct intel_crtc_state *pipe_config);
+	struct cec_notifier *cec_notifier;
 };
 
 struct intel_dp_mst_encoder;

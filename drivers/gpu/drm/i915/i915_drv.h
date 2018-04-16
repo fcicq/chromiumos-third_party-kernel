@@ -347,6 +347,28 @@ enum port {
 };
 #define port_name(p) ((p) + 'A')
 
+/*
+ * Ports identifier referenced from other drivers.
+ * Expected to remain stable over time
+ */
+static inline const char *port_identifier(enum port port)
+{
+	switch (port) {
+	case PORT_A:
+		return "Port A";
+	case PORT_B:
+		return "Port B";
+	case PORT_C:
+		return "Port C";
+	case PORT_D:
+		return "Port D";
+	case PORT_E:
+		return "Port E";
+	default:
+		return "<invalid>";
+	}
+}
+
 #define I915_NUM_PHYS_VLV 2
 
 enum dpio_channel {
