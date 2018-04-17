@@ -3557,7 +3557,6 @@ static int reset_chelsio_generic_dev(struct pci_dev *dev, int probe)
  */
 static int reset_marvell_wifi_double_flr(struct pci_dev *dev, int probe)
 {
-	u32 cap;
 	int ret;
 
 	if (probe)
