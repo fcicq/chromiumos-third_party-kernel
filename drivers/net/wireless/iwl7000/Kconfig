@@ -8,9 +8,8 @@ config IWL7000
 	select LEDS_CLASS
 	select LEDS_TRIGGERS
 
-	# this is because cfg80211 is now included in iwl7000,
-	# and there can only be one instance of it.
-	depends on CFG80211=n
+	# this is because we don't depend on mac80211
+	depends on CFG80211
 
 	# things mac80211 selects
 	select CRYPTO
@@ -25,6 +24,7 @@ config IWL7000
 config IWL7000_DEBUGFS
 	def_bool y
 	depends on IWL7000
+	depends on CFG80211_DEBUGFS
 
 config IWL7000_TRACING
 	def_bool y
