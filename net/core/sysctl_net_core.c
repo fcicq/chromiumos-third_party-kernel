@@ -438,7 +438,6 @@ static __net_init int sysctl_core_net_init(struct net *net)
 {
 	struct ctl_table *tbl;
 
-	net->core.sysctl_somaxconn = SOMAXCONN;
 	net->core.sysctl_android_paranoid = 0;
 
 	tbl = netns_core_table;
