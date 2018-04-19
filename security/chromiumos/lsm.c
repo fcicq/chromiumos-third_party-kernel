@@ -67,12 +67,14 @@ int chromiumos_security_sb_mount(const char *dev_name, struct path *path,
 				 const char *type, unsigned long flags,
 				 void *data)
 {
+#ifdef CONFIG_SECURITY_CHROMIUMOS_NO_SYMLINK_MOUNT
 	if (current->total_link_count) {
 		report("sb_mount", path, "Mount path with symlinks prohibited");
 		pr_notice("sb_mount dev=%s type=%s flags=%#lx\n",
 			  dev_name, type, flags);
 		return -ELOOP;
 	}
+#endif
 
 	if (!(flags & (MS_BIND | MS_MOVE | MS_SHARED | MS_PRIVATE | MS_SLAVE |
 		       MS_UNBINDABLE)) &&
