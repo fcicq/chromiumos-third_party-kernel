@@ -1,14 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
- * Copyright (c) 2017 Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License version
- * 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * Copyright (C) 2017 Intel Corporation
  *
  * Based partially on Intel IPU4 driver written by
  *  Sakari Ailus <sakari.ailus@linux.intel.com>
@@ -68,8 +60,6 @@ static const struct ipu3_cio2_fmt formats[] = {
 	},
 };
 
-#define NUM_FORMATS ARRAY_SIZE(formats)
-
 /*
  * cio2_find_format - lookup color format by fourcc or/and media bus code
  * @pixelformat: fourcc to match, ignored if null
@@ -80,7 +70,7 @@ static const struct ipu3_cio2_fmt *cio2_find_format(const u32 *pixelformat,
 {
 	unsigned int i;
 
-	for (i = 0; i < NUM_FORMATS; i++) {
+	for (i = 0; i < ARRAY_SIZE(formats); i++) {
 		if (pixelformat && *pixelformat != formats[i].fourcc)
 			continue;
 		if (mbus_code && *mbus_code != formats[i].mbus_code)
@@ -107,12 +97,12 @@ static void cio2_fbpt_exit_dummy(struct cio2_device *cio2)
 {
 	if (cio2->dummy_lop) {
 		dma_free_coherent(&cio2->pci_dev->dev, CIO2_PAGE_SIZE,
-				cio2->dummy_lop, cio2->dummy_lop_bus_addr);
+				  cio2->dummy_lop, cio2->dummy_lop_bus_addr);
 		cio2->dummy_lop = NULL;
 	}
 	if (cio2->dummy_page) {
 		dma_free_coherent(&cio2->pci_dev->dev, CIO2_PAGE_SIZE,
-				cio2->dummy_page, cio2->dummy_page_bus_addr);
+				  cio2->dummy_page, cio2->dummy_page_bus_addr);
 		cio2->dummy_page = NULL;
 	}
 }
@@ -122,11 +112,13 @@ static int cio2_fbpt_init_dummy(struct cio2_device *cio2)
 	unsigned int i;
 
 	cio2->dummy_page = dma_alloc_coherent(&cio2->pci_dev->dev,
-				CIO2_PAGE_SIZE, &cio2->dummy_page_bus_addr,
-				GFP_KERNEL);
+					      CIO2_PAGE_SIZE,
+					      &cio2->dummy_page_bus_addr,
+					      GFP_KERNEL);
 	cio2->dummy_lop = dma_alloc_coherent(&cio2->pci_dev->dev,
-				CIO2_PAGE_SIZE, &cio2->dummy_lop_bus_addr,
-				GFP_KERNEL);
+					     CIO2_PAGE_SIZE,
+					     &cio2->dummy_lop_bus_addr,
+					     GFP_KERNEL);
 	if (!cio2->dummy_page || !cio2->dummy_lop) {
 		cio2_fbpt_exit_dummy(cio2);
 		return -ENOMEM;
@@ -186,8 +178,7 @@ static void cio2_fbpt_entry_init_buf(struct cio2_device *cio2,
 {
 	struct vb2_buffer *vb = &b->vbb.vb2_buf;
 	unsigned int length = vb->planes[0].length;
-	dma_addr_t lop_bus_addr = b->lop_bus_addr;
-	int remaining;
+	int remaining, i;
 
 	entry[0].first_entry.first_page_offset = b->offset;
 	remaining = length + entry[0].first_entry.first_page_offset;
@@ -207,11 +198,12 @@ static void cio2_fbpt_entry_init_buf(struct cio2_device *cio2,
 				CIO2_PAGE_SIZE - 1;
 	/* Fill FBPT */
 	remaining = length;
+	i = 0;
 	while (remaining > 0) {
-		entry->lop_page_addr = lop_bus_addr >> PAGE_SHIFT;
-		lop_bus_addr += CIO2_PAGE_SIZE;
+		entry->lop_page_addr = b->lop_bus_addr[i] >> PAGE_SHIFT;
 		remaining -= CIO2_PAGE_SIZE / sizeof(u32) * CIO2_PAGE_SIZE;
 		entry++;
+		i++;
 	}
 
 	/*
@@ -226,58 +218,12 @@ static int cio2_fbpt_init(struct cio2_device *cio2, struct cio2_queue *q)
 {
 	struct device *dev = &cio2->pci_dev->dev;
 
-	q->fbpt = dma_alloc_coherent(dev, CIO2_FBPT_SIZE,
-			&q->fbpt_bus_addr, GFP_KERNEL);
+	q->fbpt = dma_alloc_coherent(dev, CIO2_FBPT_SIZE, &q->fbpt_bus_addr,
+				     GFP_KERNEL);
 	if (!q->fbpt)
 		return -ENOMEM;
 
 	memset(q->fbpt, 0, CIO2_FBPT_SIZE);
-
-	return 0;
-}
-
-static int cio2_fbpt_rearrange(struct cio2_device *cio2, struct cio2_queue *q)
-{
-	struct cio2_fbpt_entry *fbpt_temp;
-	int i, j;
-	int size, entries;
-	struct cio2_buffer *bufs[CIO2_MAX_BUFFERS];
-
-	for (i = 0, j = q->bufs_first; i < CIO2_MAX_BUFFERS;
-		i++, j = (j + 1) % CIO2_MAX_BUFFERS)
-		if (q->bufs[j])
-			break;
-
-	if (i == CIO2_MAX_BUFFERS)
-		return 0;
-
-	fbpt_temp = vmalloc(CIO2_FBPT_SIZE);
-	if (!fbpt_temp) {
-		dev_err(&cio2->pci_dev->dev, "Out of memory.\n");
-		return -ENOMEM;
-	}
-
-	entries = (CIO2_MAX_BUFFERS - j) * CIO2_MAX_LOPS;
-	size = entries * sizeof(struct cio2_fbpt_entry);
-
-	memcpy(fbpt_temp, q->fbpt + j * CIO2_MAX_LOPS, size);
-	memcpy(fbpt_temp + entries, q->fbpt, CIO2_FBPT_SIZE - size);
-	memcpy(q->fbpt, fbpt_temp, CIO2_FBPT_SIZE);
-	memcpy(bufs, q->bufs + j, (CIO2_MAX_BUFFERS - j) * sizeof(*bufs));
-	memcpy(bufs + CIO2_MAX_BUFFERS - j, q->bufs, j * sizeof(*bufs));
-	memcpy(q->bufs, bufs, CIO2_MAX_BUFFERS * sizeof(*bufs));
-
-	/*
-	 * DMA clears the valid bit when accessing the buffer.
-	 * When stopping stream in suspend callback, some of the buffers
-	 * may be in invalid state. After resume, when DMA meets the inavlid
-	 * buffer, it will halt and stop receiving new data.
-	 * To avoid DMA halting, set the valid bit for all buffers in FBPT.
-	 */
-	for (i = 0; i < CIO2_MAX_BUFFERS; i++)
-		cio2_fbpt_entry_enable(cio2, q->fbpt + i * CIO2_MAX_LOPS);
-
-	vfree(fbpt_temp);
 
 	return 0;
 }
@@ -318,27 +264,37 @@ static void cio2_fbpt_exit(struct cio2_queue *q, struct device *dev)
  *
  * We use the minimum values of both A and B.
  */
-#define DIV_SHIFT	8
-static int cio2_rx_timing(s32 a, s32 b, s64 freq)
-{
-	int r;
-	const u32 accinv = 16;
 
+/*
+ * shift for keeping value range suitable for 32-bit integer arithmetics
+ */
+#define LIMIT_SHIFT	8
+
+static s32 cio2_rx_timing(s32 a, s32 b, s64 freq, int def)
+{
+	const u32 accinv = 16; /* invert of counter resolution */
+	const u32 uiinv = 500000000; /* 1e9 / 2 */
+	s32 r;
+
+	freq >>= LIMIT_SHIFT;
+
+	if (WARN_ON(freq <= 0 || freq > S32_MAX))
+		return def;
 	/*
 	 * b could be 0, -2 or -8, so |accinv * b| is always
 	 * less than (1 << ds) and thus |r| < 500000000.
 	 */
-	r = accinv * b * (500000000 >> DIV_SHIFT);
-	r /= freq;
+	r = accinv * b * (uiinv >> LIMIT_SHIFT);
+	r = r / (s32)freq;
 	/* max value of a is 95 */
 	r += accinv * a;
 
 	return r;
 };
 
-/* Computation for the Delay value for Termination enable of Clock lane HS Rx */
+/* Calculate the the delay value for termination enable of clock lane HS Rx */
 static int cio2_csi2_calc_timing(struct cio2_device *cio2, struct cio2_queue *q,
-			    struct cio2_csi2_timing *timing)
+				 struct cio2_csi2_timing *timing)
 {
 	struct device *dev = &cio2->pci_dev->dev;
 	struct v4l2_querymenu qm = {.id = V4L2_CID_LINK_FREQ, };
@@ -349,12 +305,11 @@ static int cio2_csi2_calc_timing(struct cio2_device *cio2, struct cio2_queue *q,
 	if (!q->sensor)
 		return -ENODEV;
 
-	link_freq = v4l2_ctrl_find(q->sensor->ctrl_handler,
-						V4L2_CID_LINK_FREQ);
+	link_freq = v4l2_ctrl_find(q->sensor->ctrl_handler, V4L2_CID_LINK_FREQ);
 	if (!link_freq) {
 		dev_err(dev, "failed to find LINK_FREQ\n");
 		return -EPIPE;
-	};
+	}
 
 	qm.index = v4l2_ctrl_g_ctrl(link_freq);
 	r = v4l2_querymenu(q->sensor->ctrl_handler, &qm);
@@ -369,21 +324,22 @@ static int cio2_csi2_calc_timing(struct cio2_device *cio2, struct cio2_queue *q,
 	}
 	freq = qm.value;
 
-	dev_dbg(dev, "link freq is %lld\n", qm.value);
-
-	/* check before calling cio2_rx_timing to avoid divide by 0 */
-	freq = qm.value >> DIV_SHIFT;
-	if (WARN_ON(freq == 0))
-		return -EINVAL;
-
 	timing->clk_termen = cio2_rx_timing(CIO2_CSIRX_DLY_CNT_TERMEN_CLANE_A,
-				CIO2_CSIRX_DLY_CNT_TERMEN_CLANE_B, freq);
+					    CIO2_CSIRX_DLY_CNT_TERMEN_CLANE_B,
+					    freq,
+					    CIO2_CSIRX_DLY_CNT_TERMEN_DEFAULT);
 	timing->clk_settle = cio2_rx_timing(CIO2_CSIRX_DLY_CNT_SETTLE_CLANE_A,
-				CIO2_CSIRX_DLY_CNT_SETTLE_CLANE_B, freq);
+					    CIO2_CSIRX_DLY_CNT_SETTLE_CLANE_B,
+					    freq,
+					    CIO2_CSIRX_DLY_CNT_SETTLE_DEFAULT);
 	timing->dat_termen = cio2_rx_timing(CIO2_CSIRX_DLY_CNT_TERMEN_DLANE_A,
-				CIO2_CSIRX_DLY_CNT_TERMEN_DLANE_B, freq);
+					    CIO2_CSIRX_DLY_CNT_TERMEN_DLANE_B,
+					    freq,
+					    CIO2_CSIRX_DLY_CNT_TERMEN_DEFAULT);
 	timing->dat_settle = cio2_rx_timing(CIO2_CSIRX_DLY_CNT_SETTLE_DLANE_A,
-				CIO2_CSIRX_DLY_CNT_SETTLE_DLANE_B, freq);
+					    CIO2_CSIRX_DLY_CNT_SETTLE_DLANE_B,
+					    freq,
+					    CIO2_CSIRX_DLY_CNT_SETTLE_DEFAULT);
 
 	dev_dbg(dev, "freq ct value is %d\n", timing->clk_termen);
 	dev_dbg(dev, "freq cs value is %d\n", timing->clk_settle);
@@ -412,9 +368,23 @@ static int cio2_hw_init(struct cio2_device *cio2, struct cio2_queue *q)
 	if (!fmt)
 		return -EINVAL;
 
-	lanes = r = q->csi2.lanes;
-	if (r < 0)
+	lanes = q->csi2.lanes;
+
+	r = cio2_csi2_calc_timing(cio2, q, &timing);
+	if (r)
 		return r;
+
+	writel(timing.clk_termen, q->csi_rx_base +
+		CIO2_REG_CSIRX_DLY_CNT_TERMEN(CIO2_CSIRX_DLY_CNT_CLANE_IDX));
+	writel(timing.clk_settle, q->csi_rx_base +
+		CIO2_REG_CSIRX_DLY_CNT_SETTLE(CIO2_CSIRX_DLY_CNT_CLANE_IDX));
+
+	for (i = 0; i < lanes; i++) {
+		writel(timing.dat_termen, q->csi_rx_base +
+			CIO2_REG_CSIRX_DLY_CNT_TERMEN(i));
+		writel(timing.dat_settle, q->csi_rx_base +
+			CIO2_REG_CSIRX_DLY_CNT_SETTLE(i));
+	}
 
 	writel(CIO2_PBM_WMCTRL1_MIN_2CK |
 	       CIO2_PBM_WMCTRL1_MID1_2CK |
@@ -425,7 +395,8 @@ static int cio2_hw_init(struct cio2_device *cio2, struct cio2_queue *q)
 	       CIO2_PBM_WMCTRL2_OBFFWM_2CK_SHIFT |
 	       CIO2_PBM_WMCTRL2_TRANSDYN << CIO2_PBM_WMCTRL2_TRANSDYN_SHIFT |
 	       CIO2_PBM_WMCTRL2_OBFF_MEM_EN, base + CIO2_REG_PBM_WMCTRL2);
-	writel(CIO2_PBM_ARB_CTRL_LANES_DIV << CIO2_PBM_ARB_CTRL_LANES_DIV |
+	writel(CIO2_PBM_ARB_CTRL_LANES_DIV <<
+	       CIO2_PBM_ARB_CTRL_LANES_DIV_SHIFT |
 	       CIO2_PBM_ARB_CTRL_LE_EN |
 	       CIO2_PBM_ARB_CTRL_PLL_POST_SHTDN <<
 	       CIO2_PBM_ARB_CTRL_PLL_POST_SHTDN_SHIFT |
@@ -472,30 +443,6 @@ static int cio2_hw_init(struct cio2_device *cio2, struct cio2_queue *q)
 	writel(0, q->csi_rx_base + CIO2_REG_MIPIBE_COMP_FORMAT(sensor_vc));
 	writel(0, q->csi_rx_base + CIO2_REG_MIPIBE_FORCE_RAW8);
 	writel(0, base + CIO2_REG_PXM_SID2BID0(csi2bus));
-
-	r = cio2_csi2_calc_timing(cio2, q, &timing);
-	if (r) {
-		/* Use default values */
-		for (i = -1; i < lanes; i++) {
-			writel(0x4, q->csi_rx_base +
-				CIO2_REG_CSIRX_DLY_CNT_TERMEN(i));
-			writel(0x570, q->csi_rx_base +
-				CIO2_REG_CSIRX_DLY_CNT_SETTLE(i));
-		}
-	} else {
-		i = CIO2_CSIRX_DLY_CNT_CLANE_IDX;
-		writel(timing.clk_termen, q->csi_rx_base +
-			CIO2_REG_CSIRX_DLY_CNT_TERMEN(i));
-		writel(timing.clk_settle, q->csi_rx_base +
-			CIO2_REG_CSIRX_DLY_CNT_SETTLE(i));
-
-		for (i = 0; i < lanes; i++) {
-			writel(timing.dat_termen, q->csi_rx_base +
-				CIO2_REG_CSIRX_DLY_CNT_TERMEN(i));
-			writel(timing.dat_settle, q->csi_rx_base +
-				CIO2_REG_CSIRX_DLY_CNT_SETTLE(i));
-		}
-	}
 
 	writel(lanes, q->csi_rx_base + CIO2_REG_CSIRX_NOF_ENABLED_LANES);
 	writel(CIO2_CGC_PRIM_TGE |
@@ -571,6 +518,8 @@ static void cio2_hw_exit(struct cio2_device *cio2, struct cio2_queue *q)
 	unsigned int i, maxloops = 1000;
 
 	/* Disable CSI receiver and MIPI backend devices */
+	writel(0, q->csi_rx_base + CIO2_REG_IRQCTRL_MASK);
+	writel(0, q->csi_rx_base + CIO2_REG_IRQCTRL_ENABLE);
 	writel(0, q->csi_rx_base + CIO2_REG_CSIRX_ENABLE);
 	writel(0, q->csi_rx_base + CIO2_REG_MIPIBE_ENABLE);
 
@@ -599,6 +548,7 @@ static void cio2_buffer_done(struct cio2_device *cio2, unsigned int dma_chan)
 	struct device *dev = &cio2->pci_dev->dev;
 	struct cio2_queue *q = cio2->cur_queue;
 	int buffers_found = 0;
+	u64 ns = ktime_get_ns();
 
 	if (dma_chan >= CIO2_QUEUES) {
 		dev_err(dev, "bad DMA channel %i\n", dma_chan);
@@ -616,19 +566,20 @@ static void cio2_buffer_done(struct cio2_device *cio2, unsigned int dma_chan)
 
 		b = q->bufs[q->bufs_first];
 		if (b) {
-			u64 ns = ktime_get_ns();
+			unsigned int bytes = entry[1].second_entry.num_of_bytes;
 
 			q->bufs[q->bufs_first] = NULL;
 			atomic_dec(&q->bufs_queued);
 			dev_dbg(&cio2->pci_dev->dev,
 				"buffer %i done\n", b->vbb.vb2_buf.index);
 
-			/* Fill vb2 buffer entries and tell it's ready */
 			b->vbb.timestamp = ns_to_timeval(ns);
-			b->vbb.flags = V4L2_BUF_FLAG_DONE;
 			b->vbb.field = V4L2_FIELD_NONE;
-			memset(&b->vbb.timecode, 0, sizeof(b->vbb.timecode));
 			b->vbb.sequence = atomic_read(&q->frame_sequence);
+			if (b->vbb.vb2_buf.planes[0].length != bytes)
+				dev_warn(dev, "buffer length is %d received %d\n",
+					 b->vbb.vb2_buf.planes[0].length,
+					 bytes);
 			vb2_buffer_done(&b->vbb.vb2_buf, VB2_BUF_STATE_DONE);
 		}
 		atomic_inc(&q->frame_sequence);
@@ -639,17 +590,22 @@ static void cio2_buffer_done(struct cio2_device *cio2, unsigned int dma_chan)
 
 	if (buffers_found == 0)
 		dev_warn(&cio2->pci_dev->dev,
-			 "no ready buffers found on DMA channel %i\n",
+			 "no ready buffers found on DMA channel %u\n",
 			 dma_chan);
 }
 
 static void cio2_queue_event_sof(struct cio2_device *cio2, struct cio2_queue *q)
 {
+	/*
+	 * For the user space camera control algorithms it is essential
+	 * to know when the reception of a frame has begun. That's often
+	 * the best timing information to get from the hardware.
+	 */
 	struct v4l2_event event = {
 		.type = V4L2_EVENT_FRAME_SYNC,
-		.u.frame_sync.frame_sequence =
-			atomic_read(&q->frame_sequence),
+		.u.frame_sync.frame_sequence = atomic_read(&q->frame_sequence),
 	};
+
 	v4l2_event_queue(q->subdev.devnode, &event);
 }
 
@@ -727,7 +683,6 @@ static void cio2_irq_handle_once(struct cio2_device *cio2, u32 int_status)
 		for (d = 0; d < CIO2_NUM_DMA_CHAN; d++)
 			if (int_status & CIO2_INT_IOC(d)) {
 				clr |= CIO2_INT_IOC(d);
-				dev_dbg(dev, "DMA %i done\n", d);
 				cio2_buffer_done(cio2, d);
 			}
 		int_status &= ~clr;
@@ -744,8 +699,6 @@ static void cio2_irq_handle_once(struct cio2_device *cio2, u32 int_status)
 				if (d == CIO2_DMA_CHAN)
 					cio2_queue_event_sof(cio2,
 							     cio2->cur_queue);
-				dev_dbg(dev,
-					"DMA %i started or reached line\n", d);
 			}
 		int_status &= ~clr;
 	}
@@ -846,7 +799,8 @@ static void cio2_vb2_return_all_buffers(struct cio2_queue *q,
 	for (i = 0; i < CIO2_MAX_BUFFERS; i++) {
 		if (q->bufs[i]) {
 			atomic_dec(&q->bufs_queued);
-			vb2_buffer_done(&q->bufs[i]->vbb.vb2_buf, state);
+			vb2_buffer_done(&q->bufs[i]->vbb.vb2_buf,
+					state);
 		}
 	}
 }
@@ -888,23 +842,28 @@ static int cio2_vb2_buf_init(struct vb2_buffer *vb)
 	struct device *dev = &cio2->pci_dev->dev;
 	struct cio2_buffer *b =
 		container_of(vb, struct cio2_buffer, vbb.vb2_buf);
-	unsigned int length = vb->planes[0].length;
-	unsigned int pages = DIV_ROUND_UP(length, CIO2_PAGE_SIZE), nr = 0;
-	int lops  = DIV_ROUND_UP(pages + 1, CIO2_PAGE_SIZE / sizeof(u32));
-	u32 *lop;
+	static const unsigned int entries_per_page =
+		CIO2_PAGE_SIZE / sizeof(u32);
+	unsigned int pages = DIV_ROUND_UP(vb->planes[0].length, CIO2_PAGE_SIZE);
+	unsigned int lops = DIV_ROUND_UP(pages + 1, entries_per_page);
 	struct sg_table *sg;
 	struct sg_page_iter sg_iter;
+	int i, j;
 
 	if (lops <= 0 || lops > CIO2_MAX_LOPS) {
-		dev_err(dev, "%s: bad buffer size (%i)\n", __func__, length);
+		dev_err(dev, "%s: bad buffer size (%i)\n", __func__,
+			vb->planes[0].length);
 		return -ENOSPC;		/* Should never happen */
 	}
 
+	memset(b->lop, 0, sizeof(b->lop));
 	/* Allocate LOP table */
-	b->lop = lop = dma_alloc_coherent(dev, lops * CIO2_PAGE_SIZE,
-					&b->lop_bus_addr, GFP_KERNEL);
-	if (!lop)
-		return -ENOMEM;
+	for (i = 0; i < lops; i++) {
+		b->lop[i] = dma_alloc_coherent(dev, CIO2_PAGE_SIZE,
+					       &b->lop_bus_addr[i], GFP_KERNEL);
+		if (!b->lop[i])
+			goto fail;
+	}
 
 	/* Fill LOP */
 	sg = vb2_dma_sg_plane_desc(vb, 0);
@@ -914,15 +873,25 @@ static int cio2_vb2_buf_init(struct vb2_buffer *vb)
 	if (sg->nents && sg->sgl)
 		b->offset = sg->sgl->offset;
 
+	i = j = 0;
 	for_each_sg_page(sg->sgl, &sg_iter, sg->nents, 0) {
-		if (nr++ > pages)
+		if (!pages--)
 			break;
-		*lop++ = sg_page_iter_dma_address(&sg_iter) >> PAGE_SHIFT;
+		b->lop[i][j] = sg_page_iter_dma_address(&sg_iter) >> PAGE_SHIFT;
+		j++;
+		if (j == entries_per_page) {
+			i++;
+			j = 0;
+		}
 	}
 
-	*lop++ = cio2->dummy_page_bus_addr >> PAGE_SHIFT;
-
+	b->lop[i][j] = cio2->dummy_page_bus_addr >> PAGE_SHIFT;
 	return 0;
+fail:
+	for (i--; i >= 0; i--)
+		dma_free_coherent(dev, CIO2_PAGE_SIZE,
+				  b->lop[i], b->lop_bus_addr[i]);
+	return -ENOMEM;
 }
 
 /* Transfer buffer ownership to cio2 */
@@ -957,7 +926,8 @@ static void cio2_vb2_buf_queue(struct vb2_buffer *vb)
 	local_irq_save(flags);
 
 	fbpt_rp = (readl(cio2->base + CIO2_REG_CDMARI(CIO2_DMA_CHAN))
-		   >> CIO2_CDMARI_FBPT_RP_SHIFT) & CIO2_CDMARI_FBPT_RP_MASK;
+		   >> CIO2_CDMARI_FBPT_RP_SHIFT)
+		   & CIO2_CDMARI_FBPT_RP_MASK;
 
 	/*
 	 * fbpt_rp is the fbpt entry that the dma is currently working
@@ -984,7 +954,7 @@ static void cio2_vb2_buf_queue(struct vb2_buffer *vb)
 			local_irq_restore(flags);
 			q->bufs_next = (next + 1) % CIO2_MAX_BUFFERS;
 			for (j = 0; j < vb->num_planes; j++)
-				vb2_set_plane_payload(vb, i,
+				vb2_set_plane_payload(vb, j,
 					q->format.plane_fmt[j].sizeimage);
 			return;
 		}
@@ -1005,18 +975,19 @@ static void cio2_vb2_buf_cleanup(struct vb2_buffer *vb)
 	struct cio2_device *cio2 = vb2_get_drv_priv(vb->vb2_queue);
 	struct cio2_buffer *b =
 		container_of(vb, struct cio2_buffer, vbb.vb2_buf);
-	unsigned int length = vb->planes[0].length;
-	int lops = DIV_ROUND_UP(DIV_ROUND_UP(length, CIO2_PAGE_SIZE),
-				CIO2_PAGE_SIZE / sizeof(u32));
+	unsigned int i;
 
 	/* Free LOP table */
-	dma_free_coherent(&cio2->pci_dev->dev, lops * CIO2_PAGE_SIZE,
-				b->lop, b->lop_bus_addr);
+	for (i = 0; i < CIO2_MAX_LOPS; i++) {
+		if (b->lop[i])
+			dma_free_coherent(&cio2->pci_dev->dev, CIO2_PAGE_SIZE,
+					  b->lop[i], b->lop_bus_addr[i]);
+	}
 }
 
 static int cio2_vb2_start_streaming(struct vb2_queue *vq, unsigned int count)
 {
-	struct cio2_queue *q = container_of(vq, struct cio2_queue, vbq);
+	struct cio2_queue *q = vb2q_to_cio2_queue(vq);
 	struct cio2_device *cio2 = vb2_get_drv_priv(vq);
 	int r;
 
@@ -1025,9 +996,8 @@ static int cio2_vb2_start_streaming(struct vb2_queue *vq, unsigned int count)
 
 	r = pm_runtime_get_sync(&cio2->pci_dev->dev);
 	if (r < 0) {
-		dev_info(&cio2->pci_dev->dev,
-			"failed to set power %d\n", r);
-		pm_runtime_put(&cio2->pci_dev->dev);
+		dev_info(&cio2->pci_dev->dev, "failed to set power %d\n", r);
+		pm_runtime_put_noidle(&cio2->pci_dev->dev);
 		return r;
 	}
 
@@ -1039,21 +1009,15 @@ static int cio2_vb2_start_streaming(struct vb2_queue *vq, unsigned int count)
 	if (r)
 		goto fail_hw;
 
-	/* Start streaming on CSI2 receiver */
-	r = v4l2_subdev_call(&q->subdev, video, s_stream, 1);
-	if (r && r != -ENOIOCTLCMD)
-		goto fail_csi2_subdev;
-
 	/* Start streaming on sensor */
 	r = v4l2_subdev_call(q->sensor, video, s_stream, 1);
 	if (r)
-		goto fail_sensor_subdev;
+		goto fail_csi2_subdev;
 
 	cio2->streaming = true;
+
 	return 0;
 
-fail_sensor_subdev:
-	v4l2_subdev_call(&q->subdev, video, s_stream, 0);
 fail_csi2_subdev:
 	cio2_hw_exit(cio2, q);
 fail_hw:
@@ -1061,25 +1025,22 @@ fail_hw:
 fail_pipeline:
 	dev_dbg(&cio2->pci_dev->dev, "failed to start streaming (%d)\n", r);
 	cio2_vb2_return_all_buffers(q, VB2_BUF_STATE_QUEUED);
+	pm_runtime_put(&cio2->pci_dev->dev);
 
 	return r;
 }
 
 static void cio2_vb2_stop_streaming(struct vb2_queue *vq)
 {
-	struct cio2_queue *q = container_of(vq, struct cio2_queue, vbq);
+	struct cio2_queue *q = vb2q_to_cio2_queue(vq);
 	struct cio2_device *cio2 = vb2_get_drv_priv(vq);
-	int r;
 
 	if (v4l2_subdev_call(q->sensor, video, s_stream, 0))
 		dev_err(&cio2->pci_dev->dev,
 			"failed to stop sensor streaming\n");
 
-	r = v4l2_subdev_call(&q->subdev, video, s_stream, 0);
-	if (r && r != -ENOIOCTLCMD)
-		dev_err(&cio2->pci_dev->dev, "failed to stop CSI2 streaming\n");
-
 	cio2_hw_exit(cio2, q);
+	synchronize_irq(cio2->pci_dev->irq);
 	cio2_vb2_return_all_buffers(q, VB2_BUF_STATE_ERROR);
 	media_entity_pipeline_stop(&q->vdev.entity);
 	pm_runtime_put(&cio2->pci_dev->dev);
@@ -1108,8 +1069,6 @@ static int cio2_v4l2_querycap(struct file *file, void *fh,
 	strlcpy(cap->card, CIO2_DEVICE_NAME, sizeof(cap->card));
 	snprintf(cap->bus_info, sizeof(cap->bus_info),
 		 "PCI:%s", pci_name(cio2->pci_dev));
-	cap->device_caps = V4L2_CAP_VIDEO_CAPTURE_MPLANE | V4L2_CAP_STREAMING;
-	cap->capabilities = cap->device_caps | V4L2_CAP_DEVICE_CAPS;
 
 	return 0;
 }
@@ -1117,7 +1076,7 @@ static int cio2_v4l2_querycap(struct file *file, void *fh,
 static int cio2_v4l2_enum_fmt(struct file *file, void *fh,
 			      struct v4l2_fmtdesc *f)
 {
-	if (f->index >= NUM_FORMATS)
+	if (f->index >= ARRAY_SIZE(formats))
 		return -EINVAL;
 
 	f->pixelformat = formats[f->index].fourcc;
@@ -1125,7 +1084,7 @@ static int cio2_v4l2_enum_fmt(struct file *file, void *fh,
 	return 0;
 }
 
-/* Propagate forward always the format from the CIO2 subdev */
+/* The format is validated in cio2_video_link_validate() */
 static int cio2_v4l2_g_fmt(struct file *file, void *fh, struct v4l2_format *f)
 {
 	struct cio2_queue *q = file_to_cio2_queue(file);
@@ -1179,6 +1138,32 @@ static int cio2_v4l2_s_fmt(struct file *file, void *fh, struct v4l2_format *f)
 	return 0;
 }
 
+static int
+cio2_video_enum_input(struct file *file, void *fh, struct v4l2_input *input)
+{
+	if (input->index > 0)
+		return -EINVAL;
+
+	strlcpy(input->name, "camera", sizeof(input->name));
+	input->type = V4L2_INPUT_TYPE_CAMERA;
+
+	return 0;
+}
+
+static int
+cio2_video_g_input(struct file *file, void *fh, unsigned int *input)
+{
+	*input = 0;
+
+	return 0;
+}
+
+static int
+cio2_video_s_input(struct file *file, void *fh, unsigned int input)
+{
+	return input == 0 ? 0 : -EINVAL;
+}
+
 static const struct v4l2_file_operations cio2_v4l2_fops = {
 	.owner = THIS_MODULE,
 	.unlocked_ioctl = video_ioctl2,
@@ -1203,6 +1188,9 @@ static const struct v4l2_ioctl_ops cio2_v4l2_ioctl_ops = {
 	.vidioc_streamon = vb2_ioctl_streamon,
 	.vidioc_streamoff = vb2_ioctl_streamoff,
 	.vidioc_expbuf = vb2_ioctl_expbuf,
+	.vidioc_enum_input = cio2_video_enum_input,
+	.vidioc_g_input	= cio2_video_g_input,
+	.vidioc_s_input	= cio2_video_s_input,
 };
 
 static int cio2_subdev_subscribe_event(struct v4l2_subdev *sd,
@@ -1219,6 +1207,31 @@ static int cio2_subdev_subscribe_event(struct v4l2_subdev *sd,
 	return v4l2_event_subscribe(fh, sub, 0, NULL);
 }
 
+static int cio2_subdev_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
+{
+	struct v4l2_mbus_framefmt *format;
+	const struct v4l2_mbus_framefmt fmt_default = {
+		.width = 1936,
+		.height = 1096,
+		.code = formats[0].mbus_code,
+		.field = V4L2_FIELD_NONE,
+		.colorspace = V4L2_COLORSPACE_RAW,
+		.ycbcr_enc = V4L2_YCBCR_ENC_DEFAULT,
+		.quantization = V4L2_QUANTIZATION_DEFAULT,
+		.xfer_func = V4L2_XFER_FUNC_DEFAULT,
+	};
+
+	/* Initialize try_fmt */
+	format = v4l2_subdev_get_try_format(sd, fh->pad, CIO2_PAD_SINK);
+	*format = fmt_default;
+
+	/* same as sink */
+	format = v4l2_subdev_get_try_format(sd, fh->pad, CIO2_PAD_SOURCE);
+	*format = fmt_default;
+
+	return 0;
+}
+
 /*
  * cio2_subdev_get_fmt - Handle get format by pads subdev method
  * @sd : pointer to v4l2 subdev structure
@@ -1231,11 +1244,29 @@ static int cio2_subdev_get_fmt(struct v4l2_subdev *sd,
 			       struct v4l2_subdev_format *fmt)
 {
 	struct cio2_queue *q = container_of(sd, struct cio2_queue, subdev);
+	struct v4l2_subdev_format format;
+	int ret;
 
-	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY)
+	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
 		fmt->format = *v4l2_subdev_get_try_format(sd, cfg, fmt->pad);
-	else	/* Retrieve the current format */
-		fmt->format = q->subdev_fmt;
+		return 0;
+	}
+
+	if (fmt->pad == CIO2_PAD_SINK) {
+		format.which = V4L2_SUBDEV_FORMAT_ACTIVE;
+		ret = v4l2_subdev_call(sd, pad, get_fmt, NULL,
+				       &format);
+
+		if (ret)
+			return ret;
+		/* update colorspace etc */
+		q->subdev_fmt.colorspace = format.format.colorspace;
+		q->subdev_fmt.ycbcr_enc = format.format.ycbcr_enc;
+		q->subdev_fmt.quantization = format.format.quantization;
+		q->subdev_fmt.xfer_func = format.format.xfer_func;
+	}
+
+	fmt->format = q->subdev_fmt;
 
 	return 0;
 }
@@ -1277,10 +1308,58 @@ static int cio2_subdev_enum_mbus_code(struct v4l2_subdev *sd,
 				      struct v4l2_subdev_pad_config *cfg,
 				      struct v4l2_subdev_mbus_code_enum *code)
 {
-	if (code->index >= NUM_FORMATS)
+	if (code->index >= ARRAY_SIZE(formats))
 		return -EINVAL;
 
 	code->code = formats[code->index].mbus_code;
+	return 0;
+}
+
+static int cio2_subdev_link_validate_get_format(struct media_pad *pad,
+						struct v4l2_subdev_format *fmt)
+{
+	if (media_entity_type(pad->entity) == MEDIA_ENT_T_V4L2_SUBDEV) {
+		struct v4l2_subdev *sd =
+			media_entity_to_v4l2_subdev(pad->entity);
+
+		fmt->which = V4L2_SUBDEV_FORMAT_ACTIVE;
+		fmt->pad = pad->index;
+		return v4l2_subdev_call(sd, pad, get_fmt, NULL, fmt);
+	}
+
+	return -EINVAL;
+}
+
+static int cio2_video_link_validate(struct media_link *link)
+{
+	struct video_device *vd = container_of(link->sink->entity,
+						struct video_device, entity);
+	struct cio2_queue *q = container_of(vd, struct cio2_queue, vdev);
+	struct cio2_device *cio2 = video_get_drvdata(vd);
+	struct v4l2_subdev_format source_fmt;
+	int ret;
+
+	if (!media_entity_remote_pad(link->sink->entity->pads)) {
+		dev_info(&cio2->pci_dev->dev,
+			 "video node %s pad not connected\n", vd->name);
+		return -ENOTCONN;
+	}
+
+	ret = cio2_subdev_link_validate_get_format(link->source, &source_fmt);
+	if (ret < 0)
+		return 0;
+
+	if (source_fmt.format.width != q->format.width ||
+	    source_fmt.format.height != q->format.height) {
+		dev_err(&cio2->pci_dev->dev,
+			"Wrong width or height %ux%u (%ux%u expected)\n",
+			q->format.width, q->format.height,
+			source_fmt.format.width, source_fmt.format.height);
+		return -EINVAL;
+	}
+
+	if (!cio2_find_format(&q->format.pixelformat, &source_fmt.format.code))
+		return -EINVAL;
 
 	return 0;
 }
@@ -1290,7 +1369,9 @@ static const struct v4l2_subdev_core_ops cio2_subdev_core_ops = {
 	.unsubscribe_event = v4l2_event_subdev_unsubscribe,
 };
 
-static const struct v4l2_subdev_video_ops cio2_subdev_video_ops = {};
+static const struct v4l2_subdev_internal_ops cio2_subdev_internal_ops = {
+	.open = cio2_subdev_open,
+};
 
 static const struct v4l2_subdev_pad_ops cio2_subdev_pad_ops = {
 	.link_validate = v4l2_subdev_link_validate_default,
@@ -1301,7 +1382,6 @@ static const struct v4l2_subdev_pad_ops cio2_subdev_pad_ops = {
 
 static const struct v4l2_subdev_ops cio2_subdev_ops = {
 	.core = &cio2_subdev_core_ops,
-	.video = &cio2_subdev_video_ops,
 	.pad = &cio2_subdev_pad_ops,
 };
 
@@ -1360,38 +1440,41 @@ static int cio2_notifier_complete(struct v4l2_async_notifier *notifier)
 
 	for (i = 0; i < notifier->num_subdevs; i++) {
 		s_asd = container_of(cio2->notifier.subdevs[i],
-				     struct sensor_async_subdev,
-				     asd);
+				     struct sensor_async_subdev, asd);
 		q = &cio2->queue[s_asd->csi2.port];
 
 		for (pad = 0; pad < q->sensor->entity.num_pads; pad++)
 			if (q->sensor->entity.pads[pad].flags &
-					MEDIA_PAD_FL_SOURCE)
-			break;
+						MEDIA_PAD_FL_SOURCE)
+				break;
 
 		if (pad == q->sensor->entity.num_pads) {
 			dev_err(&cio2->pci_dev->dev,
 				"failed to find src pad for %s\n",
 				q->sensor->name);
-
 			return -ENXIO;
 		}
 
 		ret = media_entity_create_link(
 				&q->sensor->entity, pad,
 				&q->subdev.entity, CIO2_PAD_SINK,
-				MEDIA_LNK_FL_ENABLED);
+				0);
 		if (ret) {
 			dev_err(&cio2->pci_dev->dev,
 				"failed to create link for %s\n",
 				cio2->queue[i].sensor->name);
-
 			return ret;
 		}
 	}
 
 	return v4l2_device_register_subdev_nodes(&cio2->v4l2_dev);
 }
+
+static const struct v4l2_async_notifier_operations cio2_async_ops = {
+	.bound = cio2_notifier_bound,
+	.unbind = cio2_notifier_unbind,
+	.complete = cio2_notifier_complete,
+};
 
 static int cio2_fwnode_parse(struct device *dev,
 			     struct v4l2_fwnode_endpoint *vep,
@@ -1411,12 +1494,6 @@ static int cio2_fwnode_parse(struct device *dev,
 	return 0;
 }
 
-static const struct v4l2_async_notifier_operations cio2_async_ops = {
-	.bound = cio2_notifier_bound,
-	.unbind = cio2_notifier_unbind,
-	.complete = cio2_notifier_complete,
-};
-
 static int cio2_notifier_init(struct cio2_device *cio2)
 {
 	int ret;
@@ -1429,7 +1506,7 @@ static int cio2_notifier_init(struct cio2_device *cio2)
 		return ret;
 
 	if (!cio2->notifier.num_subdevs)
-		return -ENODEV;		/* No subdevices */
+		return -ENODEV;	/* no endpoint */
 
 	cio2->notifier.ops = &cio2_async_ops;
 	ret = v4l2_async_notifier_register(&cio2->v4l2_dev, &cio2->notifier);
@@ -1448,14 +1525,13 @@ static void cio2_notifier_exit(struct cio2_device *cio2)
 	v4l2_async_notifier_cleanup(&cio2->notifier);
 }
 
-static int cio2_link_validate(struct media_link *link)
-{
-	return v4l2_subdev_link_validate(link);
-}
-
 /**************** Queue initialization ****************/
 static const struct media_entity_operations cio2_media_ops = {
-	.link_validate = cio2_link_validate,
+	.link_validate = v4l2_subdev_link_validate,
+};
+
+static const struct media_entity_operations cio2_video_entity_ops = {
+	.link_validate = cio2_video_link_validate,
 };
 
 static int cio2_queue_init(struct cio2_device *cio2, struct cio2_queue *q)
@@ -1463,6 +1539,7 @@ static int cio2_queue_init(struct cio2_device *cio2, struct cio2_queue *q)
 	static const u32 default_width = 1936;
 	static const u32 default_height = 1096;
 	const struct ipu3_cio2_fmt dflt_fmt = formats[0];
+
 	struct video_device *vdev = &q->vdev;
 	struct vb2_queue *vbq = &q->vbq;
 	struct v4l2_subdev *subdev = &q->subdev;
@@ -1478,10 +1555,6 @@ static int cio2_queue_init(struct cio2_device *cio2, struct cio2_queue *q)
 	fmt->height = default_height;
 	fmt->code = dflt_fmt.mbus_code;
 	fmt->field = V4L2_FIELD_NONE;
-	fmt->colorspace = V4L2_COLORSPACE_RAW;
-	fmt->ycbcr_enc = V4L2_YCBCR_ENC_DEFAULT;
-	fmt->quantization = V4L2_QUANTIZATION_DEFAULT;
-	fmt->xfer_func = V4L2_XFER_FUNC_DEFAULT;
 
 	q->format.width = default_width;
 	q->format.height = default_height;
@@ -1493,30 +1566,33 @@ static int cio2_queue_init(struct cio2_device *cio2, struct cio2_queue *q)
 				cio2_bytesperline(q->format.width);
 	q->format.plane_fmt[0].sizeimage = q->format.plane_fmt[0].bytesperline *
 						q->format.height;
+
 	/* Initialize fbpt */
 	r = cio2_fbpt_init(cio2, q);
 	if (r)
 		goto fail_fbpt;
 
 	/* Initialize media entities */
+	q->subdev_pads[CIO2_PAD_SINK].flags = MEDIA_PAD_FL_SINK |
+		MEDIA_PAD_FL_MUST_CONNECT;
+	q->subdev_pads[CIO2_PAD_SOURCE].flags = MEDIA_PAD_FL_SOURCE;
+	subdev->entity.ops = &cio2_media_ops;
+	subdev->internal_ops = &cio2_subdev_internal_ops;
 	r = media_entity_init(&subdev->entity, CIO2_PADS, q->subdev_pads, 0);
 	if (r) {
 		dev_err(&cio2->pci_dev->dev,
 			"failed initialize subdev media entity (%d)\n", r);
 		goto fail_subdev_media_entity;
 	}
-	q->subdev_pads[CIO2_PAD_SINK].flags = MEDIA_PAD_FL_SINK |
-		MEDIA_PAD_FL_MUST_CONNECT;
-	q->subdev_pads[CIO2_PAD_SOURCE].flags = MEDIA_PAD_FL_SOURCE;
-	subdev->entity.ops = &cio2_media_ops;
+
+	q->vdev_pad.flags = MEDIA_PAD_FL_SINK | MEDIA_PAD_FL_MUST_CONNECT;
+	vdev->entity.ops = &cio2_video_entity_ops;
 	r = media_entity_init(&vdev->entity, 1, &q->vdev_pad, 0);
 	if (r) {
 		dev_err(&cio2->pci_dev->dev,
 			"failed initialize videodev media entity (%d)\n", r);
 		goto fail_vdev_media_entity;
 	}
-	q->vdev_pad.flags = MEDIA_PAD_FL_SINK | MEDIA_PAD_FL_MUST_CONNECT;
-	vdev->entity.ops = &cio2_media_ops;
 
 	/* Initialize subdev */
 	v4l2_subdev_init(subdev, &cio2_subdev_ops);
@@ -1558,6 +1634,7 @@ static int cio2_queue_init(struct cio2_device *cio2, struct cio2_queue *q)
 	vdev->lock = &cio2->lock;
 	vdev->v4l2_dev = &cio2->v4l2_dev;
 	vdev->queue = &q->vbq;
+	vdev->device_caps = V4L2_CAP_VIDEO_CAPTURE_MPLANE | V4L2_CAP_STREAMING;
 	video_set_drvdata(vdev, cio2);
 	r = video_register_device(vdev, VFL_TYPE_GRABBER, -1);
 	if (r) {
@@ -1627,9 +1704,8 @@ static void cio2_queues_exit(struct cio2_device *cio2)
 {
 	unsigned int i;
 
-	for (i = 0; i < CIO2_QUEUES; i++) {
+	for (i = 0; i < CIO2_QUEUES; i++)
 		cio2_queue_exit(cio2, &cio2->queue[i]);
-	}
 }
 
 /**************** PCI interface ****************/
@@ -1656,7 +1732,6 @@ static int cio2_pci_probe(struct pci_dev *pci_dev,
 			  const struct pci_device_id *id)
 {
 	struct cio2_device *cio2;
-	phys_addr_t phys;
 	void __iomem *const *iomap;
 	int r;
 
@@ -1673,8 +1748,6 @@ static int cio2_pci_probe(struct pci_dev *pci_dev,
 
 	dev_info(&pci_dev->dev, "device 0x%x (rev: 0x%x)\n",
 		 pci_dev->device, pci_dev->revision);
-
-	phys = pci_resource_start(pci_dev, CIO2_PCI_BAR);
 
 	r = pcim_iomap_regions(pci_dev, 1 << CIO2_PCI_BAR, pci_name(pci_dev));
 	if (r) {
@@ -1704,6 +1777,10 @@ static int cio2_pci_probe(struct pci_dev *pci_dev,
 	if (r)
 		return -ENODEV;
 
+	r = cio2_fbpt_init_dummy(cio2);
+	if (r)
+		return r;
+
 	mutex_init(&cio2->lock);
 
 	cio2->vb2_alloc_ctx = vb2_dma_sg_init_ctx(&pci_dev->dev);
@@ -1716,7 +1793,6 @@ static int cio2_pci_probe(struct pci_dev *pci_dev,
 		sizeof(cio2->media_dev.model));
 	snprintf(cio2->media_dev.bus_info, sizeof(cio2->media_dev.bus_info),
 		 "PCI:%s", pci_name(cio2->pci_dev));
-	cio2->media_dev.driver_version = LINUX_VERSION_CODE;
 	cio2->media_dev.hw_revision = 0;
 
 	r = media_device_register(&cio2->media_dev);
@@ -1735,14 +1811,10 @@ static int cio2_pci_probe(struct pci_dev *pci_dev,
 	if (r)
 		goto fail_v4l2_device_unregister;
 
-	r = cio2_fbpt_init_dummy(cio2);
-	if (r)
-		goto fail_cio2_queue_exit;
-
 	/* Register notifier for subdevices we care */
 	r = cio2_notifier_init(cio2);
 	if (r)
-		goto fail_cio2_fbpt_exit_dummy;
+		goto fail_cio2_queue_exit;
 
 	r = devm_request_irq(&pci_dev->dev, pci_dev->irq, cio2_irq,
 			     IRQF_SHARED, CIO2_NAME, cio2);
@@ -1758,8 +1830,6 @@ static int cio2_pci_probe(struct pci_dev *pci_dev,
 
 fail:
 	cio2_notifier_exit(cio2);
-fail_cio2_fbpt_exit_dummy:
-	cio2_fbpt_exit_dummy(cio2);
 fail_cio2_queue_exit:
 	cio2_queues_exit(cio2);
 fail_v4l2_device_unregister:
@@ -1771,6 +1841,7 @@ fail_vb2_dma_sg_cleanup_ctx:
 	cio2->vb2_alloc_ctx = NULL;
 fail_mutex_destroy:
 	mutex_destroy(&cio2->lock);
+	cio2_fbpt_exit_dummy(cio2);
 
 	return r;
 }
@@ -1786,12 +1857,10 @@ static void cio2_pci_remove(struct pci_dev *pci_dev)
 		cio2_queue_exit(cio2, &cio2->queue[i]);
 	v4l2_device_unregister(&cio2->v4l2_dev);
 	media_device_unregister(&cio2->media_dev);
-	vb2_dma_sg_cleanup_ctx(cio2->vb2_alloc_ctx);
-	cio2->vb2_alloc_ctx = NULL;
 	mutex_destroy(&cio2->lock);
 }
 
-static int cio2_runtime_suspend(struct device *dev)
+static int __maybe_unused cio2_runtime_suspend(struct device *dev)
 {
 	struct pci_dev *pci_dev = to_pci_dev(dev);
 	struct cio2_device *cio2 = pci_get_drvdata(pci_dev);
@@ -1801,17 +1870,15 @@ static int cio2_runtime_suspend(struct device *dev)
 	writel(CIO2_D0I3C_I3, base + CIO2_REG_D0I3C);
 	dev_dbg(dev, "cio2 runtime suspend.\n");
 
-	pci_read_config_word(pci_dev, pci_dev->pm_cap + CIO2_PMCSR_OFFSET,
-				&pm);
+	pci_read_config_word(pci_dev, pci_dev->pm_cap + CIO2_PMCSR_OFFSET, &pm);
 	pm = (pm >> CIO2_PMCSR_D0D3_SHIFT) << CIO2_PMCSR_D0D3_SHIFT;
 	pm |= CIO2_PMCSR_D3;
-	pci_write_config_word(pci_dev, pci_dev->pm_cap + CIO2_PMCSR_OFFSET,
-				pm);
+	pci_write_config_word(pci_dev, pci_dev->pm_cap + CIO2_PMCSR_OFFSET, pm);
 
 	return 0;
 }
 
-static int cio2_runtime_resume(struct device *dev)
+static int __maybe_unused cio2_runtime_resume(struct device *dev)
 {
 	struct pci_dev *pci_dev = to_pci_dev(dev);
 	struct cio2_device *cio2 = pci_get_drvdata(pci_dev);
@@ -1821,16 +1888,94 @@ static int cio2_runtime_resume(struct device *dev)
 	writel(CIO2_D0I3C_RR, base + CIO2_REG_D0I3C);
 	dev_dbg(dev, "cio2 runtime resume.\n");
 
-	pci_read_config_word(pci_dev, pci_dev->pm_cap + CIO2_PMCSR_OFFSET,
-				&pm);
+	pci_read_config_word(pci_dev, pci_dev->pm_cap + CIO2_PMCSR_OFFSET, &pm);
 	pm = (pm >> CIO2_PMCSR_D0D3_SHIFT) << CIO2_PMCSR_D0D3_SHIFT;
-	pci_write_config_word(pci_dev, pci_dev->pm_cap + CIO2_PMCSR_OFFSET,
-				pm);
+	pci_write_config_word(pci_dev, pci_dev->pm_cap + CIO2_PMCSR_OFFSET, pm);
 
 	return 0;
 }
 
-static int cio2_suspend(struct device *dev)
+/*
+ * Helper function to advance all the elements of a circular buffer by "start"
+ * positions
+ */
+static void arrange(void *ptr, size_t elem_size, size_t elems, size_t start)
+{
+	struct {
+		size_t begin, end;
+	} arr[2] = {
+		{ 0, start - 1 },
+		{ start, elems - 1 },
+	};
+
+#define CHUNK_SIZE(a) ((a)->end - (a)->begin + 1)
+
+	/* Loop as long as we have out-of-place entries */
+	while (CHUNK_SIZE(&arr[0]) && CHUNK_SIZE(&arr[1])) {
+		size_t size0, i;
+
+		/*
+		 * Find the number of entries that can be arranged on this
+		 * iteration.
+		 */
+		size0 = min(CHUNK_SIZE(&arr[0]), CHUNK_SIZE(&arr[1]));
+
+		/* Swap the entries in two parts of the array. */
+		for (i = 0; i < size0; i++) {
+			u8 *d = ptr + elem_size * (arr[1].begin + i);
+			u8 *s = ptr + elem_size * (arr[0].begin + i);
+			size_t j;
+
+			for (j = 0; j < elem_size; j++)
+				swap(d[j], s[j]);
+		}
+
+		if (CHUNK_SIZE(&arr[0]) > CHUNK_SIZE(&arr[1])) {
+			/* The end of the first array remains unarranged. */
+			arr[0].begin += size0;
+		} else {
+			/*
+			 * The first array is fully arranged so we proceed
+			 * handling the next one.
+			 */
+			arr[0].begin = arr[1].begin;
+			arr[0].end = arr[1].begin + size0 - 1;
+			arr[1].begin += size0;
+		}
+	}
+}
+
+static void cio2_fbpt_rearrange(struct cio2_device *cio2, struct cio2_queue *q)
+{
+	unsigned int i, j;
+
+	for (i = 0, j = q->bufs_first; i < CIO2_MAX_BUFFERS;
+		i++, j = (j + 1) % CIO2_MAX_BUFFERS)
+		if (q->bufs[j])
+			break;
+
+	if (i == CIO2_MAX_BUFFERS)
+		return;
+
+	if (j) {
+		arrange(q->fbpt, sizeof(struct cio2_fbpt_entry) * CIO2_MAX_LOPS,
+			CIO2_MAX_BUFFERS, j);
+		arrange(q->bufs, sizeof(struct cio2_buffer *),
+			CIO2_MAX_BUFFERS, j);
+	}
+
+	/*
+	 * DMA clears the valid bit when accessing the buffer.
+	 * When stopping stream in suspend callback, some of the buffers
+	 * may be in invalid state. After resume, when DMA meets the invalid
+	 * buffer, it will halt and stop receiving new data.
+	 * To avoid DMA halting, set the valid bit for all buffers in FBPT.
+	 */
+	for (i = 0; i < CIO2_MAX_BUFFERS; i++)
+		cio2_fbpt_entry_enable(cio2, q->fbpt + i * CIO2_MAX_LOPS);
+}
+
+static int __maybe_unused cio2_suspend(struct device *dev)
 {
 	struct pci_dev *pci_dev = to_pci_dev(dev);
 	struct cio2_device *cio2 = pci_get_drvdata(pci_dev);
@@ -1842,11 +1987,22 @@ static int cio2_suspend(struct device *dev)
 
 	/* Stop stream */
 	cio2_hw_exit(cio2, q);
+	synchronize_irq(pci_dev->irq);
+
 	pm_runtime_force_suspend(dev);
+
+	/*
+	 * Upon resume, hw starts to process the fbpt entries from beginning,
+	 * so relocate the queued buffs to the fbpt head before suspend.
+	 */
+	cio2_fbpt_rearrange(cio2, q);
+	q->bufs_first = 0;
+	q->bufs_next = 0;
+
 	return 0;
 }
 
-static int cio2_resume(struct device *dev)
+static int __maybe_unused cio2_resume(struct device *dev)
 {
 	struct pci_dev *pci_dev = to_pci_dev(dev);
 	struct cio2_device *cio2 = pci_get_drvdata(pci_dev);
@@ -1864,12 +2020,6 @@ static int cio2_resume(struct device *dev)
 		return r;
 	}
 
-	r = cio2_fbpt_rearrange(cio2, q);
-	if (r)
-		return r;
-
-	q->bufs_first = 0;
-	q->bufs_next = 0;
 	r = cio2_hw_init(cio2, q);
 	if (r)
 		dev_err(dev, "fail to init cio2 hw\n");
@@ -1878,8 +2028,7 @@ static int cio2_resume(struct device *dev)
 }
 
 static const struct dev_pm_ops cio2_pm_ops = {
-	SET_RUNTIME_PM_OPS(&cio2_runtime_suspend,
-		&cio2_runtime_resume, NULL)
+	SET_RUNTIME_PM_OPS(&cio2_runtime_suspend, &cio2_runtime_resume, NULL)
 	SET_SYSTEM_SLEEP_PM_OPS(&cio2_suspend, &cio2_resume)
 };
 
