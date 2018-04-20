@@ -1266,15 +1266,22 @@ static void rockchip_vpu_buf_finish(struct vb2_buffer *vb)
 {
 	struct vb2_queue *vq = vb->vb2_queue;
 	struct rockchip_vpu_ctx *ctx = fh_to_ctx(vq->drv_priv);
+	struct rockchip_vpu_buf *buf = vb_to_buf(vb);
+	bool flush_buf;
 
 	vpu_debug_enter();
 
+	/* Zero-size buffer with V4L2_BUF_FLAG_LAST means the flush is done. */
+	flush_buf = (buf->b.flags & V4L2_BUF_FLAG_LAST
+		     && vb2_get_plane_payload(vb, 0) == 0);
 	if (vq->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE
 	    && vb->state == VB2_BUF_STATE_DONE
-	    && ctx->vpu_dst_fmt->fourcc == V4L2_PIX_FMT_VP8) {
-		struct rockchip_vpu_buf *buf;
-
-		buf = vb_to_buf(vb);
+	    && ctx->vpu_dst_fmt->fourcc == V4L2_PIX_FMT_VP8
+	    && !flush_buf) {
+		/*
+		 * TODO(akahuang): This function is not only used for RK3388.
+		 * Rename it (or maybe move it to the VP8 plugin).
+		 */
 		rk3288_vpu_vp8e_assemble_bitstream(ctx, buf);
 	}
 
