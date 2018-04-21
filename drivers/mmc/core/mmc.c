@@ -28,6 +28,8 @@
 static const struct mmc_fixup early_fixups[] = {
 	MMC_FIXUP_PRV("SEM16G", CID_MANFID_SANDISK_NEW, CID_OEMID_ANY, 0x21,
 		      add_quirk_mmc, MMC_QUIRK_DISABLE_BROKEN_EMMC),
+	MMC_FIXUP_PRV("SEM16G", CID_MANFID_SANDISK_NEW, CID_OEMID_ANY, 0x7,
+		      add_quirk_mmc, MMC_QUIRK_DISABLE_BROKEN_EMMC),
 	/* SEM16F in boot mode */
 	MMC_FIXUP("SDM032", CID_MANFID_SANDISK_OLD, CID_OEMID_ANY,
 		  add_quirk_mmc, MMC_QUIRK_DISABLE_BROKEN_EMMC),
