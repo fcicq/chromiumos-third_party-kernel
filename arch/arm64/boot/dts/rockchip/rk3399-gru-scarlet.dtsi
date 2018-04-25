@@ -655,6 +655,22 @@ camera: &i2c7 {
 	temperature = <66000>;
 };
 
+&u2phy1 {
+	status = "disabled";
+};
+
+&usb_host0_ehci {
+	status = "disabled";
+};
+
+&usb_host1_ehci {
+	status = "disabled";
+};
+
+&usb_host1_ohci {
+	status = "disabled";
+};
+
 &usbc_extcon1 {
 	status = "disabled";
 };
