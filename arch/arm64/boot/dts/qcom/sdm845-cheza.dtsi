@@ -99,6 +99,21 @@
 
 	/* BOARD-SPECIFIC TOP LEVEL NODES */
 
+	panel: panel {
+		compatible ="innolux,tv123wam";
+		status = "okay";
+		power-supply = <&pp3300_dx_edp>;
+		backlight = <&backlight>;
+
+		ports {
+			panel_in: port {
+				panel_in_edp: endpoint {
+					remote-endpoint = <&sn65dsi86_out>;
+				};
+			};
+		};
+	};
+
 	firmware: firmware {
 		chromeos {
 			pinctrl-names = "default";
@@ -423,9 +438,74 @@
 	};
 };
 
+&dsi0 {
+	status = "okay";
+	vdda-supply = <&vdda_mipi_dsi0_1p2>;
+
+	ports {
+		port@1 {
+			endpoint {
+				remote-endpoint = <&sn65dsi86_in>;
+				data-lanes = <0 1 2 3>;
+			};
+		};
+	};
+};
+
+&dsi0_phy {
+	status = "okay";
+	vdds-supply = <&vdda_mipi_dsi0_pll>;
+};
+
 edp_brij_i2c: &i2c3 {
 	status = "okay";
 	clock-frequency = <400000>;
+
+	sn65dsi86_bridge: bridge@2d {
+		#address-cells = <2>;
+		#size-cells = <1>;
+
+		status = "okay";
+
+		compatible = "ti,sn65dsi86";
+		reg = <0x2d>;
+
+		interrupt-parent = <&tlmm>;
+		interrupts = <10 IRQ_TYPE_EDGE_FALLING>;
+
+		vpll-supply = <&src_pp1800_s4a>;
+		vccio-supply = <&src_pp1800_s4a>;
+		vcca-supply = <&src_pp1200_l2a>;
+		vcc-supply = <&src_pp1200_l2a>;
+
+		clocks = <&rpmhcc RPMH_LN_BB_CLK2>;
+		clock-names = "refclk";
+
+		/* TODO: need a sleep config? */
+		pinctrl-names = "default";
+		pinctrl-0 = <&edp_brij_en>;
+
+		enable-gpios = <&tlmm 102 GPIO_ACTIVE_HIGH>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+				sn65dsi86_in: endpoint {
+					remote-endpoint = <&dsi0_out>;
+				};
+			};
+
+			port@1 {
+				reg = <1>;
+				sn65dsi86_out: endpoint {
+					remote-endpoint = <&panel_in_edp>;
+				};
+			};
+		};
+	};
 };
 
 ap_pen_1v8: &i2c11 {

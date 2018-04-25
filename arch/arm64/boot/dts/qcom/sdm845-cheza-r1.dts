@@ -94,6 +94,10 @@
 	/delete-node/ chromeos;
 };
 
+&panel {
+	power-supply = <&pp3300_dx_edp_r0_r1_r2>;
+};
+
 /* PINCTRL - board-specific pinctrl */
 
 &tlmm {

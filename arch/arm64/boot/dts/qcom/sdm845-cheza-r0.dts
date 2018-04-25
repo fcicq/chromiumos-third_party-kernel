@@ -90,6 +90,23 @@
 	/delete-node/ chromeos;
 };
 
+&panel {
+	/*
+	 * NOTE: this is really the backlight enable, but we'll hack it in
+	 * here for cheza-r0 since gpio-backlight doesn't support a separate
+	 * enable pin.
+	 */
+	pinctrl-names = "default";
+	pinctrl-0 = <&ap_edp_bklten>;
+	enable-gpios = <&tlmm 37 GPIO_ACTIVE_HIGH>;
+	power-supply = <&pp3300_dx_edp_r0_r1_r2>;
+};
+
+&sn65dsi86_bridge {
+	/delete-property/clocks;
+	/delete-property/clock-names;
+};
+
 &spi10 {
 	status = "disabled";
 	/delete-node/ec@0;
