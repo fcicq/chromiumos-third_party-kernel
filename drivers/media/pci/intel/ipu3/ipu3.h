@@ -1,24 +1,18 @@
-/*
- * Copyright (c) 2017 Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License version
- * 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- */
+/* SPDX-License-Identifier: GPL-2.0 */
+/* Copyright (C) 2018 Intel Corporation */
 
 #ifndef __IPU3_H
 #define __IPU3_H
 
+#include <linux/iova.h>
 #include <linux/pci.h>
+
 #include <media/v4l2-device.h>
-#include <media/videobuf2-v4l2.h>
+#include <media/videobuf2-dma-sg.h>
+
 #include "ipu3-css.h"
+
+#define IMGU_NAME			"ipu3-imgu"
 
 /*
  * The semantics of the driver is that whenever there is a buffer available in
@@ -50,7 +44,7 @@
 #define IPU3_OUTPUT_MAX_WIDTH		4480U
 #define IPU3_OUTPUT_MAX_HEIGHT		34004U
 
-struct ipu3_mem2mem2_buffer {
+struct ipu3_vb2_buffer {
 	/* Public fields */
 	struct vb2_v4l2_buffer vbb;	/* Must be the first field */
 
@@ -59,12 +53,13 @@ struct ipu3_mem2mem2_buffer {
 };
 
 struct imgu_buffer {
-	struct ipu3_mem2mem2_buffer m2m2_buf;	/* Must be the first field */
+	struct ipu3_vb2_buffer vid_buf;	/* Must be the first field */
 	struct ipu3_css_buffer css_buf;
+	struct ipu3_css_map map;
 };
 
 struct imgu_node_mapping {
-	int css_queue;
+	unsigned int css_queue;
 	const char *name;
 };
 
@@ -92,47 +87,6 @@ struct imgu_video_device {
 	atomic_t sequence;
 };
 
-/**
- * struct ipu3_mem2mem2_device - mem2mem device
- * this is the top level helper struct used by parent PCI device
- * to bind everything together for media operations.
- */
-struct ipu3_mem2mem2_device {
-	/* Public fields, fill before registering */
-	const char *name;
-	const char *model;
-	struct device *dev;
-	int num_nodes;
-	struct imgu_video_device *nodes;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 5, 0)
-	void *vb2_alloc_ctx;
-#else
-	struct device *vb2_alloc_dev;
-#endif
-	const struct ipu3_mem2mem2_ops *ops;
-	const struct vb2_mem_ops *vb2_mem_ops;
-	unsigned int buf_struct_size;
-	bool streaming;		/* Public read only */
-	struct v4l2_ctrl_handler *ctrl_handler;
-
-	/* Private fields */
-	struct v4l2_device v4l2_dev;
-	struct media_device media_dev;
-	struct media_pipeline pipeline;
-	struct v4l2_subdev subdev;
-	struct media_pad *subdev_pads;
-	struct v4l2_file_operations v4l2_file_ops;
-};
-
-/**
- * struct ipu3_mem2mem2_ops - mem2mem2 ops
- * defines driver specific callback APIs like
- * start stream.
- */
-struct ipu3_mem2mem2_ops {
-	int (*s_stream)(struct ipu3_mem2mem2_device *m2m2_dev, int enable);
-};
-
 /*
  * imgu_device -- ImgU (Imaging Unit) driver
  */
@@ -145,22 +99,33 @@ struct imgu_device {
 		struct ipu3_css_map dmap;
 		struct ipu3_css_buffer dummybufs[IMGU_MAX_QUEUE_DEPTH];
 	} queues[IPU3_CSS_QUEUES];
-	struct imgu_video_device mem2mem2_nodes[IMGU_NODE_NUM];
+	struct imgu_video_device nodes[IMGU_NODE_NUM];
 	bool queue_enabled[IMGU_NODE_NUM];
 
-	/* Delegate v4l2 support */
-	struct ipu3_mem2mem2_device mem2mem2;
-	/* DMA device */
-	struct bus_type dma_bus;
-	struct device dma_dev;
+	/* Public fields, fill before registering */
+	unsigned int buf_struct_size;
+	bool streaming;		/* Public read only */
+	struct v4l2_ctrl_handler *ctrl_handler;
+
+	/* Private fields */
+	struct v4l2_device v4l2_dev;
+	struct media_device media_dev;
+	struct media_pipeline pipeline;
+	struct v4l2_subdev subdev;
+	struct media_pad *subdev_pads;
+	struct v4l2_file_operations v4l2_file_ops;
+	void *vb2_alloc_ctx;
+
 	/* MMU driver for css */
-	struct ipu3_mmu *mmu;
+	struct ipu3_mmu_info *mmu;
+	struct iova_domain iova_domain;
+
 	/* css - Camera Sub-System */
 	struct ipu3_css css;
 
 	/*
 	 * Coarse-grained lock to protect
-	 * m2m2_buf.list and css->queue
+	 * vid_buf.list and css->queue
 	 */
 	struct mutex lock;
 	/* Forbit streaming and buffer queuing during system suspend. */
@@ -172,20 +137,16 @@ struct imgu_device {
 	} rect;
 	/* Indicate if system suspend take place while imgu is streaming. */
 	bool suspend_in_stream;
-	/* Used to wait for FW buffer queue drain. */
-	wait_queue_head_t buf_drain_wq;
 };
 
-int imgu_node_to_queue(int node);
-int imgu_map_node(struct imgu_device *imgu, int css_queue);
-void imgu_buffer_done(struct imgu_device *imgu, struct vb2_buffer *vb,
-			enum vb2_buffer_state state);
+unsigned int imgu_node_to_queue(unsigned int node);
+unsigned int imgu_map_node(struct imgu_device *imgu, unsigned int css_queue);
 int imgu_queue_buffers(struct imgu_device *imgu, bool initial);
-void imgu_dummybufs_cleanup(struct imgu_device *imgu);
-int imgu_dummybufs_init(struct imgu_device *imgu);
 
 int ipu3_v4l2_register(struct imgu_device *dev);
 int ipu3_v4l2_unregister(struct imgu_device *dev);
 void ipu3_v4l2_buffer_done(struct vb2_buffer *vb, enum vb2_buffer_state state);
+
+int imgu_s_stream(struct imgu_device *imgu, int enable);
 
 #endif

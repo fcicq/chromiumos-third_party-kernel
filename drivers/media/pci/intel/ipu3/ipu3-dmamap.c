@@ -1,241 +1,281 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
- * Copyright (c) 2017 Intel Corporation.
- * Copyright (C) 2017 Google, Inc.
+ * Copyright (C) 2018 Intel Corporation
+ * Copyright (C) 2018 Google, Inc.
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License version
- * 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
+ * Author: Tomasz Figa <tfiga@chromium.org>
+ * Author: Yong Zhi <yong.zhi@intel.com>
  */
-#include <linux/types.h>
-#include <linux/dma-iommu.h>
-#include <linux/dma-mapping.h>
-#include <linux/highmem.h>
-#include <linux/module.h>
-#include <linux/slab.h>
-#include <linux/version.h>
+
 #include <linux/vmalloc.h>
+
+#include "ipu3.h"
+#include "ipu3-css-pool.h"
 #include "ipu3-mmu.h"
 
 /*
- * Based on arch/arm64/mm/dma-mapping.c, with simplifications possible due
- * to driver-specific character of this file.
+ * Free a buffer allocated by ipu3_dmamap_alloc_buffer()
  */
-
-static pgprot_t __get_dma_pgprot(struct dma_attrs *attrs, pgprot_t prot)
+static void ipu3_dmamap_free_buffer(struct page **pages,
+				    size_t size)
 {
-	if (dma_get_attr(DMA_ATTR_NON_CONSISTENT, attrs))
-		return prot;
-	return pgprot_writecombine(prot);
+	int count = size >> PAGE_SHIFT;
+
+	while (count--)
+		__free_page(pages[count]);
+	kvfree(pages);
 }
 
-static void flush_page(struct device *dev, const void *virt, phys_addr_t phys)
+/*
+ * Based on the implementation of __iommu_dma_alloc_pages()
+ * defined in drivers/iommu/dma-iommu.c
+ */
+static struct page **ipu3_dmamap_alloc_buffer(size_t size,
+					      unsigned long order_mask,
+					      gfp_t gfp)
 {
-	/*
-	 * FIXME: Yes, casting to override the const specifier is ugly.
-	 * However, for some reason, this callback is intended to flush cache
-	 * for a page pointed to by a const pointer, even though the cach
-	 * flush operation by definition does not keep the affected memory
-	 * constant...
-	 */
-	clflush_cache_range((void *)virt, PAGE_SIZE);
-}
-
-static void *ipu3_dmamap_alloc(struct device *dev, size_t size,
-			       dma_addr_t *handle, gfp_t gfp,
-			       struct dma_attrs *attrs)
-{
-	int ioprot = dma_direction_to_prot(DMA_BIDIRECTIONAL, false);
-	size_t iosize = size;
 	struct page **pages;
-	pgprot_t prot;
-	void *addr;
+	unsigned int i = 0, count = size >> PAGE_SHIFT;
+	const gfp_t high_order_gfp = __GFP_NOWARN | __GFP_NORETRY;
 
-	if (WARN(!dev, "cannot create IOMMU mapping for unknown device\n"))
-		return NULL;
+	/* Allocate mem for array of page ptrs */
+	pages = kvmalloc_array(count, sizeof(struct page *), GFP_KERNEL);
 
-	if (WARN(!gfpflags_allow_blocking(gfp),
-		 "atomic allocations not supported\n") ||
-	    WARN(dma_get_attr(DMA_ATTR_FORCE_CONTIGUOUS, attrs),
-	         "contiguous allocations not supported\n"))
-		return NULL;
-
-	size = PAGE_ALIGN(size);
-
-	dev_dbg(dev, "%s: allocating %zu\n", __func__, size);
-
-	/*
-	 * Some drivers rely on this, and we probably don't want the
-	 * possibility of stale kernel data being read by devices anyway.
-	 */
-	gfp |= __GFP_ZERO;
-
-	/*
-	 * On x86, __GFP_DMA or __GFP_DMA32 might be added implicitly, based
-	 * on device DMA mask. However the mask does not apply to the IOMMU,
-	 * which is expected to be able to map any physical page.
-	 */
-	gfp &= ~(__GFP_DMA | __GFP_DMA32);
-
-	pages = iommu_dma_alloc(dev, iosize, gfp, attrs, ioprot,
-				handle, flush_page);
 	if (!pages)
 		return NULL;
 
-	prot = __get_dma_pgprot(attrs, PAGE_KERNEL);
-	addr = dma_common_pages_remap(pages, size, VM_USERMAP, prot,
-				      __builtin_return_address(0));
-	if (!addr)
-		iommu_dma_free(dev, pages, iosize, handle);
+	order_mask &= (2U << MAX_ORDER) - 1;
+	if (!order_mask)
+		return NULL;
 
-	dev_dbg(dev, "%s: allocated %zu @ IOVA %pad @ VA %p\n",
-		__func__, size, handle, addr);
+	gfp |= __GFP_HIGHMEM | __GFP_ZERO;
 
-	return addr;
+	while (count) {
+		struct page *page = NULL;
+		unsigned int order_size;
+
+		for (order_mask &= (2U << __fls(count)) - 1;
+		     order_mask; order_mask &= ~order_size) {
+			unsigned int order = __fls(order_mask);
+
+			order_size = 1U << order;
+			page = alloc_pages((order_mask - order_size) ?
+					   gfp | high_order_gfp : gfp, order);
+			if (!page)
+				continue;
+			if (!order)
+				break;
+			if (!PageCompound(page)) {
+				split_page(page, order);
+				break;
+			}
+
+			__free_pages(page, order);
+		}
+		if (!page) {
+			ipu3_dmamap_free_buffer(pages, i << PAGE_SHIFT);
+			return NULL;
+		}
+		count -= order_size;
+		while (order_size--)
+			pages[i++] = page++;
+	}
+
+	return pages;
 }
 
-static void ipu3_dmamap_free(struct device *dev, size_t size, void *cpu_addr,
-			     dma_addr_t handle, struct dma_attrs *attrs)
+/**
+ * ipu3_dmamap_alloc - allocate and map a buffer into KVA
+ * @dev: struct device pointer
+ * @map: struct to store mapping variables
+ * @len: size required
+ *
+ * Return KVA on success or NULL on failure
+ */
+void *ipu3_dmamap_alloc(struct device *dev, struct ipu3_css_map *map,
+			size_t len)
 {
+	struct imgu_device *imgu = dev_get_drvdata(dev);
+	unsigned long shift = iova_shift(&imgu->iova_domain);
+	unsigned int alloc_sizes = imgu->mmu->pgsize_bitmap;
+	size_t size = PAGE_ALIGN(len);
 	struct page **pages;
-	size_t iosize = size;
+	dma_addr_t iovaddr;
+	struct iova *iova;
+	int i, rval;
 
-	size = PAGE_ALIGN(size);
+	if (WARN_ON(!dev))
+		return NULL;
 
-	pages = dma_common_get_mapped_pages(cpu_addr, VM_USERMAP);
-	if (WARN_ON(!pages))
+	dev_dbg(dev, "%s: allocating %zu\n", __func__, size);
+
+	iova = alloc_iova(&imgu->iova_domain, size >> shift,
+			  imgu->mmu->aperture_end >> shift, 0);
+	if (!iova)
+		return NULL;
+
+	pages = ipu3_dmamap_alloc_buffer(size, alloc_sizes >> PAGE_SHIFT,
+					 GFP_KERNEL);
+	if (!pages)
+		goto out_free_iova;
+
+	/* Call IOMMU driver to setup pgt */
+	iovaddr = iova_dma_addr(&imgu->iova_domain, iova);
+	for (i = 0; i < size / PAGE_SIZE; ++i) {
+		rval = ipu3_mmu_map(imgu->mmu, iovaddr,
+				    page_to_phys(pages[i]), PAGE_SIZE);
+		if (rval)
+			goto out_unmap;
+
+		iovaddr += PAGE_SIZE;
+	}
+
+	/* Now grab a virtual region */
+	map->vma = __get_vm_area(size, VM_USERMAP, VMALLOC_START, VMALLOC_END);
+	if (!map->vma)
+		goto out_unmap;
+
+	map->vma->pages = pages;
+	/* And map it in KVA */
+	if (map_vm_area(map->vma, PAGE_KERNEL, pages))
+		goto out_vunmap;
+
+	map->size = size;
+	map->daddr = iova_dma_addr(&imgu->iova_domain, iova);
+	map->vaddr = map->vma->addr;
+
+	dev_dbg(dev, "%s: allocated %zu @ IOVA %pad @ VA %p\n", __func__,
+		size, &map->daddr, map->vma->addr);
+
+	return map->vma->addr;
+
+out_vunmap:
+	vunmap(map->vma->addr);
+
+out_unmap:
+	ipu3_dmamap_free_buffer(pages, size);
+	ipu3_mmu_unmap(imgu->mmu, iova_dma_addr(&imgu->iova_domain, iova),
+		       i * PAGE_SIZE);
+	map->vma = NULL;
+
+out_free_iova:
+	__free_iova(&imgu->iova_domain, iova);
+
+	return NULL;
+}
+
+void ipu3_dmamap_unmap(struct device *dev, struct ipu3_css_map *map)
+{
+	struct imgu_device *imgu = dev_get_drvdata(dev);
+	struct iova *iova;
+
+	iova = find_iova(&imgu->iova_domain,
+			 iova_pfn(&imgu->iova_domain, map->daddr));
+	if (WARN_ON(!iova))
 		return;
 
+	ipu3_mmu_unmap(imgu->mmu, iova_dma_addr(&imgu->iova_domain, iova),
+		       iova_size(iova) << iova_shift(&imgu->iova_domain));
+
+	__free_iova(&imgu->iova_domain, iova);
+}
+
+/*
+ * Counterpart of ipu3_dmamap_alloc
+ */
+void ipu3_dmamap_free(struct device *dev, struct ipu3_css_map *map)
+{
+	struct vm_struct *area = map->vma;
+
 	dev_dbg(dev, "%s: freeing %zu @ IOVA %pad @ VA %p\n",
-		__func__, size, &handle, cpu_addr);
+		__func__, map->size, &map->daddr, map->vaddr);
 
-	iommu_dma_free(dev, pages, iosize, &handle);
+	if (!map->vaddr)
+		return;
 
-	dma_common_free_remap(cpu_addr, size, VM_USERMAP);
+	ipu3_dmamap_unmap(dev, map);
+
+	if (WARN_ON(!area) || WARN_ON(!area->pages))
+		return;
+
+	ipu3_dmamap_free_buffer(area->pages, map->size);
+	vunmap(map->vaddr);
+	map->vaddr = NULL;
 }
 
-static int ipu3_dmamap_mmap(struct device *dev, struct vm_area_struct *vma,
-			    void *cpu_addr, dma_addr_t dma_addr, size_t size,
-			    struct dma_attrs *attrs)
+int ipu3_dmamap_map_sg(struct device *dev, struct scatterlist *sglist,
+		       int nents, struct ipu3_css_map *map)
 {
-	struct page **pages;
+	struct imgu_device *imgu = dev_get_drvdata(dev);
+	unsigned long shift = iova_shift(&imgu->iova_domain);
+	struct scatterlist *sg;
+	struct iova *iova;
+	size_t size = 0;
+	int i;
 
-	vma->vm_page_prot = __get_dma_pgprot(attrs, vma->vm_page_prot);
+	for_each_sg(sglist, sg, nents, i) {
+		if (sg->offset)
+			return -EINVAL;
 
-	pages = dma_common_get_mapped_pages(cpu_addr, VM_USERMAP);
-	if (WARN_ON(!pages))
-		return -ENXIO;
+		if (i != nents - 1 && !PAGE_ALIGNED(sg->length))
+			return -EINVAL;
 
-	return iommu_dma_mmap(pages, size, vma);
+		size += sg->length;
+	}
+
+	size = iova_align(&imgu->iova_domain, size);
+	dev_dbg(dev, "dmamap: mapping sg %d entries, %zu pages\n",
+		nents, size >> shift);
+
+	iova = alloc_iova(&imgu->iova_domain, size >> shift,
+			  imgu->mmu->aperture_end >> shift, 0);
+	if (!iova)
+		return -ENOMEM;
+
+	dev_dbg(dev, "dmamap: iova low pfn %lu, high pfn %lu\n",
+		iova->pfn_lo, iova->pfn_hi);
+
+	if (ipu3_mmu_map_sg(imgu->mmu, iova_dma_addr(&imgu->iova_domain, iova),
+			    sglist, nents) < size)
+		goto out_fail;
+
+	memset(map, 0, sizeof(*map));
+	map->daddr = iova_dma_addr(&imgu->iova_domain, iova);
+	map->size = size;
+
+	return 0;
+
+out_fail:
+	__free_iova(&imgu->iova_domain, iova);
+
+	return -EFAULT;
 }
 
-static int ipu3_dmamap_get_sgtable(struct device *dev, struct sg_table *sgt,
-				   void *cpu_addr, dma_addr_t dma_addr,
-				   size_t size, struct dma_attrs *attrs)
+int ipu3_dmamap_init(struct device *dev)
 {
-	unsigned int count = PAGE_ALIGN(size) >> PAGE_SHIFT;
-	struct page **pages;
-
-	pages = dma_common_get_mapped_pages(cpu_addr, VM_USERMAP);
-	if (WARN_ON(!pages))
-		return -ENXIO;
-
-	return sg_alloc_table_from_pages(sgt, pages, count, 0, size,
-					 GFP_KERNEL);
-}
-
-static dma_addr_t ipu3_dmamap_map_page(struct device *dev, struct page *page,
-				   unsigned long offset, size_t size,
-				   enum dma_data_direction dir,
-				   struct dma_attrs *attrs)
-{
-	int prot = dma_direction_to_prot(dir, false);
-
-	return iommu_dma_map_page(dev, page, offset, size, prot);
-}
-
-static void ipu3_dmamap_unmap_page(struct device *dev, dma_addr_t dev_addr,
-			       size_t size, enum dma_data_direction dir,
-			       struct dma_attrs *attrs)
-{
-	iommu_dma_unmap_page(dev, dev_addr, size, dir, attrs);
-}
-
-static int ipu3_dmamap_map_sg(struct device *dev, struct scatterlist *sgl,
-			      int nents, enum dma_data_direction dir,
-			      struct dma_attrs *attrs)
-{
-	return iommu_dma_map_sg(dev, sgl, nents,
-				dma_direction_to_prot(dir, false));
-}
-
-static void ipu3_dmamap_unmap_sg(struct device *dev, struct scatterlist *sgl,
-				 int nents, enum dma_data_direction dir,
-				 struct dma_attrs *attrs)
-{
-	iommu_dma_unmap_sg(dev, sgl, nents, dir, attrs);
-}
-
-static struct dma_map_ops ipu3_dmamap_ops = {
-	.alloc = ipu3_dmamap_alloc,
-	.free = ipu3_dmamap_free,
-	.mmap = ipu3_dmamap_mmap,
-	.get_sgtable = ipu3_dmamap_get_sgtable,
-	.map_page = ipu3_dmamap_map_page,
-	.unmap_page = ipu3_dmamap_unmap_page,
-	.map_sg = ipu3_dmamap_map_sg,
-	.unmap_sg = ipu3_dmamap_unmap_sg,
-	.mapping_error = iommu_dma_mapping_error,
-};
-
-int ipu3_dmamap_init(struct device *dev, u64 dma_base, u64 size)
-{
-	struct iommu_domain *domain;
+	struct imgu_device *imgu = dev_get_drvdata(dev);
+	unsigned long order, base_pfn;
 	int ret;
 
-	ret = iommu_dma_init();
+	ret = iova_cache_get();
 	if (ret)
 		return ret;
 
-	/*
-	 * The IOMMU core code allocates the default DMA domain, which the
-	 * underlying IOMMU driver needs to support via the dma-iommu layer.
-	 */
-	domain = iommu_get_domain_for_dev(dev);
-	if (!domain) {
-		pr_warn("Failed to get IOMMU domain for device %s\n",
-			dev_name(dev));
-		return -ENODEV;
-	}
+	order = __ffs(imgu->mmu->pgsize_bitmap);
+	base_pfn = max_t(unsigned long, 1,
+			 imgu->mmu->aperture_start >> order);
 
-	if (WARN(domain->type != IOMMU_DOMAIN_DMA, "device %s already managed?\n",
-		 dev_name(dev)))
-		return -EINVAL;
+	init_iova_domain(&imgu->iova_domain, 1UL << order, base_pfn,
+			 1UL << (32 - order));
 
-	ret = iommu_dma_init_domain(domain, dma_base, size);
-	if (ret) {
-		pr_warn("Failed to init IOMMU domain for device %s\n",
-			dev_name(dev));
-		return ret;
-	}
-
-	dev->archdata.dma_ops = &ipu3_dmamap_ops;
 	return 0;
 }
-EXPORT_SYMBOL_GPL(ipu3_dmamap_init);
 
-void ipu3_dmamap_cleanup(struct device *dev)
+void ipu3_dmamap_exit(struct device *dev)
 {
-	dev->archdata.dma_ops = &ipu3_dmamap_ops;
-	iommu_dma_cleanup();
-}
-EXPORT_SYMBOL_GPL(ipu3_dmamap_cleanup);
+	struct imgu_device *imgu = dev_get_drvdata(dev);
 
-MODULE_AUTHOR("Tomasz Figa <tfiga@chromium.org>");
-MODULE_LICENSE("GPL v2");
-MODULE_DESCRIPTION("IPU3 DMA mapping support");
+	put_iova_domain(&imgu->iova_domain);
+	iova_cache_put();
+	imgu->mmu = NULL;
+}

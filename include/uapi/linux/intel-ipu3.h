@@ -1,15 +1,5 @@
-/*
- * Copyright (c) 2017 Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License version
- * 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- */
+/* SPDX-License-Identifier: GPL-2.0 */
+/* Copyright (C) 2018 Intel Corporation */
 
 #ifndef __IPU3_UAPI_H
 #define __IPU3_UAPI_H
@@ -284,21 +274,6 @@ struct ipu3_uapi_stats_3a {
 #define IPU3_UAPI_ANR_PYRAMID_SIZE			22
 
 #define IPU3_UAPI_AE_WEIGHTS				96
-
-struct ipu3_uapi_acc_operation {
-	/*
-	 * zero means on init,
-	 * others mean upon receiving an ack signal from the BC acc.
-	 */
-	__u8 op_indicator;
-	__u8 op_type;
-} __packed;
-
-struct ipu3_uapi_acc_process_lines_cmd_data {
-	__u16 lines;
-	__u8 cfg_set;
-	__u8 __reserved;		/* Align to 4 bytes */
-} __packed;
 
 /* Bayer Noise Reduction related structs */
 struct ipu3_uapi_bnr_static_config_wb_gains_config {
@@ -1148,7 +1123,7 @@ struct ipu3_uapi_anr_transform_config {
 	__u32 adaptive_treshhold_en:1;	/* On IPU3, always enabled */
 
 	__u32 __reserved1:30;
-	__u8 __reserved2[40+4];
+	__u8 __reserved2[40 + 4];
 
 	struct ipu3_uapi_anr_alpha alpha[3];
 	struct ipu3_uapi_anr_beta beta[3];

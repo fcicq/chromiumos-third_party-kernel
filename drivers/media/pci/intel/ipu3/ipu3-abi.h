@@ -1,15 +1,5 @@
-/*
- * Copyright (c) 2017 Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License version
- * 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- */
+/* SPDX-License-Identifier: GPL-2.0 */
+/* Copyright (C) 2018 Intel Corporation */
 
 #ifndef __IPU3_ABI_H
 #define __IPU3_ABI_H
@@ -63,13 +53,7 @@ typedef __u32 imgu_addr_t;
 #define IMGU_PM_CTRL_FORCE_UNHALT		BIT(7)
 #define IMGU_PM_CTRL_FORCE_PWRDN		BIT(8)
 #define IMGU_PM_CTRL_FORCE_RESET		BIT(9)
-#define IMGU_PM_CTRL_RETURN_LICENSE_AT_EOF	BIT(10)
-#define IMGU_PM_CTRL_POWER_DOWN_AT_EOF		(IMGU_PM_CTRL_CSS_PWRDN | \
-					IMGU_PM_CTRL_RACE_TO_HALT | \
-					IMGU_PM_CTRL_RETURN_LICENSE_AT_EOF)
-#define IMGU_PM_CTRL_RESET_AT_EOF		(IMGU_PM_CTRL_RST_AT_EOF | \
-					IMGU_PM_CTRL_RACE_TO_HALT | \
-					IMGU_PM_CTRL_RETURN_LICENSE_AT_EOF)
+
 /* SYSTEM_REQ_0_5_0_IMGHMMADR */
 #define IMGU_REG_SYSTEM_REQ			0x18
 #define IMGU_SYSTEM_REQ_FREQ_MASK		0x3f
@@ -141,42 +125,16 @@ typedef __u32 imgu_addr_t;
 #define IMGU_GP_STRMON_STAT_SP1_PORT_SP22SP1		BIT(6)
 #define IMGU_GP_STRMON_STAT_SP1_PORT_SP12ISP		BIT(8)
 #define IMGU_GP_STRMON_STAT_SP1_PORT_ISP2SP1		BIT(10)
-#define IMGU_GP_STRMON_STAT_SP1_PORT_SP12GDC		BIT(12)
-#define IMGU_GP_STRMON_STAT_SP1_PORT_GDC2SP1		BIT(14)
-#define IMGU_GP_STRMON_STAT_SP1_PORT_SP12DECOMP		BIT(16)
-#define IMGU_GP_STRMON_STAT_SP1_PORT_DECOMP2SP1		BIT(18)
-#define IMGU_GP_STRMON_STAT_SP1_PORT_OUTFORMACC		BIT(20)
-#define IMGU_GP_STRMON_STAT_SP1_PORT_OUTSCALER		BIT(22)
 
 #define IMGU_GP_STRMON_STAT_SP2_PORT_SP22DMA		BIT(0)
 #define IMGU_GP_STRMON_STAT_SP2_PORT_DMA2SP2		BIT(2)
 #define IMGU_GP_STRMON_STAT_SP2_PORT_SP22SP1		BIT(4)
 #define IMGU_GP_STRMON_STAT_SP2_PORT_SP12SP2		BIT(6)
-#define IMGU_GP_STRMON_STAT_SP2_PORT_SP22ISP		BIT(8)
-#define IMGU_GP_STRMON_STAT_SP2_PORT_ISP2SP2		BIT(10)
-#define IMGU_GP_STRMON_STAT_SP2_PORT_SP22GDC		BIT(12)
-#define IMGU_GP_STRMON_STAT_SP2_PORT_GDC2SP2		BIT(14)
-#define IMGU_GP_STRMON_STAT_SP2_PORT_SP22DECOMP		BIT(16)
-#define IMGU_GP_STRMON_STAT_SP2_PORT_DECOMP2SP2		BIT(18)
-#define IMGU_GP_STRMON_STAT_SP2_PORT_OUTFORMACC		BIT(20)
-#define IMGU_GP_STRMON_STAT_SP2_PORT_OUTSCALER		BIT(22)
 
 #define IMGU_GP_STRMON_STAT_ISP_PORT_ISP2DMA		BIT(0)
 #define IMGU_GP_STRMON_STAT_ISP_PORT_DMA2ISP		BIT(2)
 #define IMGU_GP_STRMON_STAT_ISP_PORT_ISP2SP1		BIT(4)
 #define IMGU_GP_STRMON_STAT_ISP_PORT_SP12ISP		BIT(6)
-#define IMGU_GP_STRMON_STAT_ISP_PORT_ISP2SP2		BIT(8)
-#define IMGU_GP_STRMON_STAT_ISP_PORT_SP22ISP		BIT(10)
-#define IMGU_GP_STRMON_STAT_ISP_PORT_ISP2GDC		BIT(12)
-#define IMGU_GP_STRMON_STAT_ISP_PORT_GDC2ISP		BIT(14)
-#define IMGU_GP_STRMON_STAT_ISP_PORT_ISP2DECOMP		BIT(16)
-#define IMGU_GP_STRMON_STAT_ISP_PORT_DECOMP2ISP		BIT(18)
-#define IMGU_GP_STRMON_STAT_ISP_PORT_S2V1		BIT(20)
-#define IMGU_GP_STRMON_STAT_ISP_PORT_S2V2		BIT(22)
-#define IMGU_GP_STRMON_STAT_ISP_PORT_S2V3		BIT(24)
-#define IMGU_GP_STRMON_STAT_ISP_PORT_S2V4		BIT(26)
-#define IMGU_GP_STRMON_STAT_ISP_PORT_S2V5		BIT(28)
-#define IMGU_GP_STRMON_STAT_ISP_PORT_S2V6		BIT(30)
 
 /* Between the devices and the fifo */
 #define IMGU_GP_STRMON_STAT_MOD_PORT_SP12DMA		BIT(0)
@@ -201,51 +159,7 @@ typedef __u32 imgu_addr_t;
 /* After FIFO and demux before SP2, n = 1..15 */
 #define IMGU_GP_STRMON_STAT_ACCS2SP2_MON_PORT_ACC(n)	(1 << (((n) - 1) * 2))
 
-#define IMGU_REG_GP_MOD_ISP_STRMON_STAT			(IMGU_REG_BASE + 0x530)
-#define IMGU_REG_GP_ACCS_STRMON_STAT			(IMGU_REG_BASE + 0x534)
-#define IMGU_REG_GP_ACCS_SP1_STRMON_STAT		(IMGU_REG_BASE + 0x538)
-#define IMGU_REG_GP_ACCS_SP2_STRMON_STAT		(IMGU_REG_BASE + 0x53c)
-#define IMGU_REG_GP_SP1_STRMON_STAT_IRQ_COND		(IMGU_REG_BASE + 0x540)
-#define IMGU_REG_GP_SP2_STRMON_STAT_IRQ_COND		(IMGU_REG_BASE + 0x544)
-#define IMGU_REG_GP_ISP_STRMON_STAT_IRQ_COND		(IMGU_REG_BASE + 0x548)
-#define IMGU_REG_GP_MOD_STRMON_STAT_IRQ_COND		(IMGU_REG_BASE + 0x54c)
-#define IMGU_REG_GP_MOD_ISP_STRMON_STAT_IRQ_COND	(IMGU_REG_BASE + 0x550)
-#define IMGU_REG_GP_ACCS_STRMON_STAT_IRQ_COND		(IMGU_REG_BASE + 0x554)
-#define IMGU_REG_GP_ACCS_SP1_STRMON_STAT_IRQ_COND	(IMGU_REG_BASE + 0x558)
-#define IMGU_REG_GP_ACCS_SP2_STRMON_STAT_IRQ_COND	(IMGU_REG_BASE + 0x55c)
-#define IMGU_REG_GP_SP1_STRMON_STAT_IRQ_ENABLE		(IMGU_REG_BASE + 0x560)
-#define IMGU_REG_GP_SP2_STRMON_STAT_IRQ_ENABLE		(IMGU_REG_BASE + 0x564)
-#define IMGU_REG_GP_ISP_STRMON_STAT_IRQ_ENABLE		(IMGU_REG_BASE + 0x568)
-#define IMGU_REG_GP_MOD_STRMON_STAT_IRQ_ENABLE		(IMGU_REG_BASE + 0x56c)
-#define IMGU_REG_GP_MOD_ISP_STRMON_STAT_IRQ_ENABLE	(IMGU_REG_BASE + 0x570)
-#define IMGU_REG_GP_ACCS_STRMON_STAT_IRQ_ENABLE		(IMGU_REG_BASE + 0x574)
-#define IMGU_REG_GP_ACCS_SP1_STRMON_STAT_IRQ_ENABLE	(IMGU_REG_BASE + 0x578)
-#define IMGU_REG_GP_ACCS_SP2_STRMON_STAT_IRQ_ENABLE_IDX (IMGU_REG_BASE + 0x57c)
-#define IMGU_REG_GP_SWITCH_GDC				(IMGU_REG_BASE + 0x580)
-#define IMGU_REG_GP_SWITCH_DECOMP			(IMGU_REG_BASE + 0x584)
-#define IMGU_REG_GP_SWITCH_MAIN_IRQ_CTRL_MAIN		(IMGU_REG_BASE + 0x588)
-#define IMGU_REG_GP_SWITCH_ACC1				(IMGU_REG_BASE + 0x58c)
-#define IMGU_REG_GP_SWITCH_ACC2				(IMGU_REG_BASE + 0x590)
-#define IMGU_REG_GP_SWITCH_ACC3				(IMGU_REG_BASE + 0x594)
-#define IMGU_REG_GP_SWITCH_ACC4				(IMGU_REG_BASE + 0x598)
-#define IMGU_REG_GP_SWITCH_ACC5				(IMGU_REG_BASE + 0x59c)
-#define IMGU_REG_GP_SWITCH_ACC6				(IMGU_REG_BASE + 0x5a0)
-#define IMGU_REG_GP_SWITCH_ACC7				(IMGU_REG_BASE + 0x5a4)
-#define IMGU_REG_GP_SWITCH_ACC8				(IMGU_REG_BASE + 0x5a8)
-#define IMGU_REG_GP_SWITCH_ACC9				(IMGU_REG_BASE + 0x5ac)
-#define IMGU_REG_GP_SWITCH_ACC10			(IMGU_REG_BASE + 0x5b0)
-#define IMGU_REG_GP_SWITCH_ACC11			(IMGU_REG_BASE + 0x5b4)
-#define IMGU_REG_GP_SWITCH_ACC12			(IMGU_REG_BASE + 0x5b8)
-#define IMGU_REG_GP_SWITCH_ACC13			(IMGU_REG_BASE + 0x5bc)
-#define IMGU_REG_GP_SWITCH_ACC14			(IMGU_REG_BASE + 0x5c0)
-#define IMGU_REG_GP_SWITCH_ACC15			(IMGU_REG_BASE + 0x5c4)
-#define IMGU_REG_GP_SWITCH_OUT_FORM_ACC			(IMGU_REG_BASE + 0x5c8)
-#define IMGU_REG_GP_SWITCH_OUT_FORM_SCALER		(IMGU_REG_BASE + 0x5cc)
-#define IMGU_REG_GP_SRST				(IMGU_REG_BASE + 0x5d0)
-#define IMGU_REG_GP_GACC_SRST				(IMGU_REG_BASE + 0x5d4)
-#define IMGU_REG_GP_SLV_REG_SRST			(IMGU_REG_BASE + 0x5d8)
 #define IMGU_REG_GP_HALT				(IMGU_REG_BASE + 0x5dc)
-#define IMGU_REG_GP_HALTED				(IMGU_REG_BASE + 0x5e0)
 
 					/* n = 0..2 (main ctrl, SP0, SP1) */
 #define IMGU_REG_IRQCTRL_BASE(n)	(IMGU_REG_BASE + (n) * 0x100 + 0x700)
@@ -313,12 +227,11 @@ typedef __u32 imgu_addr_t;
 
 #define IMGU_ABI_SHD_MAX_PROCESS_LINES		31
 #define IMGU_ABI_SHD_MAX_TRANSFERS		31
+#define IMGU_ABI_SHD_MAX_OPERATIONS \
+		(IMGU_ABI_SHD_MAX_PROCESS_LINES + IMGU_ABI_SHD_MAX_TRANSFERS)
 #define IMGU_ABI_SHD_MAX_CELLS_PER_SET		146
 /* largest grid is 73x56 */
 #define IMGU_ABI_SHD_MAX_CFG_SETS		(2 * 28)
-
-#define IMGU_ABI_SHD_MAX_OPERATIONS \
-		(IMGU_ABI_SHD_MAX_PROCESS_LINES + IMGU_ABI_SHD_MAX_TRANSFERS)
 
 #define IMGU_ABI_DVS_STAT_MAX_OPERATIONS	100
 #define IMGU_ABI_DVS_STAT_MAX_PROCESS_LINES	52
@@ -423,6 +336,21 @@ enum imgu_abi_osys_tiling {
 	IMGU_ABI_OSYS_TILING_YF,
 };
 
+struct imgu_abi_acc_operation {
+	/*
+	 * zero means on init,
+	 * others mean upon receiving an ack signal from the BC acc.
+	 */
+	__u8 op_indicator;
+	__u8 op_type;
+} __packed;
+
+struct imgu_abi_acc_process_lines_cmd_data {
+	__u16 lines;
+	__u8 cfg_set;
+	__u8 __reserved;		/* Align to 4 bytes */
+} __packed;
+
 /* Bayer shading definitions */
 
 struct imgu_abi_shd_transfer_luts_set_data {
@@ -473,9 +401,9 @@ struct imgu_abi_shd_black_level_config {
 } __packed;
 
 struct imgu_abi_shd_intra_frame_operations_data {
-	struct ipu3_uapi_acc_operation
+	struct imgu_abi_acc_operation
 		operation_list[IMGU_ABI_SHD_MAX_OPERATIONS] IPU3_ALIGN;
-	struct ipu3_uapi_acc_process_lines_cmd_data
+	struct imgu_abi_acc_process_lines_cmd_data
 		process_lines_data[IMGU_ABI_SHD_MAX_PROCESS_LINES] IPU3_ALIGN;
 	struct imgu_abi_shd_transfer_luts_set_data
 		transfer_data[IMGU_ABI_SHD_MAX_TRANSFERS] IPU3_ALIGN;
@@ -615,13 +543,6 @@ struct imgu_abi_input_feeder_config {
 
 #define IMGU_ABI_DVS_STAT_LEVELS		3
 
-struct imgu_abi_dvs_stat_gbl_config {
-	__u8 kappa;					/* 4 bits */
-	__u8 match_shift:4;
-	__u8 ybin_mode:1;
-	__u16 __reserved1;
-} __packed;
-
 struct imgu_abi_dvs_stat_grd_config {
 	__u8 grid_width;				/* 5 bits */
 	__u8 grid_height;
@@ -634,28 +555,11 @@ struct imgu_abi_dvs_stat_grd_config {
 	__u16 y_end;
 } __packed;
 
-struct imgu_abi_dvs_stat_fe_roi_config {
-	__u8 x_start;
-	__u8 y_start;
-	__u8 x_end;
-	__u8 y_end;
-} __packed;
-
 struct imgu_abi_dvs_stat_cfg {
-	struct imgu_abi_dvs_stat_gbl_config gbl_cfg;
+	__u8 __reserved0[4];
 	struct imgu_abi_dvs_stat_grd_config
 					grd_config[IMGU_ABI_DVS_STAT_LEVELS];
-	struct imgu_abi_dvs_stat_fe_roi_config
-					fe_roi_cfg[IMGU_ABI_DVS_STAT_LEVELS];
-	__u8 __reserved[IPU3_UAPI_ISP_WORD_BYTES -
-		 (sizeof(struct imgu_abi_dvs_stat_gbl_config) +
-		  (sizeof(struct imgu_abi_dvs_stat_grd_config) +
-		   sizeof(struct imgu_abi_dvs_stat_fe_roi_config)) *
-		  IMGU_ABI_DVS_STAT_LEVELS) % IPU3_UAPI_ISP_WORD_BYTES];
-} __packed;
-
-struct imgu_abi_dvs_stat_stripe_cfg {
-	struct imgu_abi_dvs_stat_cfg stripe_cfg[IPU3_UAPI_MAX_STRIPES];
+	__u8 __reserved1[18];
 } __packed;
 
 struct imgu_abi_dvs_stat_transfer_op_data {
@@ -663,25 +567,20 @@ struct imgu_abi_dvs_stat_transfer_op_data {
 } __packed;
 
 struct imgu_abi_dvs_stat_intra_frame_operations_data {
-	struct ipu3_uapi_acc_operation
+	struct imgu_abi_acc_operation
 		ops[IMGU_ABI_DVS_STAT_MAX_OPERATIONS] IPU3_ALIGN;
-	struct ipu3_uapi_acc_process_lines_cmd_data
+	struct imgu_abi_acc_process_lines_cmd_data
 		process_lines_data[IMGU_ABI_DVS_STAT_MAX_PROCESS_LINES]
 		IPU3_ALIGN;
 	struct imgu_abi_dvs_stat_transfer_op_data
 		transfer_data[IMGU_ABI_DVS_STAT_MAX_TRANSFERS] IPU3_ALIGN;
 } __packed;
 
-struct imgu_abi_dvs_stat_meta_data_align_p {
-	imgu_addr_t p_meta_data IPU3_ALIGN;
-} __packed;
-
 struct imgu_abi_dvs_stat_config {
 	struct imgu_abi_dvs_stat_cfg cfg IPU3_ALIGN;
-	struct imgu_abi_dvs_stat_stripe_cfg stripe;
+	__u8 __reserved0[128];
 	struct imgu_abi_dvs_stat_intra_frame_operations_data operations_data;
-	struct imgu_abi_dvs_stat_meta_data_align_p
-		meta_data[IPU3_UAPI_MAX_STRIPES];
+	__u8 __reserved1[64];
 } __packed;
 
 /* Output formatter related structs */
@@ -838,7 +737,7 @@ struct imgu_abi_osys_config {
 	__s8 scaler_coeffs_luma[128];
 } __packed;
 
-/* Defect Pixel Correction */
+/* Defect pixel correction */
 
 struct imgu_abi_dpc_config {
 	__u8 __reserved[240832];
@@ -882,9 +781,9 @@ struct imgu_abi_af_config_s {
 } __packed;
 
 struct imgu_abi_af_intra_frame_operations_data {
-	struct ipu3_uapi_acc_operation ops[IMGU_ABI_AF_MAX_OPERATIONS]
+	struct imgu_abi_acc_operation ops[IMGU_ABI_AF_MAX_OPERATIONS]
 		IPU3_ALIGN;
-	struct ipu3_uapi_acc_process_lines_cmd_data
+	struct imgu_abi_acc_process_lines_cmd_data
 		process_lines_data[IMGU_ABI_AF_MAX_PROCESS_LINES] IPU3_ALIGN;
 } __packed;
 
@@ -914,9 +813,9 @@ struct imgu_abi_ae_config {
 /* AWB_FR */
 
 struct imgu_abi_awb_fr_intra_frame_operations_data {
-	struct ipu3_uapi_acc_operation ops[IMGU_ABI_AWB_FR_MAX_OPERATIONS]
+	struct imgu_abi_acc_operation ops[IMGU_ABI_AWB_FR_MAX_OPERATIONS]
 								IPU3_ALIGN;
-	struct ipu3_uapi_acc_process_lines_cmd_data
+	struct imgu_abi_acc_process_lines_cmd_data
 	      process_lines_data[IMGU_ABI_AWB_FR_MAX_PROCESS_LINES] IPU3_ALIGN;
 } __packed;
 
@@ -931,9 +830,9 @@ struct imgu_abi_acc_transfer_op_data {
 } __packed;
 
 struct IPU3_ALIGN imgu_abi_awb_intra_frame_operations_data {
-	struct ipu3_uapi_acc_operation ops[IMGU_ABI_AWB_MAX_OPERATIONS]
+	struct imgu_abi_acc_operation ops[IMGU_ABI_AWB_MAX_OPERATIONS]
 		IPU3_ALIGN;
-	struct ipu3_uapi_acc_process_lines_cmd_data
+	struct imgu_abi_acc_process_lines_cmd_data
 		process_lines_data[IMGU_ABI_AWB_MAX_PROCESS_LINES] IPU3_ALIGN;
 	struct imgu_abi_acc_transfer_op_data
 		transfer_data[IMGU_ABI_AWB_MAX_TRANSFERS] IPU3_ALIGN;
@@ -959,7 +858,7 @@ struct imgu_abi_acc_param {
 	struct ipu3_uapi_cds_params cds IPU3_ALIGN;
 	struct imgu_abi_shd_config shd IPU3_ALIGN;
 	struct imgu_abi_dvs_stat_config dvs_stat;
-	__u8 __reserved[224] IPU3_ALIGN;	/* reserved for lace_stat */
+	__u8 padding1[224];	/* reserved for lace_stat */
 	struct ipu3_uapi_yuvp1_iefd_config iefd IPU3_ALIGN;
 	struct ipu3_uapi_yuvp1_yds_config yds_c0 IPU3_ALIGN;
 	struct ipu3_uapi_yuvp1_chnr_config chnr_c0 IPU3_ALIGN;
@@ -1082,9 +981,9 @@ struct imgu_abi_frame_sp_info {
 struct imgu_abi_buffer_sp {
 	union {
 		imgu_addr_t xmem_addr;
-		enum imgu_abi_queue_id queue_id;
+		s32 queue_id;	/* enum imgu_abi_queue_id */
 	} buf_src;
-	enum imgu_abi_buffer_type buf_type;
+	s32 buf_type;	/* enum imgu_abi_buffer_type */
 } __packed;
 
 struct imgu_abi_frame_sp_plane {
@@ -1661,21 +1560,6 @@ struct imgu_abi_isp_tnr3_dmem_state {
 	u32 bypass_filter;
 } __packed;
 
-/***** DVS statistics metadata *****/
-
-#define IMGU_ABI_DVS_METADATA_L0_REGS		(84 * 10)
-#define IMGU_ABI_DVS_METADATA_L1_REGS		(66 * 10)
-#define IMGU_ABI_DVS_METADATA_L2_REGS		(45 * 10)
-
-struct imgu_abi_dvs_meta_data {
-	u32 dvs_prev_frame_fe_l0[IMGU_ABI_DVS_METADATA_L0_REGS]
-		__aligned(IMGU_ABI_ISP_DDR_WORD_BYTES);
-	u32 dvs_prev_frame_fe_l1[IMGU_ABI_DVS_METADATA_L1_REGS]
-		__aligned(IMGU_ABI_ISP_DDR_WORD_BYTES);
-	u32 dvs_prev_frame_fe_l2[IMGU_ABI_DVS_METADATA_L2_REGS]
-		__aligned(IMGU_ABI_ISP_DDR_WORD_BYTES);
-} __packed;
-
 /***** Queues *****/
 
 #define IMGU_ABI_EVENT_BUFFER_ENQUEUED(thread, queue)	\
@@ -1797,16 +1681,6 @@ struct imgu_abi_isp_3a_statistics {
 	u32 hmem_size;
 } __packed;
 
-struct imgu_abi_isp_dvs_statistics {
-	imgu_addr_t hor_proj;
-	imgu_addr_t ver_proj;
-	u32 hor_size;
-	u32 ver_size;
-	u32 exp_id;
-	imgu_addr_t data_ptr;		/* base pointer containing all memory */
-	u32 size;			/* size of memory in data_ptr */
-} __packed;
-
 struct imgu_abi_metadata {
 	struct imgu_abi_metadata_info info;	/* Layout info */
 	imgu_addr_t address;		/* CSS virtual address */
@@ -1821,7 +1695,7 @@ struct imgu_abi_time_meas {
 struct imgu_abi_buffer {
 	union {
 		struct imgu_abi_isp_3a_statistics s3a;
-		struct imgu_abi_isp_dvs_statistics dis;
+		u8 __reserved[28];
 		imgu_addr_t skc_dvs_statistics;
 		imgu_addr_t lace_stat;
 		struct imgu_abi_metadata metadata;
@@ -1862,16 +1736,9 @@ struct imgu_abi_buffer {
 #define IMGU_ABI_SP_COMM_COMMAND_START_FLASH	3	/* Start the flash */
 #define IMGU_ABI_SP_COMM_COMMAND_TERMINATE	4	/* Terminate */
 
-/* n = 0..IMGU_ABI_NUM_CONTINUOUS_FRAMES-1 */
-#define IMGU_ABI_SP_COMM_OFFLINE_FRAME(n)	((n) * 4 + 0x04)
-#define IMGU_ABI_SP_COMM_OFFLINE_METADATA(n)	((n) * 4 + 0x2c)
-#define IMGU_ABI_SP_COMM_CONT_AVAIL_RAW_FRAMES	0x54
-#define IMGU_ABI_SP_COMM_CONT_EXTRA_RAW_FRAMES	0x58
-#define IMGU_ABI_SP_COMM_CONT_TARGET_RAW_FRAMES	0x5c
 /* n = 0..IPU3_CSS_PIPE_ID_NUM-1 */
 #define IMGU_ABI_SP_COMM_EVENT_IRQ_MASK(n)	((n) * 4 + 0x60)
 #define IMGU_ABI_SP_COMM_EVENT_IRQ_MASK_OR_SHIFT	0
-#define IMGU_ABI_SP_COMM_EVENT_IRQ_MASK_AND_SHIFT	16
 
 struct imgu_abi_bl_dma_cmd_entry {
 	u32 src_addr;			/* virtual DDR address */

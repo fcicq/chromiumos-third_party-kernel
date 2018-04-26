@@ -1,23 +1,12 @@
-/*
- * Copyright (c) 2017 Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License version
- * 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- */
+/* SPDX-License-Identifier: GPL-2.0 */
+/* Copyright (C) 2018 Intel Corporation */
 
 #ifndef __IPU3_CSS_H
 #define __IPU3_CSS_H
 
 #include <linux/videodev2.h>
 #include <linux/types.h>
-#include <media/v4l2-ctrls.h>
-#include <media/videobuf2-core.h>
+
 #include "ipu3-abi.h"
 #include "ipu3-css-pool.h"
 
@@ -39,11 +28,11 @@
 #define IPU3_CSS_QUEUE_STAT_3A		4
 #define IPU3_CSS_QUEUES			5
 
-#define IPU3_CSS_RECT_EFFECTIVE		0       /* Effective resolution */
-#define IPU3_CSS_RECT_BDS		1       /* Resolution after BDS */
-#define IPU3_CSS_RECT_ENVELOPE		2       /* DVS envelope size */
-#define IPU3_CSS_RECT_GDC		3       /* gdc output res */
-#define IPU3_CSS_RECTS			4       /* number of rects */
+#define IPU3_CSS_RECT_EFFECTIVE		0	/* Effective resolution */
+#define IPU3_CSS_RECT_BDS		1	/* Resolution after BDS */
+#define IPU3_CSS_RECT_ENVELOPE		2	/* DVS envelope size */
+#define IPU3_CSS_RECT_GDC		3	/* gdc output res */
+#define IPU3_CSS_RECTS			4	/* number of rects */
 
 #define IA_CSS_BINARY_MODE_PRIMARY	2
 #define IA_CSS_BINARY_MODE_VIDEO	3
@@ -102,13 +91,6 @@ struct ipu3_css_format {
 	u8 chroma_decim;	/* Chroma plane decimation, 0=no chroma plane */
 	u8 width_align;		/* Alignment requirement for width_pad */
 	u8 flags;
-#define IPU3_CSS_QUEUE_TO_FLAGS(q)	(1 << (q))
-#define IPU3_CSS_FORMAT_FL_IN		\
-			IPU3_CSS_QUEUE_TO_FLAGS(IPU3_CSS_QUEUE_IN)
-#define IPU3_CSS_FORMAT_FL_OUT		\
-			IPU3_CSS_QUEUE_TO_FLAGS(IPU3_CSS_QUEUE_OUT)
-#define IPU3_CSS_FORMAT_FL_VF		\
-			IPU3_CSS_QUEUE_TO_FLAGS(IPU3_CSS_QUEUE_VF)
 };
 
 struct ipu3_css_queue {
@@ -118,7 +100,7 @@ struct ipu3_css_queue {
 
 	} fmt;
 	const struct ipu3_css_format *css_fmt;
-	unsigned int width_pad;	/* bytesperline / byp */
+	unsigned int width_pad;
 	struct list_head bufs;
 };
 
@@ -126,7 +108,6 @@ struct ipu3_css_queue {
 struct ipu3_css {
 	struct device *dev;
 	void __iomem *base;
-	struct device *dma_dev;
 	const struct firmware *fw;
 	struct imgu_fw_header *fwp;
 	int iomem_length;
@@ -144,11 +125,11 @@ struct ipu3_css {
 					    [IMGU_ABI_MAX_STAGES];
 	struct ipu3_css_map sp_ddr_ptrs;
 	struct ipu3_css_map xmem_sp_group_ptrs;
-	struct ipu3_css_map dvs_meta_data[IMGU_MAX_PIPELINE_NUM]
-					[IPU3_UAPI_MAX_STRIPES];
 
-	/* Data structures shared with IMGU and driver, binary specific */
-	/* PARAM_CLASS_CONFIG and PARAM_CLASS_STATE parameters */
+	/*
+	 * Data structures shared with IMGU and driver, binary specific.
+	 * PARAM_CLASS_CONFIG and PARAM_CLASS_STATE parameters.
+	 */
 	struct ipu3_css_map binary_params_cs[IMGU_ABI_PARAM_CLASS_NUM - 1]
 					    [IMGU_ABI_NUM_MEMORIES];
 
@@ -165,10 +146,6 @@ struct ipu3_css {
 	struct ipu3_css_map abi_buffers[IPU3_CSS_QUEUES]
 				    [IMGU_ABI_HOST2SP_BUFQ_SIZE];
 
-	struct ipu3_css_ctrls {
-		struct v4l2_ctrl_handler handler;
-	} ctrls;
-
 	struct {
 		struct ipu3_css_pool parameter_set_info;
 		struct ipu3_css_pool acc;
@@ -179,12 +156,13 @@ struct ipu3_css {
 	} pool;
 
 	enum ipu3_css_vf_status vf_output_en;
+	/* Protect access to css->queue[] */
 	spinlock_t qlock;
 };
 
 /******************* css v4l *******************/
 int ipu3_css_init(struct device *dev, struct ipu3_css *css,
-		  void __iomem *base, int length, struct device *dma_dev);
+		  void __iomem *base, int length);
 void ipu3_css_cleanup(struct ipu3_css *css);
 int ipu3_css_fmt_try(struct ipu3_css *css,
 		     struct v4l2_pix_format_mplane *fmts[IPU3_CSS_QUEUES],
@@ -202,14 +180,14 @@ bool ipu3_css_is_streaming(struct ipu3_css *css);
 
 /******************* css hw *******************/
 int ipu3_css_set_powerup(struct device *dev, void __iomem *base);
-int ipu3_css_set_powerdown(struct device *dev, void __iomem *base);
+void ipu3_css_set_powerdown(struct device *dev, void __iomem *base);
 int ipu3_css_irq_ack(struct ipu3_css *css);
 
 /******************* set parameters ************/
 int ipu3_css_set_parameters(struct ipu3_css *css,
 			    struct ipu3_uapi_params *set_params);
 
-/******************* css misc *******************/
+/******************* auxiliary helpers *******************/
 static inline enum ipu3_css_buffer_state
 ipu3_css_buf_state(struct ipu3_css_buffer *b)
 {
@@ -218,7 +196,7 @@ ipu3_css_buf_state(struct ipu3_css_buffer *b)
 
 /* Initialize given buffer. May be called several times. */
 static inline void ipu3_css_buf_init(struct ipu3_css_buffer *b,
-				unsigned int queue, dma_addr_t daddr)
+				     unsigned int queue, dma_addr_t daddr)
 {
 	b->state = IPU3_CSS_BUFFER_NEW;
 	b->queue = queue;

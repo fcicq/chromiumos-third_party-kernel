@@ -1,74 +1,52 @@
-/*
- * Copyright (c) 2017 Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License version
- * 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- */
+// SPDX-License-Identifier: GPL-2.0
+// Copyright (C) 2018 Intel Corporation
 
-#include <linux/types.h>
-#include <linux/dma-mapping.h>
+#include <linux/device.h>
 
 #include "ipu3-css-pool.h"
+#include "ipu3-dmamap.h"
 
-int ipu3_css_dma_alloc(struct device *dma_dev,
-		       struct ipu3_css_map *map, size_t size)
+int ipu3_css_dma_buffer_resize(struct device *dev, struct ipu3_css_map *map,
+			       size_t size)
 {
-	if (size == 0) {
-		map->vaddr = NULL;
-		return 0;
-	}
+	if (map->size < size && map->vaddr) {
+		dev_warn(dev, "dma buffer is resized from %zu to %zu",
+			 map->size, size);
 
-	map->vaddr = dma_alloc_coherent(dma_dev, size, &map->daddr, GFP_KERNEL);
-	if (!map->vaddr)
-		return -ENOMEM;
-	map->size = size;
-
-	return 0;
-}
-
-void ipu3_css_dma_free(struct device *dma_dev, struct ipu3_css_map *map)
-{
-	if (map->vaddr)
-		dma_free_coherent(dma_dev, map->size, map->vaddr, map->daddr);
-	map->vaddr = NULL;
-	map->size = 0;
-}
-
-int ipu3_css_dma_buffer_resize(struct device *dma_dev,
-			       struct ipu3_css_map *map, size_t size)
-{
-	if (map->size < size) {
-		dev_warn(dma_dev, "dma buffer is resized from %zu to %zu",
-			map->size, size);
-		ipu3_css_dma_free(dma_dev, map);
-		return ipu3_css_dma_alloc(dma_dev, map, size);
+		ipu3_dmamap_free(dev, map);
+		if (!ipu3_dmamap_alloc(dev, map, size))
+			return -ENOMEM;
 	}
 
 	return 0;
 }
 
-void ipu3_css_pool_cleanup(struct device *dma_dev, struct ipu3_css_pool *pool)
+void ipu3_css_pool_cleanup(struct device *dev, struct ipu3_css_pool *pool)
 {
-	int i;
+	unsigned int i;
 
 	for (i = 0; i < IPU3_CSS_POOL_SIZE; i++)
-		ipu3_css_dma_free(dma_dev, &pool->entry[i].param);
+		ipu3_dmamap_free(dev, &pool->entry[i].param);
 }
 
-int ipu3_css_pool_init(struct device *dma_dev, struct ipu3_css_pool *pool,
-		       int size)
+int ipu3_css_pool_init(struct device *dev, struct ipu3_css_pool *pool,
+		       size_t size)
 {
-	int i;
+	unsigned int i;
 
 	for (i = 0; i < IPU3_CSS_POOL_SIZE; i++) {
+		/*
+		 * entry[i].framenum is initialized to INT_MIN so that
+		 * ipu3_css_pool_check() can treat it as usesable slot.
+		 */
 		pool->entry[i].framenum = INT_MIN;
-		if (ipu3_css_dma_alloc(dma_dev, &pool->entry[i].param, size))
+
+		if (size == 0) {
+			pool->entry[i].param.vaddr = NULL;
+			continue;
+		}
+
+		if (!ipu3_dmamap_alloc(dev, &pool->entry[i].param, size))
 			goto fail;
 	}
 
@@ -77,7 +55,7 @@ int ipu3_css_pool_init(struct device *dma_dev, struct ipu3_css_pool *pool,
 	return 0;
 
 fail:
-	ipu3_css_pool_cleanup(dma_dev, pool);
+	ipu3_css_pool_cleanup(dev, pool);
 	return -ENOMEM;
 }
 
@@ -89,6 +67,11 @@ static int ipu3_css_pool_check(struct ipu3_css_pool *pool, long framenum)
 {
 	/* Get the oldest entry */
 	int n = (pool->last + 1) % IPU3_CSS_POOL_SIZE;
+	long diff = framenum - pool->entry[n].framenum;
+
+	/* if framenum wraps around and becomes smaller than entry n */
+	if (diff < 0)
+		diff += LONG_MAX;
 
 	/*
 	 * pool->entry[n].framenum stores the frame number where that
@@ -96,10 +79,10 @@ static int ipu3_css_pool_check(struct ipu3_css_pool *pool, long framenum)
 	 * frames back, it is old enough that we know it is no more in
 	 * use by firmware.
 	 */
-	if (pool->entry[n].framenum + IPU3_CSS_POOL_SIZE > framenum)
-		return -ENOSPC;
+	if (diff > IPU3_CSS_POOL_SIZE)
+		return n;
 
-	return n;
+	return -ENOSPC;
 }
 
 /*
@@ -129,6 +112,10 @@ void ipu3_css_pool_put(struct ipu3_css_pool *pool)
 	pool->last = (pool->last + IPU3_CSS_POOL_SIZE - 1) % IPU3_CSS_POOL_SIZE;
 }
 
+/*
+ * Return the nth entry from last, if that entry has no frame stored,
+ * return a null map instead to indicate frame not available for the entry.
+ */
 const struct ipu3_css_map *
 ipu3_css_pool_last(struct ipu3_css_pool *pool, unsigned int n)
 {

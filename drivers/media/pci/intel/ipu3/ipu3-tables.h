@@ -1,16 +1,5 @@
-/*
- * Copyright (c) 2017 Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License version
- * 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- */
+/* SPDX-License-Identifier: GPL-2.0 */
+/* Copyright (C) 2018 Intel Corporation */
 
 #ifndef __IPU3_TABLES_H
 #define __IPU3_TABLES_H
@@ -25,15 +14,10 @@
 #define IMGU_SCALER_DOWNSCALE_2TAPS_LEN	64
 #define IMGU_SCALER_FP			((u32)1 << 31) /* 1.0 in fixed point */
 
-#define IMGU_DVSSTAT_DEFAULT_KAPPA		6
-#define IMGU_DVSSTAT_DEFAULT_START		4
-#define IMGU_DVSSTAT_FE_ROI_START		2
-#define IMGU_DVSSTAT_FE_ROI_END_MARGIN		5
+#define IMGU_XNR3_VMEM_LUT_LEN		16
 
-#define IMGU_XNR3_VMEM_LUT_LEN			16
-
-#define IMGU_GDC_LUT_UNIT			4
-#define IMGU_GDC_LUT_LEN			256
+#define IMGU_GDC_LUT_UNIT		4
+#define IMGU_GDC_LUT_LEN		256
 
 struct ipu3_css_bds_config {
 	struct ipu3_uapi_bds_phase_arr hor_phase_arr;
