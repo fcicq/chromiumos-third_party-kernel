@@ -185,8 +185,7 @@ static int kingdisplay_panel_disable(struct drm_panel *panel)
 	if (!kingdisplay->enabled)
 		return 0;
 
-	kingdisplay->backlight->props.power = FB_BLANK_POWERDOWN;
-	backlight_update_status(kingdisplay->backlight);
+	backlight_disable(kingdisplay->backlight);
 
 	err = mipi_dsi_dcs_set_display_off(kingdisplay->link);
 	if (err < 0)
@@ -296,8 +295,7 @@ static int kingdisplay_panel_enable(struct drm_panel *panel)
 	if (kingdisplay->enabled)
 		return 0;
 
-	kingdisplay->backlight->props.power = FB_BLANK_UNBLANK;
-	ret = backlight_update_status(kingdisplay->backlight);
+	ret = backlight_enable(kingdisplay->backlight);
 	if (ret) {
 		DRM_DEV_ERROR(panel->drm->dev,
 			      "Failed to enable backlight %d\n", ret);
