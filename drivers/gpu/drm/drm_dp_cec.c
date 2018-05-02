@@ -265,6 +265,17 @@ int drm_dp_cec_configure_adapter(struct drm_dp_aux *aux, const char *name,
 	int err;
 	u8 cap;
 
+#ifndef CONFIG_MEDIA_CEC_RC
+	/*
+	 * CEC_CAP_RC is part of CEC_CAP_DEFAULTS, but it is stripped by
+	 * cec_allocate_adapter() if CONFIG_MEDIA_CEC_RC is undefined.
+	 *
+	 * Do this here as well to ensure the tests against cec_caps are
+	 * correct.
+	 */
+	cec_caps &= ~CEC_CAP_RC;
+#endif
+
 	if (drm_dp_dpcd_readb(aux, DP_CEC_TUNNELING_CAPABILITY, &cap) != 1 ||
 	    !(cap & DP_CEC_TUNNELING_CAPABLE)) {
 		cec_unregister_adapter(aux->cec_adap);
