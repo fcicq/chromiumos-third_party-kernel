@@ -1887,7 +1887,10 @@ int uvc_video_enable(struct uvc_streaming *stream, int enable)
 			unsigned int pipe;
 
 			pipe = usb_sndbulkpipe(stream->dev->udev, epnum) | dir;
-			usb_clear_halt(stream->dev->udev, pipe);
+
+			if (!(stream->dev->quirks &
+						UVC_QUIRK_NO_HALT_ON_STOP_BULK))
+				usb_clear_halt(stream->dev->udev, pipe);
 		}
 
 		uvc_video_clock_cleanup(stream);
