@@ -1101,6 +1101,8 @@ struct ath10k {
 	u32	atf_txq_limit_max;
 	u32	atf_quantum;
 	u32	atf_quantum_mesh;
+
+	u32	burst_dur[4];
 	/* must be last */
 	u8 drv_priv[0] __aligned(sizeof(void *));
 };
