@@ -1112,6 +1112,7 @@ struct ath10k {
 	u32	cfr_enable;
 	struct rchan *rfs_cfr_capture;
 
+	u32 burst_dur[4];
 	/* must be last */
 	u8 drv_priv[0] __aligned(sizeof(void *));
 };
