@@ -832,7 +832,7 @@ intel_check_sprite_plane(struct drm_plane *plane,
 	vscale = drm_rect_calc_vscale_relaxed(src, dst, min_scale, max_scale);
 	BUG_ON(vscale < 0);
 
-	state->base.visible = drm_rect_clip_scaled(src, dst, clip, hscale, vscale);
+	state->base.visible = drm_rect_clip_scaled(src, dst, clip);
 
 	crtc_x = dst->x1;
 	crtc_y = dst->y1;

@@ -162,7 +162,7 @@ int drm_plane_helper_check_state(struct drm_plane_state *state,
 		return -ERANGE;
 	}
 
-	state->visible = drm_rect_clip_scaled(src, dst, clip, hscale, vscale);
+	state->visible = drm_rect_clip_scaled(src, dst, clip);
 
 	drm_rect_rotate_inv(src, fb->width << 16, fb->height << 16, rotation);
 
