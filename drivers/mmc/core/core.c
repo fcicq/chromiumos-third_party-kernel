@@ -362,6 +362,7 @@ static int __mmc_start_data_req(struct mmc_host *host, struct mmc_request *mrq)
 
 static int __mmc_start_req(struct mmc_host *host, struct mmc_request *mrq)
 {
+	pr_warning("%s: sending CMD%d\n", mmc_hostname(host), mrq->cmd->opcode);
 	init_completion(&mrq->completion);
 	mrq->done = mmc_wait_done;
 	if (mmc_card_removed(host->card)) {
@@ -984,7 +985,7 @@ static inline void mmc_set_ios(struct mmc_host *host)
 {
 	struct mmc_ios *ios = &host->ios;
 
-	pr_debug("%s: clock %uHz busmode %u powermode %u cs %u Vdd %u "
+	pr_warning("%s: clock %uHz busmode %u powermode %u cs %u Vdd %u "
 		"width %u timing %u\n",
 		 mmc_hostname(host), ios->clock, ios->bus_mode,
 		 ios->power_mode, ios->chip_select, ios->vdd,

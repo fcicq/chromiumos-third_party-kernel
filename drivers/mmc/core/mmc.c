@@ -167,6 +167,8 @@ static int mmc_decode_csd(struct mmc_card *card)
 	m = UNSTUFF_BITS(resp, 99, 4);
 	e = UNSTUFF_BITS(resp, 96, 3);
 	csd->max_dtr	  = tran_exp[e] * tran_mant[m];
+
+
 	csd->cmdclass	  = UNSTUFF_BITS(resp, 84, 12);
 
 	e = UNSTUFF_BITS(resp, 47, 3);
@@ -255,12 +257,15 @@ static int mmc_get_ext_csd(struct mmc_card *card, u8 **new_ext_csd)
 static void mmc_select_card_type(struct mmc_card *card)
 {
 	struct mmc_host *host = card->host;
-	u8 card_type = card->ext_csd.raw_card_type & EXT_CSD_CARD_TYPE_MASK;
+	u8 card_type;
 	u32 caps = host->caps, caps2 = host->caps2;
 	unsigned int hs_max_dtr = 0;
 
 	if (card->quirks & MMC_QUIRK_DISABLE_BROKEN_EMMC)
-		goto end_select_card_type;
+		card_type = EXT_CSD_CARD_TYPE_26;
+	else
+		card_type = card->ext_csd.raw_card_type &
+			EXT_CSD_CARD_TYPE_MASK;
 
 	if (card_type & EXT_CSD_CARD_TYPE_26)
 		hs_max_dtr = MMC_HIGH_26_MAX_DTR;
@@ -281,7 +286,6 @@ static void mmc_select_card_type(struct mmc_card *card)
 			card_type & EXT_CSD_CARD_TYPE_SDR_1_2V))
 		hs_max_dtr = MMC_HS200_MAX_DTR;
 
-end_select_card_type:
 	card->ext_csd.hs_max_dtr = hs_max_dtr;
 	card->ext_csd.card_type = card_type;
 }
@@ -989,6 +993,8 @@ int mmc_init_card(struct mmc_host *host, u32 ocr,
 		goto free_card;
 	mmc_fixup_device(card, early_fixups);
 
+	if (card->quirks & MMC_QUIRK_DISABLE_BROKEN_EMMC)
+		card->csd.max_dtr = 25000000;
 	/*
 	 * Select card, as all following commands rely on that.
 	 */
@@ -1022,11 +1028,6 @@ int mmc_init_card(struct mmc_host *host, u32 ocr,
 		mmc_set_erase_size(card);
 	}
 
-	if (card->quirks & MMC_QUIRK_DISABLE_BROKEN_EMMC) {
-		pr_warning("%s: ext_csd extraction skipped.\n",
-		       mmc_hostname(card->host));
-		goto good_card;
-	}
 	/*
 	 * If enhanced_area_en is TRUE, host needs to enable ERASE_GRP_DEF
 	 * bit.  This bit will be lost every time after a reset or power off.
@@ -1364,7 +1365,6 @@ int mmc_init_card(struct mmc_host *host, u32 ocr,
 		}
 	}
 
-good_card:
 	if (!oldcard)
 		host->card = card;
 
