@@ -103,12 +103,24 @@
 			enable-method = "psci";
 			efficiency = <1024>;
 			next-level-cache = <&L2_0>;
+
 			L2_0: l2-cache {
 				compatible = "cache";
 				next-level-cache = <&L3_0>;
+
 				L3_0: l3-cache {
 				      compatible = "cache";
 				};
+			};
+
+			L1_I_0: l1-icache {
+				compatible = "cache";
+				qcom,dump-size = <0x9000>;
+			};
+
+			L1_D_0: l1-dcache {
+				compatible = "cache";
+				qcom,dump-size = <0x9000>;
 			};
 		};
 
@@ -119,9 +131,20 @@
 			enable-method = "psci";
 			efficiency = <1024>;
 			next-level-cache = <&L2_100>;
+
 			L2_100: l2-cache {
 				compatible = "cache";
 				next-level-cache = <&L3_0>;
+			};
+
+			L1_I_100: l1-icache {
+				compatible = "cache";
+				qcom,dump-size = <0x9000>;
+			};
+
+			L1_D_100: l1-dcache {
+				compatible = "cache";
+				qcom,dump-size = <0x9000>;
 			};
 		};
 
@@ -132,9 +155,20 @@
 			enable-method = "psci";
 			efficiency = <1024>;
 			next-level-cache = <&L2_200>;
+
 			L2_200: l2-cache {
 				compatible = "cache";
 				next-level-cache = <&L3_0>;
+			};
+
+			L1_I_200: l1-icache {
+				compatible = "cache";
+				qcom,dump-size = <0x9000>;
+			};
+
+			L1_D_200: l1-dcache {
+				compatible = "cache";
+				qcom,dump-size = <0x9000>;
 			};
 		};
 
@@ -145,9 +179,19 @@
 			enable-method = "psci";
 			efficiency = <1024>;
 			next-level-cache = <&L2_300>;
+
 			L2_300: l2-cache {
 				compatible = "cache";
 				next-level-cache = <&L3_0>;
+			};
+
+			L1_I_300: l1-icache {
+				compatible = "cache";
+				qcom,dump-size = <0x9000>;
+			};
+			L1_D_300: l1-dcache {
+				compatible = "cache";
+				qcom,dump-size = <0x9000>;
 			};
 		};
 
@@ -158,9 +202,20 @@
 			enable-method = "psci";
 			efficiency = <1740>;
 			next-level-cache = <&L2_400>;
+
 			L2_400: l2-cache {
 				compatible = "cache";
 				next-level-cache = <&L3_0>;
+			};
+
+			L1_I_400: l1-icache {
+				compatible = "cache";
+				qcom,dump-size = <0x12000>;
+			};
+
+			L1_D_400: l1-dcache {
+				compatible = "cache";
+				qcom,dump-size = <0x12000>;
 			};
 		};
 
@@ -171,9 +226,20 @@
 			enable-method = "psci";
 			efficiency = <1740>;
 			next-level-cache = <&L2_500>;
+
 			L2_500: l2-cache {
 				compatible = "cache";
 				next-level-cache = <&L3_0>;
+			};
+
+			L1_I_500: l1-icache {
+				compatible = "cache";
+				qcom,dump-size = <0x12000>;
+			};
+
+			L1_D_500: l1-dcache {
+				compatible = "cache";
+				qcom,dump-size = <0x12000>;
 			};
 		};
 
@@ -184,9 +250,20 @@
 			enable-method = "psci";
 			efficiency = <1740>;
 			next-level-cache = <&L2_600>;
+
 			L2_600: l2-cache {
 				compatible = "cache";
 				next-level-cache = <&L3_0>;
+			};
+
+			L1_I_600: l1-icache {
+				compatible = "cache";
+				qcom,dump-size = <0x12000>;
+			};
+
+			L1_D_600: l1-dcache {
+				compatible = "cache";
+				qcom,dump-size = <0x12000>;
 			};
 		};
 
@@ -197,9 +274,20 @@
 			enable-method = "psci";
 			efficiency = <1740>;
 			next-level-cache = <&L2_700>;
+
 			L2_700: l2-cache {
 				compatible = "cache";
 				next-level-cache = <&L3_0>;
+			};
+
+			L1_I_700: l1-icache {
+				compatible = "cache";
+				qcom,dump-size = <0x12000>;
+			};
+
+			L1_D_700: l1-dcache {
+				compatible = "cache";
+				qcom,dump-size = <0x12000>;
 			};
 		};
 	};
