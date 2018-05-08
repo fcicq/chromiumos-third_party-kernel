@@ -1,29 +1,19 @@
-/*
- * Copyright (c) 2018 Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License version
- * 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- */
+// SPDX-License-Identifier: GPL-2.0
+// Copyright (C) 2018 Intel Corporation
 
 #include <linux/acpi.h>
 #include <linux/delay.h>
 #include <linux/i2c.h>
+#include <linux/iopoll.h>
 #include <linux/module.h>
 #include <linux/pm_runtime.h>
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-device.h>
 
-#define DW9807_NAME		"dw9807"
 #define DW9807_MAX_FOCUS_POS	1023
 /*
  * This sets the minimum granularity for the focus positions.
- * A value of 1 gives maximum accuracy for a desired focus position
+ * A value of 1 gives maximum accuracy for a desired focus position.
  */
 #define DW9807_FOCUS_STEPS	1
 /*
@@ -54,7 +44,8 @@ struct dw9807_device {
 	u16 current_val;
 };
 
-static inline struct dw9807_device *sd_to_dw9807_vcm(struct v4l2_subdev *subdev)
+static inline struct dw9807_device *sd_to_dw9807_vcm(
+					struct v4l2_subdev *subdev)
 {
 	return container_of(subdev, struct dw9807_device, sd);
 }
@@ -62,23 +53,21 @@ static inline struct dw9807_device *sd_to_dw9807_vcm(struct v4l2_subdev *subdev)
 static int dw9807_i2c_check(struct i2c_client *client)
 {
 	const char status_addr = DW9807_STATUS_ADDR;
-	char status_result = 0x1;
+	char status_result;
 	int ret;
 
-	ret = i2c_master_send(client, (const char *)&status_addr,
-		sizeof(status_addr));
-	if (ret != sizeof(status_addr)) {
+	ret = i2c_master_send(client, &status_addr, sizeof(status_addr));
+	if (ret < 0) {
 		dev_err(&client->dev, "I2C write STATUS address fail ret = %d\n",
 			ret);
-		return -EIO;
+		return ret;
 	}
 
-	ret = i2c_master_recv(client, (char *)&status_result,
-		sizeof(status_result));
-	if (ret != sizeof(status_result)) {
-		dev_err(&client->dev, "I2C read STATUS value fail ret=%d\n",
+	ret = i2c_master_recv(client, &status_result, sizeof(status_result));
+	if (ret < 0) {
+		dev_err(&client->dev, "I2C read STATUS value fail ret = %d\n",
 			ret);
-		return -EIO;
+		return ret;
 	}
 
 	return status_result;
@@ -86,29 +75,35 @@ static int dw9807_i2c_check(struct i2c_client *client)
 
 static int dw9807_set_dac(struct i2c_client *client, u16 data)
 {
-	int ret, retry = 0;
-	const char tx_data[3] = {DW9807_MSB_ADDR, (char)((data >> 8) & 0x03),
-		(char)(data & 0xFF)};
+	const char tx_data[3] = {
+		DW9807_MSB_ADDR, ((data >> 8) & 0x03), (data & 0xff)
+	};
+	int val, ret;
 
 	/*
 	 * According to the datasheet, need to check the bus status before we
 	 * write VCM position. This ensure that we really write the value
 	 * into the register
 	 */
-	while (dw9807_i2c_check(client) != 0) {
-		if (MAX_RETRY == ++retry) {
-			dev_err(&client->dev,
+	ret = readx_poll_timeout(dw9807_i2c_check, client, val, val <= 0,
+			DW9807_CTRL_DELAY_US, MAX_RETRY * DW9807_CTRL_DELAY_US);
+
+	if (ret || val < 0) {
+		if (ret) {
+			dev_warn(&client->dev,
 				"Cannot do the write operation because VCM is busy\n");
-			return -EIO;
 		}
-		usleep_range(DW9807_CTRL_DELAY_US, DW9807_CTRL_DELAY_US + 10);
+
+		return ret ? -EBUSY : val;
 	}
 
 	/* Write VCM position to registers */
-	ret = i2c_master_send(client, (const char *)&tx_data, sizeof(tx_data));
-	if (ret != sizeof(tx_data)) {
-		dev_err(&client->dev, "I2C write MSB fail\n");
-		return -EIO;
+	ret = i2c_master_send(client, tx_data, sizeof(tx_data));
+	if (ret < 0) {
+		dev_err(&client->dev,
+			"I2C write MSB fail ret=%d\n", ret);
+
+		return ret;
 	}
 
 	return 0;
@@ -224,6 +219,7 @@ static int dw9807_probe(struct i2c_client *client)
 
 err_cleanup:
 	dw9807_subdev_cleanup(dw9807_dev);
+
 	return rval;
 }
 
@@ -250,8 +246,8 @@ static int __maybe_unused dw9807_vcm_suspend(struct device *dev)
 	struct i2c_client *client = to_i2c_client(dev);
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 	struct dw9807_device *dw9807_dev = sd_to_dw9807_vcm(sd);
+	const char tx_data[2] = { DW9807_CTL_ADDR, 0x01 };
 	int ret, val;
-	const char tx_data[2] = { DW9807_CTL_ADDR, 0x01};
 
 	for (val = dw9807_dev->current_val & ~(DW9807_CTRL_STEPS - 1);
 	     val >= 0; val -= DW9807_CTRL_STEPS) {
@@ -262,11 +258,10 @@ static int __maybe_unused dw9807_vcm_suspend(struct device *dev)
 	}
 
 	/* Power down */
-	ret = i2c_master_send(client, (const char *)&tx_data, sizeof(tx_data));
-
-	if (ret != sizeof(tx_data)) {
-		dev_err(&client->dev, "I2C write CTL fail\n");
-		return -EIO;
+	ret = i2c_master_send(client, tx_data, sizeof(tx_data));
+	if (ret < 0) {
+		dev_err(&client->dev, "I2C write CTL fail ret = %d\n", ret);
+		return ret;
 	}
 
 	return 0;
@@ -283,14 +278,14 @@ static int  __maybe_unused dw9807_vcm_resume(struct device *dev)
 	struct i2c_client *client = to_i2c_client(dev);
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 	struct dw9807_device *dw9807_dev = sd_to_dw9807_vcm(sd);
+	const char tx_data[2] = { DW9807_CTL_ADDR, 0x00 };
 	int ret, val;
-	const char tx_data[2] = { DW9807_CTL_ADDR, 0x00};
 
 	/* Power on */
-	ret = i2c_master_send(client, (const char *)&tx_data, sizeof(tx_data));
-	if (ret != sizeof(tx_data)) {
-		dev_err(&client->dev, "I2C write CTL fail\n");
-		return -EIO;
+	ret = i2c_master_send(client, tx_data, sizeof(tx_data));
+	if (ret < 0) {
+		dev_err(&client->dev, "I2C write CTL fail ret = %d\n", ret);
+		return ret;
 	}
 
 	for (val = dw9807_dev->current_val % DW9807_CTRL_STEPS;
@@ -308,7 +303,7 @@ static int  __maybe_unused dw9807_vcm_resume(struct device *dev)
 
 static const struct of_device_id dw9807_of_table[] = {
 	{ .compatible = "dongwoon,dw9807" },
-	{ { 0 } }
+	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, dw9807_of_table);
 
@@ -319,7 +314,7 @@ static const struct dev_pm_ops dw9807_pm_ops = {
 
 static struct i2c_driver dw9807_i2c_driver = {
 	.driver = {
-		.name = DW9807_NAME,
+		.name = "dw9807",
 		.pm = &dw9807_pm_ops,
 		.of_match_table = dw9807_of_table,
 	},
