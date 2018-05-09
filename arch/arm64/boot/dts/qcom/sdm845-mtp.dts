@@ -7,6 +7,7 @@
 
 /dts-v1/;
 
+#include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
 #include "sdm845.dtsi"
 
@@ -462,6 +463,21 @@
 	status = "okay";
 };
 
+&sdhc_2 {
+	status = "okay";
+
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&sdc2_clk_default  &sdc2_cmd_default &sdc2_data_default
+		     &sd_card_det_n>;
+	pinctrl-1 = <&sdc2_clk_sleep &sdc2_cmd_sleep &sdc2_data_sleep
+		     &sd_card_det_n>;
+
+	vmmc-supply = <&vreg_l21a_2p95>;
+	vqmmc-supply = <&vddpx_2>;
+
+	cd-gpios = <&tlmm 126 GPIO_ACTIVE_LOW>;
+};
+
 &ufshc1 {
 	status = "okay";
 
@@ -569,6 +585,69 @@
 };
 
 /* PINCTRL - board-specific pinctrl */
+
+&tlmm {
+	sdc2_clk_default: sdc2-clk-default {
+		pinconf {
+			pins = "sdc2_clk";
+			bias-disable;
+			drive-strength = <16>;
+		};
+	};
+
+	sdc2_clk_sleep: sdc2-clk-sleep {
+		pinconf {
+			pins = "sdc2_clk";
+			bias-disable;
+			drive-strength = <2>;
+		};
+	};
+
+	sdc2_cmd_default: sdc2-cmd-default {
+		pinconf {
+			pins = "sdc2_cmd";
+			bias-pull-up;
+			drive-strength = <10>;
+		};
+	};
+
+	sdc2_cmd_sleep: sdc2-cmd-sleep {
+		pinconf {
+			pins = "sdc2_cmd";
+			bias-pull-up;
+			drive-strength = <2>;
+		};
+	};
+
+	sdc2_data_default: sdc2-data-default {
+		pinconf {
+			pins = "sdc2_data";
+			bias-pull-up;
+			drive-strength = <10>;
+		};
+	};
+
+	sdc2_data_sleep: sdc2-data-sleep {
+		pinconf {
+			pins = "sdc2_data";
+			bias-pull-up;
+			drive-strength = <2>;
+		};
+	};
+
+	sd_card_det_n: sd-card-det-n {
+		pinmux {
+			pins = "gpio126";
+			function = "gpio";
+		};
+
+		pinconf {
+			pins = "gpio126";
+			bias-pull-up;
+			drive-strength = <2>;
+		};
+	};
+};
 
 /*
  * TODO: the below isn't the right way to do this; this is all just hacks
