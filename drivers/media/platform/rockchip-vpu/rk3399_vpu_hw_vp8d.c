@@ -777,6 +777,9 @@ void rk3399_vpu_vp8d_run(struct rockchip_vpu_ctx *ctx)
 
 	for (i = 0; i < vpu->variant->dec_reg_num; i++)
 		vdpu_write_relaxed(vpu, 0, i * 4);
+
+	ctx->hw.codec_ops->reset(ctx);
+
 	reg = VDPU_REG_CONFIG_DEC_TIMEOUT_E
 		| VDPU_REG_CONFIG_DEC_CLK_GATE_E;
 	if (hdr->key_frame)
