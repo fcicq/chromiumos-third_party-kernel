@@ -50,6 +50,16 @@
 	model = "Google Scarlet";
 	compatible = "google,scarlet-rev2-sku7", "google,scarlet-rev2",
 		     "google,scarlet", "google,gru", "rockchip,rk3399";
+
+	firmware {
+		coreboot {
+			/*
+			 * HACK: put this here until firmware with this
+			 * property rolls out.
+			 */
+			sku-id = <7>;
+		};
+	};
 };
 
 &digitizer {
