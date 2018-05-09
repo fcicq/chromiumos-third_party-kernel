@@ -538,6 +538,27 @@ ap_ts_i2c: &i2c14 {
 	status = "okay";
 };
 
+&ufshc1 {
+	status = "okay";
+
+	vcc-supply = <&src_pp2950_l20a>;
+	vcc-voltage-level = <2950000 2960000>;
+	vcc-max-microamp = <600000>;
+	vccq2-max-microamp = <600000>;
+
+	qcom,vddp-ref-clk-supply = <&vddpx_10>;
+	qcom,vddp-ref-clk-max-microamp = <100>;
+};
+
+&ufsphy1 {
+	status = "okay";
+
+	vdda-phy-supply = <&vdda_ufs1_core>;
+	vdda-pll-supply = <&vdda_ufs1_1p2>;
+	vdda-phy-max-microamp = <62900>;
+	vdda-pll-max-microamp = <18300>;
+};
+
 &usb_1 {
 	status = "okay";
 
