@@ -57,9 +57,7 @@ struct rockchip_vpu_codec_ops;
  * struct rockchip_vpu_variant - information about VPU hardware variant
  *
  * @enc_offset:			Offset from VPU base to encoder registers.
- * @enc_reg_num:		Number of registers of encoder block.
  * @dec_offset:			Offset from VPU base to decoder registers.
- * @dec_reg_num:		Number of registers of decoder block.
  * @needs_enc_after_dec_war:	Needs dummy encoder.
  * @needs_dpb_map:		Needs dpb reorder mapping.
  * @enc_fmts:			Encoder formats.
@@ -73,9 +71,7 @@ struct rockchip_vpu_codec_ops;
  */
 struct rockchip_vpu_variant {
 	unsigned enc_offset;
-	unsigned enc_reg_num;
 	unsigned dec_offset;
-	unsigned dec_reg_num;
 	bool needs_enc_after_dec_war;
 	bool needs_dpb_map;
 	const struct rockchip_vpu_fmt *enc_fmts;
