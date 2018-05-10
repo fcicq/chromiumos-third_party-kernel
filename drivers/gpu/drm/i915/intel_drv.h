@@ -424,7 +424,7 @@ struct intel_atomic_state {
 	bool skip_intermediate_wm;
 
 	/* Gen9+ only */
-	struct skl_ddb_values wm_results;
+	struct skl_wm_values wm_results;
 
 	struct i915_sw_fence commit_ready;
 
@@ -483,8 +483,6 @@ struct intel_initial_plane_config {
 #define SKL_MAX_DST_W 4096
 #define SKL_MIN_DST_H 8
 #define SKL_MAX_DST_H 4096
-#define SKL_MIN_YUV_420_SRC_W 16
-#define SKL_MIN_YUV_420_SRC_H 16
 
 struct intel_scaler {
 	int in_use;
@@ -534,9 +532,7 @@ struct intel_pipe_wm {
 
 struct skl_plane_wm {
 	struct skl_wm_level wm[8];
-	struct skl_wm_level uv_wm[8];
 	struct skl_wm_level trans_wm;
-	bool is_planar;
 };
 
 struct skl_pipe_wm {
@@ -1430,8 +1426,7 @@ void intel_mode_from_pipe_config(struct drm_display_mode *mode,
 				 struct intel_crtc_state *pipe_config);
 
 int skl_update_scaler_crtc(struct intel_crtc_state *crtc_state);
-int skl_max_scale(struct intel_crtc *crtc, struct intel_crtc_state *crtc_state,
-		  uint32_t pixel_format);
+int skl_max_scale(struct intel_crtc *crtc, struct intel_crtc_state *crtc_state);
 
 static inline u32 intel_plane_ggtt_offset(const struct intel_plane_state *state)
 {
@@ -1444,7 +1439,6 @@ u32 skl_plane_ctl_rotation(unsigned int rotation);
 u32 skl_plane_stride(const struct drm_framebuffer *fb, int plane,
 		     unsigned int rotation);
 int skl_check_plane_surface(struct intel_plane_state *plane_state);
-int skl_format_to_fourcc(int format, bool rgb_order, bool alpha);
 
 /* intel_csr.c */
 void intel_csr_ucode_init(struct drm_i915_private *);
@@ -1854,7 +1848,6 @@ int intel_sprite_set_colorkey(struct drm_device *dev, void *data,
 			      struct drm_file *file_priv);
 void intel_pipe_update_start(struct intel_crtc *crtc);
 void intel_pipe_update_end(struct intel_crtc *crtc, struct intel_flip_work *work);
-bool intel_format_is_yuv(uint32_t format);
 
 /* intel_tv.c */
 void intel_tv_init(struct drm_i915_private *dev_priv);

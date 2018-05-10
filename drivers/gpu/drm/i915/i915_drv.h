@@ -135,7 +135,7 @@ static inline bool is_fixed16_zero(uint_fixed_16_16_t val)
 	return false;
 }
 
-static inline uint_fixed_16_16_t u32_to_fixed16(uint32_t val)
+static inline uint_fixed_16_16_t u32_to_fixed_16_16(uint32_t val)
 {
 	uint_fixed_16_16_t fp;
 
@@ -145,17 +145,17 @@ static inline uint_fixed_16_16_t u32_to_fixed16(uint32_t val)
 	return fp;
 }
 
-static inline uint32_t fixed16_to_u32_round_up(uint_fixed_16_16_t fp)
+static inline uint32_t fixed_16_16_to_u32_round_up(uint_fixed_16_16_t fp)
 {
 	return DIV_ROUND_UP(fp.val, 1 << 16);
 }
 
-static inline uint32_t fixed16_to_u32(uint_fixed_16_16_t fp)
+static inline uint32_t fixed_16_16_to_u32(uint_fixed_16_16_t fp)
 {
 	return fp.val >> 16;
 }
 
-static inline uint_fixed_16_16_t min_fixed16(uint_fixed_16_16_t min1,
+static inline uint_fixed_16_16_t min_fixed_16_16(uint_fixed_16_16_t min1,
 						 uint_fixed_16_16_t min2)
 {
 	uint_fixed_16_16_t min;
@@ -164,7 +164,7 @@ static inline uint_fixed_16_16_t min_fixed16(uint_fixed_16_16_t min1,
 	return min;
 }
 
-static inline uint_fixed_16_16_t max_fixed16(uint_fixed_16_16_t max1,
+static inline uint_fixed_16_16_t max_fixed_16_16(uint_fixed_16_16_t max1,
 						 uint_fixed_16_16_t max2)
 {
 	uint_fixed_16_16_t max;
@@ -205,7 +205,16 @@ static inline uint_fixed_16_16_t mul_fixed16(uint_fixed_16_16_t val,
 	return fp;
 }
 
-static inline uint_fixed_16_16_t div_fixed16(uint32_t val, uint32_t d)
+static inline uint_fixed_16_16_t fixed_16_16_div(uint32_t val, uint32_t d)
+{
+	uint_fixed_16_16_t fp, res;
+
+	fp = u32_to_fixed_16_16(val);
+	res.val = DIV_ROUND_UP(fp.val, d);
+	return res;
+}
+
+static inline uint_fixed_16_16_t fixed_16_16_div_u64(uint32_t val, uint32_t d)
 {
 	uint_fixed_16_16_t res;
 	uint64_t interm_val;
@@ -229,7 +238,7 @@ static inline uint32_t div_round_up_u32_fixed16(uint32_t val,
 	return clamp_t(uint32_t, interm_val, 0, ~0);
 }
 
-static inline uint_fixed_16_16_t mul_u32_fixed16(uint32_t val,
+static inline uint_fixed_16_16_t mul_u32_fixed_16_16(uint32_t val,
 						     uint_fixed_16_16_t mul)
 {
 	uint64_t intermediate_val;
@@ -529,14 +538,6 @@ struct i915_hotplug {
 #define for_each_power_domain(domain, mask)				\
 	for ((domain) = 0; (domain) < POWER_DOMAIN_NUM; (domain)++)	\
 		for_each_if ((1 << (domain)) & (mask))
-
-#define for_each_new_intel_crtc_in_state(__state, crtc, new_crtc_state, __i) \
-       for ((__i) = 0; \
-            (__i) < (__state)->base.dev->mode_config.num_crtc && \
-                    ((crtc) = to_intel_crtc((__state)->base.crtcs[__i].ptr), \
-                     (new_crtc_state) = to_intel_crtc_state((__state)->base.crtcs[__i].new_state), 1); \
-            (__i)++) \
-               for_each_if (crtc)
 
 struct drm_i915_private;
 struct i915_mm_struct;
@@ -1755,12 +1756,11 @@ static inline bool skl_ddb_entry_equal(const struct skl_ddb_entry *e1,
 }
 
 struct skl_ddb_allocation {
-	/* packed/y */
-	struct skl_ddb_entry plane[I915_MAX_PIPES][I915_MAX_PLANES];
-	struct skl_ddb_entry uv_plane[I915_MAX_PIPES][I915_MAX_PLANES];
+	struct skl_ddb_entry plane[I915_MAX_PIPES][I915_MAX_PLANES]; /* packed/uv */
+	struct skl_ddb_entry y_plane[I915_MAX_PIPES][I915_MAX_PLANES];
 };
 
-struct skl_ddb_values {
+struct skl_wm_values {
 	unsigned dirty_pipes;
 	struct skl_ddb_allocation ddb;
 };
@@ -1769,21 +1769,6 @@ struct skl_wm_level {
 	bool plane_en;
 	uint16_t plane_res_b;
 	uint8_t plane_res_l;
-};
-
-/* Stores plane specific WM parameters */
-struct skl_wm_params {
-	bool x_tiled, y_tiled;
-	bool rc_surface;
-	bool is_planar;
-	uint32_t width;
-	uint8_t cpp;
-	uint32_t plane_pixel_rate;
-	uint32_t y_min_scanlines;
-	uint32_t plane_bytes_per_line;
-	uint_fixed_16_16_t plane_blocks_per_line;
-	uint_fixed_16_16_t y_tile_minimum;
-	uint32_t linetime_us;
 };
 
 /*
@@ -2282,7 +2267,7 @@ struct drm_i915_private {
 		/* current hardware state */
 		union {
 			struct ilk_wm_values hw;
-			struct skl_ddb_values skl_hw;
+			struct skl_wm_values skl_hw;
 			struct vlv_wm_values vlv;
 		};
 

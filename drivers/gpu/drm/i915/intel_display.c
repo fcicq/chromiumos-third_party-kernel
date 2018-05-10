@@ -90,7 +90,6 @@ static const uint32_t skl_primary_formats[] = {
 	DRM_FORMAT_YVYU,
 	DRM_FORMAT_UYVY,
 	DRM_FORMAT_VYUY,
-	DRM_FORMAT_NV12,
 };
 
 static const uint64_t skl_format_modifiers_noccs[] = {
@@ -2681,13 +2680,11 @@ static int i9xx_format_to_fourcc(int format)
 	}
 }
 
-int skl_format_to_fourcc(int format, bool rgb_order, bool alpha)
+static int skl_format_to_fourcc(int format, bool rgb_order, bool alpha)
 {
 	switch (format) {
 	case PLANE_CTL_FORMAT_RGB_565:
 		return DRM_FORMAT_RGB565;
-	case PLANE_CTL_FORMAT_NV12:
-		return DRM_FORMAT_NV12;
 	default:
 	case PLANE_CTL_FORMAT_XRGB_8888:
 		if (rgb_order) {
@@ -3467,8 +3464,6 @@ u32 skl_plane_ctl_format(uint32_t pixel_format)
 		return PLANE_CTL_FORMAT_YUV422 | PLANE_CTL_YUV422_UYVY;
 	case DRM_FORMAT_VYUY:
 		return PLANE_CTL_FORMAT_YUV422 | PLANE_CTL_YUV422_VYUY;
-	case DRM_FORMAT_NV12:
-		return PLANE_CTL_FORMAT_NV12;
 	default:
 		MISSING_CASE(pixel_format);
 	}
@@ -3645,8 +3640,7 @@ static void intel_update_primary_planes(struct drm_device *dev)
 
 static int
 __intel_display_resume(struct drm_device *dev,
-		       struct drm_atomic_state *state,
-		       struct drm_modeset_acquire_ctx *ctx)
+		       struct drm_atomic_state *state)
 {
 	struct drm_crtc_state *crtc_state;
 	struct drm_crtc *crtc;
@@ -3670,7 +3664,7 @@ __intel_display_resume(struct drm_device *dev,
 	/* ignore any reset values/BIOS leftovers in the WM registers */
 	to_intel_atomic_state(state)->skip_intermediate_wm = true;
 
-	ret = drm_atomic_helper_commit_duplicated_state(state, ctx);
+	ret = drm_atomic_commit(state);
 
 	WARN_ON(ret == -EDEADLK);
 	return ret;
@@ -3775,7 +3769,7 @@ void intel_finish_reset(struct drm_i915_private *dev_priv)
 			dev_priv->display.hpd_irq_setup(dev_priv);
 		spin_unlock_irq(&dev_priv->irq_lock);
 
-		ret = __intel_display_resume(dev, state, ctx);
+		ret = __intel_display_resume(dev, state);
 		if (ret)
 			DRM_ERROR("Restoring old state failed with %i\n", ret);
 
@@ -4797,9 +4791,7 @@ static void cpt_verify_modeset(struct drm_device *dev, int pipe)
 static int
 skl_update_scaler(struct intel_crtc_state *crtc_state, bool force_detach,
 		  unsigned scaler_user, int *scaler_id, unsigned int rotation,
-		  int src_w, int src_h, int dst_w, int dst_h,
-		  bool plane_scaler_check,
-		  uint32_t pixel_format)
+		  int src_w, int src_h, int dst_w, int dst_h)
 {
 	struct intel_crtc_scaler_state *scaler_state =
 		&crtc_state->scaler_state;
@@ -4810,10 +4802,6 @@ skl_update_scaler(struct intel_crtc_state *crtc_state, bool force_detach,
 	need_scaling = drm_rotation_90_or_270(rotation) ?
 		(src_h != dst_w || src_w != dst_h):
 		(src_w != dst_w || src_h != dst_h);
-
-	if (plane_scaler_check)
-		if (pixel_format == DRM_FORMAT_NV12)
-			need_scaling = true;
 
 	/*
 	 * if plane is being disabled or scaler is no more required or force detach
@@ -4840,17 +4828,14 @@ skl_update_scaler(struct intel_crtc_state *crtc_state, bool force_detach,
 	}
 
 	/* range checks */
-	if (plane_scaler_check && pixel_format == DRM_FORMAT_NV12 &&
-	    src_h <= SKL_MIN_YUV_420_SRC_H)
-		return -EINVAL;
-
 	if (src_w < SKL_MIN_SRC_W || src_h < SKL_MIN_SRC_H ||
-	    dst_w < SKL_MIN_DST_W || dst_h < SKL_MIN_DST_H ||
-	    src_w > SKL_MAX_SRC_W || src_h > SKL_MAX_SRC_H ||
-	    dst_w > SKL_MAX_DST_W || dst_h > SKL_MAX_DST_H) {
+		dst_w < SKL_MIN_DST_W || dst_h < SKL_MIN_DST_H ||
+
+		src_w > SKL_MAX_SRC_W || src_h > SKL_MAX_SRC_H ||
+		dst_w > SKL_MAX_DST_W || dst_h > SKL_MAX_DST_H) {
 		DRM_DEBUG_KMS("scaler_user index %u.%u: src %ux%u dst %ux%u "
-			      "size is out of scaler range\n",
-			      intel_crtc->pipe, scaler_user, src_w, src_h, dst_w, dst_h);
+			"size is out of scaler range\n",
+			intel_crtc->pipe, scaler_user, src_w, src_h, dst_w, dst_h);
 		return -EINVAL;
 	}
 
@@ -4878,10 +4863,9 @@ int skl_update_scaler_crtc(struct intel_crtc_state *state)
 	const struct drm_display_mode *adjusted_mode = &state->base.adjusted_mode;
 
 	return skl_update_scaler(state, !state->base.active, SKL_CRTC_INDEX,
-				 &state->scaler_state.scaler_id, DRM_ROTATE_0,
-				 state->pipe_src_w, state->pipe_src_h,
-				 adjusted_mode->crtc_hdisplay,
-				 adjusted_mode->crtc_vdisplay, false, 0);
+		&state->scaler_state.scaler_id, DRM_ROTATE_0,
+		state->pipe_src_w, state->pipe_src_h,
+		adjusted_mode->crtc_hdisplay, adjusted_mode->crtc_vdisplay);
 }
 
 /**
@@ -4912,8 +4896,7 @@ static int skl_update_scaler_plane(struct intel_crtc_state *crtc_state,
 				drm_rect_width(&plane_state->base.src) >> 16,
 				drm_rect_height(&plane_state->base.src) >> 16,
 				drm_rect_width(&plane_state->base.dst),
-				drm_rect_height(&plane_state->base.dst),
-				fb ? true : false, fb ? fb->format->format : 0);
+				drm_rect_height(&plane_state->base.dst));
 
 	if (ret || plane_state->scaler_id < 0)
 		return ret;
@@ -4939,7 +4922,6 @@ static int skl_update_scaler_plane(struct intel_crtc_state *crtc_state,
 	case DRM_FORMAT_YVYU:
 	case DRM_FORMAT_UYVY:
 	case DRM_FORMAT_VYUY:
-	case DRM_FORMAT_NV12:
 		break;
 	default:
 		DRM_DEBUG_KMS("[PLANE:%d:%s] FB:%d unsupported scaling format 0x%x\n",
@@ -9970,7 +9952,7 @@ void intel_release_load_detect_pipe(struct drm_connector *connector,
 	if (!state)
 		return;
 
-	ret = drm_atomic_helper_commit_duplicated_state(state, ctx);
+	ret = drm_atomic_commit(state);
 	if (ret)
 		DRM_DEBUG_KMS("Couldn't release load detect pipe: %i\n", ret);
 	drm_atomic_state_put(state);
@@ -13636,26 +13618,18 @@ intel_cleanup_plane_fb(struct drm_plane *plane,
 }
 
 int
-skl_max_scale(struct intel_crtc *intel_crtc,
-	      struct intel_crtc_state *crtc_state,
-	      uint32_t pixel_format)
+skl_max_scale(struct intel_crtc *intel_crtc, struct intel_crtc_state *crtc_state)
 {
-	struct drm_i915_private *dev_priv;
-	int max_scale, mult;
-	int crtc_clock, max_dotclk, tmpclk1, tmpclk2;
+	int max_scale;
+	int crtc_clock, cdclk;
 
 	if (!intel_crtc || !crtc_state->base.enable)
 		return DRM_PLANE_HELPER_NO_SCALING;
 
-	dev_priv = to_i915(intel_crtc->base.dev);
-
 	crtc_clock = crtc_state->base.adjusted_mode.crtc_clock;
-	max_dotclk = to_intel_atomic_state(crtc_state->base.state)->cdclk.logical.cdclk;
+	cdclk = to_intel_atomic_state(crtc_state->base.state)->cdclk.logical.cdclk;
 
-	if (IS_GEMINILAKE(dev_priv))
-		max_dotclk *= 2;
-
-	if (WARN_ON_ONCE(!crtc_clock || max_dotclk < crtc_clock))
+	if (WARN_ON_ONCE(!crtc_clock || cdclk < crtc_clock))
 		return DRM_PLANE_HELPER_NO_SCALING;
 
 	/*
@@ -13664,10 +13638,7 @@ skl_max_scale(struct intel_crtc *intel_crtc,
 	 *            or
 	 *    cdclk/crtc_clock
 	 */
-	mult = pixel_format == DRM_FORMAT_NV12 ? 2 : 3;
-	tmpclk1 = (1 << 16) * mult - 1;
-	tmpclk2 = (1 << 8) * ((max_dotclk << 8) / crtc_clock);
-	max_scale = min(tmpclk1, tmpclk2);
+	max_scale = min((1 << 16) * 3 - 1, (1 << 8) * ((cdclk << 8) / crtc_clock));
 
 	return max_scale;
 }
@@ -13683,16 +13654,12 @@ intel_check_primary_plane(struct drm_plane *plane,
 	int max_scale = DRM_PLANE_HELPER_NO_SCALING;
 	bool can_position = false;
 	int ret;
-	uint32_t pixel_format = 0;
 
 	if (INTEL_GEN(dev_priv) >= 9) {
 		/* use scaler when colorkey is not required */
 		if (state->ckey.flags == I915_SET_COLORKEY_NONE) {
 			min_scale = 1;
-			if (state->base.fb)
-				pixel_format = state->base.fb->format->format;
-			max_scale = skl_max_scale(to_intel_crtc(crtc),
-						  crtc_state, pixel_format);
+			max_scale = skl_max_scale(to_intel_crtc(crtc), crtc_state);
 		}
 		can_position = true;
 	}
@@ -14059,10 +14026,6 @@ intel_primary_plane_create(struct drm_i915_private *dev_priv, enum pipe pipe)
 	if (INTEL_GEN(dev_priv) >= 9) {
 		intel_primary_formats = skl_primary_formats;
 		num_formats = ARRAY_SIZE(skl_primary_formats);
-		if ((INTEL_GEN(dev_priv) == 9 && (pipe == PIPE_C)) &&
-			!IS_GEMINILAKE(dev_priv))
-			num_formats -= 1;
-
 		if (pipe < PIPE_C)
 			modifiers = skl_format_modifiers_ccs;
 		else
@@ -14942,14 +14905,6 @@ static int intel_framebuffer_init(struct drm_device *dev,
 		if (INTEL_GEN(dev_priv) < 5) {
 			DRM_DEBUG("unsupported pixel format: %s\n",
 			          drm_get_format_name(mode_cmd->pixel_format, &format_name));
-			return -EINVAL;
-		}
-		break;
-	case DRM_FORMAT_NV12:
-		if (INTEL_GEN(dev_priv) < 9) {
-			DRM_DEBUG_KMS("unsupported pixel format: %s\n",
-				      drm_get_format_name(mode_cmd->pixel_format,
-				      &format_name));
 			return -EINVAL;
 		}
 		break;
@@ -16095,7 +16050,7 @@ void intel_display_resume(struct drm_device *dev)
 	}
 
 	if (!ret)
-		ret = __intel_display_resume(dev, state, &ctx);
+		ret = __intel_display_resume(dev, state);
 
 	drm_modeset_drop_locks(&ctx);
 	drm_modeset_acquire_fini(&ctx);

@@ -41,14 +41,14 @@
 #include <drm/i915_drm.h>
 #include "i915_drv.h"
 
-bool intel_format_is_yuv(uint32_t format)
+static bool
+format_is_yuv(uint32_t format)
 {
 	switch (format) {
 	case DRM_FORMAT_YUYV:
 	case DRM_FORMAT_UYVY:
 	case DRM_FORMAT_VYUY:
 	case DRM_FORMAT_YVYU:
-	case DRM_FORMAT_NV12:
 		return true;
 	default:
 		return false;
@@ -317,7 +317,7 @@ chv_update_csc(struct intel_plane *intel_plane, uint32_t format)
 	enum plane_id plane_id = intel_plane->id;
 
 	/* Seems RGB data bypasses the CSC always */
-	if (!intel_format_is_yuv(format))
+	if (!format_is_yuv(format))
 		return;
 
 	/*
@@ -801,8 +801,7 @@ intel_check_sprite_plane(struct drm_plane *plane,
 		if (state->ckey.flags == I915_SET_COLORKEY_NONE) {
 			can_scale = 1;
 			min_scale = 1;
-			max_scale = skl_max_scale(intel_crtc, crtc_state,
-						  fb->format->format);
+			max_scale = skl_max_scale(intel_crtc, crtc_state);
 		} else {
 			can_scale = 0;
 			min_scale = DRM_PLANE_HELPER_NO_SCALING;
@@ -880,7 +879,7 @@ intel_check_sprite_plane(struct drm_plane *plane,
 		src_y = src->y1 >> 16;
 		src_h = drm_rect_height(src) >> 16;
 
-		if (intel_format_is_yuv(fb->format->format)) {
+		if (format_is_yuv(fb->format->format)) {
 			src_x &= ~1;
 			src_w &= ~1;
 
@@ -1042,7 +1041,6 @@ static uint32_t skl_plane_formats[] = {
 	DRM_FORMAT_YVYU,
 	DRM_FORMAT_UYVY,
 	DRM_FORMAT_VYUY,
-	DRM_FORMAT_NV12,
 };
 
 static const uint64_t skl_plane_format_modifiers[] = {
@@ -1206,16 +1204,6 @@ intel_sprite_plane_create(struct drm_i915_private *dev_priv,
 
 		plane_formats = skl_plane_formats;
 		num_plane_formats = ARRAY_SIZE(skl_plane_formats);
-
-                if (IS_GEMINILAKE(dev_priv) || INTEL_GEN(dev_priv) == 10) {
-                        if (plane != 0)
-                                num_plane_formats -= 1;
-                } else {
-                        if (plane != 0 || pipe == PIPE_C){
-                                 num_plane_formats -= 1;
-			}
-                }
-
 		modifiers = skl_plane_format_modifiers;
 	} else if (IS_VALLEYVIEW(dev_priv) || IS_CHERRYVIEW(dev_priv)) {
 		intel_plane->can_scale = false;
