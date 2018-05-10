@@ -561,6 +561,21 @@ ap_ts_i2c: &i2c14 {
 	status = "okay";
 };
 
+&sdhc_2 {
+	status = "okay";
+
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&sdc2_clk_default  &sdc2_cmd_default &sdc2_data_default
+		     &sd_cd_odl>;
+	pinctrl-1 = <&sdc2_clk_sleep &sdc2_cmd_sleep &sdc2_data_sleep
+		     &sd_cd_odl>;
+
+	vmmc-supply = <&src_pp2950_l21a>;
+	vqmmc-supply = <&vddpx_2>;
+
+	cd-gpios = <&tlmm 44 GPIO_ACTIVE_LOW>;
+};
+
 &spi0 {
 	status = "okay";
 	spi-max-frequency = <3000000>;  /* TODO: Drop this? */
@@ -986,6 +1001,67 @@ ap_ts_i2c: &i2c14 {
 			 * remove "output-high" here.
 			 */
 			output-high;
+		};
+	};
+
+	sdc2_clk_default: sdc2-clk-default {
+		pinconf {
+			pins = "sdc2_clk";
+			bias-disable;
+			drive-strength = <16>;
+		};
+	};
+
+	sdc2_clk_sleep: sdc2-clk-sleep {
+		pinconf {
+			pins = "sdc2_clk";
+			bias-disable;
+			drive-strength = <2>;
+		};
+	};
+
+	sdc2_cmd_default: sdc2-cmd-default {
+		pinconf {
+			pins = "sdc2_cmd";
+			bias-pull-up;
+			drive-strength = <10>;
+		};
+	};
+
+	sdc2_cmd_sleep: sdc2-cmd-sleep {
+		pinconf {
+			pins = "sdc2_cmd";
+			bias-pull-up;
+			drive-strength = <2>;
+		};
+	};
+
+	sdc2_data_default: sdc2-data-default {
+		pinconf {
+			pins = "sdc2_data";
+			bias-pull-up;
+			drive-strength = <10>;
+		};
+	};
+
+	sdc2_data_sleep: sdc2-data-sleep {
+		pinconf {
+			pins = "sdc2_data";
+			bias-pull-up;
+			drive-strength = <2>;
+		};
+	};
+
+	sd_cd_odl: sd-cd-odl {
+		pinmux {
+			pins = "gpio44";
+			function = "gpio";
+		};
+
+		pinconf {
+			pins = "gpio44";
+			bias-pull-up;
+			drive-strength = <2>;
 		};
 	};
 
