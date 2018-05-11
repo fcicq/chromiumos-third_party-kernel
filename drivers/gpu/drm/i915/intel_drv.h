@@ -1742,8 +1742,6 @@ void intel_psr_flush(struct drm_i915_private *dev_priv,
 		     unsigned frontbuffer_bits,
 		     enum fb_op_origin origin);
 void intel_psr_init(struct drm_i915_private *dev_priv);
-void intel_psr_single_frame_update(struct drm_i915_private *dev_priv,
-				   unsigned frontbuffer_bits);
 void intel_psr_compute_config(struct intel_dp *intel_dp,
 			      struct intel_crtc_state *crtc_state);
 int intel_psr_wait_for_idle(const struct intel_crtc_state *new_crtc_state);
