@@ -15081,6 +15081,20 @@ static int intel_framebuffer_init(struct drm_device *dev,
 			return -EINVAL;
 		}
 		break;
+	case DRM_FORMAT_NV12:
+		if (mode_cmd->modifier[0] == I915_FORMAT_MOD_Y_TILED_CCS ||
+		    mode_cmd->modifier[0] == I915_FORMAT_MOD_Yf_TILED_CCS) {
+			DRM_DEBUG_KMS("RC not to be enabled with NV12\n");
+			return -EINVAL;
+		}
+		if (INTEL_GEN(dev_priv) < 9 || IS_SKYLAKE(dev_priv) ||
+		    IS_BROXTON(dev_priv)) {
+			DRM_DEBUG_KMS("unsupported pixel format: %s\n",
+				      drm_get_format_name(mode_cmd->pixel_format,
+							  &format_name));
+			return -EINVAL;
+		}
+		break;
 	default:
 		DRM_DEBUG("unsupported pixel format: %s\n",
 		          drm_get_format_name(mode_cmd->pixel_format, &format_name));
@@ -15092,6 +15106,14 @@ static int intel_framebuffer_init(struct drm_device *dev,
 		return -EINVAL;
 
 	drm_helper_mode_fill_fb_struct(&dev_priv->drm, fb, mode_cmd);
+
+	if (fb->format->format == DRM_FORMAT_NV12 &&
+	    (fb->width < SKL_MIN_YUV_420_SRC_W ||
+	     fb->height < SKL_MIN_YUV_420_SRC_H ||
+	     (fb->width % 4) != 0 || (fb->height % 4) != 0)) {
+		DRM_DEBUG_KMS("src dimensions not correct for NV12\n");
+		return -EINVAL;
+	}
 
 	for (i = 0; i < fb->format->num_planes; i++) {
 		u32 stride_alignment;
