@@ -282,6 +282,8 @@ static inline bool pm_resume_via_firmware(void) { return false; }
 static inline void suspend_set_ops(const struct platform_suspend_ops *ops) {}
 static inline int pm_suspend(suspend_state_t state) { return -ENOSYS; }
 static inline bool idle_should_freeze(void) { return false; }
+static inline int tick_set_freeze_event(int cpu, ktime_t expires) { return 0; }
+static inline int tick_clear_freeze_event(int cpu) { return 0; }
 static inline void freeze_set_ops(const struct platform_freeze_ops *ops) {}
 static inline void freeze_wake(void) {}
 #endif /* !CONFIG_SUSPEND */
