@@ -939,6 +939,19 @@ static const uint32_t ilk_plane_formats[] = {
 	DRM_FORMAT_VYUY,
 };
 
+static uint32_t skl_planar_formats[] = {
+	DRM_FORMAT_RGB565,
+	DRM_FORMAT_ABGR8888,
+	DRM_FORMAT_ARGB8888,
+	DRM_FORMAT_XBGR8888,
+	DRM_FORMAT_XRGB8888,
+	DRM_FORMAT_YUYV,
+	DRM_FORMAT_YVYU,
+	DRM_FORMAT_UYVY,
+	DRM_FORMAT_VYUY,
+	DRM_FORMAT_NV12,
+};
+
 static const uint64_t i9xx_plane_format_modifiers[] = {
 	I915_FORMAT_MOD_X_TILED,
 	DRM_FORMAT_MOD_LINEAR,
@@ -1048,6 +1061,7 @@ static bool skl_sprite_plane_format_mod_supported(struct drm_plane *plane,
 	case DRM_FORMAT_YVYU:
 	case DRM_FORMAT_UYVY:
 	case DRM_FORMAT_VYUY:
+	case DRM_FORMAT_NV12:
 		if (modifier == I915_FORMAT_MOD_Yf_TILED)
 			return true;
 		/* fall through */
@@ -1139,8 +1153,14 @@ intel_sprite_plane_create(struct drm_i915_private *dev_priv,
 		intel_plane->update_plane = skl_update_plane;
 		intel_plane->disable_plane = skl_disable_plane;
 
-		plane_formats = skl_plane_formats;
-		num_plane_formats = ARRAY_SIZE(skl_plane_formats);
+		if (skl_plane_has_planar(dev_priv, pipe,
+					 PLANE_SPRITE0 + plane)) {
+			plane_formats = skl_planar_formats;
+			num_plane_formats = ARRAY_SIZE(skl_planar_formats);
+		} else {
+			plane_formats = skl_plane_formats;
+			num_plane_formats = ARRAY_SIZE(skl_plane_formats);
+		}
 		modifiers = skl_plane_format_modifiers;
 	} else if (IS_VALLEYVIEW(dev_priv) || IS_CHERRYVIEW(dev_priv)) {
 		intel_plane->can_scale = false;
