@@ -879,7 +879,7 @@ static void mp_stop_mi(struct rkisp1_stream *stream)
 {
 	void __iomem *base = stream->ispdev->base_addr;
 
-	if (stream->state != RKISP1_STATE_STREAMING)
+	if (!stream->streaming)
 		return;
 	stream->ops->clr_frame_end_int(base);
 	stream->ops->disable_mi(stream);
@@ -889,7 +889,7 @@ static void sp_stop_mi(struct rkisp1_stream *stream)
 {
 	void __iomem *base = stream->ispdev->base_addr;
 
-	if (stream->state != RKISP1_STATE_STREAMING)
+	if (!stream->streaming)
 		return;
 	stream->ops->clr_frame_end_int(base);
 	stream->ops->disable_mi(stream);
@@ -981,13 +981,13 @@ static void rkisp1_stream_stop(struct rkisp1_stream *stream)
 
 	stream->stopping = true;
 	ret = wait_event_timeout(stream->done,
-				 stream->state != RKISP1_STATE_STREAMING,
+				 !stream->streaming,
 				 msecs_to_jiffies(1000));
 	if (!ret) {
 		v4l2_warn(v4l2_dev, "waiting on event return error %d\n", ret);
 		stream->ops->stop_mi(stream);
 		stream->stopping = false;
-		stream->state = RKISP1_STATE_READY;
+		stream->streaming = false;
 	}
 	disable_dcrop(stream, true);
 	disable_rsz(stream, true);
@@ -1023,11 +1023,11 @@ static int rkisp1_start(struct rkisp1_stream *stream)
 	 * also required because the sencond FE maybe corrupt especially
 	 * when run at 120fps.
 	 */
-	if (other->state != RKISP1_STATE_STREAMING) {
+	if (!other->streaming) {
 		force_cfg_update(base);
 		mi_frame_end(stream);
 	}
-	stream->state = RKISP1_STATE_STREAMING;
+	stream->streaming = true;
 
 	return 0;
 }
@@ -1101,7 +1101,7 @@ static void rkisp1_buf_queue(struct vb2_buffer *vb)
 	spin_lock_irqsave(&stream->vbq_lock, lock_flags);
 
 	/* XXX: replace dummy to speed up  */
-	if (stream->state == RKISP1_STATE_STREAMING &&
+	if (stream->streaming &&
 	    stream->next_buf == NULL &&
 	    atomic_read(&stream->ispdev->isp_sdev.frm_sync_seq) == 0) {
 		stream->next_buf = ispbuf;
@@ -1198,7 +1198,7 @@ static int rkisp1_stream_start(struct rkisp1_stream *stream)
 	bool async = false;
 	int ret;
 
-	if (other->state == RKISP1_STATE_STREAMING)
+	if (other->streaming)
 		async = true;
 
 	ret = rkisp1_config_rsz(stream, async);
@@ -1229,7 +1229,7 @@ rkisp1_start_streaming(struct vb2_queue *queue, unsigned int count)
 	struct v4l2_device *v4l2_dev = &dev->v4l2_dev;
 	int ret;
 
-	if (WARN_ON(stream->state != RKISP1_STATE_READY))
+	if (WARN_ON(stream->streaming))
 		return -EBUSY;
 
 	ret = rkisp1_create_dummy_buf(stream);
@@ -1346,7 +1346,7 @@ static void rkisp1_set_fmt(struct rkisp1_stream *stream,
 	if (!pixm->quantization)
 		pixm->quantization = V4L2_QUANTIZATION_FULL_RANGE;
 	/* can not change quantization when stream-on */
-	if (other_stream->state == RKISP1_STATE_STREAMING)
+	if (other_stream->streaming)
 		pixm->quantization = other_stream->out_fmt.quantization;
 
 	/* calculate size */
@@ -1423,7 +1423,7 @@ void rkisp1_stream_init(struct rkisp1_device *dev, u32 id)
 		stream->config = &rkisp1_mp_stream_config;
 	}
 
-	stream->state = RKISP1_STATE_READY;
+	stream->streaming = false;
 
 	memset(&pixm, 0, sizeof(pixm));
 	pixm.pixelformat = V4L2_PIX_FMT_YUYV;
@@ -1743,7 +1743,7 @@ void rkisp1_mi_isr(struct rkisp1_stream *stream)
 		 */
 		if (stream->ops->is_stream_stopped(dev->base_addr)) {
 			stream->stopping = false;
-			stream->state = RKISP1_STATE_READY;
+			stream->streaming = false;
 			wake_up(&stream->done);
 		} else {
 			stream->ops->stop_mi(stream);
