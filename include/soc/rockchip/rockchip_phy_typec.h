@@ -35,6 +35,11 @@ struct rockchip_usb3phy_port_cfg {
 	struct usb3phy_reg uphy_dp_sel;
 };
 
+struct phy_config {
+	int swing;
+	int pe;
+};
+
 struct rockchip_typec_phy {
 	struct device *dev;
 	void __iomem *base;
@@ -50,6 +55,9 @@ struct rockchip_typec_phy {
 	struct mutex lock;
 	bool flip;
 	u8 mode;
+	struct phy_config config[3][4];
+	int (*typec_phy_config)(struct phy *phy, int link_rate,
+				int lanes, u8 swing, u8 pre_emp);
 };
 
 #endif
