@@ -151,14 +151,17 @@ struct streams_ops {
  * @out_isp_fmt: output isp format
  * @out_fmt: output buffer size
  * @dcrop: coordinates of dual-crop
- *
- * @vbq_lock: lock to protect buf_queue
- * @buf_queue: queued buffer list
  * @dummy_buf: dummy space to store dropped data
  *
  * rkisp1 use shadowsock registers, so it need two buffer at a time
- * @curr_buf: the buffer used for current frame
- * @next_buf: the buffer used for next frame
+ * @curr_buf: The buffer used for current frame.
+ * @next_buf: The buffer used for next frame (protected by
+ *	      rkisp1_device::vbq_lock).
+ * @bufs_pending: Buffers waiting for a match with other stream
+ *		  (protected by rkisp1_device::vbq_lock).
+ * @bufs_ready: Buffers ready to be used for output of the stream
+ *		(protected by rkisp1_device::vbq_lock).
+ * @streaming: VB2 streaming started.
  */
 struct rkisp1_stream {
 	unsigned id:1;
@@ -169,11 +172,11 @@ struct rkisp1_stream {
 	struct v4l2_rect dcrop;
 	struct streams_ops *ops;
 	struct stream_config *config;
-	spinlock_t vbq_lock;
-	struct list_head buf_queue;
 	struct rkisp1_dummy_buffer dummy_buf;
 	struct rkisp1_buffer *curr_buf;
 	struct rkisp1_buffer *next_buf;
+	struct list_head bufs_pending;
+	struct list_head bufs_ready;
 	bool streaming;
 	bool stopping;
 	wait_queue_head_t done;
