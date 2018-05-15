@@ -357,9 +357,9 @@ static int rkisp1_config_cif(struct rkisp1_device *dev)
 	u32 cif_id;
 
 	v4l2_dbg(1, rkisp1_debug, &dev->v4l2_dev,
-		 "SP state = %d, MP state = %d\n",
-		 dev->stream[RKISP1_STREAM_SP].state,
-		 dev->stream[RKISP1_STREAM_MP].state);
+		 "SP streaming = %d, MP streaming = %d\n",
+		 dev->stream[RKISP1_STREAM_SP].streaming,
+		 dev->stream[RKISP1_STREAM_MP].streaming);
 
 	cif_id = readl(dev->base_addr + CIF_VI_ID);
 	v4l2_dbg(1, rkisp1_debug, &dev->v4l2_dev, "CIF_ID 0x%08x\n", cif_id);
@@ -382,9 +382,9 @@ static int rkisp1_isp_stop(struct rkisp1_device *dev)
 	u32 val;
 
 	v4l2_dbg(1, rkisp1_debug, &dev->v4l2_dev,
-		 "SP state = %d, MP state = %d\n",
-		 dev->stream[RKISP1_STREAM_SP].state,
-		 dev->stream[RKISP1_STREAM_MP].state);
+		 "SP streaming = %d, MP streaming = %d\n",
+		 dev->stream[RKISP1_STREAM_SP].streaming,
+		 dev->stream[RKISP1_STREAM_MP].streaming);
 
 	/*
 	 * ISP(mi) stop in mi frame end -> Stop ISP(mipi) ->
@@ -412,9 +412,9 @@ static int rkisp1_isp_stop(struct rkisp1_device *dev)
 	readx_poll_timeout(readl, base + CIF_ISP_RIS,
 			   val, val & CIF_ISP_OFF, 20, 100);
 	v4l2_dbg(1, rkisp1_debug, &dev->v4l2_dev,
-		"state(MP:%d, SP:%d), MI_CTRL:%x, ISP_CTRL:%x, MIPI_CTRL:%x\n",
-		 dev->stream[RKISP1_STREAM_SP].state,
-		 dev->stream[RKISP1_STREAM_MP].state,
+		"streaming(MP:%d, SP:%d), MI_CTRL:%x, ISP_CTRL:%x, MIPI_CTRL:%x\n",
+		 dev->stream[RKISP1_STREAM_SP].streaming,
+		 dev->stream[RKISP1_STREAM_MP].streaming,
 		 readl(base + CIF_MI_CTRL),
 		 readl(base + CIF_ISP_CTRL),
 		 readl(base + CIF_MIPI_CTRL));
@@ -433,9 +433,9 @@ static int rkisp1_isp_start(struct rkisp1_device *dev)
 	u32 val;
 
 	v4l2_dbg(1, rkisp1_debug, &dev->v4l2_dev,
-		 "SP state = %d, MP state = %d\n",
-		 dev->stream[RKISP1_STREAM_SP].state,
-		 dev->stream[RKISP1_STREAM_MP].state);
+		 "SP streaming = %d, MP streaming = %d\n",
+		 dev->stream[RKISP1_STREAM_SP].streaming,
+		 dev->stream[RKISP1_STREAM_MP].streaming);
 
 	/* Activate MIPI */
 	if (sensor->mbus.type == V4L2_MBUS_CSI2) {
@@ -455,10 +455,10 @@ static int rkisp1_isp_start(struct rkisp1_device *dev)
 	usleep_range(1000, 1200);
 
 	v4l2_dbg(1, rkisp1_debug, &dev->v4l2_dev,
-		 "SP state = %d, MP state = %d MI_CTRL 0x%08x\n"
+		 "SP streaming = %d, MP streaming = %d MI_CTRL 0x%08x\n"
 		 "  ISP_CTRL 0x%08x MIPI_CTRL 0x%08x\n",
-		 dev->stream[RKISP1_STREAM_SP].state,
-		 dev->stream[RKISP1_STREAM_MP].state,
+		 dev->stream[RKISP1_STREAM_SP].streaming,
+		 dev->stream[RKISP1_STREAM_MP].streaming,
 		 readl(base + CIF_MI_CTRL),
 		 readl(base + CIF_ISP_CTRL),
 		 readl(base + CIF_MIPI_CTRL));
