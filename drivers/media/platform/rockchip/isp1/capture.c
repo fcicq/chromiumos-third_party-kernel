@@ -63,7 +63,6 @@
  * available sp source fmts: yuv, rgb
  */
 
-#define CIF_ISP_REQ_BUFS_MIN 1
 #define CIF_ISP_REQ_BUFS_MAX 8
 
 #define STREAM_PAD_SINK				0
@@ -910,20 +909,26 @@ static struct streams_ops rkisp1_sp_streams_ops = {
 };
 
 /*
- * This function is called when a frame end come. The next frame
- * is processing and we should set up buffer for next-next frame,
- * otherwise it will overflow.
+ * For any currently streaming MI, which finished outputting to a user
+ * buffer, signal buffer completion, recording time stamp and frame
+ * capture sequence.
  */
-static int mi_frame_end(struct rkisp1_stream *stream)
+static void mi_buffers_done(struct rkisp1_device *isp_dev)
 {
-	struct rkisp1_device *isp_dev = stream->ispdev;
 	struct rkisp1_isp_subdev *isp_sd = &isp_dev->isp_sdev;
-	struct capture_fmt *isp_fmt = &stream->out_isp_fmt;
-	unsigned long lock_flags = 0;
-	int i = 0;
+	u64 sequence = atomic_read(&isp_sd->frm_sync_seq) - 1;
+	u64 ns = ktime_get_boot_ns();
+	int s;
 
-	if (stream->curr_buf) {
-		u64 ns = ktime_get_boot_ns();
+	for_each_set_bit(s,
+			 &isp_dev->mi_streaming,
+			 ARRAY_SIZE(isp_dev->stream)) {
+		struct rkisp1_stream *stream = &isp_dev->stream[s];
+		struct capture_fmt *isp_fmt = &stream->out_isp_fmt;
+		int i;
+
+		if (!stream->curr_buf)
+			continue;
 
 		/* Dequeue a filled buffer */
 		for (i = 0; i < isp_fmt->mplanes; i++) {
@@ -933,30 +938,144 @@ static int mi_frame_end(struct rkisp1_stream *stream)
 				&stream->curr_buf->vb.vb2_buf, i,
 				payload_size);
 		}
-		stream->curr_buf->vb.sequence =
-				atomic_read(&isp_sd->frm_sync_seq) - 1;
+		stream->curr_buf->vb.sequence = sequence;
 		stream->curr_buf->vb.timestamp = ns_to_timeval(ns);
+
 		vb2_buffer_done(&stream->curr_buf->vb.vb2_buf,
 				VB2_BUF_STATE_DONE);
+
+		stream->curr_buf = NULL;
 	}
+}
 
-	/* Next frame is writing to it */
-	stream->curr_buf = stream->next_buf;
-	stream->next_buf = NULL;
+/* Propagate next buffers to current buffers. */
+static void mi_buffers_next_to_curr_locked(struct rkisp1_device *isp_dev)
+{
+	int s;
 
-	/* Set up an empty buffer for the next-next frame */
-	spin_lock_irqsave(&stream->vbq_lock, lock_flags);
-	if (!list_empty(&stream->buf_queue)) {
-		stream->next_buf = list_first_entry(&stream->buf_queue,
-					struct rkisp1_buffer, queue);
+	for_each_set_bit(s,
+			 &isp_dev->mi_streaming,
+			 ARRAY_SIZE(isp_dev->stream)) {
+		struct rkisp1_stream *stream = &isp_dev->stream[s];
+
+		/* Next frame is writing to it */
+		stream->curr_buf = stream->next_buf;
+		stream->next_buf = NULL;
+	}
+}
+
+/*
+ * Get next buffers for all currently streaming MIs. Care must be taken to
+ * output next frame only to buffers with matching sequence IDs. For all MIs
+ * that don't have buffers with matching sequence IDs in the queue, use dummy
+ * buffers.
+ */
+static int mi_buffers_get_next_locked(struct rkisp1_device *isp_dev)
+{
+	bool have_matching_buffers = false, have_buffers = false;
+	u64 min_delta = -1ULL;
+	u64 next_sequence_id = isp_dev->buf_sequence_id;
+	int s;
+
+	for_each_set_bit(s,
+			 &isp_dev->mi_streaming,
+			 ARRAY_SIZE(isp_dev->stream)) {
+		struct rkisp1_stream *stream = &isp_dev->stream[s];
+		struct rkisp1_buffer *buf;
+		u64 delta;
+
+		if (list_empty(&stream->bufs_ready))
+			continue;
+
+		have_buffers = true;
+
+		buf = list_first_entry(&stream->bufs_ready,
+				       struct rkisp1_buffer, queue);
+		delta = buf->sequence_id - isp_dev->buf_sequence_id;
+		if (delta < min_delta) {
+			/*
+			 * Find a sequence ID existing in any queue nearest
+			 * to the global sequence counter. See below for how
+			 * it is used.
+			 */
+			min_delta = delta;
+			next_sequence_id = buf->sequence_id;
+		}
+
+		if (delta)
+			/* Not the next sequence ID, use dummy for this MI. */
+			continue;
+
+		/* Found matching buffer, use it. */
+		stream->next_buf = buf;
 		list_del(&stream->next_buf->queue);
+		have_matching_buffers = true;
 	}
 
-	spin_unlock_irqrestore(&stream->vbq_lock, lock_flags);
-
-	update_mi(stream);
+	if (have_buffers) {
+		if (!have_matching_buffers) {
+			/*
+			 * This is a tricky case that might show up if we stop
+			 * streaming, while buffers are still in the queue.
+			 * Since VB2 .stop_streaming() removes buffers from the
+			 * queue, we could end up with a gap in sequence ID
+			 * space. Skip to the nearest sequence ID, which we
+			 * found when checking stream queues for buffers.
+			 */
+			v4l2_dbg(1, rkisp1_debug, &isp_dev->v4l2_dev,
+				 "%s: Skipping buffer sequence IDs from %llu to %llu\n",
+				 __func__, isp_dev->buf_sequence_id,
+				 next_sequence_id - 1);
+			isp_dev->buf_sequence_id = next_sequence_id;
+			return -EAGAIN;
+		}
+		/* Increment sequence ID counter only if we had any buffers. */
+		++isp_dev->buf_sequence_id;
+	}
 
 	return 0;
+}
+
+/*
+ * Program buffers addresses to MI shadow registers, be that user buffers
+ * or dummy buffers, if no user buffers are in the queue.
+ */
+static void mi_buffers_set(struct rkisp1_device *isp_dev)
+{
+	int s;
+
+	for_each_set_bit(s,
+			 &isp_dev->mi_streaming,
+			 ARRAY_SIZE(isp_dev->stream)) {
+		struct rkisp1_stream *stream = &isp_dev->stream[s];
+
+		update_mi(stream);
+	}
+}
+
+/*
+ * This function is called when all streaming MIs end processing current frame.
+ * Processing of next frame starts and we should set up buffers for next-next
+ * frame, otherwise MIs would run out of buffers.
+ */
+static void mi_frame_end(struct rkisp1_device *isp_dev)
+{
+	unsigned long flags;
+	int ret;
+
+	mi_buffers_done(isp_dev);
+
+	spin_lock_irqsave(&isp_dev->vbq_lock, flags);
+
+	mi_buffers_next_to_curr_locked(isp_dev);
+
+	ret = mi_buffers_get_next_locked(isp_dev);
+	if (ret == -EAGAIN)
+		WARN_ON(mi_buffers_get_next_locked(isp_dev) < 0);
+
+	spin_unlock_irqrestore(&isp_dev->vbq_lock, flags);
+
+	mi_buffers_set(isp_dev);
 }
 
 /***************************** vb2 operations*******************************/
@@ -980,6 +1099,7 @@ static void rkisp1_stream_stop(struct rkisp1_stream *stream)
 		stream->ops->stop_mi(stream);
 		stream->stopping = false;
 		stream->streaming = false;
+		dev->mi_streaming &= ~BIT(stream->id);
 	}
 	disable_dcrop(stream, true);
 	disable_rsz(stream, true);
@@ -994,8 +1114,6 @@ static void rkisp1_stream_stop(struct rkisp1_stream *stream)
 static int rkisp1_start(struct rkisp1_stream *stream)
 {
 	void __iomem *base = stream->ispdev->base_addr;
-	struct rkisp1_device *dev = stream->ispdev;
-	struct rkisp1_stream *other = &dev->stream[stream->id ^ 1];
 	int ret;
 
 	stream->ops->set_data_path(base);
@@ -1004,22 +1122,9 @@ static int rkisp1_start(struct rkisp1_stream *stream)
 		return ret;
 
 	/* Set up an buffer for the next frame */
-	mi_frame_end(stream);
-	stream->ops->enable_mi(stream);
-	/* It's safe to config ACTIVE and SHADOW regs for the
-	 * first stream. While when the second is starting, do NOT
-	 * force_cfg_update() because it also update the first one.
-	 *
-	 * The latter case would drop one more buf(that is 2) since
-	 * there's not buf in shadow when the second FE received. This's
-	 * also required because the sencond FE maybe corrupt especially
-	 * when run at 120fps.
-	 */
-	if (!other->streaming) {
-		force_cfg_update(base);
-		mi_frame_end(stream);
-	}
 	stream->streaming = true;
+	update_mi(stream);
+	stream->ops->enable_mi(stream);
 
 	return 0;
 }
@@ -1072,6 +1177,8 @@ static void rkisp1_buf_queue(struct vb2_buffer *vb)
 	struct rkisp1_buffer *ispbuf = to_rkisp1_buffer(vbuf);
 	struct vb2_queue *queue = vb->vb2_queue;
 	struct rkisp1_stream *stream = queue->drv_priv;
+	struct rkisp1_device *dev = stream->ispdev;
+	struct rkisp1_stream *other = &dev->stream[stream->id ^ 1];
 	unsigned long lock_flags = 0;
 	struct v4l2_pix_format_mplane *pixm = &stream->out_fmt;
 	struct capture_fmt *isp_fmt = &stream->out_isp_fmt;
@@ -1090,18 +1197,43 @@ static void rkisp1_buf_queue(struct vb2_buffer *vb)
 		}
 	}
 
-	spin_lock_irqsave(&stream->vbq_lock, lock_flags);
+	spin_lock_irqsave(&dev->vbq_lock, lock_flags);
 
-	/* XXX: replace dummy to speed up  */
-	if (stream->streaming &&
-	    stream->next_buf == NULL &&
-	    atomic_read(&stream->ispdev->isp_sdev.frm_sync_seq) == 0) {
-		stream->next_buf = ispbuf;
-		update_mi(stream);
-	} else {
-		list_add_tail(&ispbuf->queue, &stream->buf_queue);
+	/*
+	 * Add the buffer to pending list. It will not be used as MI output
+	 * until propagated to ready list. We need this fancy two level queue
+	 * to ensure matching buffers of both MIs in order of userspace queuing
+	 * them.
+	 */
+	list_add_tail(&ispbuf->queue, &stream->bufs_pending);
+
+	/*
+	 * Check if we can propagate a set of buffers to ready list. We can do
+	 * it if and only if:
+	 * 1) the other MI is not streaming, so we can just take one buffer
+	 *    instantly and use it for next sequence ID,
+	 * 2) the other MI has a buffer in its pending list, so we can pair
+	 *    it with a buffer in current stream's pending list and use both
+	 *    for next sequence ID.
+	 */
+	if (!other->streaming ||
+	    !list_empty(&other->bufs_pending)) {
+		ispbuf = list_first_entry(&stream->bufs_pending,
+					  struct rkisp1_buffer, queue);
+		ispbuf->sequence_id = dev->buf_sequence_id_tail;
+		list_move_tail(&ispbuf->queue, &stream->bufs_ready);
+
+		if (other->streaming) {
+			ispbuf = list_first_entry(&other->bufs_pending,
+						  struct rkisp1_buffer, queue);
+			ispbuf->sequence_id = dev->buf_sequence_id_tail;
+			list_move_tail(&ispbuf->queue, &other->bufs_ready);
+		}
+
+		++dev->buf_sequence_id_tail;
 	}
-	spin_unlock_irqrestore(&stream->vbq_lock, lock_flags);
+
+	spin_unlock_irqrestore(&dev->vbq_lock, lock_flags);
 }
 
 static int rkisp1_create_dummy_buf(struct rkisp1_stream *stream)
@@ -1143,6 +1275,7 @@ static void rkisp1_stop_streaming(struct vb2_queue *queue)
 	struct rkisp1_device *dev = stream->ispdev;
 	struct v4l2_device *v4l2_dev = &dev->v4l2_dev;
 	struct rkisp1_buffer *buf;
+	LIST_HEAD(buffers);
 	unsigned long lock_flags = 0;
 	int ret;
 
@@ -1155,22 +1288,25 @@ static void rkisp1_stop_streaming(struct vb2_queue *queue)
 			 ret);
 
 	/* release buffers */
-	spin_lock_irqsave(&stream->vbq_lock, lock_flags);
+	spin_lock_irqsave(&dev->vbq_lock, lock_flags);
 	if (stream->curr_buf) {
-		list_add_tail(&stream->curr_buf->queue, &stream->buf_queue);
+		list_add_tail(&stream->curr_buf->queue, &buffers);
 		stream->curr_buf = NULL;
 	}
 	if (stream->next_buf) {
-		list_add_tail(&stream->next_buf->queue, &stream->buf_queue);
+		list_add_tail(&stream->next_buf->queue, &buffers);
 		stream->next_buf = NULL;
 	}
-	while (!list_empty(&stream->buf_queue)) {
-		buf = list_first_entry(&stream->buf_queue,
+	list_splice_tail_init(&stream->bufs_ready, &buffers);
+	list_splice_tail_init(&stream->bufs_pending, &buffers);
+	spin_unlock_irqrestore(&dev->vbq_lock, lock_flags);
+
+	while (!list_empty(&buffers)) {
+		buf = list_first_entry(&buffers,
 				       struct rkisp1_buffer, queue);
 		list_del(&buf->queue);
 		vb2_buffer_done(&buf->vb.vb2_buf, VB2_BUF_STATE_ERROR);
 	}
-	spin_unlock_irqrestore(&stream->vbq_lock, lock_flags);
 
 	ret = dev->pipe.close(&dev->pipe);
 	if (ret < 0)
@@ -1300,7 +1436,7 @@ static int rkisp_init_vb2_queue(struct vb2_queue *q,
 	q->ops = &rkisp1_vb2_ops;
 	q->mem_ops = &vb2_dma_contig_memops;
 	q->buf_struct_size = sizeof(struct rkisp1_buffer);
-	q->min_buffers_needed = CIF_ISP_REQ_BUFS_MIN;
+	q->min_buffers_needed = 0; /* Can start streaming without buffers. */
 	q->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
 	q->lock = &node->vlock;
 
@@ -1404,9 +1540,10 @@ void rkisp1_stream_init(struct rkisp1_device *dev, u32 id)
 	stream->id = id;
 	stream->ispdev = dev;
 
-	INIT_LIST_HEAD(&stream->buf_queue);
+	INIT_LIST_HEAD(&stream->bufs_ready);
+	INIT_LIST_HEAD(&stream->bufs_pending);
 	init_waitqueue_head(&stream->done);
-	spin_lock_init(&stream->vbq_lock);
+	spin_lock_init(&dev->vbq_lock);
 	if (stream->id == RKISP1_STREAM_SP) {
 		stream->ops = &rkisp1_sp_streams_ops;
 		stream->config = &rkisp1_sp_stream_config;
@@ -1724,6 +1861,8 @@ void rkisp1_mi_isr(u32 mis_val, struct rkisp1_device *dev)
 		if (!(mis_val & CIF_MI_FRAME(stream)))
 			continue;
 
+		dev->mi_streaming |= BIT(i);
+		dev->mi_ready |= BIT(i);
 		mi_frame_end_int_clear(stream);
 
 		if (stream->stopping) {
@@ -1738,12 +1877,21 @@ void rkisp1_mi_isr(u32 mis_val, struct rkisp1_device *dev)
 			if (stream->ops->is_stream_stopped(dev->base_addr)) {
 				stream->stopping = false;
 				stream->streaming = false;
+				dev->mi_ready &= ~BIT(i);
+				dev->mi_streaming &= ~BIT(i);
 				wake_up(&stream->done);
 			} else {
 				stream->ops->stop_mi(stream);
 			}
-		} else {
-			mi_frame_end(stream);
 		}
+	}
+
+	/*
+	 * Update all MIs atomically to maintain synchronization between
+	 * streams.
+	 */
+	if ((dev->mi_ready & dev->mi_streaming) == dev->mi_streaming) {
+		mi_frame_end(dev);
+		dev->mi_ready = 0;
 	}
 }

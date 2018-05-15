@@ -94,6 +94,12 @@ struct rkisp1_sensor_info {
  * @rkisp1_stream: capture video device
  * @stats_vdev: ISP statistics output device
  * @params_vdev: ISP input parameters device
+ * @mi_ready: Mask of MIs that finished last frame
+ * @mi_streaming: Mask of MIs that are streaming (hardware status)
+ * @buf_sequence_id: Buffer sequence to be used for next capture.
+ * @buf_sequence_id_tail: Buffer sequence ID to be assigned to next set of
+ *			  queued buffers.
+ * @vbq_lock: Spinlock protecting operations on buffer queues of all streams.
  */
 struct rkisp1_device {
 	void __iomem *base_addr;
@@ -111,6 +117,11 @@ struct rkisp1_device {
 	struct rkisp1_sensor_info *active_sensor;
 	struct rkisp1_sensor_info sensors[RKISP1_MAX_SENSOR];
 	int num_sensors;
+	unsigned long mi_ready;
+	unsigned long mi_streaming;
+	u64 buf_sequence_id;
+	u64 buf_sequence_id_tail;
+	spinlock_t vbq_lock;
 	struct rkisp1_isp_subdev isp_sdev;
 	struct rkisp1_stream stream[RKISP1_MAX_STREAM];
 	struct rkisp1_isp_stats_vdev stats_vdev;

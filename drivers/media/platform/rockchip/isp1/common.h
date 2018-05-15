@@ -85,6 +85,13 @@ enum rkisp1_fmt_raw_pat_type {
 	RAW_BGGR,
 };
 
+/*
+ * struct rkisp1_buffer - A structure wrapping VB2 buffer with
+ *			  driver-specific data.
+ *
+ * @sequence_id: A value of rkisp1_device::buf_sequence_id for which this
+ *		 buffer shall be used as output.
+ */
 struct rkisp1_buffer {
 	struct vb2_v4l2_buffer vb;
 	struct list_head queue;
@@ -92,6 +99,7 @@ struct rkisp1_buffer {
 		u32 buff_addr[VIDEO_MAX_PLANES];
 		void *vaddr[VIDEO_MAX_PLANES];
 	};
+	u64 sequence_id;
 };
 
 struct rkisp1_dummy_buffer {
