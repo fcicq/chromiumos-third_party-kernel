@@ -22,6 +22,7 @@ config VIDEO_IPU3_IMGU
 	tristate "Intel ipu3-imgu driver"
 	depends on PCI && VIDEO_V4L2
 	depends on MEDIA_CONTROLLER && VIDEO_V4L2_SUBDEV_API
+	depends on X86_64
 	select IOMMU_IOVA
 	select VIDEOBUF2_DMA_SG
 	---help---
