@@ -3195,10 +3195,40 @@ union __ec_align_offset1 ec_response_get_next_data {
 	uint32_t sysrq;
 };
 
+union __ec_align_offset1 ec_response_get_next_data_v1 {
+	uint8_t key_matrix[16];
+
+	/* Unaligned */
+	uint32_t host_event;
+	uint64_t host_event64;
+
+	struct __ec_todo_unpacked {
+		/* For aligning the fifo_info */
+		uint8_t reserved[3];
+		struct ec_response_motion_sense_fifo_info info;
+	} sensor_fifo;
+
+	uint32_t buttons;
+
+	uint32_t switches;
+
+	uint32_t fp_events;
+
+	uint32_t sysrq;
+
+	uint8_t cec_message[16];
+};
+
 struct __ec_align1 ec_response_get_next_event {
 	uint8_t event_type;
 	/* Followed by event data if any */
 	union ec_response_get_next_data data;
+};
+
+struct __ec_align1 ec_response_get_next_event_v1 {
+	uint8_t event_type;
+	/* Followed by event data if any */
+	union ec_response_get_next_data_v1 data;
 };
 
 /* Bit indices for buttons and switches.*/
