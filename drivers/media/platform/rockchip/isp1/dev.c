@@ -457,6 +457,7 @@ static const struct of_device_id rkisp1_plat_of_match[] = {
 	},
 	{},
 };
+MODULE_DEVICE_TABLE(of, rkisp1_plat_of_match);
 
 static irqreturn_t rkisp1_irq_handler(int irq, void *ctx)
 {
@@ -648,6 +649,8 @@ static int rkisp1_plat_remove(struct platform_device *pdev)
 {
 	struct rkisp1_device *isp_dev = platform_get_drvdata(pdev);
 
+	v4l2_async_notifier_unregister(&isp_dev->notifier);
+	v4l2_async_notifier_cleanup(&isp_dev->notifier);
 	pm_runtime_disable(&pdev->dev);
 	media_device_unregister(&isp_dev->media_dev);
 	v4l2_device_unregister(&isp_dev->v4l2_dev);
