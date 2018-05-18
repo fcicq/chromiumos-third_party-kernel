@@ -3260,12 +3260,15 @@ static ssize_t ath10k_write_burst_dur(struct file *file,
 		return -EINVAL;
 
 	mutex_lock(&ar->conf_mutex);
-
 	for (ac = 0; ac < 4; ac++) {
 		if ((dur[ac] != BURST_ZERO) && (dur[ac] < MIN_BURST_DUR || dur[ac] > MAX_BURST_DUR)) {
 			mutex_unlock(&ar->conf_mutex);
 			return -EINVAL;
 		}
+		ar->burst_dur[ac] = dur[ac];
+
+		if (ar->state != ATH10K_STATE_ON)
+			continue;
 
 		ret = ath10k_wmi_pdev_set_param(ar, ar->wmi.pdev_param->aggr_burst,
 						(SM(ac, ATH10K_AGGR_BURST_AC) |
@@ -3274,7 +3277,6 @@ static ssize_t ath10k_write_burst_dur(struct file *file,
 			ath10k_warn(ar, "failed to set aggr burst duration for ac %d: %d\n", ac, ret);
 			goto exit;
 		}
-		ar->burst_dur[ac] = dur[ac];
 	}
 
 	ret = count;
