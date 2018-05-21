@@ -258,7 +258,7 @@ static int rk3399_dfi_get_target(struct devfreq *devfreq, unsigned long *freq)
 	stat = &devfreq->last_status;
 
 	if (stat->total_time == 0) {
-		*freq = (devfreq->max_freq) ? devfreq->max_freq : UINT_MAX;
+		*freq = dmcfreq->max_freq;
 		return 0;
 	}
 
@@ -274,10 +274,10 @@ static int rk3399_dfi_get_target(struct devfreq *devfreq, unsigned long *freq)
 					  dmcfreq->target_load);
 	*freq = (unsigned long)a;
 
-	if (devfreq->min_freq && *freq < devfreq->min_freq)
-		*freq = devfreq->min_freq;
-	if (devfreq->max_freq && *freq > devfreq->max_freq)
-		*freq = devfreq->max_freq;
+	if (*freq < dmcfreq->min_freq)
+		*freq = dmcfreq->min_freq;
+	if (*freq > dmcfreq->max_freq)
+		*freq = dmcfreq->max_freq;
 
 	return 0;
 }
@@ -287,7 +287,7 @@ static void rk3399_dfi_calc_top_threshold(struct devfreq *devfreq)
 	struct rk3399_dmcfreq *dmcfreq = dev_get_drvdata(devfreq->dev.parent);
 	unsigned int percent;
 
-	if (devfreq->max_freq && dmcfreq->rate >= devfreq->max_freq)
+	if (dmcfreq->rate >= dmcfreq->max_freq)
 		percent = 100;
 	else
 		percent = (rk3399_need_boost() ? dmcfreq->boosted_target_load :
@@ -303,7 +303,7 @@ static void rk3399_dfi_calc_floor_threshold(struct devfreq *devfreq)
 	unsigned long rate;
 	unsigned int percent;
 
-	if (dmcfreq->rate <= devfreq->min_freq)
+	if (dmcfreq->rate <= dmcfreq->min_freq)
 		percent = 0;
 	else
 		percent = (rk3399_need_boost() ? dmcfreq->boosted_target_load :
@@ -862,7 +862,7 @@ static int rk3399_dmcfreq_probe(struct platform_device *pdev)
 		return PTR_ERR(opp);
 	}
 	rate = dev_pm_opp_get_freq(opp);
-	data->devfreq->max_freq = rate;
+	data->max_freq = rate;
 	rate = 0;
 	opp = devfreq_recommended_opp(dev, &rate,
 				      DEVFREQ_FLAG_LEAST_UPPER_BOUND);
@@ -871,7 +871,7 @@ static int rk3399_dmcfreq_probe(struct platform_device *pdev)
 		return PTR_ERR(opp);
 	}
 	rate = dev_pm_opp_get_freq(opp);
-	data->devfreq->min_freq = rate;
+	data->min_freq = rate;
 	rcu_read_unlock();
 
 	devm_devfreq_register_opp_notifier(dev, data->devfreq);
