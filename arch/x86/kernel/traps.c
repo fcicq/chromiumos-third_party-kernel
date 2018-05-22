@@ -334,6 +334,7 @@ exit:
 }
 NOKPROBE_SYMBOL(do_general_protection);
 
+/* May run on IST stack. */
 dotraplinkage void notrace do_int3(struct pt_regs *regs, long error_code)
 {
 	enum ctx_state prev_state;
@@ -366,9 +367,15 @@ dotraplinkage void notrace do_int3(struct pt_regs *regs, long error_code)
 			SIGTRAP) == NOTIFY_STOP)
 		goto exit;
 
+	/*
+	 * Let others (NMI) know that the debug stack is in use
+	 * as we may switch to the interrupt stack.
+	 */
+	debug_stack_usage_inc();
 	preempt_conditional_sti(regs);
 	do_trap(X86_TRAP_BP, SIGTRAP, "int3", regs, error_code, NULL);
 	preempt_conditional_cli(regs);
+	debug_stack_usage_dec();
 exit:
 	exception_exit(prev_state);
 }
