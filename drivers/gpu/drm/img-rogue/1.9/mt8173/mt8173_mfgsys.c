@@ -173,8 +173,14 @@ err_regulator_disable:
 
 void mtk_mfg_disable(struct mtk_mfg *mfg)
 {
+	int ret;
+
 	mtk_mfg_disable_clock(mfg);
-	pm_runtime_put_sync(mfg->dev);
+	ret = pm_runtime_put_sync(mfg->dev);
+	if (ret)
+		dev_err(mfg->dev, "pm_runtime_put_sync failed with error %d\n",
+				ret);
+
 	regulator_disable(mfg->vgpu);
 
 	dev_dbg(mfg->dev, "Disabled\n");

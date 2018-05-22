@@ -359,21 +359,23 @@ PVRSRV_ERROR RGXPostPowerState (IMG_HANDLE				hDevHandle,
 				 * lock issues. The code is placed here to provide a possible example approach
 				 * when all other ideas have been tried.
 				 */
-				/*{
-					PVRSRV_POWER_DEV *psPowerDev = psDeviceNode->psPowerDev;
-				
-					if (psPowerDev)
-					{
-						PVRSRV_DEV_POWER_STATE  eOldPowerState = psPowerDev->eCurrentPowerState;
+				if (psDeviceNode->psPowerDev) {
+					PVRSRV_DEV_POWER_STATE  eOldPowerState;
 
-						PVRSRVPowerUnlock(psDeviceNode);
-						psPowerDev->eCurrentPowerState = PVRSRV_DEV_POWER_STATE_ON;
-						RGXDumpDebugInfo(NULL, psDeviceNode->pvDevice);
-						psPowerDev->eCurrentPowerState = eOldPowerState;
-						PVRSRVPowerLock(psDeviceNode);
-					}
-				}*/
-				
+					PVRSRVGetDevicePowerState(psDeviceNode,
+						&eOldPowerState);
+					PVRSRVPowerUnlock(psDeviceNode);
+					PVRSRVOverrideDevicePowerState(
+						psDeviceNode,
+						PVRSRV_DEV_POWER_STATE_ON);
+					RGXDumpDebugInfo(NULL, NULL,
+						psDeviceNode->pvDevice);
+					PVRSRVOverrideDevicePowerState(
+						psDeviceNode,
+						eOldPowerState);
+					PVRSRVPowerLock(psDeviceNode);
+				}
+
 				DevmemReleaseCpuVirtAddr(psDevInfo->psRGXFWIfInitMemDesc);
 				return eError;
 			}

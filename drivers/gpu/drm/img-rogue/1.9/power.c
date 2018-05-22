@@ -704,6 +704,21 @@ PVRSRV_ERROR PVRSRVGetDevicePowerState(PCPVRSRV_DEVICE_NODE psDeviceNode,
 	return PVRSRV_OK;
 }
 
+IMG_EXPORT
+PVRSRV_ERROR PVRSRVOverrideDevicePowerState(PCPVRSRV_DEVICE_NODE psDeviceNode,
+	PVRSRV_DEV_POWER_STATE ePowerState)
+{
+	PVRSRV_POWER_DEV *psPowerDevice;
+
+	psPowerDevice = psDeviceNode->psPowerDev;
+	if (psPowerDevice == NULL)
+		return PVRSRV_ERROR_UNKNOWN_POWER_STATE;
+
+	psPowerDevice->eCurrentPowerState = ePowerState;
+
+	return PVRSRV_OK;
+}
+
 /*!
 ******************************************************************************
 
