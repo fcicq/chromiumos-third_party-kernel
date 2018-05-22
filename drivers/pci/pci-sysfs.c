@@ -1598,6 +1598,9 @@ static const struct attribute_group *pci_dev_attr_groups[] = {
 #ifdef CONFIG_PCI_IOV
 	&sriov_dev_attr_group,
 #endif
+#ifdef CONFIG_PCIEAER
+	&aer_stats_attr_group,
+#endif
 	NULL,
 };
 
