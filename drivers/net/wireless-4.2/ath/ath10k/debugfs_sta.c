@@ -713,7 +713,7 @@ static ssize_t ath10k_dbg_sta_read_ampdu_subframe_count(struct file *file,
 	struct ieee80211_sta *sta = file->private_data;
 	struct ath10k_sta *arsta = (struct ath10k_sta *)sta->drv_priv;
 	struct ath10k *ar = arsta->arvif->ar;
-	char buf[20];
+	char buf[32];
 	int len = 0;
 
 	mutex_lock(&ar->conf_mutex);
