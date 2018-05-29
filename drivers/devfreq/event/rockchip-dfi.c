@@ -301,8 +301,10 @@ static irqreturn_t ddrmon_isr(int irq, void *dev_id)
 	irqreturn_t ret = IRQ_NONE;
 	u32 val;
 
-	if (!dmcfreq || !dmcfreq->devfreq)
-		return IRQ_HANDLED;
+	if (!dmcfreq || !dmcfreq->devfreq) {
+		ret = IRQ_HANDLED;
+		goto clear_irq;
+	}
 
 	val = readl_relaxed(dfi_regs + DDRMON_INT_STATUS);
 	if (val & CH_THRESHOLD_MASK) {
@@ -310,6 +312,7 @@ static irqreturn_t ddrmon_isr(int irq, void *dev_id)
 		rockchip_dfi_get_busier_ch(info->edev);
 	}
 
+clear_irq:
 	/* clear irq status */
 	writel_relaxed(0x0000ffff, dfi_regs + DDRMON_INT_STATUS);
 	return ret;
