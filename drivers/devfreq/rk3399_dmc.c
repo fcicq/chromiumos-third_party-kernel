@@ -917,7 +917,7 @@ static int rk3399_dmcfreq_probe(struct platform_device *pdev)
 	}
 
 	/* The dfi irq won't trigger a frequency update until this is done. */
-	dev_set_drvdata(&data->edev->dev, data);
+	rockchip_dfi_set_devfreq(data->edev, data->devfreq);
 
 	return 0;
 
@@ -939,6 +939,8 @@ pd_unregister:
 static int rk3399_dmcfreq_remove(struct platform_device *pdev)
 {
 	struct rk3399_dmcfreq *dmcfreq = dev_get_drvdata(&pdev->dev);
+
+	rockchip_dfi_set_devfreq(dmcfreq->edev, NULL);
 
 	unregister_cpu_notifier(&dmcfreq->cpu_hotplug_nb);
 	WARN_ON(cpufreq_unregister_notifier(&dmcfreq->cpufreq_trans_nb,

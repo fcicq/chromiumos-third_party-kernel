@@ -102,6 +102,7 @@ struct rockchip_dfi {
 	void __iomem *regs;
 	struct regmap *regmap_pmu;
 	struct clk *clk;
+	struct devfreq *devfreq;
 	unsigned int top;
 	unsigned int floor;
 	bool enabled;
@@ -293,14 +294,14 @@ static int rockchip_dfi_get_event(struct devfreq_event_dev *edev,
 static irqreturn_t ddrmon_thread_isr(int irq, void *data)
 {
 	struct rockchip_dfi *info = data;
-	struct rk3399_dmcfreq *dmcfreq = dev_get_drvdata(&info->edev->dev);
-	struct devfreq *devfreq = dmcfreq->devfreq;
+	struct devfreq *devfreq;
 
 	mutex_lock(&info->lock);
 
-	if (!info->enabled)
+	if (!info->enabled || !info->devfreq)
 		goto out;
 
+	devfreq = info->devfreq;
 	mutex_lock(&devfreq->lock);
 	update_devfreq(devfreq);
 	mutex_unlock(&devfreq->lock);
@@ -314,15 +315,9 @@ out:
 static irqreturn_t ddrmon_isr(int irq, void *dev_id)
 {
 	struct rockchip_dfi *info = dev_id;
-	struct rk3399_dmcfreq *dmcfreq = dev_get_drvdata(&info->edev->dev);
 	void __iomem *dfi_regs = info->regs;
 	irqreturn_t ret = IRQ_NONE;
 	u32 val;
-
-	if (!dmcfreq || !dmcfreq->devfreq) {
-		ret = IRQ_HANDLED;
-		goto clear_irq;
-	}
 
 	val = readl_relaxed(dfi_regs + DDRMON_INT_STATUS);
 	if (val & CH_THRESHOLD_MASK) {
@@ -330,11 +325,21 @@ static irqreturn_t ddrmon_isr(int irq, void *dev_id)
 		rockchip_dfi_get_busier_ch(info->edev);
 	}
 
-clear_irq:
 	/* clear irq status */
 	writel_relaxed(0x0000ffff, dfi_regs + DDRMON_INT_STATUS);
 	return ret;
 }
+
+void rockchip_dfi_set_devfreq(struct devfreq_event_dev *edev,
+			      struct devfreq *devfreq)
+{
+	struct rockchip_dfi *info = devfreq_event_get_drvdata(edev);
+
+	mutex_lock(&info->lock);
+	info->devfreq = devfreq;
+	mutex_unlock(&info->lock);
+}
+EXPORT_SYMBOL_GPL(rockchip_dfi_set_devfreq);
 
 static const struct devfreq_event_ops rockchip_dfi_ops = {
 	.disable = rockchip_dfi_disable,
