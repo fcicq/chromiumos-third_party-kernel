@@ -298,11 +298,14 @@ static irqreturn_t ddrmon_thread_isr(int irq, void *data)
 
 	mutex_lock(&info->lock);
 
+	if (!info->enabled)
+		goto out;
+
 	mutex_lock(&devfreq->lock);
-	if (info->enabled)
-		update_devfreq(devfreq);
+	update_devfreq(devfreq);
 	mutex_unlock(&devfreq->lock);
 
+out:
 	mutex_unlock(&info->lock);
 
 	return IRQ_HANDLED;
