@@ -182,6 +182,13 @@
 	};
 };
 
+&hdmi {
+	/* Free up the i2c5 pins. */
+	/delete-property/ pinctrl-names;
+	/delete-property/ pinctrl-0;
+	/delete-property/ pinctrl-1;
+};
+
 &i2c2 {
 	status = "disabled";
 };
@@ -193,6 +200,10 @@
 &i2c5 {
 	/* Temperature sensor */
 	status = "okay";
+
+	clock-frequency = <400000>;
+	i2c-scl-falling-time-ns = <50>;
+	i2c-scl-rising-time-ns = <300>;
 };
 
 &pwm0 {
