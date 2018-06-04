@@ -277,5 +277,4 @@ void ipu3_dmamap_exit(struct device *dev)
 
 	put_iova_domain(&imgu->iova_domain);
 	iova_cache_put();
-	imgu->mmu = NULL;
 }

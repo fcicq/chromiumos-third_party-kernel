@@ -534,7 +534,7 @@ void ipu3_mmu_exit(struct ipu3_mmu_info *info)
 	ipu3_mmu_free_page_table(mmu->l1pt);
 	vfree(mmu->l2pts);
 	ipu3_mmu_free_page_table(mmu->dummy_l2pt);
-	kfree(mmu->dummy_page);
+	free_page((unsigned long)mmu->dummy_page);
 	kfree(mmu);
 }
 
