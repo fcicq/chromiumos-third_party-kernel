@@ -101,10 +101,10 @@ static const struct iio_info ec_sensors_info = {
 static int cros_ec_ring_fifo_toggle(struct cros_ec_sensors_ring_state *state,
 				    bool on)
 {
-	int ret;
+	int i, ret;
 
 	mutex_lock(&state->core.cmd_lock);
-	for (int i = 0; i < CROS_EC_SENSOR_MAX; i++)
+	for (i = 0; i < CROS_EC_SENSOR_MAX; i++)
 		state->last_batch_len[i] = 0;
 	state->core.param.cmd = MOTIONSENSE_CMD_FIFO_INT_ENABLE;
 	state->core.param.fifo_int_enable.enable = on;
@@ -349,7 +349,8 @@ static void cros_ec_ring_handler(struct cros_ec_sensors_ring_state *state)
 		if (batch_len == 1)
 			goto done_with_this_batch;
 
-		dev_dbg(&indio_dev->dev, "Adjusting samples, sensor %d last_batch @%lld (%d samples) batch_timestamp=%lld => period=%lld\n",
+		dev_dbg(&indio_dev->dev,
+			"Adjusting samples, sensor %d last_batch @%lld (%lld samples) batch_timestamp=%lld => period=%lld\n",
 			id, state->last_batch_timestamp[id],
 			state->last_batch_len[id], batch_timestamp,
 			sample_period);
