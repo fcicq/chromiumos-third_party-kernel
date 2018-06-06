@@ -745,10 +745,90 @@ struct imgu_abi_dpc_config {
 
 /* BDS */
 
+#define IMGU_ABI_BDS_SAMPLE_PATTERN_ARRAY_SIZE		8
+#define IMGU_ABI_BDS_PHASE_COEFFS_ARRAY_SIZE		32
+
+struct imgu_abi_bds_hor_ctrl0 {
+	__u32 sample_patrn_length:9;
+	__u32 __reserved0:3;
+	__u32 hor_ds_en:1;
+	__u32 min_clip_val:1;
+	__u32 max_clip_val:2;
+	__u32 out_frame_width:13;
+	__u32 __reserved1:3;
+} __packed;
+
+struct imgu_abi_bds_ptrn_arr {
+	__u32 elems[IMGU_ABI_BDS_SAMPLE_PATTERN_ARRAY_SIZE];
+} __packed;
+
+struct imgu_abi_bds_phase_entry {
+	__s8 coeff_min2;
+	__s8 coeff_min1;
+	__s8 coeff_0;
+	__s8 nf;
+	__s8 coeff_pls1;
+	__s8 coeff_pls2;
+	__s8 coeff_pls3;
+	__u8 __reserved;
+} __packed;
+
+struct imgu_abi_bds_phase_arr {
+	struct imgu_abi_bds_phase_entry
+		even[IMGU_ABI_BDS_PHASE_COEFFS_ARRAY_SIZE];
+	struct imgu_abi_bds_phase_entry
+		odd[IMGU_ABI_BDS_PHASE_COEFFS_ARRAY_SIZE];
+} __packed;
+
+struct imgu_abi_bds_hor_ctrl1 {
+	__u32 hor_crop_start:13;
+	__u32 __reserved0:3;
+	__u32 hor_crop_end:13;
+	__u32 __reserved1:1;
+	__u32 hor_crop_en:1;
+	__u32 __reserved2:1;
+} __packed;
+
+struct imgu_abi_bds_hor_ctrl2 {
+	__u32 input_frame_height:13;
+	__u32 __reserved0:19;
+} __packed;
+
+struct imgu_abi_bds_hor {
+	struct imgu_abi_bds_hor_ctrl0 hor_ctrl0;
+	struct imgu_abi_bds_ptrn_arr hor_ptrn_arr;
+	struct imgu_abi_bds_phase_arr hor_phase_arr;
+	struct imgu_abi_bds_hor_ctrl1 hor_ctrl1;
+	struct imgu_abi_bds_hor_ctrl2 hor_ctrl2;
+} __packed;
+
+struct imgu_abi_bds_ver_ctrl0 {
+	__u32 sample_patrn_length:9;
+	__u32 __reserved0:3;
+	__u32 ver_ds_en:1;
+	__u32 min_clip_val:1;
+	__u32 max_clip_val:2;
+	__u32 __reserved1:16;
+} __packed;
+
+struct imgu_abi_bds_ver_ctrl1 {
+	__u32 out_frame_width:13;
+	__u32 __reserved0:3;
+	__u32 out_frame_height:13;
+	__u32 __reserved1:3;
+} __packed;
+
+struct imgu_abi_bds_ver {
+	struct imgu_abi_bds_ver_ctrl0 ver_ctrl0;
+	struct imgu_abi_bds_ptrn_arr ver_ptrn_arr;
+	struct imgu_abi_bds_phase_arr ver_phase_arr;
+	struct imgu_abi_bds_ver_ctrl1 ver_ctrl1;
+} __packed;
+
 struct imgu_abi_bds_per_stripe_data {
-	struct ipu3_uapi_bds_hor_ctrl0 hor_ctrl0;
-	struct ipu3_uapi_bds_ver_ctrl1 ver_ctrl1;
-	struct ipu3_uapi_bds_hor_ctrl1 crop;
+	struct imgu_abi_bds_hor_ctrl0 hor_ctrl0;
+	struct imgu_abi_bds_ver_ctrl1 ver_ctrl1;
+	struct imgu_abi_bds_hor_ctrl1 crop;
 } __packed;
 
 struct imgu_abi_bds_per_stripe_data_aligned {
@@ -761,8 +841,8 @@ struct imgu_abi_bds_per_stripe {
 } __packed;
 
 struct imgu_abi_bds_config {
-	struct ipu3_uapi_bds_hor hor IPU3_ALIGN;
-	struct ipu3_uapi_bds_ver ver IPU3_ALIGN;
+	struct imgu_abi_bds_hor hor IPU3_ALIGN;
+	struct imgu_abi_bds_ver ver IPU3_ALIGN;
 	struct imgu_abi_bds_per_stripe per_stripe IPU3_ALIGN;
 	__u32 enabled;
 } __packed;

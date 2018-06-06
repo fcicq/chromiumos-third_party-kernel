@@ -4,7 +4,7 @@
 #ifndef __IPU3_TABLES_H
 #define __IPU3_TABLES_H
 
-#include <uapi/linux/intel-ipu3.h>
+#include "ipu3-abi.h"
 
 #define IMGU_BDS_GRANULARITY		32	/* Downscaling granularity */
 #define IMGU_BDS_MIN_SF_INV		IMGU_BDS_GRANULARITY
@@ -20,9 +20,9 @@
 #define IMGU_GDC_LUT_LEN		256
 
 struct ipu3_css_bds_config {
-	struct ipu3_uapi_bds_phase_arr hor_phase_arr;
-	struct ipu3_uapi_bds_phase_arr ver_phase_arr;
-	struct ipu3_uapi_bds_ptrn_arr ptrn_arr;
+	struct imgu_abi_bds_phase_arr hor_phase_arr;
+	struct imgu_abi_bds_phase_arr ver_phase_arr;
+	struct imgu_abi_bds_ptrn_arr ptrn_arr;
 	u16 sample_patrn_length;
 	u8 hor_ds_en;
 	u8 ver_ds_en;
