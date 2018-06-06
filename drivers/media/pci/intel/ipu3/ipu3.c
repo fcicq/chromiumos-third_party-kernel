@@ -575,7 +575,7 @@ static irqreturn_t imgu_isr_threaded(int irq, void *imgu_ptr)
 	if (!atomic_read(&imgu->qbuf_barrier))
 		imgu_queue_buffers(imgu, false);
 
-	return IRQ_NONE;
+	return IRQ_HANDLED;
 }
 
 static irqreturn_t imgu_isr(int irq, void *imgu_ptr)
