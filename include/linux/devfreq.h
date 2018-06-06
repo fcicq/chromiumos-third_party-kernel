@@ -102,6 +102,30 @@ struct devfreq_dev_profile {
 };
 
 /**
+ * struct devfreq_freq_limits - Devfreq frequency limits
+ * @min_freq:	minimum frequency
+ * @max_freq:	maximum frequency
+ */
+struct devfreq_freq_limits {
+	unsigned long min_freq;
+	unsigned long max_freq;
+};
+
+/**
+ * struct devfreq_policy - Devfreq policy
+ * @user:	frequency limits requested by the user
+ * @devinfo:	frequency limits of the device (available OPPs)
+ * @governor:	method how to choose frequency based on the usage.
+ * @governor_name:	devfreq governor name for use with this devfreq
+ */
+struct devfreq_policy {
+	struct devfreq_freq_limits user;
+	struct devfreq_freq_limits devinfo;
+	const struct devfreq_governor *governor;
+	char governor_name[DEVFREQ_NAME_LEN];
+};
+
+/**
  * struct devfreq - Device devfreq structure
  * @node:	list node - contains the devices with devfreq that have been
  *		registered.
@@ -109,8 +133,6 @@ struct devfreq_dev_profile {
  * @dev:	device registered by devfreq class. dev.parent is the device
  *		using devfreq.
  * @profile:	device-specific devfreq profile
- * @governor:	method how to choose frequency based on the usage.
- * @governor_name:	devfreq governor name for use with this devfreq
  * @nb:		notifier block used to notify devfreq object that it should
  *		reevaluate operable frequencies. Devfreq users may use
  *		devfreq.nb to the corresponding register notifier call chain.
@@ -118,10 +140,7 @@ struct devfreq_dev_profile {
  * @previous_freq:	previously configured frequency value.
  * @data:	Private data of the governor. The devfreq framework does not
  *		touch this.
- * @min_freq:	Limit minimum frequency requested by user (0: none)
- * @max_freq:	Limit maximum frequency requested by user (0: none)
- * @scaling_min_freq:	Limit minimum frequency requested by OPP interface
- * @scaling_max_freq:	Limit maximum frequency requested by OPP interface
+ * @policy:		Policy for frequency adjustments
  * @stop_polling:	 devfreq polling status of a device.
  * @total_trans:	Number of devfreq transitions
  * @trans_table:	Statistics of devfreq transitions
@@ -143,8 +162,6 @@ struct devfreq {
 	struct mutex lock;
 	struct device dev;
 	struct devfreq_dev_profile *profile;
-	const struct devfreq_governor *governor;
-	char governor_name[DEVFREQ_NAME_LEN];
 	struct notifier_block nb;
 	struct delayed_work work;
 
@@ -154,10 +171,7 @@ struct devfreq {
 
 	void *data; /* private data for governors */
 
-	unsigned long min_freq;
-	unsigned long max_freq;
-	unsigned long scaling_min_freq;
-	unsigned long scaling_max_freq;
+	struct devfreq_policy policy;
 	bool stop_polling;
 
 	/* information for device frequency transition */
