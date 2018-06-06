@@ -832,28 +832,12 @@ static int clk_rcg2_clear_force_enable(struct clk_hw *hw)
 					CMD_ROOT_EN, 0);
 }
 
-static int
-clk_rcg2_shared_force_enable_clear(struct clk_hw *hw, const struct freq_tbl *f)
-{
-	struct clk_rcg2 *rcg = to_clk_rcg2(hw);
-	int ret;
-
-	ret = clk_rcg2_set_force_enable(hw);
-	if (ret)
-		return ret;
-
-	ret = clk_rcg2_configure(rcg, f);
-	if (ret)
-		return ret;
-
-	return clk_rcg2_clear_force_enable(hw);
-}
-
-static int clk_rcg2_shared_set_rate(struct clk_hw *hw, unsigned long rate,
+static int __clk_rcg2_shared_set_rate(struct clk_hw *hw, unsigned long rate,
 				    unsigned long parent_rate)
 {
 	struct clk_rcg2 *rcg = to_clk_rcg2(hw);
 	const struct freq_tbl *f;
+	int ret;
 
 	f = qcom_find_freq(rcg->freq_tbl, rate);
 	if (!f)
@@ -866,7 +850,23 @@ static int clk_rcg2_shared_set_rate(struct clk_hw *hw, unsigned long rate,
 	if (!__clk_is_enabled(hw->clk))
 		return __clk_rcg2_configure(rcg, f);
 
-	return clk_rcg2_shared_force_enable_clear(hw, f);
+	ret = clk_rcg2_set_force_enable(hw);
+	if (ret)
+		return ret;
+
+	return clk_rcg2_configure(rcg, f);
+}
+
+static int clk_rcg2_shared_set_rate(struct clk_hw *hw, unsigned long rate,
+				    unsigned long parent_rate)
+{
+	int ret;
+
+	ret = __clk_rcg2_shared_set_rate(hw, rate, parent_rate);
+	if (ret)
+		return ret;
+
+	return clk_rcg2_clear_force_enable(hw);
 }
 
 static int clk_rcg2_shared_set_rate_and_parent(struct clk_hw *hw,
@@ -875,7 +875,7 @@ static int clk_rcg2_shared_set_rate_and_parent(struct clk_hw *hw,
 	return clk_rcg2_shared_set_rate(hw, rate, parent_rate);
 }
 
-static int clk_rcg2_shared_enable(struct clk_hw *hw)
+static int __clk_rcg2_shared_enable(struct clk_hw *hw)
 {
 	struct clk_rcg2 *rcg = to_clk_rcg2(hw);
 	int ret;
@@ -888,7 +888,14 @@ static int clk_rcg2_shared_enable(struct clk_hw *hw)
 	if (ret)
 		return ret;
 
-	ret = update_config(rcg);
+	return update_config(rcg);
+}
+
+static int clk_rcg2_shared_enable(struct clk_hw *hw)
+{
+	int ret;
+
+	ret = __clk_rcg2_shared_enable(hw);
 	if (ret)
 		return ret;
 
@@ -1124,3 +1131,32 @@ int qcom_cc_register_rcg_dfs(struct regmap *regmap,
 	return 0;
 }
 EXPORT_SYMBOL_GPL(qcom_cc_register_rcg_dfs);
+
+static int clk_rcg2_gfx3d_enable(struct clk_hw *hw)
+{
+	return __clk_rcg2_shared_enable(hw);
+}
+
+static int clk_rcg2_gfx3d_set_rate(struct clk_hw *hw, unsigned long rate,
+				    unsigned long parent_rate)
+{
+	return __clk_rcg2_shared_set_rate(hw, rate, parent_rate);
+}
+
+static int clk_rcg2_gfx3d_set_rate_and_parent(struct clk_hw *hw,
+		unsigned long rate, unsigned long parent_rate, u8 index)
+{
+	return clk_rcg2_gfx3d_set_rate(hw, rate, parent_rate);
+}
+
+const struct clk_ops clk_rcg2_gfx3d_ops = {
+	.enable = clk_rcg2_gfx3d_enable,
+	.disable = clk_rcg2_shared_disable,
+	.get_parent = clk_rcg2_get_parent,
+	.set_parent = clk_rcg2_set_parent,
+	.recalc_rate = clk_rcg2_recalc_rate,
+	.determine_rate = clk_rcg2_determine_rate,
+	.set_rate = clk_rcg2_gfx3d_set_rate,
+	.set_rate_and_parent = clk_rcg2_gfx3d_set_rate_and_parent,
+};
+EXPORT_SYMBOL_GPL(clk_rcg2_gfx3d_ops);
