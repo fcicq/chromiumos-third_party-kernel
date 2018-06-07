@@ -9488,7 +9488,7 @@ const struct ipu3_uapi_yuvp2_tcc_r_sqr_lut_static_config
 	956, 1024, 1088, 1144, 1200, 1256, 1304, 1356, 1404, 1448
 } };
 
-const struct ipu3_uapi_anr_config ipu3_css_anr_defaults = {
+const struct imgu_abi_anr_config ipu3_css_anr_defaults = {
 	.transform = {
 		.adaptive_treshhold_en = 1,
 		.alpha = { { 13, 13, 13, 13, 0, 0, 0, 0},

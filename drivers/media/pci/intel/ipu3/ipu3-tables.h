@@ -56,7 +56,7 @@ extern const struct ipu3_uapi_yuvp2_tcc_gain_pcwl_lut_static_config
 						ipu3_css_tcc_gain_pcwl_lut;
 extern const struct ipu3_uapi_yuvp2_tcc_r_sqr_lut_static_config
 						ipu3_css_tcc_r_sqr_lut;
-extern const struct ipu3_uapi_anr_config ipu3_css_anr_defaults;
+extern const struct imgu_abi_anr_config ipu3_css_anr_defaults;
 extern const struct ipu3_uapi_awb_fr_config_s ipu3_css_awb_fr_defaults;
 extern const struct ipu3_uapi_ae_grid_config ipu3_css_ae_grid_defaults;
 extern const struct ipu3_uapi_ae_ccm ipu3_css_ae_ccm_defaults;

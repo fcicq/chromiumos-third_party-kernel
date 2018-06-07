@@ -847,6 +847,35 @@ struct imgu_abi_bds_config {
 	__u32 enabled;
 } __packed;
 
+/* ANR */
+
+struct imgu_abi_anr_search_config {
+	__u32 enable;
+	__u16 frame_width;
+	__u16 frame_height;
+} __packed;
+
+struct imgu_abi_anr_stitch_config {
+	__u32 anr_stitch_en;
+	__u16 frame_width;
+	__u16 frame_height;
+	__u8 __reserved[40];
+	struct ipu3_uapi_anr_stitch_pyramid pyramid[IPU3_UAPI_ANR_PYRAMID_SIZE];
+} __packed;
+
+struct imgu_abi_anr_tile2strm_config {
+	__u32 enable;
+	__u16 frame_width;
+	__u16 frame_height;
+} __packed;
+
+struct imgu_abi_anr_config {
+	struct imgu_abi_anr_search_config search IPU3_ALIGN;
+	struct ipu3_uapi_anr_transform_config transform IPU3_ALIGN;
+	struct imgu_abi_anr_stitch_config stitch IPU3_ALIGN;
+	struct imgu_abi_anr_tile2strm_config tile2strm IPU3_ALIGN;
+} __packed;
+
 /* AF */
 
 struct imgu_abi_af_frame_size {
@@ -950,7 +979,7 @@ struct imgu_abi_acc_param {
 	struct ipu3_uapi_yuvp2_tcc_static_config tcc IPU3_ALIGN;
 	struct imgu_abi_dpc_config dpc IPU3_ALIGN;
 	struct imgu_abi_bds_config bds;
-	struct ipu3_uapi_anr_config anr;
+	struct imgu_abi_anr_config anr;
 	struct imgu_abi_awb_fr_config awb_fr;
 	struct imgu_abi_ae_config ae;
 	struct imgu_abi_af_config af;

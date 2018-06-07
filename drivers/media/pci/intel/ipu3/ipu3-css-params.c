@@ -2295,10 +2295,18 @@ int ipu3_css_cfg_acc(struct ipu3_css *css, struct ipu3_uapi_flags *use,
 
 	if (use && use->acc_anr) {
 		/* Take values from user */
-		acc->anr = acc_user->anr;
+		acc->anr.transform = acc_user->anr.transform;
+		acc->anr.stitch.anr_stitch_en =
+			acc_user->anr.stitch.anr_stitch_en;
+		memcpy(acc->anr.stitch.pyramid, acc_user->anr.stitch.pyramid,
+		       sizeof(acc->anr.stitch.pyramid));
 	} else if (acc_old) {
 		/* Use old value */
-		acc->anr = acc_old->anr;
+		acc->anr.transform = acc_old->anr.transform;
+		acc->anr.stitch.anr_stitch_en =
+			acc_old->anr.stitch.anr_stitch_en;
+		memcpy(acc->anr.stitch.pyramid, acc_old->anr.stitch.pyramid,
+		       sizeof(acc->anr.stitch.pyramid));
 	} else {
 		/* Calculate from scratch */
 		acc->anr = ipu3_css_anr_defaults;
