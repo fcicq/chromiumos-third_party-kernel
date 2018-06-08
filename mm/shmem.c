@@ -255,7 +255,7 @@ static void shmem_recalc_inode(struct inode *inode)
 static int shmem_radix_tree_replace(struct address_space *mapping,
 			pgoff_t index, void *expected, void *replacement)
 {
-	void **pslot;
+	void __rcu **pslot;
 	void *item;
 
 	VM_BUG_ON(!expected);
@@ -631,7 +631,7 @@ static void shmem_evict_inode(struct inode *inode)
 static unsigned long find_swap_entry(struct radix_tree_root *root, void *item)
 {
 	struct radix_tree_iter iter;
-	void **slot;
+	void __rcu **slot;
 	unsigned long found = -1;
 	unsigned int checked = 0;
 	pgoff_t start = 0;
@@ -639,7 +639,13 @@ static unsigned long find_swap_entry(struct radix_tree_root *root, void *item)
 	rcu_read_lock();
 restart:
 	radix_tree_for_each_slot(slot, root, &iter, start) {
-		if (*slot == item) {
+		void *entry = radix_tree_deref_slot(slot);
+
+		if (radix_tree_deref_retry(entry)) {
+			slot = radix_tree_iter_retry(&iter);
+			continue;
+		}
+		if (entry == item) {
 			found = iter.index;
 			break;
 		}
@@ -1880,7 +1886,7 @@ static loff_t shmem_file_llseek(struct file *file, loff_t offset, int whence)
 static void shmem_tag_pins(struct address_space *mapping)
 {
 	struct radix_tree_iter iter;
-	void **slot;
+	void __rcu **slot;
 	pgoff_t start;
 	struct page *page;
 
@@ -1922,7 +1928,7 @@ restart:
 static int shmem_wait_for_pins(struct address_space *mapping)
 {
 	struct radix_tree_iter iter;
-	void **slot;
+	void __rcu **slot;
 	pgoff_t start;
 	struct page *page;
 	int error, scan;
