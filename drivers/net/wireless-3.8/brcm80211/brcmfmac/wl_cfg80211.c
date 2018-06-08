@@ -4449,53 +4449,6 @@ brcmf_notify_tdls_peer_event(struct brcmf_if *ifp,
 	return 0;
 }
 
-static int brcmf_convert_nl80211_tdls_oper(enum nl80211_tdls_operation oper)
-{
-	int ret;
-
-	switch (oper) {
-	case NL80211_TDLS_DISCOVERY_REQ:
-		ret = BRCMF_TDLS_MANUAL_EP_DISCOVERY;
-		break;
-	case NL80211_TDLS_SETUP:
-		ret = BRCMF_TDLS_MANUAL_EP_CREATE;
-		break;
-	case NL80211_TDLS_TEARDOWN:
-		ret = BRCMF_TDLS_MANUAL_EP_DELETE;
-		break;
-	default:
-		brcmf_err("unsupported operation: %d\n", oper);
-		ret = -EOPNOTSUPP;
-	}
-	return ret;
-}
-
-static int brcmf_cfg80211_tdls_oper(struct wiphy *wiphy,
-				    struct net_device *ndev, u8 *peer,
-				    enum nl80211_tdls_operation oper)
-{
-	struct brcmf_if *ifp;
-	struct brcmf_tdls_iovar_le info;
-	int ret = 0;
-
-	ret = brcmf_convert_nl80211_tdls_oper(oper);
-	if (ret < 0)
-		return ret;
-
-	ifp = netdev_priv(ndev);
-	memset(&info, 0, sizeof(info));
-	info.mode = (u8)ret;
-	if (peer)
-		memcpy(info.ea, peer, ETH_ALEN);
-
-	ret = brcmf_fil_iovar_data_set(ifp, "tdls_endpoint",
-				       &info, sizeof(info));
-	if (ret < 0)
-		brcmf_err("tdls_endpoint iovar failed: ret=%d\n", ret);
-
-	return ret;
-}
-
 static struct cfg80211_ops wl_cfg80211_ops = {
 	.add_virtual_intf = brcmf_cfg80211_add_iface,
 	.del_virtual_intf = brcmf_cfg80211_del_iface,

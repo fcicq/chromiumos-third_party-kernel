@@ -160,6 +160,8 @@ intel_dp_mode_valid(struct drm_connector *connector,
 	struct drm_display_mode *fixed_mode = intel_connector->panel.fixed_mode;
 	int target_clock = mode->clock;
 	int max_rate, mode_rate, max_lanes, max_link_clock;
+	uint8_t ds_port_type =
+		intel_dp->downstream_ports[0] & DP_DS_PORT_TYPE_MASK;
 
 	if (is_edp(intel_dp) && fixed_mode) {
 		if (mode->hdisplay > fixed_mode->hdisplay)
@@ -182,6 +184,12 @@ intel_dp_mode_valid(struct drm_connector *connector,
 	 */
 	if (intel_dp->has_hdmi_sink && intel_dp->has_dvi_sink &&
 	    target_clock > 165000)
+		return MODE_CLOCK_HIGH;
+
+	/* Limit clock to 340MHz (HDMI 1.4) in case of HDMI downstream,
+	 * i.e. connected with DP-HDMI adapter
+	 */
+	if (ds_port_type == DP_DS_PORT_TYPE_HDMI && target_clock > 340000)
 		return MODE_CLOCK_HIGH;
 
 	if (mode_rate > max_rate)

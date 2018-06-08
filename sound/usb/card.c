@@ -221,6 +221,7 @@ static int snd_usb_create_streams(struct snd_usb_audio *chip, int ctrlif)
 	struct usb_interface_descriptor *altsd;
 	void *control_header;
 	int i, protocol;
+	int rest_bytes;
 
 	/* find audiocontrol interface */
 	host_iface = &usb_ifnum_to_if(dev, ctrlif)->altsetting[0];
@@ -235,6 +236,15 @@ static int snd_usb_create_streams(struct snd_usb_audio *chip, int ctrlif)
 		return -EINVAL;
 	}
 
+	rest_bytes = (void *)(host_iface->extra + host_iface->extralen) -
+		control_header;
+
+	/* just to be sure -- this shouldn't hit at all */
+	if (rest_bytes <= 0) {
+		dev_err(&dev->dev, "invalid control header\n");
+		return -EINVAL;
+	}
+
 	switch (protocol) {
 	default:
 		snd_printdd(KERN_WARNING "unknown interface protocol %#02x, assuming v1\n",
@@ -244,8 +254,18 @@ static int snd_usb_create_streams(struct snd_usb_audio *chip, int ctrlif)
 	case UAC_VERSION_1: {
 		struct uac1_ac_header_descriptor *h1 = control_header;
 
+		if (rest_bytes < sizeof(*h1)) {
+			dev_err(&dev->dev, "too short v1 buffer descriptor\n");
+			return -EINVAL;
+		}
+
 		if (!h1->bInCollection) {
 			snd_printk(KERN_INFO "skipping empty audio interface (v1)\n");
+			return -EINVAL;
+		}
+
+		if (rest_bytes < h1->bLength) {
+			dev_err(&dev->dev, "invalid buffer length (v1)\n");
 			return -EINVAL;
 		}
 
@@ -331,7 +351,8 @@ static void remove_trailing_spaces(char *str)
 /*
  * create a chip instance and set its names.
  */
-static int snd_usb_audio_create(struct usb_device *dev, int idx,
+static int snd_usb_audio_create(struct usb_interface *intf,
+				struct usb_device *dev, int idx,
 				const struct snd_usb_audio_quirk *quirk,
 				struct snd_usb_audio **rchip)
 {
@@ -357,7 +378,8 @@ static int snd_usb_audio_create(struct usb_device *dev, int idx,
 		return -ENXIO;
 	}
 
-	err = snd_card_create(index[idx], id[idx], THIS_MODULE, 0, &card);
+	err = snd_card_new(&intf->dev, index[idx], id[idx], THIS_MODULE,
+			   0, &card);
 	if (err < 0) {
 		snd_printk(KERN_ERR "cannot create card instance %d\n", idx);
 		return err;
@@ -516,10 +538,10 @@ snd_usb_audio_probe(struct usb_device *dev,
 			if (enable[i] && ! usb_chip[i] &&
 			    (vid[i] == -1 || vid[i] == USB_ID_VENDOR(id)) &&
 			    (pid[i] == -1 || pid[i] == USB_ID_PRODUCT(id))) {
-				if (snd_usb_audio_create(dev, i, quirk, &chip) < 0) {
+				if (snd_usb_audio_create(intf, dev, i, quirk,
+							 &chip) < 0) {
 					goto __error;
 				}
-				snd_card_set_dev(chip->card, &intf->dev);
 				chip->pm_intf = intf;
 				break;
 			}

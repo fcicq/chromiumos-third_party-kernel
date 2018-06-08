@@ -1,0 +1,317 @@
+/*
+ * Google Veyron Rialto Rev3+ board device tree source
+ *
+ * Copyright 2018 Google, Inc
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+/dts-v1/;
+
+/ {
+	/*
+	 * This block is a hack in order to avoid deferral for power supplies.
+	 * See chrome-os-partner:37022
+	 */
+
+	vccsys {
+	};
+};
+
+#include "rk3288-veyron.dtsi"
+
+/ {
+	model = "Google Rialto";
+	compatible = "google,veyron-rialto-rev7", "google,veyron-rialto-rev8",
+		     "google,veyron-rialto-rev6", "google,veyron-rialto-rev5",
+		     "google,veyron-rialto-rev4", "google,veyron-rialto-rev3",
+		     "google,veyron-rialto", "google,veyron", "rockchip,rk3288";
+
+	gpio-keys {
+		pinctrl-0 = <&bt_host_wake &pwr_key_l &push_key>;
+
+		pushbutton {
+			label = "PushButton";
+			gpios = <&gpio7 9 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_F1>;
+			debounce-interval = <100>;
+			gpio-key,wakeup;
+		};
+	};
+
+	gpio-leds {
+		compatible = "gpio-leds";
+		pinctrl-names = "default";
+		pinctrl-0 = <&bt &bt2
+			     &error
+			     &ready &ready2
+			     &syncing &syncing2
+			     &wifi &wifi2>;
+
+		bt {
+			gpios = <&gpio7 18 GPIO_ACTIVE_HIGH>;
+			default-state = "on";
+		};
+
+		bt2 {
+			gpios = <&gpio7 14 GPIO_ACTIVE_HIGH>;
+			default-state = "on";
+		};
+
+		error {
+			gpios = <&gpio7 21 GPIO_ACTIVE_HIGH>;
+			default-state = "on";
+		};
+
+		ready {
+			gpios = <&gpio7 13 GPIO_ACTIVE_HIGH>;
+			default-state = "on";
+		};
+
+		ready2 {
+			gpios = <&gpio7 11 GPIO_ACTIVE_HIGH>;
+			default-state = "on";
+		};
+
+		syncing {
+			gpios = <&gpio7 17 GPIO_ACTIVE_HIGH>;
+			default-state = "on";
+		};
+
+		syncing2 {
+			gpios = <&gpio7 16 GPIO_ACTIVE_HIGH>;
+			default-state = "on";
+		};
+
+		wifi {
+			gpios = <&gpio7 3 GPIO_ACTIVE_HIGH>;
+			default-state = "on";
+		};
+
+		wifi2 {
+			gpios = <&gpio7 2 GPIO_ACTIVE_HIGH>;
+			default-state = "on";
+		};
+	};
+
+	/* A non-regulated voltage from power supply or battery */
+	vccsys: vccsys {
+		compatible = "regulator-fixed";
+		regulator-name = "vccsys";
+		regulator-boot-on;
+		regulator-always-on;
+	};
+
+	vcc33_sys: vcc33-sys {
+		vin-supply = <&vccsys>;
+	};
+
+	vcc_5v: vcc-5v {
+		vin-supply = <&vccsys>;
+	};
+
+	vcc33_io: vcc33-io {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc33_io";
+		regulator-always-on;
+		regulator-boot-on;
+		vin-supply = <&vcc33_sys>;
+	};
+
+	/delete-node/ vcc50-hdmi;
+
+	/*
+	 * Note, despite the schematic calling it host2,
+	 * this is actually power for usb_otg (dwc otg)
+	 */
+	vcc5_host2: vcc5-host2-regulator {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio0 12 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&vcc5_host2_pwr_en>;
+		regulator-name = "vcc5_host2";
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	/*
+	 * Note, despite the schematic calling it host3,
+	 * this is actually power usb_host1 (dwc non-otg)
+	 */
+	vcc5_host3: vcc5-host3-regulator {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio5 19 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&vcc5_host3_pwr_en>;
+		regulator-name = "vcc5_host3";
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	io-domains {
+		/delete-property/ lcdc-supply;
+	};
+};
+
+&rk808 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pmic_int_l &dvs_1 &dvs_2>;
+	dvs-gpios = <&gpio7 12 GPIO_ACTIVE_HIGH>,
+		    <&gpio7 15 GPIO_ACTIVE_HIGH>;
+
+	/delete-property/ vcc6-supply;
+	vcc10-supply = <&vcc33_sys>;
+
+	regulators {
+		/* vcc33_io is sourced directly from vcc33_sys */
+		/delete-node/ LDO_REG1;
+
+		/* no vcc33_lcd */
+		/delete-node/ SWITCH_REG1;
+
+		vcc18_lcd: SWITCH_REG2 {
+			regulator-always-on;
+			regulator-boot-on;
+			regulator-name = "vcc18_lcd";
+			regulator-suspend-mem-disabled;
+		};
+	};
+};
+
+&hdmi {
+	/* Free up the i2c5 pins. */
+	/delete-property/ pinctrl-names;
+	/delete-property/ pinctrl-0;
+	/delete-property/ pinctrl-1;
+};
+
+&i2c2 {
+	status = "disabled";
+};
+
+&i2c4 {
+	status = "disabled";
+};
+
+&i2c5 {
+	/* Temperature sensor */
+	status = "okay";
+
+	clock-frequency = <400000>;
+	i2c-scl-falling-time-ns = <50>;
+	i2c-scl-rising-time-ns = <300>;
+};
+
+&pwm0 {
+	/* fan_ctrl0 */
+	status = "okay";
+};
+
+&pinctrl {
+	pinctrl-0 = <
+		/* Common for sleep and wake, but no owners */
+		&ddr0_retention
+		&ddrio_pwroff
+		&modem_on_off
+		&modem_shutdown
+		&global_pwroff
+	>;
+	pinctrl-1 = <
+		/* Common for sleep and wake, but no owners */
+		&ddr0_retention
+		&ddrio_pwroff
+		&modem_on_off
+		&modem_shutdown
+		&global_pwroff
+	>;
+
+	/delete-node/ bt_dev_wake_sleep;
+	/delete-node/ bt_dev_wake_awake;
+
+	buttons {
+		push_key: push-key {
+			rockchip,pins = <7 9 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+
+	fan {
+		/* fan_ctrl0 via pwm0 */
+
+		fan_ctrl1: fan-ctrl1 {
+			rockchip,pins = <7 7 RK_FUNC_GPIO &pcfg_output_low>;
+		};
+	};
+
+	leds {
+		bt: bt {
+			rockchip,pins = <7 18 RK_FUNC_GPIO &pcfg_output_low>;
+		};
+
+		bt2: bt2 {
+			rockchip,pins = <7 14 RK_FUNC_GPIO &pcfg_output_low>;
+		};
+
+		error: error {
+			rockchip,pins = <7 21 RK_FUNC_GPIO &pcfg_output_low>;
+		};
+
+		ready: ready {
+			rockchip,pins = <7 13 RK_FUNC_GPIO &pcfg_output_low>;
+		};
+
+		ready2: ready2 {
+			rockchip,pins = <7 11 RK_FUNC_GPIO &pcfg_output_low>;
+		};
+
+		syncing: syncing {
+			rockchip,pins = <7 17 RK_FUNC_GPIO &pcfg_output_low>;
+		};
+
+		syncing2: syncing2 {
+			rockchip,pins = <7 16 RK_FUNC_GPIO &pcfg_output_low>;
+		};
+
+		wifi: wifi {
+			rockchip,pins = <7 3 RK_FUNC_GPIO &pcfg_output_low>;
+		};
+
+		wifi2: wifi2 {
+			rockchip,pins = <7 2 RK_FUNC_GPIO &pcfg_output_low>;
+		};
+
+	};
+
+	modem {
+		modem_on_off: modem-on-off-gpio {
+			rockchip,pins = <4 26 RK_FUNC_GPIO &pcfg_output_low>;
+		};
+
+		modem_shutdown: modem-shutdown {
+			rockchip,pins = <5 17 RK_FUNC_GPIO &pcfg_output_high>;
+		};
+	};
+
+	pmic {
+		dvs_1: dvs-1 {
+			rockchip,pins = <7 12 RK_FUNC_GPIO &pcfg_pull_down>;
+		};
+
+		dvs_2: dvs-2 {
+			rockchip,pins = <7 15 RK_FUNC_GPIO &pcfg_pull_down>;
+		};
+	};
+
+	usb-host {
+		vcc5_host2_pwr_en: vcc5-host2-pwr-en {
+			rockchip,pins = <0 12 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+
+		vcc5_host3_pwr_en: vcc5-host3-pwr-en {
+			rockchip,pins = <5 19 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+};

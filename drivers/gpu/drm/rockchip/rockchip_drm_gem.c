@@ -162,7 +162,6 @@ err_free_rk_obj:
  */
 void rockchip_gem_free_object(struct drm_gem_object *obj)
 {
-	struct drm_device *drm = obj->dev;
 	struct rockchip_gem_object *rk_obj = to_rockchip_obj(obj);
 
 	drm_gem_free_mmap_offset(obj);

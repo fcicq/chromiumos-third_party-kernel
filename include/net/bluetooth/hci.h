@@ -236,6 +236,8 @@ enum {
 	HCI_EXT_CONFIGURED,
 	HCI_LE_ADV,
 	HCI_LE_SCAN,
+	HCI_LE_ADV_CHANGE_IN_PROGRESS,
+	HCI_LE_SCAN_CHANGE_IN_PROGRESS,
 	HCI_SSP_ENABLED,
 	HCI_SC_ENABLED,
 	HCI_SC_ONLY,
@@ -274,7 +276,7 @@ enum {
 #define HCI_AUTO_OFF_TIMEOUT	msecs_to_jiffies(2000)	/* 2 seconds */
 #define HCI_POWER_OFF_TIMEOUT	msecs_to_jiffies(5000)	/* 5 seconds */
 #define HCI_LE_CONN_TIMEOUT	msecs_to_jiffies(20000)	/* 20 seconds */
-#define HCI_LE_AUTOCONN_TIMEOUT	msecs_to_jiffies(2000)	/* 2 seconds */
+#define HCI_LE_AUTOCONN_TIMEOUT	msecs_to_jiffies(5000)	/* 5 seconds */
 
 /* HCI data types */
 #define HCI_COMMAND_PKT		0x01

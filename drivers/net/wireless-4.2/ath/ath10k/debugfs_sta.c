@@ -629,6 +629,66 @@ static const struct file_operations fops_tx_success_bytes = {
 	.llseek = default_llseek,
 };
 
+static ssize_t ath10k_dbg_sta_read_pspoll_sta_ko_enable(struct file *file,
+							char __user *user_buf,
+							size_t count, loff_t *ppos)
+{
+	struct ieee80211_sta *sta = file->private_data;
+	struct ath10k_sta *arsta = (struct ath10k_sta *)sta->drv_priv;
+	struct ath10k *ar = arsta->arvif->ar;
+	char buf[50];
+	int len = 0;
+
+	mutex_lock(&ar->conf_mutex);
+	len = scnprintf(buf, sizeof(buf) - len, "pspoll_sta_ko_enable: %d\n", arsta->pspoll_sta_ko_enable);
+	mutex_unlock(&ar->conf_mutex);
+
+	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
+}
+
+static ssize_t ath10k_dbg_sta_write_pspoll_sta_ko_enable(struct file *file,
+							 const char __user *user_buf,
+							 size_t count, loff_t *ppos)
+{
+	struct ieee80211_sta *sta = file->private_data;
+	struct ath10k_sta *arsta = (struct ath10k_sta *)sta->drv_priv;
+	struct ath10k *ar = arsta->arvif->ar;
+	u8 pspoll_sta_ko_enable;
+	int ret;
+
+	if (kstrtou8_from_user(user_buf, count, 0, &pspoll_sta_ko_enable))
+		return -EINVAL;
+
+	mutex_lock(&ar->conf_mutex);
+	if (ar->state != ATH10K_STATE_ON) {
+		ret = -EBUSY;
+		goto out;
+	}
+
+	ret = ath10k_wmi_peer_set_param(ar, arsta->arvif->vdev_id, sta->addr,
+					WMI_PEER_PS_POLL_KICKOUT,
+					pspoll_sta_ko_enable);
+	if (ret) {
+		ath10k_warn(ar, "failed to toggle pspoll sta kickout logic for station ret: %d\n",
+			    ret);
+		goto out;
+	}
+
+	ret = count;
+	arsta->pspoll_sta_ko_enable = pspoll_sta_ko_enable;
+out:
+	mutex_unlock(&ar->conf_mutex);
+	return ret;
+}
+
+static const struct file_operations fops_set_pspoll_sta_ko_enable = {
+	.read = ath10k_dbg_sta_read_pspoll_sta_ko_enable,
+	.write = ath10k_dbg_sta_write_pspoll_sta_ko_enable,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+	.llseek = default_llseek,
+};
+
 void ath10k_sta_add_debugfs(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 			    struct ieee80211_sta *sta, struct dentry *dir)
 {
@@ -643,4 +703,6 @@ void ath10k_sta_add_debugfs(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 			    &fops_tx_stats);
 	debugfs_create_file("tx_success_bytes", S_IRUGO, dir, sta,
 			    &fops_tx_success_bytes);
+	debugfs_create_file("pspoll_sta_ko_enable", S_IRUGO | S_IWUSR, dir, sta,
+			    &fops_set_pspoll_sta_ko_enable);
 }

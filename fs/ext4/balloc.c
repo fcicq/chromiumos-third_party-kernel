@@ -192,7 +192,6 @@ static int ext4_init_block_bitmap(struct super_block *sb,
 	/* If checksum is bad mark all blocks used to prevent allocation
 	 * essentially implementing a per-group read-only flag. */
 	if (!ext4_group_desc_csum_verify(sb, block_group, gdp)) {
-		ext4_error(sb, "Checksum bad for group %u", block_group);
 		grp = ext4_get_group_info(sb, block_group);
 		if (!EXT4_MB_GRP_BBITMAP_CORRUPT(grp))
 			percpu_counter_sub(&sbi->s_freeclusters_counter,
@@ -210,12 +209,15 @@ static int ext4_init_block_bitmap(struct super_block *sb,
 	memset(bh->b_data, 0, sb->s_blocksize);
 
 	bit_max = ext4_num_base_meta_clusters(sb, block_group);
+	if ((bit_max >> 3) >= bh->b_size)
+		return -EFSCORRUPTED;
+
 	for (bit = 0; bit < bit_max; bit++)
 		ext4_set_bit(bit, bh->b_data);
 
 	start = ext4_group_first_block_no(sb, block_group);
 
-	if (EXT4_HAS_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_FLEX_BG))
+	if (ext4_has_feature_flex_bg(sb))
 		flex_bg = 1;
 
 	/* Set bits for block and inode bitmaps, and inode table */
@@ -324,7 +326,7 @@ static ext4_fsblk_t ext4_valid_block_bitmap(struct super_block *sb,
 	ext4_fsblk_t blk;
 	ext4_fsblk_t group_first_block;
 
-	if (EXT4_HAS_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_FLEX_BG)) {
+	if (ext4_has_feature_flex_bg(sb)) {
 		/* with FLEX_BG, the inode/block bitmaps and itable
 		 * blocks may not be in the group at all
 		 * so the bitmap validation will be skipped for those groups
@@ -338,20 +340,25 @@ static ext4_fsblk_t ext4_valid_block_bitmap(struct super_block *sb,
 	/* check whether block bitmap block number is set */
 	blk = ext4_block_bitmap(sb, desc);
 	offset = blk - group_first_block;
-	if (!ext4_test_bit(EXT4_B2C(sbi, offset), bh->b_data))
+	if (offset < 0 || EXT4_B2C(sbi, offset) >= sb->s_blocksize ||
+	    !ext4_test_bit(EXT4_B2C(sbi, offset), bh->b_data))
 		/* bad block bitmap */
 		return blk;
 
 	/* check whether the inode bitmap block number is set */
 	blk = ext4_inode_bitmap(sb, desc);
 	offset = blk - group_first_block;
-	if (!ext4_test_bit(EXT4_B2C(sbi, offset), bh->b_data))
+	if (offset < 0 || EXT4_B2C(sbi, offset) >= sb->s_blocksize ||
+	    !ext4_test_bit(EXT4_B2C(sbi, offset), bh->b_data))
 		/* bad block bitmap */
 		return blk;
 
 	/* check whether the inode table block number is set */
 	blk = ext4_inode_table(sb, desc);
 	offset = blk - group_first_block;
+	if (offset < 0 || EXT4_B2C(sbi, offset) >= sb->s_blocksize ||
+	    EXT4_B2C(sbi, offset + sbi->s_itb_per_group) >= sb->s_blocksize)
+		return blk;
 	next_zero_bit = ext4_find_next_zero_bit(bh->b_data,
 			EXT4_B2C(sbi, offset + EXT4_SB(sb)->s_itb_per_group),
 			EXT4_B2C(sbi, offset));
@@ -417,6 +424,7 @@ struct buffer_head *
 ext4_read_block_bitmap_nowait(struct super_block *sb, ext4_group_t block_group)
 {
 	struct ext4_group_desc *desc;
+	struct ext4_sb_info *sbi = EXT4_SB(sb);
 	struct buffer_head *bh;
 	ext4_fsblk_t bitmap_blk;
 	int err;
@@ -425,6 +433,12 @@ ext4_read_block_bitmap_nowait(struct super_block *sb, ext4_group_t block_group)
 	if (!desc)
 		return ERR_PTR(-EFSCORRUPTED);
 	bitmap_blk = ext4_block_bitmap(sb, desc);
+	if ((bitmap_blk <= le32_to_cpu(sbi->s_es->s_first_data_block)) ||
+	    (bitmap_blk >= ext4_blocks_count(sbi->s_es))) {
+		ext4_error(sb, "Invalid block bitmap block %llu in "
+			   "block_group %u", bitmap_blk, block_group);
+		return ERR_PTR(-EFSCORRUPTED);
+	}
 	bh = sb_getblk(sb, bitmap_blk);
 	if (unlikely(!bh)) {
 		ext4_error(sb, "Cannot get buffer for block bitmap - "
@@ -443,14 +457,16 @@ ext4_read_block_bitmap_nowait(struct super_block *sb, ext4_group_t block_group)
 	}
 	ext4_lock_group(sb, block_group);
 	if (desc->bg_flags & cpu_to_le16(EXT4_BG_BLOCK_UNINIT)) {
-
 		err = ext4_init_block_bitmap(sb, bh, block_group, desc);
 		set_bitmap_uptodate(bh);
 		set_buffer_uptodate(bh);
 		ext4_unlock_group(sb, block_group);
 		unlock_buffer(bh);
-		if (err)
+		if (err) {
+			ext4_error(sb, "Failed to init block bitmap for group "
+				   "%u: %d", block_group, err);
 			goto out;
+		}
 		goto verify;
 	}
 	ext4_unlock_group(sb, block_group);
@@ -749,14 +765,13 @@ int ext4_bg_has_super(struct super_block *sb, ext4_group_t group)
 
 	if (group == 0)
 		return 1;
-	if (EXT4_HAS_COMPAT_FEATURE(sb, EXT4_FEATURE_COMPAT_SPARSE_SUPER2)) {
+	if (ext4_has_feature_sparse_super2(sb)) {
 		if (group == le32_to_cpu(es->s_backup_bgs[0]) ||
 		    group == le32_to_cpu(es->s_backup_bgs[1]))
 			return 1;
 		return 0;
 	}
-	if ((group <= 1) || !EXT4_HAS_RO_COMPAT_FEATURE(sb,
-					EXT4_FEATURE_RO_COMPAT_SPARSE_SUPER))
+	if ((group <= 1) || !ext4_has_feature_sparse_super(sb))
 		return 1;
 	if (!(group & 1))
 		return 0;
@@ -785,7 +800,7 @@ static unsigned long ext4_bg_num_gdb_nometa(struct super_block *sb,
 	if (!ext4_bg_has_super(sb, group))
 		return 0;
 
-	if (EXT4_HAS_INCOMPAT_FEATURE(sb,EXT4_FEATURE_INCOMPAT_META_BG))
+	if (ext4_has_feature_meta_bg(sb))
 		return le32_to_cpu(EXT4_SB(sb)->s_es->s_first_meta_bg);
 	else
 		return EXT4_SB(sb)->s_gdb_count;
@@ -806,8 +821,7 @@ unsigned long ext4_bg_num_gdb(struct super_block *sb, ext4_group_t group)
 			le32_to_cpu(EXT4_SB(sb)->s_es->s_first_meta_bg);
 	unsigned long metagroup = group / EXT4_DESC_PER_BLOCK(sb);
 
-	if (!EXT4_HAS_INCOMPAT_FEATURE(sb,EXT4_FEATURE_INCOMPAT_META_BG) ||
-			metagroup < first_meta_bg)
+	if (!ext4_has_feature_meta_bg(sb) || metagroup < first_meta_bg)
 		return ext4_bg_num_gdb_nometa(sb, group);
 
 	return ext4_bg_num_gdb_meta(sb,group);
@@ -827,7 +841,7 @@ static unsigned ext4_num_base_meta_clusters(struct super_block *sb,
 	/* Check for superblock and gdt backups in this group */
 	num = ext4_bg_has_super(sb, block_group);
 
-	if (!EXT4_HAS_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_META_BG) ||
+	if (!ext4_has_feature_meta_bg(sb) ||
 	    block_group < le32_to_cpu(sbi->s_es->s_first_meta_bg) *
 			  sbi->s_desc_per_block) {
 		if (num) {

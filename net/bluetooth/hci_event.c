@@ -1072,7 +1072,8 @@ static void hci_cc_le_set_adv_enable(struct hci_dev *hdev, struct sk_buff *skb)
 	} else {
 		hci_dev_clear_flag(hdev, HCI_LE_ADV);
 	}
-
+	hci_dev_clear_flag(hdev, HCI_LE_ADV_CHANGE_IN_PROGRESS);
+	hdev->count_adv_change_in_progress--;
 	hci_dev_unlock(hdev);
 }
 
@@ -1142,6 +1143,8 @@ static void hci_cc_le_set_scan_enable(struct hci_dev *hdev,
 		return;
 
 	hci_dev_lock(hdev);
+	hci_dev_clear_flag(hdev, HCI_LE_SCAN_CHANGE_IN_PROGRESS);
+	hdev->count_scan_change_in_progress--;
 
 	switch (cp->enable) {
 	case LE_SCAN_ENABLE:
@@ -4469,11 +4472,6 @@ static void hci_le_conn_complete_evt(struct hci_dev *hdev, struct sk_buff *skb)
 	BT_DBG("%s status 0x%2.2x", hdev->name, ev->status);
 
 	hci_dev_lock(hdev);
-
-	/* All controllers implicitly stop advertising in the event of a
-	 * connection, so ensure that the state bit is cleared.
-	 */
-	hci_dev_clear_flag(hdev, HCI_LE_ADV);
 
 	conn = hci_lookup_le_connect(hdev);
 	if (!conn) {

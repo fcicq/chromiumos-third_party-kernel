@@ -1589,7 +1589,7 @@ static void __iomem *rk3288_getmap_iomem(struct rk3288_dmcclk *dmc,
 		dev_err(dev, "Could not map %s\n", name);
 
 	if (phys)
-		*phys = (void __iomem *)res.start;
+		*phys = (void __iomem *)(unsigned long)res.start;
 
 	return mem;
 }
@@ -1649,7 +1649,7 @@ static int rk3288_dmcclk_probe(struct platform_device *pdev)
 		return PTR_ERR(dmc->sram);
 	}
 	dmc->sram_len = res.end - res.start + 1;
-	dmc->sram_phys = (void __iomem *)res.start;
+	dmc->sram_phys = (void __iomem *)(unsigned long)res.start;
 
 	/*
 	 * Get cru, grf, sgrf, pmu base regs. We can't use the regmap API when
@@ -1685,13 +1685,13 @@ static int rk3288_dmcclk_probe(struct platform_device *pdev)
 		dmc->ddr_regs[i] = devm_ioremap_resource(dmc->dev, res);
 		if (IS_ERR(dmc->ddr_regs[i]))
 			return PTR_ERR(dmc->ddr_regs[i]);
-		dmc->ddr_regs_phys[i] = (void *)res->start;
+		dmc->ddr_regs_phys[i] = (void *)(unsigned long)res->start;
 
 		res = platform_get_resource(pdev, IORESOURCE_MEM, i * 2 + 1);
 		dmc->phy_regs[i] = devm_ioremap_resource(dmc->dev, res);
 		if (IS_ERR(dmc->phy_regs[i]))
 			return PTR_ERR(dmc->phy_regs[i]);
-		dmc->phy_regs_phys[i] = (void *)res->start;
+		dmc->phy_regs_phys[i] = (void *)(unsigned long)res->start;
 	}
 
 	/* initialize active ddr channels */

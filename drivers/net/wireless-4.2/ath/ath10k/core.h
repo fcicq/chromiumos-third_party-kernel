@@ -392,6 +392,7 @@ struct ath10k_sta {
 	struct ath10k_tx_stats tx_stats;
 #endif
 	struct ath10k_smart_ant_sta *smart_ant_sta;
+	bool pspoll_sta_ko_enable;
 };
 
 #define ATH10K_VDEV_SETUP_TIMEOUT_HZ (5*HZ)

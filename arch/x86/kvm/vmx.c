@@ -2661,7 +2661,7 @@ static int hardware_enable(void *garbage)
 	u64 phys_addr = __pa(per_cpu(vmxarea, cpu));
 	u64 old, test_bits;
 
-	if (read_cr4() & X86_CR4_VMXE)
+	if (cr4_read_shadow() & X86_CR4_VMXE)
 		return -EBUSY;
 
 	INIT_LIST_HEAD(&per_cpu(loaded_vmcss_on_cpu, cpu));
@@ -2688,7 +2688,7 @@ static int hardware_enable(void *garbage)
 		/* enable and lock */
 		wrmsrl(MSR_IA32_FEATURE_CONTROL, old | test_bits);
 	}
-	write_cr4(read_cr4() | X86_CR4_VMXE); /* FIXME: not cpu hotplug safe */
+	cr4_set_bits(X86_CR4_VMXE);
 
 	if (vmm_exclusive) {
 		kvm_cpu_vmxon(phys_addr);
@@ -2725,7 +2725,7 @@ static void hardware_disable(void *garbage)
 		vmclear_local_loaded_vmcss();
 		kvm_cpu_vmxoff();
 	}
-	write_cr4(read_cr4() & ~X86_CR4_VMXE);
+	cr4_clear_bits(X86_CR4_VMXE);
 }
 
 static __init int adjust_vmx_controls(u32 ctl_min, u32 ctl_opt,
@@ -3429,8 +3429,16 @@ static void vmx_set_cr3(struct kvm_vcpu *vcpu, unsigned long cr3)
 
 static int vmx_set_cr4(struct kvm_vcpu *vcpu, unsigned long cr4)
 {
-	unsigned long hw_cr4 = cr4 | (to_vmx(vcpu)->rmode.vm86_active ?
-		    KVM_RMODE_VM_CR4_ALWAYS_ON : KVM_PMODE_VM_CR4_ALWAYS_ON);
+	/*
+	 * Pass through host's Machine Check Enable value to hw_cr4, which
+	 * is in force while we are in guest mode.  Do not let guests control
+	 * this bit, even if host CR4.MCE == 0.
+	 */
+	unsigned long hw_cr4 =
+		(cr4_read_shadow() & X86_CR4_MCE) |
+		(cr4 & ~X86_CR4_MCE) |
+		(to_vmx(vcpu)->rmode.vm86_active ?
+		 KVM_RMODE_VM_CR4_ALWAYS_ON : KVM_PMODE_VM_CR4_ALWAYS_ON);
 
 	if (cr4 & X86_CR4_VMXE) {
 		/*
@@ -4164,9 +4172,8 @@ static void vmx_set_constant_host_state(struct vcpu_vmx *vmx)
 	struct desc_ptr dt;
 
 	vmcs_writel(HOST_CR0, read_cr0() & ~X86_CR0_TS);  /* 22.2.3 */
-	vmcs_writel(HOST_CR4, read_cr4());  /* 22.2.3, 22.2.5 */
+	vmcs_writel(HOST_CR4, cr4_read_shadow();  /* 22.2.3, 22.2.5 */
 	vmcs_writel(HOST_CR3, read_cr3());  /* 22.2.3  FIXME: shadow tables */
-
 	vmcs_write16(HOST_CS_SELECTOR, __KERNEL_CS);  /* 22.2.4 */
 #ifdef CONFIG_X86_64
 	/*
@@ -7815,7 +7822,7 @@ static void prepare_vmcs02(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12)
 	/* vmcs12's VM_ENTRY_LOAD_IA32_EFER and VM_ENTRY_IA32E_MODE are
 	 * emulated by vmx_set_efer(), below.
 	 */
-	vm_entry_controls_init(vmx, 
+	vm_entry_controls_init(vmx,
 		(vmcs12->vm_entry_controls & ~VM_ENTRY_LOAD_IA32_EFER &
 			~VM_ENTRY_IA32E_MODE) |
 		(vmcs_config.vmentry_ctrl & ~VM_ENTRY_IA32E_MODE));

@@ -178,6 +178,7 @@ enum wmi_service {
 	WMI_SERVICE_EXT_RES_CFG_SUPPORT,
 	WMI_SERVICE_MESH,
 	WMI_SERVICE_PEER_STATS,
+	WMI_SERVICE_RESET_CHIP,
 
 	/* keep last */
 	WMI_SERVICE_MAX,
@@ -215,6 +216,7 @@ enum wmi_10x_service {
 	WMI_10X_SERVICE_MESH,
 	WMI_10X_SERVICE_EXT_RES_CFG_SUPPORT,
 	WMI_10X_SERVICE_PEER_STATS,
+	WMI_10X_SERVICE_RESET_CHIP,
 };
 
 enum wmi_main_service {
@@ -389,6 +391,7 @@ static inline char *wmi_service_name(int service_id)
 	SVCSTR(WMI_SERVICE_EXT_RES_CFG_SUPPORT);
 	SVCSTR(WMI_SERVICE_MESH);
 	SVCSTR(WMI_SERVICE_PEER_STATS);
+	SVCSTR(WMI_SERVICE_RESET_CHIP);
 	default:
 		return NULL;
 	}
@@ -468,6 +471,8 @@ static inline void wmi_10x_svc_map(const __le32 *in, unsigned long *out,
 	       WMI_SERVICE_EXT_RES_CFG_SUPPORT, len);
 	SVCMAP(WMI_10X_SERVICE_PEER_STATS,
 	       WMI_SERVICE_PEER_STATS, len);
+	SVCMAP(WMI_10X_SERVICE_RESET_CHIP,
+	       WMI_SERVICE_RESET_CHIP, len);
 }
 
 static inline void wmi_main_svc_map(const __le32 *in, unsigned long *out,
@@ -3603,7 +3608,11 @@ enum wmi_10x_pdev_param {
 	WMI_10X_PDEV_PARAM_REMOVE_MCAST2UCAST_BUFFER,
 	WMI_10X_PDEV_PARAM_PEER_STA_PS_STATECHG_ENABLE,
 	WMI_10X_PDEV_PARAM_RTS_FIXED_RATE,
-	WMI_10X_PDEV_PARAM_CAL_PERIOD
+	WMI_10X_PDEV_PARAM_CAL_PERIOD,
+	WMI_10X_PDEV_PARAM_ATF_STRICT_SCH,
+	WMI_10X_PDEV_PARAM_ATF_SCHED_DURATION,
+	WMI_10X_PDEV_PARAM_SET_PROMISC_MODE_CMDID,
+	WMI_10X_PDEV_PARAM_PDEV_RESET
 };
 
 enum wmi_10_4_pdev_param {
@@ -5543,6 +5552,7 @@ enum wmi_peer_param {
 	WMI_PEER_CHAN_WIDTH = 0x4,
 	WMI_PEER_NSS        = 0x5,
 	WMI_PEER_USE_4ADDR  = 0x6,
+	WMI_PEER_PS_POLL_KICKOUT = 0x11,
 	WMI_PEER_DUMMY_VAR  = 0xff, /* dummy parameter for STA PS workaround */
 };
 
@@ -5904,6 +5914,15 @@ struct wmi_force_fw_hang_cmd {
 	__le32 type;
 	__le32 delay_ms;
 } __packed;
+
+enum wmi_pdev_reset_mode_type {
+	WMI_RST_MODE_TX_FLUSH = 1,
+	WMI_RST_MODE_WARM_RESET,
+	WMI_RST_MODE_COLD_RESET,
+	WMI_RST_MODE_WARM_RESET_RESTORE_CAL,
+	WMI_RST_MODE_COLD_RESET_RESTORE_CAL,
+	WMI_RST_MODE_MAX,
+};
 
 enum ath10k_dbglog_level {
 	ATH10K_DBGLOG_LEVEL_VERBOSE = 0,

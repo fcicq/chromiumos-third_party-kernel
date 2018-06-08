@@ -258,12 +258,6 @@ void nfs_release_request(struct nfs_page *req)
 	kref_put(&req->wb_kref, nfs_free_request);
 }
 
-static int nfs_wait_bit_uninterruptible(void *word)
-{
-	io_schedule();
-	return 0;
-}
-
 /**
  * nfs_wait_on_request - Wait for a request to complete.
  * @req: request to wait upon.
