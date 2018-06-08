@@ -892,8 +892,9 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	memset(isp_stage, 0, sizeof(*isp_stage));
 	isp_stage->blob_info = bi->blob;
 	isp_stage->binary_info = bi->info.isp.sp;
-	strcpy(isp_stage->binary_name,
-	       (char *)css->fwp + bi->blob.prog_name_offset);
+	strlcpy(isp_stage->binary_name,
+	       (char *)css->fwp + bi->blob.prog_name_offset,
+	       sizeof(isp_stage->binary_name));
 	isp_stage->mem_initializers = bi->info.isp.sp.mem_initializers;
 	for (i = IMGU_ABI_PARAM_CLASS_CONFIG; i < IMGU_ABI_PARAM_CLASS_NUM; i++)
 		for (j = 0; j < IMGU_ABI_NUM_MEMORIES; j++)
