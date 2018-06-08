@@ -554,6 +554,8 @@ struct ath10k_tx_delay_stats {
 	u32 counts[ATH10K_DELAY_STATS_MAX_BIN + 1];
 };
 
+#define ATH10K_FTMR_MAX_NUM_VDEVS 20
+
 struct ath10k_debug {
 	struct dentry *debugfs_phy;
 
@@ -579,6 +581,7 @@ struct ath10k_debug {
 	u32 reg_addr;
 	u32 nf_cal_period;
 	u32 wlan_traffic_priority;
+	int ftmr_enabled[ATH10K_FTMR_MAX_NUM_VDEVS];
 
 	struct ath10k_fw_crash_data *fw_crash_data;
 	struct dentry *debugfs_smartant;
