@@ -19,13 +19,23 @@ config DRM_PANEL_SIMPLE
 	  low power state.
 
 config DRM_PANEL_INNOLUX_P079ZCA
-	tristate "Innolux P079ZCA panel"
+	tristate "Innolux P079ZCA or P097PFG panel"
 	depends on OF
 	depends on DRM_MIPI_DSI
 	depends on BACKLIGHT_CLASS_DEVICE
 	help
-	  Say Y here if you want to enable support for Innolux P079ZCA
-	  TFT-LCD modules. The panel has a 1024x768 resolution and uses
+	  Say Y here if you want to enable support for Innolux P079ZCA or
+	  Innolux P097PFG panel. They provide a MIPI DSI interface to
+	  the host and have a built-in LED backlight.
+
+config DRM_PANEL_KINGDISPLAY_KD097D04
+	tristate "Kingdisplay KD097D04 panel"
+	depends on OF
+	depends on DRM_MIPI_DSI
+	depends on BACKLIGHT_CLASS_DEVICE
+	help
+	  Say Y here if you want to enable support for Kingdisplay KD097D04
+	  TFT-LCD modules. The panel has a 1536x2048 resolution and uses
 	  24 bit RGB per pixel. It provides a MIPI DSI interface to
 	  the host and has a built-in LED backlight.
 

@@ -13,6 +13,7 @@
  */
 
 #include <linux/acpi.h>
+#include <linux/delay.h>
 #include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/pm_runtime.h>
@@ -79,6 +80,17 @@
 #define OV13858_ANA_GAIN_STEP		1
 #define OV13858_ANA_GAIN_DEFAULT	0x80
 
+/* OTP control registers */
+#define OV13858_REG_OTP_LOAD_CTRL	0x3d81
+#define OV13858_OTP_LOAD_ENABLE		BIT(0)
+#define OV13858_REG_OTP_MODE_CTRL	0x3d84
+#define OV13858_OTP_PROGRAM_DISABLE	BIT(7)
+#define OV13858_OTP_MANUAL_MODE		BIT(6)
+
+/* ISP control registers */
+#define OV13858_REG_ISP_CTRL_0		0x5000
+#define OV13858_ISP_OTP_ENABLE		BIT(4)
+
 /* Digital gain control */
 #define OV13858_REG_B_MWB_GAIN		0x5100
 #define OV13858_REG_G_MWB_GAIN		0x5102
@@ -96,6 +108,15 @@
 /* Number of frames to skip */
 #define OV13858_NUM_OF_SKIP_FRAMES	2
 
+/* OTP access for vendor Id */
+#define OV13858_OTP_SRAM                0x7000
+#define OV13858_FLAG_BASIC_OFFSET	0x220
+#define OV13858_NUM_OTP_GROUP		2
+#define OV13858_OTP_GROUP_FLAG_SHIFT(i)	(6 - 2*(i))
+#define OV13858_OTP_GROUP_FLAG_MASK	0x3
+#define OV13858_OTP_GROUP_FLAG_VALID	0x1
+#define OV13858_OTP_MI_ID_OFFSET(i)	(0x221 + 8*(i))
+
 struct ov13858_reg {
 	u16 address;
 	u8 val;
@@ -108,7 +129,6 @@ struct ov13858_reg_list {
 
 /* Link frequency config */
 struct ov13858_link_freq_config {
-	u32 pixel_rate;
 	u32 pixels_per_line;
 
 	/* PLL registers for this link frequency */
@@ -199,6 +219,7 @@ static const struct ov13858_reg mode_4224x3136_regs[] = {
 	{0x3624, 0x1c},
 	{0x3640, 0x10},
 	{0x3641, 0x70},
+	{0x3660, 0x04},
 	{0x3661, 0x80},
 	{0x3662, 0x12},
 	{0x3664, 0x73},
@@ -389,6 +410,7 @@ static const struct ov13858_reg mode_2112x1568_regs[] = {
 	{0x3624, 0x1c},
 	{0x3640, 0x10},
 	{0x3641, 0x70},
+	{0x3660, 0x04},
 	{0x3661, 0x80},
 	{0x3662, 0x10},
 	{0x3664, 0x73},
@@ -579,6 +601,7 @@ static const struct ov13858_reg mode_2112x1188_regs[] = {
 	{0x3624, 0x1c},
 	{0x3640, 0x10},
 	{0x3641, 0x70},
+	{0x3660, 0x04},
 	{0x3661, 0x80},
 	{0x3662, 0x10},
 	{0x3664, 0x73},
@@ -769,6 +792,7 @@ static const struct ov13858_reg mode_1056x784_regs[] = {
 	{0x3624, 0x1c},
 	{0x3640, 0x10},
 	{0x3641, 0x70},
+	{0x3660, 0x04},
 	{0x3661, 0x80},
 	{0x3662, 0x08},
 	{0x3664, 0x73},
@@ -952,6 +976,18 @@ static const char * const ov13858_test_pattern_menu[] = {
 #define OV13858_LINK_FREQ_INDEX_0	0
 #define OV13858_LINK_FREQ_INDEX_1	1
 
+/*
+ * pixel_rate = link_freq * data-rate * nr_of_lanes / bits_per_sample
+ * data rate => double data rate; number of lanes => 4; bits per pixel => 10
+ */
+static u64 link_freq_to_pixel_rate(u64 f)
+{
+	f *= 2 * 4;
+	do_div(f, 10);
+
+	return f;
+}
+
 /* Menu items for LINK_FREQ V4L2 control */
 static const s64 link_freq_menu_items[OV13858_NUM_OF_LINK_FREQS] = {
 	OV13858_LINK_FREQ_540MHZ,
@@ -962,8 +998,6 @@ static const s64 link_freq_menu_items[OV13858_NUM_OF_LINK_FREQS] = {
 static const struct ov13858_link_freq_config
 			link_freq_configs[OV13858_NUM_OF_LINK_FREQS] = {
 	{
-		/* pixel_rate = link_freq * 2 * nr_of_lanes / bits_per_sample */
-		.pixel_rate = (OV13858_LINK_FREQ_540MHZ * 2 * 4) / 10,
 		.pixels_per_line = OV13858_PPL_540MHZ,
 		.reg_list = {
 			.num_of_regs = ARRAY_SIZE(mipi_data_rate_1080mbps),
@@ -971,8 +1005,6 @@ static const struct ov13858_link_freq_config
 		}
 	},
 	{
-		/* pixel_rate = link_freq * 2 * nr_of_lanes / bits_per_sample */
-		.pixel_rate = (OV13858_LINK_FREQ_270MHZ * 2 * 4) / 10,
 		.pixels_per_line = OV13858_PPL_270MHZ,
 		.reg_list = {
 			.num_of_regs = ARRAY_SIZE(mipi_data_rate_540mbps),
@@ -1049,6 +1081,10 @@ struct ov13858 {
 
 	/* Streaming on/off */
 	bool streaming;
+
+	/* Vendor Id from OTP */
+	bool otp_read;
+	u32 vendor_id;
 };
 
 #define to_ov13858(_sd)	container_of(_sd, struct ov13858, sd)
@@ -1389,6 +1425,8 @@ ov13858_set_pad_format(struct v4l2_subdev *sd,
 	s32 vblank_def;
 	s32 vblank_min;
 	s64 h_blank;
+	s64 pixel_rate;
+	s64 link_freq;
 
 	mutex_lock(&ov13858->mutex);
 
@@ -1404,9 +1442,10 @@ ov13858_set_pad_format(struct v4l2_subdev *sd,
 	} else {
 		ov13858->cur_mode = mode;
 		__v4l2_ctrl_s_ctrl(ov13858->link_freq, mode->link_freq_index);
-		__v4l2_ctrl_s_ctrl_int64(
-			ov13858->pixel_rate,
-			link_freq_configs[mode->link_freq_index].pixel_rate);
+		link_freq = link_freq_menu_items[mode->link_freq_index];
+		pixel_rate = link_freq_to_pixel_rate(link_freq);
+		__v4l2_ctrl_s_ctrl_int64(ov13858->pixel_rate, pixel_rate);
+
 		/* Update limits and set FPS to default */
 		vblank_def = ov13858->cur_mode->vts_def -
 			     ov13858->cur_mode->height;
@@ -1621,6 +1660,10 @@ static int ov13858_init_controls(struct ov13858 *ov13858)
 	s64 exposure_max;
 	s64 vblank_def;
 	s64 vblank_min;
+	s64 hblank;
+	s64 pixel_rate_min;
+	s64 pixel_rate_max;
+	const struct ov13858_mode *mode;
 	int ret;
 
 	ctrl_hdlr = &ov13858->ctrl_handler;
@@ -1638,29 +1681,30 @@ static int ov13858_init_controls(struct ov13858 *ov13858)
 				link_freq_menu_items);
 	ov13858->link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
+	pixel_rate_max = link_freq_to_pixel_rate(link_freq_menu_items[0]);
+	pixel_rate_min = link_freq_to_pixel_rate(link_freq_menu_items[1]);
 	/* By default, PIXEL_RATE is read only */
 	ov13858->pixel_rate = v4l2_ctrl_new_std(ctrl_hdlr, &ov13858_ctrl_ops,
-					V4L2_CID_PIXEL_RATE, 0,
-					link_freq_configs[0].pixel_rate, 1,
-					link_freq_configs[0].pixel_rate);
+						V4L2_CID_PIXEL_RATE,
+						pixel_rate_min, pixel_rate_max,
+						1, pixel_rate_max);
 
-	vblank_def = ov13858->cur_mode->vts_def - ov13858->cur_mode->height;
-	vblank_min = ov13858->cur_mode->vts_min - ov13858->cur_mode->height;
+	mode = ov13858->cur_mode;
+	vblank_def = mode->vts_def - mode->height;
+	vblank_min = mode->vts_min - mode->height;
 	ov13858->vblank = v4l2_ctrl_new_std(
 				ctrl_hdlr, &ov13858_ctrl_ops, V4L2_CID_VBLANK,
-				vblank_min,
-				OV13858_VTS_MAX - ov13858->cur_mode->height, 1,
+				vblank_min, OV13858_VTS_MAX - mode->height, 1,
 				vblank_def);
 
+	hblank = link_freq_configs[mode->link_freq_index].pixels_per_line -
+		 mode->width;
 	ov13858->hblank = v4l2_ctrl_new_std(
 				ctrl_hdlr, &ov13858_ctrl_ops, V4L2_CID_HBLANK,
-				OV13858_PPL_540MHZ - ov13858->cur_mode->width,
-				OV13858_PPL_540MHZ - ov13858->cur_mode->width,
-				1,
-				OV13858_PPL_540MHZ - ov13858->cur_mode->width);
+				hblank, hblank, 1, hblank);
 	ov13858->hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
-	exposure_max = ov13858->cur_mode->vts_def - 8;
+	exposure_max = mode->vts_def - 8;
 	ov13858->exposure = v4l2_ctrl_new_std(
 				ctrl_hdlr, &ov13858_ctrl_ops,
 				V4L2_CID_EXPOSURE, OV13858_EXPOSURE_MIN,
@@ -1697,6 +1741,130 @@ error:
 
 	return ret;
 }
+
+static int ov13858_read_otp(struct ov13858 *ov13858)
+{
+	struct i2c_client *client = v4l2_get_subdevdata(&ov13858->sd);
+	u32 otp_mode_ctrl, isp_ctrl_0, flag_basic;
+	unsigned int mi_id_offs;
+	int ret = 0;
+	int i;
+
+	mutex_lock(&ov13858->mutex);
+	if (ov13858->otp_read)
+		goto out_unlock;
+
+	ret = pm_runtime_get_sync(&client->dev);
+	if (ret < 0) {
+		pm_runtime_put_noidle(&client->dev);
+		goto out_unlock;
+	}
+
+	if (!ov13858->streaming) {
+		ret = ov13858_start_streaming(ov13858);
+		if (ret)
+			goto out_runtime_put;
+	}
+
+	ret = ov13858_read_reg(ov13858,
+			       OV13858_REG_ISP_CTRL_0,
+			       OV13858_REG_VALUE_08BIT, &isp_ctrl_0);
+	if (ret)
+		goto out_standby;
+
+	ret = ov13858_write_reg(ov13858,
+				OV13858_REG_ISP_CTRL_0,
+				OV13858_REG_VALUE_08BIT,
+				isp_ctrl_0 & ~OV13858_ISP_OTP_ENABLE);
+	if (ret)
+		goto out_standby;
+
+	ret = ov13858_read_reg(ov13858,
+			       OV13858_REG_OTP_MODE_CTRL,
+			       OV13858_REG_VALUE_08BIT, &otp_mode_ctrl);
+	if (ret)
+		goto out_isp_otp_enable;
+
+	otp_mode_ctrl |= OV13858_OTP_PROGRAM_DISABLE;
+	otp_mode_ctrl &= ~OV13858_OTP_MANUAL_MODE;
+
+	ret = ov13858_write_reg(ov13858,
+				OV13858_REG_OTP_MODE_CTRL,
+				OV13858_REG_VALUE_08BIT, otp_mode_ctrl);
+	if (ret)
+		goto out_isp_otp_enable;
+
+	ret = ov13858_write_reg(ov13858,
+				OV13858_REG_OTP_LOAD_CTRL,
+				OV13858_REG_VALUE_08BIT,
+				OV13858_OTP_LOAD_ENABLE);
+	if (ret)
+		goto out_isp_otp_enable;
+
+	usleep_range(10000, 11000);
+
+	ret = ov13858_read_reg(ov13858,
+			       OV13858_OTP_SRAM + OV13858_FLAG_BASIC_OFFSET,
+			       OV13858_REG_VALUE_08BIT, &flag_basic);
+
+	for (i = 0; i < OV13858_NUM_OTP_GROUP; ++i) {
+		u8 flag;
+
+		flag = (flag_basic >> OV13858_OTP_GROUP_FLAG_SHIFT(i))
+					& OV13858_OTP_GROUP_FLAG_MASK;
+		if (flag == OV13858_OTP_GROUP_FLAG_VALID) {
+			mi_id_offs = OV13858_OTP_MI_ID_OFFSET(i);
+			break;
+		}
+	}
+	if (i == OV13858_NUM_OTP_GROUP) {
+		ret = -EFAULT;
+		goto out_isp_otp_enable;
+	}
+
+	ret = ov13858_read_reg(ov13858,
+			       OV13858_OTP_SRAM + mi_id_offs,
+			       OV13858_REG_VALUE_08BIT, &ov13858->vendor_id);
+
+out_isp_otp_enable:
+	ov13858_write_reg(ov13858,
+			  OV13858_REG_ISP_CTRL_0,
+			  OV13858_REG_VALUE_08BIT,
+			  isp_ctrl_0);
+
+out_standby:
+	if (!ov13858->streaming)
+		ov13858_stop_streaming(ov13858);
+
+out_runtime_put:
+	pm_runtime_put(&client->dev);
+
+out_unlock:
+	if (!ret)
+		ov13858->otp_read = true;
+
+	mutex_unlock(&ov13858->mutex);
+
+	return ret;
+}
+
+static ssize_t ov13858_vendor_id_read(struct device *dev,
+				      struct device_attribute *attr,
+				      char *buf)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	struct v4l2_subdev *sd = i2c_get_clientdata(client);
+	struct ov13858 *ov13858 = to_ov13858(sd);
+	int ret;
+
+	ret = ov13858_read_otp(ov13858);
+	if (ret)
+		return ret;
+
+	return scnprintf(buf, PAGE_SIZE, "%u\n", ov13858->vendor_id);
+}
+
+static DEVICE_ATTR(vendor_id, 0444, ov13858_vendor_id_read, NULL);
 
 static void ov13858_free_controls(struct ov13858 *ov13858)
 {
@@ -1750,9 +1918,15 @@ static int ov13858_probe(struct i2c_client *client,
 		goto error_handler_free;
 	}
 
-	ret = v4l2_async_register_subdev(&ov13858->sd);
+	ret = v4l2_async_register_subdev_sensor_common(&ov13858->sd);
 	if (ret < 0)
 		goto error_media_entity;
+
+	ret = device_create_file(&client->dev, &dev_attr_vendor_id);
+	if (ret) {
+		dev_err(&client->dev, "sysfs vendor_id creation failed\n");
+		goto error_unregister;
+	}
 
 	/*
 	 * Device is already turned on by i2c-core with ACPI domain PM.
@@ -1764,6 +1938,9 @@ static int ov13858_probe(struct i2c_client *client,
 	pm_runtime_put(&client->dev);
 
 	return 0;
+
+error_unregister:
+	v4l2_async_unregister_subdev(&ov13858->sd);
 
 error_media_entity:
 	media_entity_cleanup(&ov13858->sd.entity);
@@ -1780,6 +1957,7 @@ static int ov13858_remove(struct i2c_client *client)
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 	struct ov13858 *ov13858 = to_ov13858(sd);
 
+	device_remove_file(&client->dev, &dev_attr_vendor_id);
 	v4l2_async_unregister_subdev(sd);
 	media_entity_cleanup(&sd->entity);
 	ov13858_free_controls(ov13858);

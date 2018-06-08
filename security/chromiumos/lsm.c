@@ -32,27 +32,7 @@
 #include "inode_mark.h"
 #include "utils.h"
 
-int chromiumos_security_sb_mount(const char *dev_name, struct path *path,
-				 const char *type, unsigned long flags,
-				 void *data)
-{
-#ifdef CONFIG_SECURITY_CHROMIUMOS_NO_SYMLINK_MOUNT
-	if (nameidata_get_total_link_count()) {
-		char *cmdline;
-
-		cmdline = printable_cmdline(current);
-		pr_notice("Mount path with symlinks prohibited - "
-			"pid=%d cmdline=%s\n",
-			task_pid_nr(current), cmdline);
-		kfree(cmdline);
-		return -ELOOP;
-	}
-#endif
-
-	return 0;
-}
-
-static void report_load(const char *origin, struct path *path, char *operation)
+static void report(const char *origin, struct path *path, char *operation)
 {
 	char *alloced = NULL, *cmdline;
 	char *pathname; /* Pointer to either static string or "alloced". */
@@ -83,6 +63,69 @@ static void report_load(const char *origin, struct path *path, char *operation)
 
 	kfree(cmdline);
 	kfree(alloced);
+}
+
+int chromiumos_security_sb_mount(const char *dev_name, struct path *path,
+				 const char *type, unsigned long flags,
+				 void *data)
+{
+#ifdef CONFIG_SECURITY_CHROMIUMOS_NO_SYMLINK_MOUNT
+	if (nameidata_get_total_link_count()) {
+		report("sb_mount", path, "Mount path with symlinks prohibited");
+		pr_notice("sb_mount dev=%s type=%s flags=%#lx\n",
+			  dev_name, type, flags);
+		return -ELOOP;
+	}
+#endif
+
+#ifdef CONFIG_SECURITY_CHROMIUMOS_NO_UNPRIVILEGED_UNSAFE_MOUNTS
+	if (!(flags & (MS_BIND | MS_MOVE | MS_SHARED | MS_PRIVATE | MS_SLAVE |
+		       MS_UNBINDABLE)) &&
+	    !capable(CAP_SYS_ADMIN)) {
+		/*
+		 * The three flags we are interested in disallowing in
+		 * unprivileged user namespaces (MS_NOEXEC, MS_NOSUID, MS_NODEV)
+		 * cannot be modified when doing a remount/bind. The kernel
+		 * attempts to dispatch calls to do_mount() within
+		 * fs/namespace.c in the following order:
+		 *
+		 * * If the MS_REMOUNT flag is present, it calls do_remount().
+		 *   When MS_BIND is also present, it only allows to set/unset
+		 *   MS_RDONLY. Otherwise it bails in the absence of the
+		 *   CAP_SYS_ADMIN in the init ns.
+		 * * If the MS_BIND flag is present, the only other flag checked
+		 *   is MS_REC.
+		 * * If any of the mount propagation flags are present
+		 *   (MS_SHARED, MS_PRIVATE, MS_SLAVE, MS_UNBINDABLE),
+		 *   flags_to_propagation_type() filters out any additional
+		 *   flags.
+		 * * If MS_MOVE flag is present, all other flags are ignored.
+		 */
+		if (!(flags & MS_NOEXEC)) {
+			report("sb_mount", path,
+			       "Mounting a filesystem with 'exec' flag requires CAP_SYS_ADMIN in init ns");
+			pr_notice("sb_mount dev=%s type=%s flags=%#lx\n",
+				  dev_name, type, flags);
+			return -EPERM;
+		}
+		if (!(flags & MS_NOSUID)) {
+			report("sb_mount", path,
+			       "Mounting a filesystem with 'suid' flag requires CAP_SYS_ADMIN in init ns");
+			pr_notice("sb_mount dev=%s type=%s flags=%#lx\n",
+				  dev_name, type, flags);
+			return -EPERM;
+		}
+		if (!(flags & MS_NODEV) && strcmp(type, "devpts")) {
+			report("sb_mount", path,
+			       "Mounting a filesystem with 'dev' flag requires CAP_SYS_ADMIN in init ns");
+			pr_notice("sb_mount dev=%s type=%s flags=%#lx\n",
+				  dev_name, type, flags);
+			return -EPERM;
+		}
+	}
+#endif /* CONFIG_SECURITY_CHROMIUMOS_NO_UNPRIVILEGED_UNSAFE_MOUNTS */
+
+	return 0;
 }
 
 static int module_locking = 1;
@@ -171,11 +214,11 @@ static int check_pinning(const char *origin, struct file *file)
 
 	if (!file) {
 		if (!module_locking) {
-			report_load(origin, NULL, "old-api-locking-ignored");
+			report(origin, NULL, "old-api-locking-ignored");
 			return 0;
 		}
 
-		report_load(origin, NULL, "old-api-denied");
+		report(origin, NULL, "old-api-denied");
 		return -EPERM;
 	}
 
@@ -197,19 +240,18 @@ static int check_pinning(const char *origin, struct file *file)
 		 */
 		spin_unlock(&locked_root_spinlock);
 		check_locking_enforcement(locked_root);
-		report_load(origin, &file->f_path, "locked");
+		report(origin, &file->f_path, "locked");
 	} else {
 		spin_unlock(&locked_root_spinlock);
 	}
 
 	if (IS_ERR_OR_NULL(locked_root) || module_root->mnt_sb != locked_root) {
 		if (unlikely(!module_locking)) {
-			report_load(origin, &file->f_path,
-				    "locking-ignored");
+			report(origin, &file->f_path, "locking-ignored");
 			return 0;
 		}
 
-		report_load(origin, &file->f_path, "denied");
+		report(origin, &file->f_path, "denied");
 		return -EPERM;
 	}
 
@@ -230,9 +272,11 @@ static int chromiumos_security_inode_follow_link(struct dentry *dentry,
 						 struct inode *inode, bool rcu)
 {
 	static char accessed_path[PATH_MAX];
-	enum chromiumos_symlink_traversal_policy policy;
+	enum chromiumos_inode_security_policy policy;
 
-	policy = chromiumos_get_symlink_traversal_policy(dentry);
+	policy = chromiumos_get_inode_security_policy(
+		dentry,
+		CHROMIUMOS_SYMLINK_TRAVERSAL);
 
 	/*
 	 * Emit a warning in cases of blocked symlink traversal attempts. These
@@ -240,12 +284,41 @@ static int chromiumos_security_inode_follow_link(struct dentry *dentry,
 	 * reporter, so we have some insight on spurious failures that need
 	 * addressing.
 	 */
-	WARN(policy == CHROMIUMOS_SYMLINK_TRAVERSAL_BLOCK,
-	     "Blocked symlink traversal for path %x:%x:%s\n",
+	WARN(policy == CHROMIUMOS_INODE_POLICY_BLOCK,
+	     "Blocked symlink traversal for path %x:%x:%s (see https://goo.gl/8xICW6 for context and rationale)\n",
 	     MAJOR(dentry->d_sb->s_dev), MINOR(dentry->d_sb->s_dev),
 	     dentry_path(dentry, accessed_path, PATH_MAX));
 
-	return policy == CHROMIUMOS_SYMLINK_TRAVERSAL_BLOCK ? -EACCES : 0;
+	return policy == CHROMIUMOS_INODE_POLICY_BLOCK ? -EACCES : 0;
+}
+
+static int chromiumos_security_file_open(
+	struct file *file,
+	const struct cred *cred)
+{
+	static char accessed_path[PATH_MAX];
+	enum chromiumos_inode_security_policy policy;
+	struct dentry *dentry = file->f_path.dentry;
+
+	/* Returns 0 if file is not a FIFO */
+	if (!S_ISFIFO(file->f_inode->i_mode))
+		return 0;
+
+	policy = chromiumos_get_inode_security_policy(
+		dentry,
+		CHROMIUMOS_FIFO_ACCESS);
+
+	/*
+	 * Emit a warning in cases of blocked fifo access attempts. These will
+	 * show up in kernel warning reports collected by the crash reporter,
+	 * so we have some insight on spurious failures that need addressing.
+	 */
+	WARN(policy == CHROMIUMOS_INODE_POLICY_BLOCK,
+	     "Blocked fifo access for path %x:%x:%s\n (see https://goo.gl/8xICW6 for context and rationale)\n",
+	     MAJOR(dentry->d_sb->s_dev), MINOR(dentry->d_sb->s_dev),
+	     dentry_path(dentry, accessed_path, PATH_MAX));
+
+	return policy == CHROMIUMOS_INODE_POLICY_BLOCK ? -EACCES : 0;
 }
 
 static struct security_hook_list chromiumos_security_hooks[] = {
@@ -254,11 +327,14 @@ static struct security_hook_list chromiumos_security_hooks[] = {
 	LSM_HOOK_INIT(kernel_module_from_file, chromiumos_security_load_module),
 	LSM_HOOK_INIT(kernel_fw_from_file, chromiumos_security_load_firmware),
 	LSM_HOOK_INIT(inode_follow_link, chromiumos_security_inode_follow_link),
+	LSM_HOOK_INIT(file_open, chromiumos_security_file_open),
 };
 
 static int __init chromiumos_security_init(void)
 {
-	security_add_hooks(chromiumos_security_hooks, ARRAY_SIZE(chromiumos_security_hooks));
+	security_add_hooks(
+		chromiumos_security_hooks,
+		ARRAY_SIZE(chromiumos_security_hooks));
 
 	pr_info("enabled");
 
@@ -272,5 +348,5 @@ security_initcall(chromiumos_security_init);
 #define MODULE_PARAM_PREFIX	"lsm."
 
 /* Should not be mutable after boot, so not listed in sysfs (perm == 0). */
-module_param(module_locking, int, 0);
+module_param(module_locking, int, 0000);
 MODULE_PARM_DESC(module_locking, "Module loading restrictions (default: true)");

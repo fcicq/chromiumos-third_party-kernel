@@ -68,6 +68,8 @@ struct kbl_codec_private {
 enum {
 	KBL_DPCM_AUDIO_PB = 0,
 	KBL_DPCM_AUDIO_CP,
+	KBL_DPCM_AUDIO_HS_PB,
+	KBL_DPCM_AUDIO_ECHO_REF_CP,
 	KBL_DPCM_AUDIO_DMIC_CP,
 	KBL_DPCM_AUDIO_RT5514_DSP,
 	KBL_DPCM_AUDIO_HDMI1_PB,
@@ -97,6 +99,9 @@ static int platform_clock_control(struct snd_soc_dapm_widget *w,
 	 */
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
+		if (__clk_is_enabled(priv->mclk))
+			return 0;
+
 		/* Enable MCLK */
 		ret = clk_set_rate(priv->mclk, 24000000);
 		if (ret < 0) {
@@ -127,13 +132,15 @@ static int platform_clock_control(struct snd_soc_dapm_widget *w,
 		}
 		break;
 	case SND_SOC_DAPM_POST_PMD:
+		if (!__clk_is_enabled(priv->mclk))
+			return 0;
+
 		clk_disable_unprepare(priv->mclk);
 		clk_disable_unprepare(priv->sclk);
 		break;
 	default:
 		return 0;
 	}
-
 
 	return 0;
 }
@@ -173,16 +180,21 @@ static const struct snd_soc_dapm_route kabylake_map[] = {
 	/* CODEC BE connections */
 	{ "Left HiFi Playback", NULL, "ssp0 Tx" },
 	{ "Right HiFi Playback", NULL, "ssp0 Tx" },
-	{ "ssp0 Tx", NULL, "codec0_out" },
+	{ "ssp0 Tx", NULL, "spk_out" },
 
 	{ "AIF Playback", NULL, "ssp1 Tx" },
 	{ "ssp1 Tx", NULL, "codec1_out" },
 
-	{ "codec0_in", NULL, "ssp1 Rx" },
+	{ "hs_in", NULL, "ssp1 Rx" },
 	{ "ssp1 Rx", NULL, "AIF Capture" },
 
 	{ "codec1_in", NULL, "ssp0 Rx" },
 	{ "ssp0 Rx", NULL, "AIF1 Capture" },
+
+	/* IV feedback path */
+	{ "codec0_fb_in", NULL, "ssp0 Rx"},
+	{ "ssp0 Rx", NULL, "Left HiFi Capture" },
+	{ "ssp0 Rx", NULL, "Right HiFi Capture" },
 
 	/* DMIC */
 	{ "DMIC1L", NULL, "DMIC" },
@@ -222,7 +234,7 @@ static struct snd_soc_dai_link_component ssp0_codec_components[] = {
 	},
 };
 
-static int kabylake_rt5663_fe_init(struct snd_soc_pcm_runtime *rtd)
+static int kabylake_pb_fe_init(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_dapm_context *dapm;
 	struct snd_soc_component *component = rtd->cpu_dai->component;
@@ -257,7 +269,7 @@ static int kabylake_rt5663_codec_init(struct snd_soc_pcm_runtime *rtd)
 	}
 
 	jack = &ctx->kabylake_headset;
-	snd_jack_set_key(jack->jack, SND_JACK_BTN_0, KEY_MEDIA);
+	snd_jack_set_key(jack->jack, SND_JACK_BTN_0, KEY_PLAYPAUSE);
 	snd_jack_set_key(jack->jack, SND_JACK_BTN_1, KEY_VOICECOMMAND);
 	snd_jack_set_key(jack->jack, SND_JACK_BTN_2, KEY_VOLUMEUP);
 	snd_jack_set_key(jack->jack, SND_JACK_BTN_3, KEY_VOLUMEDOWN);
@@ -343,7 +355,7 @@ static int kbl_fe_startup(struct snd_pcm_substream *substream)
 	return 0;
 }
 
-static const struct snd_soc_ops kabylake_rt5663_fe_ops = {
+static const struct snd_soc_ops kabylake_fe_ops = {
 	.startup = kbl_fe_startup,
 };
 
@@ -364,6 +376,7 @@ static int kabylake_ssp_fixup(struct snd_soc_pcm_runtime *rtd,
 	 * The ADSP will convert the FE rate to 48k, stereo, 24 bit
 	 */
 	if (!strcmp(fe_dai_link->name, "Kbl Audio Port") ||
+	    !strcmp(fe_dai_link->name, "Kbl Audio Headset Playback") ||
 	    !strcmp(fe_dai_link->name, "Kbl Audio Capture Port")) {
 		rate->min = rate->max = 48000;
 		channels->min = channels->max = 2;
@@ -504,11 +517,11 @@ static struct snd_soc_dai_link kabylake_dais[] = {
 		.codec_name = "snd-soc-dummy",
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.nonatomic = 1,
-		.init = kabylake_rt5663_fe_init,
+		.init = kabylake_pb_fe_init,
 		.trigger = {
 			SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
 		.dpcm_playback = 1,
-		.ops = &kabylake_rt5663_fe_ops,
+		.ops = &kabylake_fe_ops,
 	},
 	[KBL_DPCM_AUDIO_CP] = {
 		.name = "Kbl Audio Capture Port",
@@ -522,7 +535,7 @@ static struct snd_soc_dai_link kabylake_dais[] = {
 		.trigger = {
 			SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
 		.dpcm_capture = 1,
-		.ops = &kabylake_rt5663_fe_ops,
+		.ops = &kabylake_fe_ops,
 	},
 	[KBL_DPCM_AUDIO_RT5514_DSP] = {
 		.name = "rt5514 dsp",
@@ -531,6 +544,32 @@ static struct snd_soc_dai_link kabylake_dais[] = {
 		.platform_name = "spi-PRP0001:00",
 		.codec_name = "snd-soc-dummy",
 		.codec_dai_name = "snd-soc-dummy-dai",
+	},
+	[KBL_DPCM_AUDIO_HS_PB] = {
+		.name = "Kbl Audio Headset Playback",
+		.stream_name = "Headset Audio",
+		.cpu_dai_name = "System Pin2",
+		.codec_name = "snd-soc-dummy",
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.platform_name = "0000:00:1f.3",
+		.dpcm_playback = 1,
+		.nonatomic = 1,
+		.dynamic = 1,
+                .init = kabylake_pb_fe_init,
+                .trigger = {
+                        SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
+                .ops = &kabylake_fe_ops,
+	},
+	[KBL_DPCM_AUDIO_ECHO_REF_CP] = {
+		.name = "Kbl Audio Echo Reference cap",
+		.stream_name = "Echoreference Capture",
+		.cpu_dai_name = "Echoref Pin",
+		.codec_name = "snd-soc-dummy",
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.platform_name = "0000:00:1f.3",
+		.init = NULL,
+		.capture_only = 1,
+		.nonatomic = 1,
 	},
 	[KBL_DPCM_AUDIO_DMIC_CP] = {
 		.name = "Kbl Audio DMIC cap",

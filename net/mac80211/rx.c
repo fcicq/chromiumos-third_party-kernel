@@ -482,6 +482,9 @@ ieee80211_rx_monitor(struct ieee80211_local *local, struct sk_buff *origskb,
 	struct net_device *prev_dev = NULL;
 	int present_fcs_len = 0;
 	unsigned int rtap_vendor_space = 0;
+	struct ieee80211_mgmt *mgmt;
+	struct ieee80211_sub_if_data *monitor_sdata =
+		rcu_dereference(local->monitor_sdata);
 
 	if (unlikely(status->flag & RX_FLAG_RADIOTAP_VENDOR_DATA)) {
 		struct ieee80211_vendor_radiotap *rtap = (void *)origskb->data;
@@ -564,7 +567,7 @@ ieee80211_rx_monitor(struct ieee80211_local *local, struct sk_buff *origskb,
 		if (sdata->vif.type != NL80211_IFTYPE_MONITOR)
 			continue;
 
-		if (sdata->u.mntr_flags & MONITOR_FLAG_COOK_FRAMES)
+		if (sdata->u.mntr.flags & MONITOR_FLAG_COOK_FRAMES)
 			continue;
 
 		if (!ieee80211_sdata_running(sdata))
@@ -580,6 +583,23 @@ ieee80211_rx_monitor(struct ieee80211_local *local, struct sk_buff *origskb,
 
 		prev_dev = sdata->dev;
 		ieee80211_rx_stats(sdata->dev, skb->len);
+	}
+
+	mgmt = (void *)skb->data;
+	if (monitor_sdata &&
+	    skb->len >= IEEE80211_MIN_ACTION_SIZE + 1 + VHT_MUMIMO_GROUPS_DATA_LEN &&
+	    ieee80211_is_action(mgmt->frame_control) &&
+	    mgmt->u.action.category == WLAN_CATEGORY_VHT &&
+	    mgmt->u.action.u.vht_group_notif.action_code == WLAN_VHT_ACTION_GROUPID_MGMT &&
+	    is_valid_ether_addr(monitor_sdata->u.mntr.mu_follow_addr) &&
+	    ether_addr_equal(mgmt->da, monitor_sdata->u.mntr.mu_follow_addr)) {
+		struct sk_buff *mu_skb = skb_copy(skb, GFP_ATOMIC);
+
+		if (mu_skb) {
+			mu_skb->pkt_type = IEEE80211_SDATA_QUEUE_TYPE_FRAME;
+			skb_queue_tail(&monitor_sdata->skb_queue, mu_skb);
+			ieee80211_queue_work(&local->hw, &monitor_sdata->work);
+		}
 	}
 
 	if (prev_dev) {
@@ -2768,6 +2788,11 @@ ieee80211_rx_h_action(struct ieee80211_rx_data *rx)
 						    opmode, status->band);
 			goto handled;
 		}
+		case WLAN_VHT_ACTION_GROUPID_MGMT: {
+			if (len < IEEE80211_MIN_ACTION_SIZE + 25)
+				goto invalid;
+			goto queue;
+		}
 		default:
 			break;
 		}
@@ -3113,7 +3138,7 @@ static void ieee80211_rx_cooked_monitor(struct ieee80211_rx_data *rx,
 			continue;
 
 		if (sdata->vif.type != NL80211_IFTYPE_MONITOR ||
-		    !(sdata->u.mntr_flags & MONITOR_FLAG_COOK_FRAMES))
+		    !(sdata->u.mntr.flags & MONITOR_FLAG_COOK_FRAMES))
 			continue;
 
 		if (prev_dev) {
@@ -3367,6 +3392,8 @@ static bool ieee80211_accept_frame(struct ieee80211_rx_data *rx)
 		}
 		return true;
 	case NL80211_IFTYPE_MESH_POINT:
+		if (ether_addr_equal(sdata->vif.addr, hdr->addr2))
+			return false;
 		if (multicast)
 			return true;
 		return ether_addr_equal(sdata->vif.addr, hdr->addr1);
@@ -3431,6 +3458,9 @@ static bool ieee80211_accept_frame(struct ieee80211_rx_data *rx)
 		       ieee80211_is_probe_req(hdr->frame_control) ||
 		       ieee80211_is_probe_resp(hdr->frame_control) ||
 		       ieee80211_is_beacon(hdr->frame_control);
+	case NL80211_IFTYPE_NAN:
+		/* Currently no frames on NAN interface are allowed */
+		return false;
 	default:
 		break;
 	}

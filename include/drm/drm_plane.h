@@ -86,7 +86,18 @@ struct drm_plane_state {
 	 */
 	bool visible;
 
+
+ 	/**
+	 * @ctm:
+	 *
+	 * Color transformation matrix. See drm_plane_enable_color_mgmt(). The
+	 * blob (if not NULL) is a &struct drm_color_ctm.
+	 */
+	struct drm_property_blob *ctm;
+
 	struct drm_atomic_state *state;
+
+	bool color_mgmt_changed : 1;
 };
 
 static inline struct drm_rect
@@ -353,6 +364,22 @@ struct drm_plane_funcs {
 	 */
 	void (*atomic_print_state)(struct drm_printer *p,
 				   const struct drm_plane_state *state);
+
+	/**
+	 * @format_mod_supported:
+	 *
+	 * This optional hook is used for the DRM to determine if the given
+	 * format/modifier combination is valid for the plane. This allows the
+	 * DRM to generate the correct format bitmask (which formats apply to
+	 * which modifier).
+	 *
+	 * Returns:
+	 *
+	 * True if the given modifier is valid for that format on the plane.
+	 * False otherwise.
+	 */
+	bool (*format_mod_supported)(struct drm_plane *plane, uint32_t format,
+				     uint64_t modifier);
 };
 
 enum drm_plane_type {
@@ -382,6 +409,7 @@ enum drm_plane_type {
  * @state: current atomic state for this plane
  * @zpos_property: zpos property for this plane
  * @rotation_property: rotation property for this plane
+ * @ctm_property: color transform matrix property for this plane
  * @helper_private: mid-layer private data
  */
 struct drm_plane {
@@ -406,8 +434,8 @@ struct drm_plane {
 	unsigned int format_count;
 	bool format_default;
 
-	struct drm_format_modifier *format_modifiers;
-	unsigned int format_modifier_count;
+	uint64_t *modifiers;
+	unsigned int modifier_count;
 
 	struct drm_crtc *crtc;
 	struct drm_framebuffer *fb;
@@ -432,28 +460,32 @@ struct drm_plane {
 
 	struct drm_property *zpos_property;
 	struct drm_property *rotation_property;
+	/**
+	 * @ctm_property: Optional property to set the
+	 * matrix used to convert colors.
+	 */
+	struct drm_property *ctm_property;
 };
 
 #define obj_to_plane(x) container_of(x, struct drm_plane, base)
 
-extern __printf(10, 11)
+__printf(9, 10)
 int drm_universal_plane_init(struct drm_device *dev,
 			     struct drm_plane *plane,
 			     unsigned long possible_crtcs,
 			     const struct drm_plane_funcs *funcs,
 			     const uint32_t *formats,
 			     unsigned int format_count,
-			     const struct drm_format_modifier *format_modifiers,
-			     unsigned int format_modifier_count,
+			     const uint64_t *format_modifiers,
 			     enum drm_plane_type type,
 			     const char *name, ...);
-extern int drm_plane_init(struct drm_device *dev,
-			  struct drm_plane *plane,
-			  unsigned long possible_crtcs,
-			  const struct drm_plane_funcs *funcs,
-			  const uint32_t *formats, unsigned int format_count,
-			  bool is_primary);
-extern void drm_plane_cleanup(struct drm_plane *plane);
+int drm_plane_init(struct drm_device *dev,
+		   struct drm_plane *plane,
+		   unsigned long possible_crtcs,
+		   const struct drm_plane_funcs *funcs,
+		   const uint32_t *formats, unsigned int format_count,
+		   bool is_primary);
+void drm_plane_cleanup(struct drm_plane *plane);
 
 /**
  * drm_plane_index - find the index of a registered plane
@@ -466,8 +498,8 @@ static inline unsigned int drm_plane_index(struct drm_plane *plane)
 {
 	return plane->index;
 }
-extern struct drm_plane * drm_plane_from_index(struct drm_device *dev, int idx);
-extern void drm_plane_force_disable(struct drm_plane *plane);
+struct drm_plane * drm_plane_from_index(struct drm_device *dev, int idx);
+void drm_plane_force_disable(struct drm_plane *plane);
 
 int drm_mode_plane_set_obj_prop(struct drm_plane *plane,
 				       struct drm_property *property,

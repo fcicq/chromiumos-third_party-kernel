@@ -309,9 +309,7 @@ static const struct rockchip_vpu_codec_ops rk3288_vpu_mode_ops[] = {
 
 const struct rockchip_vpu_variant rk3288_vpu_variant = {
 	.enc_offset = 0x0,
-	.enc_reg_num = 164,
 	.dec_offset = 0x400,
-	.dec_reg_num = 60 + 41,
 	.needs_enc_after_dec_war = 1,
 	.needs_dpb_map = 1,
 	.enc_fmts = rk3288_vpu_enc_fmts,

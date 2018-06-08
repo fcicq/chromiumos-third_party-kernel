@@ -157,6 +157,7 @@
 
 /* Vendor Ids: */
 #define DRM_FORMAT_MOD_NONE           0
+#define DRM_FORMAT_MOD_VENDOR_NONE    0
 #define DRM_FORMAT_MOD_VENDOR_INTEL   0x01
 #define DRM_FORMAT_MOD_VENDOR_AMD     0x02
 #define DRM_FORMAT_MOD_VENDOR_NV      0x03
@@ -166,6 +167,8 @@
 
 /* Vendor ID for downstream, interim ChromeOS specific modifiers. */
 #define DRM_FORMAT_MOD_VENDOR_CHROMEOS 0xf0
+
+#define DRM_FORMAT_RESERVED	      ((1ULL << 56) - 1)
 
 #define fourcc_mod_code(vendor, val) \
 	((((__u64)DRM_FORMAT_MOD_VENDOR_## vendor) << 56) | (val & 0x00ffffffffffffffULL))
@@ -177,6 +180,25 @@
  * similar to the fourcc codes above. drm_fourcc.h is considered the
  * authoritative source for all of these.
  */
+
+/*
+ * Invalid Modifier
+ *
+ * This modifier can be used as a sentinel to terminate the format modifiers
+ * list, or to initialize a variable with an invalid modifier. It might also be
+ * used to report an error back to userspace for certain APIs.
+ */
+#define DRM_FORMAT_MOD_INVALID	fourcc_mod_code(NONE, DRM_FORMAT_RESERVED)
+
+/*
+ * Linear Layout
+ *
+ * Just plain linear layout. Note that this is different from no specifying any
+ * modifier (e.g. not setting DRM_MODE_FB_MODIFIERS in the DRM_ADDFB2 ioctl),
+ * which tells the driver to also take driver-internal information into account
+ * and so might actually result in a tiled framebuffer.
+ */
+#define DRM_FORMAT_MOD_LINEAR	fourcc_mod_code(NONE, 0)
 
 /* Intel framebuffer modifiers */
 
@@ -225,6 +247,26 @@
 #define I915_FORMAT_MOD_Yf_TILED fourcc_mod_code(INTEL, 3)
 
 /*
+ * Intel color control surface (CCS) for render compression
+ *
+ * The framebuffer format must be one of the 8:8:8:8 RGB formats.
+ * The main surface will be plane index 0 and must be Y/Yf-tiled,
+ * the CCS will be plane index 1.
+ *
+ * Each CCS tile matches a 1024x512 pixel area of the main surface.
+ * To match certain aspects of the 3D hardware the CCS is
+ * considered to be made up of normal 128Bx32 Y tiles, Thus
+ * the CCS pitch must be specified in multiples of 128 bytes.
+ *
+ * In reality the CCS tile appears to be a 64Bx64 Y tile, composed
+ * of QWORD (8 bytes) chunks instead of OWORD (16 bytes) chunks.
+ * But that fact is not relevant unless the memory is accessed
+ * directly.
+ */
+#define I915_FORMAT_MOD_Y_TILED_CCS	fourcc_mod_code(INTEL, 4)
+#define I915_FORMAT_MOD_Yf_TILED_CCS	fourcc_mod_code(INTEL, 5)
+
+/*
  * Tiled, NV12MT, grouped in 64 (pixels) x 32 (lines) -sized macroblocks
  *
  * Macroblocks are laid in a Z-shape, and each pixel data is following the
@@ -247,9 +289,8 @@
  * header with 16 bytes per block, followed by the block data aligned to 1024
  * bytes. Each block is 16x16 pixels.
  *
- * Eventually ARM should define modifiers for the various AFBC types, but
- * we'll use this in the meantime. We use the CHROMEOS vendor ID to make sure
- * we don't clash with future vendor modifiers.
+ * This Rockchip specific version of AFBC only supports buffers up to
+ * 2560 pixels wide.
  */
 #define DRM_FORMAT_MOD_CHROMEOS_ROCKCHIP_AFBC	fourcc_mod_code(CHROMEOS, 1)
 

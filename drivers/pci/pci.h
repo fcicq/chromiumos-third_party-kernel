@@ -42,6 +42,8 @@ int pci_probe_reset_function(struct pci_dev *dev);
  *
  * @set_state: invokes the platform firmware to set the device's power state
  *
+ * @get_state: queries the platform firmware for a device's current power state
+ *
  * @choose_state: returns PCI power state of given device preferred by the
  *                platform; to be used during system-wide transitions from a
  *                sleeping state to the working state and vice versa
@@ -62,6 +64,7 @@ int pci_probe_reset_function(struct pci_dev *dev);
 struct pci_platform_pm_ops {
 	bool (*is_manageable)(struct pci_dev *dev);
 	int (*set_state)(struct pci_dev *dev, pci_power_t state);
+	pci_power_t (*get_state)(struct pci_dev *dev);
 	pci_power_t (*choose_state)(struct pci_dev *dev);
 	int (*sleep_wake)(struct pci_dev *dev, bool enable);
 	int (*run_wake)(struct pci_dev *dev, bool enable);
@@ -342,5 +345,9 @@ static inline int pci_dev_specific_reset(struct pci_dev *dev, int probe)
 	return -ENOTTY;
 }
 #endif
+
+int pcie_flr(struct pci_dev *dev, int probe);
+void pci_dev_restore(struct pci_dev *dev);
+void pci_dev_save_and_disable(struct pci_dev *dev);
 
 #endif /* DRIVERS_PCI_H */

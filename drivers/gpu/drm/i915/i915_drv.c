@@ -1843,6 +1843,7 @@ static int i915_pm_suspend(struct device *kdev)
 {
 	struct pci_dev *pdev = to_pci_dev(kdev);
 	struct drm_device *dev = pci_get_drvdata(pdev);
+	struct drm_i915_private *dev_priv = to_i915(dev);
 
 	if (!dev) {
 		dev_err(kdev, "DRM not initialized, aborting suspend.\n");
@@ -1851,6 +1852,31 @@ static int i915_pm_suspend(struct device *kdev)
 
 	if (dev->switch_power_state == DRM_SWITCH_POWER_OFF)
 		return 0;
+
+	/*
+	 * Implement workaround for a scenario, where the GPU Power
+	 * Management, if not configured prior to platform suspend
+	 * entry, will block SoC S0ix entry in suspend-to-idle.
+	 *
+	 * Typically the GPU Power Management configuration is
+	 * restored in drm runtime / ioclts callbacks (such as
+	 * I915_GEM_EXECBUFFER2_WR) after the platform has resumed
+	 * from a suspend cycle.
+	 *
+	 * There exists a corner case - if the next platform suspend
+	 * cycle is initiated quickly, before the runtime callbacks
+	 * are triggered, the GPU Power Management is not configured
+	 * at time of suspend entry. This blocks SoC S0ix entry in
+	 * suspend-to-idle
+	 *
+	 * Detect such a condition, and workaround by configuring the
+	 * GPU Power Management here.
+	 */
+	if (INTEL_GEN(dev_priv) >= 9 &&
+	    (!(I915_READ(GEN6_RC_CONTROL) & GEN6_RC_CTL_HW_ENABLE))) {
+		DRM_INFO("Detected GPU PM is not configured! Configure now.\n");
+		intel_enable_gt_powersave(dev_priv);
+	}
 
 	return i915_drm_suspend(dev);
 }

@@ -1,6 +1,9 @@
 /*
  * VHT handling
  *
+ * Portions of this file
+ * Copyright(c) 2015 - 2016 Intel Deutschland GmbH
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
@@ -424,6 +427,43 @@ u32 __ieee80211_vht_handle_opmode(struct ieee80211_sub_if_data *sdata,
 
 	return changed;
 }
+
+void ieee80211_process_mu_groups(struct ieee80211_sub_if_data *sdata,
+				 struct ieee80211_mgmt *mgmt)
+{
+	struct ieee80211_bss_conf *bss_conf = &sdata->vif.bss_conf;
+
+	if (!sdata->vif.mu_mimo_owner)
+		return;
+
+	if (!memcmp(mgmt->u.action.u.vht_group_notif.position,
+		    bss_conf->mu_group.position, WLAN_USER_POSITION_LEN) &&
+	    !memcmp(mgmt->u.action.u.vht_group_notif.membership,
+		    bss_conf->mu_group.membership, WLAN_MEMBERSHIP_LEN))
+		return;
+
+	memcpy(bss_conf->mu_group.membership,
+	       mgmt->u.action.u.vht_group_notif.membership,
+	       WLAN_MEMBERSHIP_LEN);
+	memcpy(bss_conf->mu_group.position,
+	       mgmt->u.action.u.vht_group_notif.position,
+	       WLAN_USER_POSITION_LEN);
+
+	ieee80211_bss_info_change_notify(sdata, BSS_CHANGED_MU_GROUPS);
+}
+
+void ieee80211_update_mu_groups(struct ieee80211_vif *vif,
+				const u8 *membership, const u8 *position)
+{
+	struct ieee80211_bss_conf *bss_conf = &vif->bss_conf;
+
+	if (WARN_ON_ONCE(!vif->mu_mimo_owner))
+		return;
+
+	memcpy(bss_conf->mu_group.membership, membership, WLAN_MEMBERSHIP_LEN);
+	memcpy(bss_conf->mu_group.position, position, WLAN_USER_POSITION_LEN);
+}
+EXPORT_SYMBOL_GPL(ieee80211_update_mu_groups);
 
 void ieee80211_vht_handle_opmode(struct ieee80211_sub_if_data *sdata,
 				 struct sta_info *sta, u8 opmode,

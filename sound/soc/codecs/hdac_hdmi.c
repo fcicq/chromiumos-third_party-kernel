@@ -32,6 +32,7 @@
 #include <sound/hda_chmap.h>
 #include "../../hda/local.h"
 #include "hdac_hdmi.h"
+#include <sound/hda_regmap.h>
 
 #define NAME_SIZE	32
 
@@ -82,6 +83,7 @@ struct hdac_hdmi_pin {
 	struct list_head head;
 	hda_nid_t nid;
 	int num_mux_nids;
+	int conn_index;
 	hda_nid_t mux_nids[HDA_MAX_CONNECTIONS];
 	struct hdac_hdmi_eld eld;
 	struct hdac_ext_device *edev;
@@ -309,17 +311,33 @@ static int hdac_hdmi_setup_audio_infoframe(struct hdac_ext_device *hdac,
 static void hdac_hdmi_set_power_state(struct hdac_ext_device *edev,
 		struct hdac_hdmi_dai_pin_map *dai_map, unsigned int pwr_state)
 {
+	int count;
+	unsigned int state;
+
 	/* Power up pin widget */
 	if (!snd_hdac_check_power_state(&edev->hdac, dai_map->pin->nid,
-						pwr_state))
-		snd_hdac_codec_write(&edev->hdac, dai_map->pin->nid, 0,
-			AC_VERB_SET_POWER_STATE, pwr_state);
-
+							pwr_state)) {
+		for (count = 0; count < 10; count++) {
+			snd_hdac_codec_read(&edev->hdac, dai_map->pin->nid,
+				0, AC_VERB_SET_POWER_STATE, pwr_state);
+			state = snd_hdac_sync_power_state(&edev->hdac,
+					dai_map->pin->nid, pwr_state);
+			if (!(state & AC_PWRST_ERROR))
+				break;
+		}
+	}
 	/* Power up converter */
 	if (!snd_hdac_check_power_state(&edev->hdac, dai_map->cvt->nid,
-						pwr_state))
-		snd_hdac_codec_write(&edev->hdac, dai_map->cvt->nid, 0,
-			AC_VERB_SET_POWER_STATE, pwr_state);
+						pwr_state)) {
+		for (count = 0; count < 10; count++) {
+			snd_hdac_codec_read(&edev->hdac, dai_map->cvt->nid,
+				0, AC_VERB_SET_POWER_STATE, pwr_state);
+			state = snd_hdac_sync_power_state(&edev->hdac,
+					dai_map->cvt->nid, pwr_state);
+			if (!(state & AC_PWRST_ERROR))
+				break;
+		}
+	}
 }
 
 static int hdac_hdmi_playback_prepare(struct snd_pcm_substream *substream,
@@ -704,6 +722,7 @@ static int hdac_hdmi_set_pin_mux(struct snd_kcontrol *kcontrol,
 	struct hdac_hdmi_priv *hdmi = edev->private_data;
 	struct hdac_hdmi_pcm *pcm = NULL;
 	const char *cvt_name =  e->texts[ucontrol->value.enumerated.item[0]];
+	int err;
 
 	ret = snd_soc_dapm_put_enum_double(kcontrol, ucontrol);
 	if (ret < 0)
@@ -713,6 +732,9 @@ static int hdac_hdmi_set_pin_mux(struct snd_kcontrol *kcontrol,
 	list_for_each_entry(pcm, &hdmi->pcm_list, head) {
 		if (pcm->pin == pin)
 			pcm->pin = NULL;
+
+		if (ucontrol->value.enumerated.item[0] > 0)
+			pin->conn_index = ucontrol->value.enumerated.item[0];
 
 		/*
 		 * Jack status is not reported during device probe as the
@@ -724,6 +746,24 @@ static int hdac_hdmi_set_pin_mux(struct snd_kcontrol *kcontrol,
 				dev_dbg(&edev->hdac.dev,
 					"jack report for pcm=%d\n",
 					pcm->pcm_id);
+				/*
+				 * Restore the connection selection index of the
+				 * respective pin.
+				 */
+				if (pin->conn_index > 0) {
+					err = snd_hdac_codec_write_nocached(
+							&edev->hdac,
+							pin->nid, 0,
+							AC_VERB_SET_CONNECT_SEL,
+							pin->conn_index - 1);
+					if (err < 0) {
+						dev_err(&edev->hdac.dev,
+								"pin %d conn select index fail %d\n",
+								pin->nid, err);
+						mutex_unlock(&hdmi->pin_mutex);
+						return err;
+					}
+				}
 
 				snd_jack_report(pcm->jack, SND_JACK_AVOUT);
 			}
@@ -1019,7 +1059,7 @@ static void hdac_hdmi_present_sense(struct hdac_hdmi_pin *pin)
 	struct hdac_device hdac = edev->hdac;
 	struct hdac_hdmi_priv *hdmi = edev->private_data;
 	struct hdac_hdmi_pcm *pcm;
-	int size;
+	int size, err;
 
 	mutex_lock(&hdmi->pin_mutex);
 	pin->eld.monitor_present = false;
@@ -1066,6 +1106,26 @@ static void hdac_hdmi_present_sense(struct hdac_hdmi_pin *pin)
 	}
 
 	if (pin->eld.monitor_present && pin->eld.eld_valid) {
+		/*
+		 * Restore the connection selection index of the
+		 * respective pin.
+		 */
+
+		if (pin->conn_index > 0) {
+			err = snd_hdac_codec_write_nocached(
+					&edev->hdac,
+					pin->nid, 0,
+					AC_VERB_SET_CONNECT_SEL,
+					pin->conn_index - 1);
+			if (err < 0) {
+				dev_err(&edev->hdac.dev, "pin %d conn select "
+						"index at pin sense fail %d\n",
+						pin->nid, err);
+				mutex_unlock(&hdmi->pin_mutex);
+				return;
+			}
+		}
+
 		if (pcm) {
 			dev_dbg(&edev->hdac.dev,
 				"jack report for pcm=%d\n",

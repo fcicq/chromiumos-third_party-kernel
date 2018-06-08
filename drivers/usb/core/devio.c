@@ -78,6 +78,7 @@ struct usb_dev_state {
 	u32 secid;
 	u32 disabled_bulk_eps;
 	bool privileges_dropped;
+	unsigned long interface_allowed_mask;
 };
 
 struct async {
@@ -114,42 +115,38 @@ enum snoop_when {
 #define USB_DEVICE_DEV		MKDEV(USB_DEVICE_MAJOR, 0)
 
 /* Limit on the total amount of memory we can allocate for transfers */
-static unsigned usbfs_memory_mb = 16;
+static u32 usbfs_memory_mb = 16;
 module_param(usbfs_memory_mb, uint, 0644);
 MODULE_PARM_DESC(usbfs_memory_mb,
 		"maximum MB allowed for usbfs buffers (0 = no limit)");
 
 /* Hard limit, necessary to avoid arithmetic overflow */
-#define USBFS_XFER_MAX		(UINT_MAX / 2 - 1000000)
+#define USBFS_XFER_MAX         (UINT_MAX / 2 - 1000000)
 
-static atomic_t usbfs_memory_usage;	/* Total memory currently allocated */
+static atomic64_t usbfs_memory_usage;	/* Total memory currently allocated */
 
 /* Check whether it's okay to allocate more memory for a transfer */
-static int usbfs_increase_memory_usage(unsigned amount)
+static int usbfs_increase_memory_usage(u64 amount)
 {
-	unsigned lim;
+	u64 lim;
 
-	/*
-	 * Convert usbfs_memory_mb to bytes, avoiding overflows.
-	 * 0 means use the hard limit (effectively unlimited).
-	 */
 	lim = ACCESS_ONCE(usbfs_memory_mb);
-	if (lim == 0 || lim > (USBFS_XFER_MAX >> 20))
-		lim = USBFS_XFER_MAX;
-	else
-		lim <<= 20;
+	lim <<= 20;
 
-	atomic_add(amount, &usbfs_memory_usage);
-	if (atomic_read(&usbfs_memory_usage) <= lim)
-		return 0;
-	atomic_sub(amount, &usbfs_memory_usage);
-	return -ENOMEM;
+	atomic64_add(amount, &usbfs_memory_usage);
+
+	if (lim > 0 && atomic64_read(&usbfs_memory_usage) > lim) {
+		atomic64_sub(amount, &usbfs_memory_usage);
+		return -ENOMEM;
+	}
+
+	return 0;
 }
 
 /* Memory for a transfer is being deallocated */
-static void usbfs_decrease_memory_usage(unsigned amount)
+static void usbfs_decrease_memory_usage(u64 amount)
 {
-	atomic_sub(amount, &usbfs_memory_usage);
+	atomic64_sub(amount, &usbfs_memory_usage);
 }
 
 static int connected(struct usb_dev_state *ps)
@@ -642,6 +639,10 @@ static int claimintf(struct usb_dev_state *ps, unsigned int ifnum)
 	if (test_bit(ifnum, &ps->ifclaimed))
 		return 0;
 
+	if (ps->privileges_dropped &&
+			!test_bit(ifnum, &ps->interface_allowed_mask))
+		return -EACCES;
+
 	intf = usb_ifnum_to_if(dev, ifnum);
 	if (!intf)
 		err = -ENOENT;
@@ -869,6 +870,16 @@ static struct usb_device *usbdev_lookup_by_devt(dev_t devt)
 	return container_of(dev, struct usb_device, dev);
 }
 
+void usb_file_drop_privileges(struct file *file)
+{
+	struct usb_dev_state *ps = file->private_data;
+	struct usb_device *dev = ps->dev;
+
+	usb_lock_device(dev);
+	ps->privileges_dropped = true;
+	usb_unlock_device(dev);
+}
+
 /*
  * file operations
  */
@@ -907,6 +918,7 @@ static int usbdev_open(struct inode *inode, struct file *file)
 
 	ps->dev = dev;
 	ps->file = file;
+	ps->interface_allowed_mask = 0xFFFFFFFF; /* 32 bits */
 	spin_lock_init(&ps->lock);
 	INIT_LIST_HEAD(&ps->list);
 	INIT_LIST_HEAD(&ps->async_pending);
@@ -1075,7 +1087,7 @@ static int proc_bulk(struct usb_dev_state *ps, void __user *arg)
 	if (!usb_maxpacket(dev, pipe, !(bulk.ep & USB_DIR_IN)))
 		return -EINVAL;
 	len1 = bulk.len;
-	if (len1 >= USBFS_XFER_MAX)
+	if (len1 >= (INT_MAX - sizeof(struct urb)))
 		return -EINVAL;
 	ret = usbfs_increase_memory_usage(len1 + sizeof(struct urb));
 	if (ret)
@@ -1214,31 +1226,24 @@ static int proc_connectinfo(struct usb_dev_state *ps, void __user *arg)
 
 static int proc_resetdevice(struct usb_dev_state *ps)
 {
-	if (ps->privileges_dropped) {
-		struct usb_host_config *actconfig = ps->dev->actconfig;
+	struct usb_host_config *actconfig = ps->dev->actconfig;
+	struct usb_interface *interface;
+	int i, number;
 
-		/* Don't touch the device if any interfaces are claimed. It
-		 * could interfere with other drivers' operations and this
-		 * process has dropped its privileges to do such things.
-		 */
-		if (actconfig) {
-			int i;
-
-			for (i = 0; i < actconfig->desc.bNumInterfaces; ++i) {
-				if (usb_interface_claimed(
-					actconfig->interface[i])) {
-					dev_warn(&ps->dev->dev,
-						"usbfs: interface %d claimed by"
-						" %s while '%s'"
-						" resets device\n",
-						actconfig->interface[i]
-							->cur_altsetting
-							->desc.bInterfaceNumber,
-						actconfig->interface[i]
-							->dev.driver->name,
-						current->comm);
-					return -EACCES;
-				}
+	/* Don't allow a device reset if the process has dropped the
+	 * privilege to do such things and any of the interfaces are
+	 * currently claimed.
+	 */
+	if (ps->privileges_dropped && actconfig) {
+		for (i = 0; i < actconfig->desc.bNumInterfaces; ++i) {
+			interface = actconfig->interface[i];
+			number = interface->cur_altsetting->desc.bInterfaceNumber;
+			if (usb_interface_claimed(interface) &&
+					!test_bit(number, &ps->ifclaimed)) {
+				dev_warn(&ps->dev->dev,
+					"usbfs: interface %d claimed by %s while '%s' resets device\n",
+					number,	interface->dev.driver->name, current->comm);
+				return -EACCES;
 			}
 		}
 	}
@@ -1324,13 +1329,19 @@ static int proc_do_submiturb(struct usb_dev_state *ps, struct usbdevfs_urb *uurb
 	int number_of_packets = 0;
 	unsigned int stream_id = 0;
 	void *buf;
-
-	if (uurb->flags & ~(USBDEVFS_URB_ISO_ASAP |
-				USBDEVFS_URB_SHORT_NOT_OK |
+	unsigned long mask =	USBDEVFS_URB_SHORT_NOT_OK |
 				USBDEVFS_URB_BULK_CONTINUATION |
 				USBDEVFS_URB_NO_FSBR |
 				USBDEVFS_URB_ZERO_PACKET |
-				USBDEVFS_URB_NO_INTERRUPT))
+				USBDEVFS_URB_NO_INTERRUPT;
+	/* USBDEVFS_URB_ISO_ASAP is a special case */
+	if (uurb->type == USBDEVFS_URB_TYPE_ISO)
+		mask |= USBDEVFS_URB_ISO_ASAP;
+
+	if (uurb->flags & ~mask)
+			return -EINVAL;
+
+	if ((unsigned int)uurb->buffer_length >= USBFS_XFER_MAX)
 		return -EINVAL;
 	if (uurb->buffer_length > 0 && !uurb->buffer)
 		return -EINVAL;
@@ -1451,10 +1462,6 @@ static int proc_do_submiturb(struct usb_dev_state *ps, struct usbdevfs_urb *uurb
 		return -EINVAL;
 	}
 
-	if (uurb->buffer_length >= USBFS_XFER_MAX) {
-		ret = -EINVAL;
-		goto error;
-	}
 	if (uurb->buffer_length > 0 &&
 			!access_ok(is_in ? VERIFY_WRITE : VERIFY_READ,
 				uurb->buffer, uurb->buffer_length)) {
@@ -1680,6 +1687,18 @@ static int proc_unlinkurb(struct usb_dev_state *ps, void __user *arg)
 	return 0;
 }
 
+static void compute_isochronous_actual_length(struct urb *urb)
+{
+	unsigned int i;
+
+	if (urb->number_of_packets > 0) {
+		urb->actual_length = 0;
+		for (i = 0; i < urb->number_of_packets; i++)
+			urb->actual_length +=
+					urb->iso_frame_desc[i].actual_length;
+	}
+}
+
 static int processcompl(struct async *as, void __user * __user *arg)
 {
 	struct urb *urb = as->urb;
@@ -1687,6 +1706,7 @@ static int processcompl(struct async *as, void __user * __user *arg)
 	void __user *addr = as->userurb;
 	unsigned int i;
 
+	compute_isochronous_actual_length(urb);
 	if (as->userbuffer && urb->actual_length) {
 		if (copy_urb_data_to_user(as->userbuffer, urb))
 			goto err_out;
@@ -1856,6 +1876,7 @@ static int processcompl_compat(struct async *as, void __user * __user *arg)
 	void __user *addr = as->userurb;
 	unsigned int i;
 
+	compute_isochronous_actual_length(urb);
 	if (as->userbuffer && urb->actual_length) {
 		if (copy_urb_data_to_user(as->userbuffer, urb))
 			return -EFAULT;
@@ -2084,7 +2105,8 @@ static int proc_get_capabilities(struct usb_dev_state *ps, void __user *arg)
 	__u32 caps;
 
 	caps = USBDEVFS_CAP_ZERO_PACKET | USBDEVFS_CAP_NO_PACKET_SIZE_LIM |
-			USBDEVFS_CAP_REAP_AFTER_DISCONNECT;
+			USBDEVFS_CAP_REAP_AFTER_DISCONNECT |
+			USBDEVFS_CAP_DROP_PRIVILEGES;
 	if (!ps->dev->bus->no_stop_on_short)
 		caps |= USBDEVFS_CAP_BULK_CONTINUATION;
 	if (ps->dev->bus->sg_tablesize)
@@ -2111,6 +2133,9 @@ static int proc_disconnect_claim(struct usb_dev_state *ps, void __user *arg)
 	if (intf->dev.driver) {
 		struct usb_driver *driver = to_usb_driver(intf->dev.driver);
 
+		if (ps->privileges_dropped)
+			return -EACCES;
+
 		if ((dc.flags & USBDEVFS_DISCONNECT_CLAIM_IF_DRIVER) &&
 				strncmp(dc.driver, intf->dev.driver->name,
 					sizeof(dc.driver)) != 0)
@@ -2120,9 +2145,6 @@ static int proc_disconnect_claim(struct usb_dev_state *ps, void __user *arg)
 				strncmp(dc.driver, intf->dev.driver->name,
 					sizeof(dc.driver)) == 0)
 			return -EBUSY;
-
-		if (ps->privileges_dropped)
-			return -EACCES;
 
 		dev_dbg(&intf->dev, "disconnect by usbfs\n");
 		usb_driver_release_interface(driver, intf);
@@ -2170,9 +2192,20 @@ static int proc_free_streams(struct usb_dev_state *ps, void __user *arg)
 	return r;
 }
 
-static int proc_drop_privileges(struct usb_dev_state *ps)
+static int proc_drop_privileges(struct usb_dev_state *ps, void __user *arg)
 {
+	u32 data;
+
+	if (copy_from_user(&data, arg, sizeof(data)))
+		return -EFAULT;
+
+	/* This is an one way operation. Once privileges are
+	 * dropped, you cannot regain them. You may however reissue
+	 * this ioctl to shrink the allowed interfaces mask.
+	 */
+	ps->interface_allowed_mask &= data;
 	ps->privileges_dropped = true;
+
 	return 0;
 }
 
@@ -2365,7 +2398,7 @@ static long usbdev_do_ioctl(struct file *file, unsigned int cmd,
 		ret = proc_free_streams(ps, p);
 		break;
 	case USBDEVFS_DROP_PRIVILEGES:
-		ret = proc_drop_privileges(ps);
+		ret = proc_drop_privileges(ps, p);
 		break;
 	}
 

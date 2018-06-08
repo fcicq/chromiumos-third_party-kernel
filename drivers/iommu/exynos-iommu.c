@@ -545,6 +545,8 @@ static void sysmmu_tlb_invalidate_entry(struct sysmmu_drvdata *data,
 	spin_unlock_irqrestore(&data->lock, flags);
 }
 
+static struct iommu_ops exynos_iommu_ops;
+
 static int __init exynos_sysmmu_probe(struct platform_device *pdev)
 {
 	int irq, ret;
@@ -602,6 +604,8 @@ static int __init exynos_sysmmu_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, data);
 
 	pm_runtime_enable(dev);
+
+	iommu_register_instance(dev->fwnode, &exynos_iommu_ops);
 
 	return 0;
 }
@@ -1246,7 +1250,6 @@ static int __init exynos_iommu_of_setup(struct device_node *np)
 	if (IS_ERR(pdev))
 		return PTR_ERR(pdev);
 
-	of_iommu_set_ops(np, &exynos_iommu_ops);
 	return 0;
 }
 

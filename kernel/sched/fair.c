@@ -2239,7 +2239,8 @@ void task_numa_work(struct callback_head *work)
 		return;
 
 
-	down_read(&mm->mmap_sem);
+	if (!down_read_trylock(&mm->mmap_sem))
+		return;
 	vma = find_vma(mm, start);
 	if (!vma) {
 		reset_ptenuma_scan(p);
@@ -4935,7 +4936,7 @@ long group_norm_util(struct energy_env *eenv, struct sched_group *sg)
 }
 
 static int find_new_capacity(struct energy_env *eenv,
-	const struct sched_group_energy const *sge)
+	const struct sched_group_energy * const sge)
 {
 	int idx;
 	unsigned long util = group_max_util(eenv);

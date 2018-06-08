@@ -22,11 +22,13 @@
 #include <linux/io.h>
 #include <linux/mfd/syscon.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
 #include <linux/slab.h>
 #include <linux/list.h>
 #include <linux/of.h>
+#include <soc/rockchip/rk3399_dmc.h>
 
 #include "rockchip-dfi.h"
 #include "../governor.h"
@@ -100,9 +102,11 @@ struct rockchip_dfi {
 	void __iomem *regs;
 	struct regmap *regmap_pmu;
 	struct clk *clk;
+	struct devfreq *devfreq;
 	unsigned int top;
 	unsigned int floor;
 	bool enabled;
+	struct mutex lock;
 };
 
 static unsigned int rockchip_dfi_calc_threshold_num(unsigned long rate,
@@ -235,9 +239,13 @@ static int rockchip_dfi_disable(struct devfreq_event_dev *edev)
 {
 	struct rockchip_dfi *info = devfreq_event_get_drvdata(edev);
 
+	mutex_lock(&info->lock);
+
 	info->enabled = false;
 	rockchip_dfi_stop_hardware_counter(edev);
 	clk_disable_unprepare(info->clk);
+
+	mutex_unlock(&info->lock);
 
 	return 0;
 }
@@ -247,6 +255,8 @@ static int rockchip_dfi_enable(struct devfreq_event_dev *edev)
 	struct rockchip_dfi *info = devfreq_event_get_drvdata(edev);
 	int ret;
 
+	mutex_lock(&info->lock);
+
 	ret = clk_prepare_enable(info->clk);
 	if (ret) {
 		dev_err(&edev->dev, "failed to enable dfi clk: %d\n", ret);
@@ -255,6 +265,9 @@ static int rockchip_dfi_enable(struct devfreq_event_dev *edev)
 
 	rockchip_dfi_start_hardware_counter(edev);
 	info->enabled = true;
+
+	mutex_unlock(&info->lock);
+
 	return 0;
 }
 
@@ -281,12 +294,20 @@ static int rockchip_dfi_get_event(struct devfreq_event_dev *edev,
 static irqreturn_t ddrmon_thread_isr(int irq, void *data)
 {
 	struct rockchip_dfi *info = data;
-	struct devfreq *devfreq = dev_get_drvdata(&info->edev->dev);
+	struct devfreq *devfreq;
 
+	mutex_lock(&info->lock);
+
+	if (!info->enabled || !info->devfreq)
+		goto out;
+
+	devfreq = info->devfreq;
 	mutex_lock(&devfreq->lock);
-	if (info->enabled)
-		update_devfreq(devfreq);
+	update_devfreq(devfreq);
 	mutex_unlock(&devfreq->lock);
+
+out:
+	mutex_unlock(&info->lock);
 
 	return IRQ_HANDLED;
 }
@@ -294,13 +315,9 @@ static irqreturn_t ddrmon_thread_isr(int irq, void *data)
 static irqreturn_t ddrmon_isr(int irq, void *dev_id)
 {
 	struct rockchip_dfi *info = dev_id;
-	struct devfreq *devfreq = dev_get_drvdata(&info->edev->dev);
 	void __iomem *dfi_regs = info->regs;
 	irqreturn_t ret = IRQ_NONE;
 	u32 val;
-
-	if (!devfreq)
-		return IRQ_HANDLED;
 
 	val = readl_relaxed(dfi_regs + DDRMON_INT_STATUS);
 	if (val & CH_THRESHOLD_MASK) {
@@ -312,6 +329,17 @@ static irqreturn_t ddrmon_isr(int irq, void *dev_id)
 	writel_relaxed(0x0000ffff, dfi_regs + DDRMON_INT_STATUS);
 	return ret;
 }
+
+void rockchip_dfi_set_devfreq(struct devfreq_event_dev *edev,
+			      struct devfreq *devfreq)
+{
+	struct rockchip_dfi *info = devfreq_event_get_drvdata(edev);
+
+	mutex_lock(&info->lock);
+	info->devfreq = devfreq;
+	mutex_unlock(&info->lock);
+}
+EXPORT_SYMBOL_GPL(rockchip_dfi_set_devfreq);
 
 static const struct devfreq_event_ops rockchip_dfi_ops = {
 	.disable = rockchip_dfi_disable,
@@ -357,6 +385,7 @@ static int rockchip_dfi_probe(struct platform_device *pdev)
 			return PTR_ERR(data->regmap_pmu);
 	}
 	data->dev = dev;
+	mutex_init(&data->lock);
 
 	desc = devm_kzalloc(dev, sizeof(*desc), GFP_KERNEL);
 	if (!desc)

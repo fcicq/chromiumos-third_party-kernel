@@ -45,6 +45,8 @@ struct rk3399_dmcfreq {
 	unsigned int odt_dis_freq;
 	struct regulator *vdd_center;
 	unsigned long rate;
+	unsigned long min_freq;
+	unsigned long max_freq;
 	unsigned long volt;
 	struct delayed_work throttle_work;
 	unsigned int target_load;

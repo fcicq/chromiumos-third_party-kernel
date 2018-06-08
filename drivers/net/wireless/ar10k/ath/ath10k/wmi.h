@@ -180,6 +180,28 @@ enum wmi_service {
 	WMI_SERVICE_MESH_NON_11S,
 	WMI_SERVICE_PEER_STATS,
 	WMI_SERVICE_RESTRT_CHNL_SUPPORT,
+	WMI_SERVICE_PERIODIC_CHAN_STAT_SUPPORT,
+	WMI_SERVICE_TX_MODE_PUSH_ONLY,
+	WMI_SERVICE_TX_MODE_PUSH_PULL,
+	WMI_SERVICE_TX_MODE_DYNAMIC,
+	WMI_SERVICE_VDEV_RX_FILTER,
+	WMI_SERVICE_BTCOEX,
+	WMI_SERVICE_CHECK_CAL_VERSION,
+	WMI_SERVICE_DBGLOG_WARN2,
+	WMI_SERVICE_BTCOEX_DUTY_CYCLE,
+	WMI_SERVICE_4_WIRE_COEX_SUPPORT,
+	WMI_SERVICE_EXTENDED_NSS_SUPPORT,
+	WMI_SERVICE_PROG_GPIO_BAND_SELECT,
+	WMI_SERVICE_SMART_LOGGING_SUPPORT,
+	WMI_SERVICE_TDLS_CONN_TRACKER_IN_HOST_MODE,
+	WMI_SERVICE_TDLS_EXPLICIT_MODE_ONLY,
+	WMI_SERVICE_MGMT_TX_WMI,
+	WMI_SERVICE_TDLS_WIDER_BANDWIDTH,
+	WMI_SERVICE_HTT_MGMT_TX_COMP_VALID_FLAGS,
+	WMI_SERVICE_HOST_DFS_CHECK_SUPPORT,
+	WMI_SERVICE_TPC_STATS_FINAL,
+	WMI_SERVICE_RESET_CHIP,
+	WMI_SERVICE_SPOOF_MAC_SUPPORT,
 
 	/* keep last */
 	WMI_SERVICE_MAX,
@@ -405,8 +427,8 @@ static inline char *wmi_service_name(int service_id)
 
 #define WMI_SERVICE_IS_ENABLED(wmi_svc_bmap, svc_id, len) \
 	((svc_id) < (len) && \
-	 __le32_to_cpu((wmi_svc_bmap)[(svc_id)/(sizeof(u32))]) & \
-	 BIT((svc_id)%(sizeof(u32))))
+	 __le32_to_cpu((wmi_svc_bmap)[(svc_id) / (sizeof(u32))]) & \
+	 BIT((svc_id) % (sizeof(u32))))
 
 #define SVCMAP(x, y, len) \
 	do { \
@@ -664,6 +686,7 @@ struct wmi_cmd_map {
 	u32 stop_scan_cmdid;
 	u32 scan_chan_list_cmdid;
 	u32 scan_sch_prio_tbl_cmdid;
+	u32 scan_prob_req_oui_cmdid;
 	u32 pdev_set_regdomain_cmdid;
 	u32 pdev_set_channel_cmdid;
 	u32 pdev_set_param_cmdid;
@@ -1038,6 +1061,7 @@ enum wmi_cmd_id {
 enum wmi_event_id {
 	WMI_SERVICE_READY_EVENTID = 0x1,
 	WMI_READY_EVENTID,
+	WMI_SERVICE_AVAILABLE_EVENTID,
 
 	/* Scan specific events */
 	WMI_SCAN_EVENTID = WMI_EVT_GRP_START_ID(WMI_GRP_SCAN),
@@ -1308,7 +1332,7 @@ enum wmi_10x_event_id {
 	WMI_10X_PDEV_TPC_CONFIG_EVENTID,
 
 	WMI_10X_GPIO_INPUT_EVENTID,
-	WMI_10X_PDEV_UTF_EVENTID = WMI_10X_END_EVENTID-1,
+	WMI_10X_PDEV_UTF_EVENTID = WMI_10X_END_EVENTID - 1,
 };
 
 enum wmi_10_2_cmd_id {
@@ -2042,8 +2066,8 @@ struct wmi_10x_service_ready_event {
 	struct wlan_host_mem_req mem_reqs[0];
 } __packed;
 
-#define WMI_SERVICE_READY_TIMEOUT_HZ (5*HZ)
-#define WMI_UNIFIED_READY_TIMEOUT_HZ (5*HZ)
+#define WMI_SERVICE_READY_TIMEOUT_HZ (5 * HZ)
+#define WMI_UNIFIED_READY_TIMEOUT_HZ (5 * HZ)
 
 struct wmi_ready_event {
 	__le32 sw_version;
@@ -2882,6 +2906,8 @@ struct wmi_start_scan_arg {
 	u16 channels[64];
 	struct wmi_ssid_arg ssids[WLAN_SCAN_PARAMS_MAX_SSID];
 	struct wmi_bssid_arg bssids[WLAN_SCAN_PARAMS_MAX_BSSID];
+	struct wmi_mac_addr mac_addr;
+	struct wmi_mac_addr mac_mask;
 };
 
 /* scan control flags */
@@ -2903,6 +2929,12 @@ struct wmi_start_scan_arg {
 /* Different FW scan engine may choose to bail out on errors.
  * Allow the driver to have influence over that. */
 #define WMI_SCAN_CONTINUE_ON_ERROR 0x80
+
+/* Use random MAC address for TA for Probe Request frame and add
+ * OUI specified by WMI_SCAN_PROB_REQ_OUI_CMDID to the Probe Request frame.
+ * if OUI is not set by WMI_SCAN_PROB_REQ_OUI_CMDID then the flag is ignored.
+ */
+#define WMI_SCAN_ADD_SPOOFED_MAC_IN_PROBE_REQ   0x1000
 
 /* WMI_SCAN_CLASS_MASK must be the same value as IEEE80211_SCAN_CLASS_MASK */
 #define WMI_SCAN_CLASS_MASK 0xFF000000
@@ -4337,14 +4369,14 @@ enum wmi_vdev_subtype_10_4 {
 /*
  * Indicates that AP VDEV uses hidden ssid. only valid for
  *  AP/GO */
-#define WMI_VDEV_START_HIDDEN_SSID  (1<<0)
+#define WMI_VDEV_START_HIDDEN_SSID  (1 << 0)
 /*
  * Indicates if robust management frame/management frame
  *  protection is enabled. For GO/AP vdevs, it indicates that
  *  it may support station/client associations with RMF enabled.
  *  For STA/client vdevs, it indicates that sta will
  *  associate with AP with RMF enabled. */
-#define WMI_VDEV_START_PMF_ENABLED  (1<<1)
+#define WMI_VDEV_START_PMF_ENABLED  (1 << 1)
 
 struct wmi_p2p_noa_descriptor {
 	__le32 type_count; /* 255: continuous schedule, 0: reserved */
@@ -5282,7 +5314,7 @@ enum wmi_sta_ps_param_pspoll_count {
 #define WMI_UAPSD_AC_TYPE_TRIG 1
 
 #define WMI_UAPSD_AC_BIT_MASK(ac, type) \
-	((type ==  WMI_UAPSD_AC_TYPE_DELI) ? (1<<(ac<<1)) : (1<<((ac<<1)+1)))
+	((type ==  WMI_UAPSD_AC_TYPE_DELI) ? (1 << (ac << 1)) : (1 << ((ac << 1) + 1)))
 
 enum wmi_sta_ps_param_uapsd {
 	WMI_STA_PS_UAPSD_AC0_DELIVERY_EN = (1 << 0),
@@ -5697,7 +5729,7 @@ struct wmi_rate_set {
 	 * the rates are filled from least significant byte to most
 	 * significant byte.
 	 */
-	__le32 rates[(MAX_SUPPORTED_RATES/4)+1];
+	__le32 rates[(MAX_SUPPORTED_RATES / 4) + 1];
 } __packed;
 
 struct wmi_rate_set_arg {
@@ -6186,6 +6218,11 @@ struct wmi_svc_rdy_ev_arg {
 	const struct wlan_host_mem_req *mem_reqs[WMI_MAX_MEM_REQS];
 };
 
+struct wmi_svc_avail_ev_arg {
+	__le32 service_map_ext_len;
+	const __le32 *service_map_ext;
+};
+
 struct wmi_rdy_ev_arg {
 	__le32 sw_version;
 	__le32 abi_version;
@@ -6351,6 +6388,10 @@ struct wmi_wow_ev_arg {
 #define WOW_MIN_PATTERN_SIZE	1
 #define WOW_MAX_PATTERN_SIZE	148
 #define WOW_MAX_PKT_OFFSET	128
+#define WOW_HDR_LEN	(sizeof(struct ieee80211_hdr_3addr) + \
+	sizeof(struct rfc1042_hdr))
+#define WOW_MAX_REDUCE	(WOW_HDR_LEN - sizeof(struct ethhdr) - \
+	offsetof(struct ieee80211_hdr_3addr, addr1))
 
 enum wmi_tdls_state {
 	WMI_TDLS_DISABLE,
@@ -6486,6 +6527,7 @@ void ath10k_wmi_event_vdev_standby_req(struct ath10k *ar, struct sk_buff *skb);
 void ath10k_wmi_event_vdev_resume_req(struct ath10k *ar, struct sk_buff *skb);
 void ath10k_wmi_event_service_ready(struct ath10k *ar, struct sk_buff *skb);
 int ath10k_wmi_event_ready(struct ath10k *ar, struct sk_buff *skb);
+void ath10k_wmi_event_service_available(struct ath10k *ar, struct sk_buff *skb);
 int ath10k_wmi_op_pull_phyerr_ev(struct ath10k *ar, const void *phyerr_buf,
 				 int left_len, struct wmi_phyerr_ev_arg *arg);
 void ath10k_wmi_main_op_fw_stats_fill(struct ath10k *ar,

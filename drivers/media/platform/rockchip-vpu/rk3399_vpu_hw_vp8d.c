@@ -762,7 +762,6 @@ void rk3399_vpu_vp8d_run(struct rockchip_vpu_ctx *ctx)
 	size_t width = ctx->dst_fmt.width;
 	u32 mb_width, mb_height;
 	u32 reg;
-	int i;
 
 	rk3399_vp8d_dump_hdr(ctx);
 
@@ -775,8 +774,8 @@ void rk3399_vpu_vp8d_run(struct rockchip_vpu_ctx *ctx)
 
 	rockchip_vpu_power_on(vpu);
 
-	for (i = 0; i < vpu->variant->dec_reg_num; i++)
-		vdpu_write_relaxed(vpu, 0, i * 4);
+	ctx->hw.codec_ops->reset(ctx);
+
 	reg = VDPU_REG_CONFIG_DEC_TIMEOUT_E
 		| VDPU_REG_CONFIG_DEC_CLK_GATE_E;
 	if (hdr->key_frame)

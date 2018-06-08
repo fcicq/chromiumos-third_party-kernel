@@ -252,6 +252,7 @@ static void rk3399_vpu_dec_reset(struct rockchip_vpu_ctx *ctx)
 
 	vdpu_write(vpu, VDPU_REG_INTERRUPT_DEC_IRQ_DIS, VDPU_REG_INTERRUPT);
 	vdpu_write(vpu, 0, VDPU_REG_EN_FLAGS);
+	vdpu_write(vpu, 1, VDPU_REG_SOFT_RESET);
 }
 
 /*
@@ -288,9 +289,7 @@ static const struct rockchip_vpu_codec_ops rk3399_vpu_mode_ops[] = {
 
 const struct rockchip_vpu_variant rk3399_vpu_variant = {
 	.enc_offset = 0x0,
-	.enc_reg_num = 164,
 	.dec_offset = 0x400,
-	.dec_reg_num = 60 + 41,
 	.enc_fmts = rk3399_vpu_enc_fmts,
 	.num_enc_fmts = ARRAY_SIZE(rk3399_vpu_enc_fmts),
 	.dec_fmts = rk3399_vpu_dec_fmts,

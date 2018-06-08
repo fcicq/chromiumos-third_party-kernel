@@ -95,6 +95,7 @@ slow:
 		return ERR_PTR(-ENOMEM);
 	}
 	d_instantiate(dentry, inode);
+	dentry->d_flags |= DCACHE_RCUACCESS;
 	dentry->d_fsdata = (void *)ns_ops;
 	d = atomic_long_cmpxchg(&ns->stashed, 0, (unsigned long)dentry);
 	if (d) {
@@ -136,6 +137,7 @@ out_invalid:
 	fput(file);
 	return ERR_PTR(-EINVAL);
 }
+EXPORT_SYMBOL(proc_ns_fget);
 
 static int nsfs_show_path(struct seq_file *seq, struct dentry *dentry)
 {

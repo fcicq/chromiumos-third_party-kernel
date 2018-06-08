@@ -27,6 +27,7 @@
 #define DEVFREQ_POSTCHANGE		(1)
 
 struct devfreq;
+struct devfreq_governor;
 
 /**
  * struct devfreq_dev_status - Data given from devfreq user device to
@@ -101,32 +102,6 @@ struct devfreq_dev_profile {
 };
 
 /**
- * struct devfreq_governor - Devfreq policy governor
- * @node:		list node - contains registered devfreq governors
- * @name:		Governor's name
- * @get_target_freq:	Returns desired operating frequency for the device.
- *			Basically, get_target_freq will run
- *			devfreq_dev_profile.get_dev_status() to get the
- *			status of the device (load = busy_time / total_time).
- *			If no_central_polling is set, this callback is called
- *			only with update_devfreq() notified by OPP.
- * @event_handler:      Callback for devfreq core framework to notify events
- *                      to governors. Events include per device governor
- *                      init and exit, opp changes out of devfreq, suspend
- *                      and resume of per device devfreq during device idle.
- *
- * Note that the callbacks are called with devfreq->lock locked by devfreq.
- */
-struct devfreq_governor {
-	struct list_head node;
-
-	const char name[DEVFREQ_NAME_LEN];
-	int (*get_target_freq)(struct devfreq *this, unsigned long *freq);
-	int (*event_handler)(struct devfreq *devfreq,
-				unsigned int event, void *data);
-};
-
-/**
  * struct devfreq - Device devfreq structure
  * @node:	list node - contains the devices with devfreq that have been
  *		registered.
@@ -145,6 +120,8 @@ struct devfreq_governor {
  *		touch this.
  * @min_freq:	Limit minimum frequency requested by user (0: none)
  * @max_freq:	Limit maximum frequency requested by user (0: none)
+ * @scaling_min_freq:	Limit minimum frequency requested by OPP interface
+ * @scaling_max_freq:	Limit maximum frequency requested by OPP interface
  * @stop_polling:	 devfreq polling status of a device.
  * @total_trans:	Number of devfreq transitions
  * @trans_table:	Statistics of devfreq transitions
@@ -179,6 +156,8 @@ struct devfreq {
 
 	unsigned long min_freq;
 	unsigned long max_freq;
+	unsigned long scaling_min_freq;
+	unsigned long scaling_max_freq;
 	bool stop_polling;
 
 	/* information for device frequency transition */

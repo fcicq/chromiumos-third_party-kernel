@@ -4,7 +4,8 @@
  * Copyright 2006-2007	Jiri Benc <jbenc@suse.cz>
  * Copyright 2007	Johannes Berg <johannes@sipsolutions.net>
  * Copyright 2013-2014  Intel Mobile Communications GmbH
- * Copyright (C) 2015	Intel Deutschland GmbH
+ * Copyright (C) 2015-2017	Intel Deutschland GmbH
+ * Copyright (C) 2018 Intel Corporation
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -594,7 +595,7 @@ static void __iterate_interfaces(struct ieee80211_local *local,
 	list_for_each_entry_rcu(sdata, &local->interfaces, list) {
 		switch (sdata->vif.type) {
 		case NL80211_IFTYPE_MONITOR:
-			if (!(sdata->u.mntr_flags & MONITOR_FLAG_ACTIVE))
+			if (!(sdata->u.mntr.flags & MONITOR_FLAG_ACTIVE))
 				continue;
 			break;
 		case NL80211_IFTYPE_AP_VLAN:
@@ -1104,6 +1105,48 @@ u32 ieee802_11_parse_elems_crc(const u8 *start, size_t len, bool action,
 	return crc;
 }
 
+void ieee80211_regulatory_limit_wmm_params(struct ieee80211_sub_if_data *sdata,
+					   struct ieee80211_tx_queue_params
+					   *qparam, int ac)
+{
+	struct ieee80211_chanctx_conf *chanctx_conf;
+	const struct ieee80211_reg_rule *rrule;
+	struct ieee80211_wmm_ac *wmm_ac;
+	u16 center_freq = 0;
+
+	if (sdata->vif.type != NL80211_IFTYPE_AP &&
+	    sdata->vif.type != NL80211_IFTYPE_STATION)
+		return;
+
+	rcu_read_lock();
+	chanctx_conf = rcu_dereference(sdata->vif.chanctx_conf);
+	if (chanctx_conf)
+		center_freq = chanctx_conf->def.chan->center_freq;
+
+	if (!center_freq) {
+		rcu_read_unlock();
+		return;
+	}
+
+	rrule = freq_reg_info(sdata->wdev.wiphy, MHZ_TO_KHZ(center_freq));
+
+	if (IS_ERR_OR_NULL(rrule) || !rrule->wmm_rule) {
+		rcu_read_unlock();
+		return;
+	}
+
+	if (sdata->vif.type == NL80211_IFTYPE_AP)
+		wmm_ac = &rrule->wmm_rule->ap[ac];
+	else
+		wmm_ac = &rrule->wmm_rule->client[ac];
+	qparam->cw_min = max_t(u16, qparam->cw_min, wmm_ac->cw_min);
+	qparam->cw_max = max_t(u16, qparam->cw_max, wmm_ac->cw_max);
+	qparam->aifs = max_t(u8, qparam->aifs, wmm_ac->aifsn);
+	qparam->txop = !qparam->txop ? wmm_ac->cot / 32 :
+		min_t(u16, qparam->txop, wmm_ac->cot / 32);
+	rcu_read_unlock();
+}
+
 void ieee80211_set_wmm_default(struct ieee80211_sub_if_data *sdata,
 			       bool bss_notify, bool enable_qos)
 {
@@ -1197,6 +1240,7 @@ void ieee80211_set_wmm_default(struct ieee80211_sub_if_data *sdata,
 				break;
 			}
 		}
+		ieee80211_regulatory_limit_wmm_params(sdata, &qparam, ac);
 
 		qparam.uapsd = false;
 
@@ -1205,7 +1249,8 @@ void ieee80211_set_wmm_default(struct ieee80211_sub_if_data *sdata,
 	}
 
 	if (sdata->vif.type != NL80211_IFTYPE_MONITOR &&
-	    sdata->vif.type != NL80211_IFTYPE_P2P_DEVICE) {
+	    sdata->vif.type != NL80211_IFTYPE_P2P_DEVICE &&
+	    sdata->vif.type != NL80211_IFTYPE_NAN) {
 		sdata->vif.bss_conf.qos = enable_qos;
 		if (bss_notify)
 			ieee80211_bss_info_change_notify(sdata,
@@ -1925,6 +1970,9 @@ int ieee80211_reconfig(struct ieee80211_local *local)
 			  BSS_CHANGED_IDLE |
 			  BSS_CHANGED_TXPOWER;
 
+		if (sdata->vif.mu_mimo_owner)
+			changed |= BSS_CHANGED_MU_GROUPS;
+
 		switch (sdata->vif.type) {
 		case NL80211_IFTYPE_STATION:
 			changed |= BSS_CHANGED_ASSOC |
@@ -1968,6 +2016,7 @@ int ieee80211_reconfig(struct ieee80211_local *local)
 		case NL80211_IFTYPE_AP_VLAN:
 		case NL80211_IFTYPE_MONITOR:
 		case NL80211_IFTYPE_P2P_DEVICE:
+		case NL80211_IFTYPE_NAN:
 			/* nothing to do */
 			break;
 		case NL80211_IFTYPE_UNSPECIFIED:
@@ -2377,17 +2426,13 @@ u8 *ieee80211_ie_build_vht_oper(u8 *pos, struct ieee80211_sta_vht_cap *vht_cap,
 	return pos + sizeof(struct ieee80211_vht_operation);
 }
 
-void ieee80211_ht_oper_to_chandef(struct ieee80211_channel *control_chan,
-				  const struct ieee80211_ht_operation *ht_oper,
-				  struct cfg80211_chan_def *chandef)
+bool ieee80211_chandef_ht_oper(const struct ieee80211_ht_operation *ht_oper,
+			       struct cfg80211_chan_def *chandef)
 {
 	enum nl80211_channel_type channel_type;
 
-	if (!ht_oper) {
-		cfg80211_chandef_create(chandef, control_chan,
-					NL80211_CHAN_NO_HT);
-		return;
-	}
+	if (!ht_oper)
+		return false;
 
 	switch (ht_oper->ht_param & IEEE80211_HT_PARAM_CHA_SEC_OFFSET) {
 	case IEEE80211_HT_PARAM_CHA_SEC_NONE:
@@ -2401,42 +2446,52 @@ void ieee80211_ht_oper_to_chandef(struct ieee80211_channel *control_chan,
 		break;
 	default:
 		channel_type = NL80211_CHAN_NO_HT;
+		return false;
 	}
 
-	cfg80211_chandef_create(chandef, control_chan, channel_type);
+	cfg80211_chandef_create(chandef, chandef->chan, channel_type);
+	return true;
 }
 
-void ieee80211_vht_oper_to_chandef(struct ieee80211_channel *control_chan,
-				   const struct ieee80211_vht_operation *oper,
-				   struct cfg80211_chan_def *chandef)
+bool ieee80211_chandef_vht_oper(const struct ieee80211_vht_operation *oper,
+				struct cfg80211_chan_def *chandef)
 {
-	if (!oper)
-		return;
+	struct cfg80211_chan_def new = *chandef;
+	int cf1, cf2;
 
-	chandef->chan = control_chan;
+	if (!oper)
+		return false;
+
+	cf1 = ieee80211_channel_to_frequency(oper->center_freq_seg1_idx,
+					     chandef->chan->band);
+	cf2 = ieee80211_channel_to_frequency(oper->center_freq_seg2_idx,
+					     chandef->chan->band);
 
 	switch (oper->chan_width) {
 	case IEEE80211_VHT_CHANWIDTH_USE_HT:
 		break;
 	case IEEE80211_VHT_CHANWIDTH_80MHZ:
-		chandef->width = NL80211_CHAN_WIDTH_80;
+		new.width = NL80211_CHAN_WIDTH_80;
+		new.center_freq1 = cf1;
 		break;
 	case IEEE80211_VHT_CHANWIDTH_160MHZ:
-		chandef->width = NL80211_CHAN_WIDTH_160;
+		new.width = NL80211_CHAN_WIDTH_160;
+		new.center_freq1 = cf1;
 		break;
 	case IEEE80211_VHT_CHANWIDTH_80P80MHZ:
-		chandef->width = NL80211_CHAN_WIDTH_80P80;
+		new.width = NL80211_CHAN_WIDTH_80P80;
+		new.center_freq1 = cf1;
+		new.center_freq2 = cf2;
 		break;
 	default:
-		break;
+		return false;
 	}
 
-	chandef->center_freq1 =
-		ieee80211_channel_to_frequency(oper->center_freq_seg1_idx,
-					       control_chan->band);
-	chandef->center_freq2 =
-		ieee80211_channel_to_frequency(oper->center_freq_seg2_idx,
-					       control_chan->band);
+	if (!cfg80211_chandef_valid(&new))
+		return false;
+
+	*chandef = new;
+	return true;
 }
 
 int ieee80211_parse_bitrates(struct cfg80211_chan_def *chandef,
@@ -2663,8 +2718,9 @@ u64 ieee80211_calculate_rx_timestamp(struct ieee80211_local *local,
 
 	rate = cfg80211_calculate_bitrate(&ri);
 	if (WARN_ONCE(!rate,
-		      "Invalid bitrate: flags=0x%x, idx=%d, vht_nss=%d\n",
-		      status->flag, status->rate_idx, status->vht_nss))
+		      "Invalid bitrate: flags=0x%llx, idx=%d, vht_nss=%d\n",
+		      (unsigned long long)status->flag, status->rate_idx,
+		      status->vht_nss))
 		return 0;
 
 	/* rewind from end of MPDU */
@@ -3198,10 +3254,11 @@ int ieee80211_check_combinations(struct ieee80211_sub_if_data *sdata,
 	struct ieee80211_local *local = sdata->local;
 	struct ieee80211_sub_if_data *sdata_iter;
 	enum nl80211_iftype iftype = sdata->wdev.iftype;
-	int num[NUM_NL80211_IFTYPES];
 	struct ieee80211_chanctx *ctx;
-	int num_different_channels = 0;
 	int total = 1;
+	struct iface_combination_params params = {
+		.radar_detect = radar_detect,
+	};
 
 	lockdep_assert_held(&local->chanctx_mtx);
 
@@ -3211,9 +3268,6 @@ int ieee80211_check_combinations(struct ieee80211_sub_if_data *sdata,
 	if (WARN_ON(chandef && chanmode == IEEE80211_CHANCTX_SHARED &&
 		    !chandef->chan))
 		return -EINVAL;
-
-	if (chandef)
-		num_different_channels = 1;
 
 	if (WARN_ON(iftype >= NUM_NL80211_IFTYPES))
 		return -EINVAL;
@@ -3225,24 +3279,26 @@ int ieee80211_check_combinations(struct ieee80211_sub_if_data *sdata,
 		return 0;
 	}
 
-	memset(num, 0, sizeof(num));
+	if (chandef)
+		params.num_different_channels = 1;
 
 	if (iftype != NL80211_IFTYPE_UNSPECIFIED)
-		num[iftype] = 1;
+		params.iftype_num[iftype] = 1;
 
 	list_for_each_entry(ctx, &local->chanctx_list, list) {
 		if (ctx->replace_state == IEEE80211_CHANCTX_WILL_BE_REPLACED)
 			continue;
-		radar_detect |= ieee80211_chanctx_radar_detect(local, ctx);
+		params.radar_detect |=
+			ieee80211_chanctx_radar_detect(local, ctx);
 		if (ctx->mode == IEEE80211_CHANCTX_EXCLUSIVE) {
-			num_different_channels++;
+			params.num_different_channels++;
 			continue;
 		}
 		if (chandef && chanmode == IEEE80211_CHANCTX_SHARED &&
 		    cfg80211_chandef_compatible(chandef,
 						&ctx->conf.def))
 			continue;
-		num_different_channels++;
+		params.num_different_channels++;
 	}
 
 	list_for_each_entry_rcu(sdata_iter, &local->interfaces, list) {
@@ -3255,16 +3311,14 @@ int ieee80211_check_combinations(struct ieee80211_sub_if_data *sdata,
 		    local->hw.wiphy->software_iftypes & BIT(wdev_iter->iftype))
 			continue;
 
-		num[wdev_iter->iftype]++;
+		params.iftype_num[wdev_iter->iftype]++;
 		total++;
 	}
 
-	if (total == 1 && !radar_detect)
+	if (total == 1 && !params.radar_detect)
 		return 0;
 
-	return cfg80211_check_combinations(local->hw.wiphy,
-					   num_different_channels,
-					   radar_detect, num);
+	return cfg80211_check_combinations(local->hw.wiphy, &params);
 }
 
 static void
@@ -3280,12 +3334,10 @@ ieee80211_iter_max_chans(const struct ieee80211_iface_combination *c,
 int ieee80211_max_num_channels(struct ieee80211_local *local)
 {
 	struct ieee80211_sub_if_data *sdata;
-	int num[NUM_NL80211_IFTYPES] = {};
 	struct ieee80211_chanctx *ctx;
-	int num_different_channels = 0;
-	u8 radar_detect = 0;
 	u32 max_num_different_channels = 1;
 	int err;
+	struct iface_combination_params params = {0};
 
 	lockdep_assert_held(&local->chanctx_mtx);
 
@@ -3293,17 +3345,17 @@ int ieee80211_max_num_channels(struct ieee80211_local *local)
 		if (ctx->replace_state == IEEE80211_CHANCTX_WILL_BE_REPLACED)
 			continue;
 
-		num_different_channels++;
+		params.num_different_channels++;
 
-		radar_detect |= ieee80211_chanctx_radar_detect(local, ctx);
+		params.radar_detect |=
+			ieee80211_chanctx_radar_detect(local, ctx);
 	}
 
 	list_for_each_entry_rcu(sdata, &local->interfaces, list)
-		num[sdata->wdev.iftype]++;
+		params.iftype_num[sdata->wdev.iftype]++;
 
-	err = cfg80211_iter_combinations(local->hw.wiphy,
-					 num_different_channels, radar_detect,
-					 num, ieee80211_iter_max_chans,
+	err = cfg80211_iter_combinations(local->hw.wiphy, &params,
+					 ieee80211_iter_max_chans,
 					 &max_num_different_channels);
 	if (err < 0)
 		return err;

@@ -418,6 +418,13 @@ static int cr50_i2c_tis_recv(struct tpm_chip *chip, u8 *buf, size_t buf_len)
 	if (rc < 0)
 		goto out_err;
 
+	if (burstcnt > buf_len) {
+		dev_err(&chip->dev, "Burstcnt too large: %zu > %zu\n",
+			burstcnt, buf_len);
+		rc = -EIO;
+		goto out_err;
+	}
+
 	/* Read first chunk of burstcnt bytes */
 	rc = cr50_i2c_read(chip, addr, buf, burstcnt);
 	if (rc < 0) {
@@ -428,7 +435,9 @@ static int cr50_i2c_tis_recv(struct tpm_chip *chip, u8 *buf, size_t buf_len)
 	/* Determine expected data in the return buffer */
 	expected = be32_to_cpup((__be32 *)(buf + 2));
 	if (expected > buf_len) {
-		dev_err(&chip->dev, "Too much data in FIFO\n");
+		dev_err(&chip->dev, "Too much data in FIFO: %zu > %zu\n",
+			expected, buf_len);
+		rc = -EIO;
 		goto out_err;
 	}
 
@@ -640,9 +649,6 @@ static int cr50_i2c_init(struct i2c_client *client)
 	if (rc)
 		return rc;
 
-	/* Disable deep-sleep, ignore if command failed. */
-	cr50_control_deep_sleep(chip, 0);
-
 	return 0;
 }
 
@@ -683,7 +689,6 @@ static void cr50_i2c_shutdown(struct i2c_client *client)
 	struct tpm_chip *chip = i2c_get_clientdata(client);
 	struct device *dev = &client->dev;
 
-	cr50_control_deep_sleep(chip, 1);
 	tpm_chip_unregister(chip);
 	release_locality(chip, 1);
 	dev_info(dev, "gentle shutdown done\n");

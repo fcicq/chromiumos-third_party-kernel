@@ -149,6 +149,9 @@ enum {
 	IFLA_LINK_NETNSID,
 	IFLA_PHYS_PORT_NAME,
 	IFLA_PROTO_DOWN,
+	IFLA_GSO_MAX_SEGS,
+	IFLA_GSO_MAX_SIZE,
+	IFLA_PAD,
 	__IFLA_MAX
 };
 
@@ -722,5 +725,28 @@ enum {
 };
 
 #define IFLA_HSR_MAX (__IFLA_HSR_MAX - 1)
+
+/* STATS section */
+
+struct if_stats_msg {
+	__u8  family;
+	__u8  pad1;
+	__u16 pad2;
+	__u32 ifindex;
+	__u32 filter_mask;
+};
+
+/* A stats attribute can be netdev specific or a global stat.
+ * For netdev stats, lets use the prefix IFLA_STATS_LINK_*
+ */
+enum {
+	IFLA_STATS_UNSPEC, /* also used as 64bit pad attribute */
+	IFLA_STATS_LINK_64,
+	__IFLA_STATS_MAX,
+};
+
+#define IFLA_STATS_MAX (__IFLA_STATS_MAX - 1)
+
+#define IFLA_STATS_FILTER_BIT(ATTR)	(1 << (ATTR - 1))
 
 #endif /* _UAPI_LINUX_IF_LINK_H */

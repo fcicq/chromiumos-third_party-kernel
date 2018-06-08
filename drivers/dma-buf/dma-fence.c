@@ -47,7 +47,7 @@ static atomic64_t dma_fence_context_counter = ATOMIC64_INIT(0);
  */
 u64 dma_fence_context_alloc(unsigned num)
 {
-	BUG_ON(!num);
+	WARN_ON(!num);
 	return atomic64_add_return(num, &dma_fence_context_counter) - num;
 }
 EXPORT_SYMBOL(dma_fence_context_alloc);
@@ -74,11 +74,6 @@ int dma_fence_signal_locked(struct dma_fence *fence)
 	if (WARN_ON(!fence))
 		return -EINVAL;
 
-	if (!ktime_to_ns(fence->timestamp)) {
-		fence->timestamp = ktime_get();
-		smp_mb__before_atomic();
-	}
-
 	if (test_and_set_bit(DMA_FENCE_FLAG_SIGNALED_BIT, &fence->flags)) {
 		ret = -EINVAL;
 
@@ -86,8 +81,11 @@ int dma_fence_signal_locked(struct dma_fence *fence)
 		 * we might have raced with the unlocked dma_fence_signal,
 		 * still run through all callbacks
 		 */
-	} else
+	} else {
+		fence->timestamp = ktime_get();
+		set_bit(DMA_FENCE_FLAG_TIMESTAMP_BIT, &fence->flags);
 		trace_dma_fence_signaled(fence);
+	}
 
 	list_for_each_entry_safe(cur, tmp, &fence->cb_list, node) {
 		list_del_init(&cur->node);
@@ -114,14 +112,11 @@ int dma_fence_signal(struct dma_fence *fence)
 	if (!fence)
 		return -EINVAL;
 
-	if (!ktime_to_ns(fence->timestamp)) {
-		fence->timestamp = ktime_get();
-		smp_mb__before_atomic();
-	}
-
 	if (test_and_set_bit(DMA_FENCE_FLAG_SIGNALED_BIT, &fence->flags))
 		return -EINVAL;
 
+	fence->timestamp = ktime_get();
+	set_bit(DMA_FENCE_FLAG_TIMESTAMP_BIT, &fence->flags);
 	trace_dma_fence_signaled(fence);
 
 	if (test_bit(DMA_FENCE_FLAG_ENABLE_SIGNAL_BIT, &fence->flags)) {
@@ -162,9 +157,6 @@ dma_fence_wait_timeout(struct dma_fence *fence, bool intr, signed long timeout)
 	if (WARN_ON(timeout < 0))
 		return -EINVAL;
 
-	if (timeout == 0)
-		return dma_fence_is_signaled(fence);
-
 	trace_dma_fence_wait_start(fence);
 	ret = fence->ops->wait(fence, intr, timeout);
 	trace_dma_fence_wait_end(fence);
@@ -179,7 +171,7 @@ void dma_fence_release(struct kref *kref)
 
 	trace_dma_fence_destroy(fence);
 
-	BUG_ON(!list_empty(&fence->cb_list));
+	WARN_ON(!list_empty(&fence->cb_list));
 
 	if (fence->ops->release)
 		fence->ops->release(fence);
@@ -336,12 +328,8 @@ dma_fence_remove_callback(struct dma_fence *fence, struct dma_fence_cb *cb)
 	spin_lock_irqsave(fence->lock, flags);
 
 	ret = !list_empty(&cb->node);
-	if (ret) {
+	if (ret)
 		list_del_init(&cb->node);
-		if (list_empty(&fence->cb_list))
-			if (fence->ops->disable_signaling)
-				fence->ops->disable_signaling(fence);
-	}
 
 	spin_unlock_irqrestore(fence->lock, flags);
 

@@ -18,10 +18,12 @@ drm-y       :=	drm_auth.o drm_bufs.o drm_cache.o \
 		drm_plane.o drm_color_mgmt.o drm_print.o \
 		drm_mode_config.o
 
+drm-$(CONFIG_DRM_LIB_RANDOM) += lib/drm_random.o
 drm-$(CONFIG_COMPAT) += drm_ioc32.o
 drm-$(CONFIG_DRM_GEM_CMA_HELPER) += drm_gem_cma_helper.o
 drm-$(CONFIG_PCI) += ati_pcigart.o
 drm-$(CONFIG_DRM_PANEL) += drm_panel.o
+drm-$(CONFIG_DRM_PANEL_BRIDGE) += bridge/panel.o
 drm-$(CONFIG_OF) += drm_of.o
 drm-$(CONFIG_AGP) += drm_agpsupport.o
 drm-$(CONFIG_DEBUG_FS) += drm_debugfs.o drm_debugfs_crc.o
@@ -37,8 +39,10 @@ drm_kms_helper-$(CONFIG_DRM_LOAD_EDID_FIRMWARE) += drm_edid_load.o
 drm_kms_helper-$(CONFIG_DRM_FBDEV_EMULATION) += drm_fb_helper.o
 drm_kms_helper-$(CONFIG_DRM_KMS_CMA_HELPER) += drm_fb_cma_helper.o
 drm_kms_helper-$(CONFIG_DRM_DP_AUX_CHARDEV) += drm_dp_aux_dev.o
+drm_kms_helper-$(CONFIG_DRM_DP_CEC) += drm_dp_cec.o
 
 obj-$(CONFIG_DRM_KMS_HELPER) += drm_kms_helper.o
+obj-$(CONFIG_DRM_DEBUG_SELFTEST) += selftests/
 
 CFLAGS_drm_trace_points.o := -I$(src)
 
@@ -83,8 +87,7 @@ obj-$(CONFIG_DRM_TEGRA) += tegra/
 obj-$(CONFIG_DRM_STI) += sti/
 obj-$(CONFIG_DRM_IMX) += imx/
 obj-$(CONFIG_DRM_MEDIATEK) += mediatek/
-obj-$(CONFIG_DRM_POWERVR_ROGUE) += img-rogue/
-obj-$(CONFIG_DRM_POWERVR_ROGUE_1_7) += img-rogue/1.7/
+obj-$(CONFIG_DRM_POWERVR_ROGUE_1_9) += img-rogue/1.9/
 obj-y			+= i2c/
 obj-y			+= panel/
 obj-y			+= bridge/

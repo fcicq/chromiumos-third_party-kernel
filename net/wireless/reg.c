@@ -4,6 +4,8 @@
  * Copyright 2007	Johannes Berg <johannes@sipsolutions.net>
  * Copyright 2008-2011	Luis R. Rodriguez <mcgrof@qca.qualcomm.com>
  * Copyright 2013-2014  Intel Mobile Communications GmbH
+ * Copyright      2017  Intel Deutschland GmbH
+ * Copyright (C) 2018 Intel Corporation
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -53,6 +55,7 @@
 #include <linux/nl80211.h>
 #include <linux/platform_device.h>
 #include <linux/moduleparam.h>
+#include <linux/firmware.h>
 #include <net/cfg80211.h>
 #include "core.h"
 #include "reg.h"
@@ -106,7 +109,7 @@ static struct regulatory_request core_request_world = {
 static struct regulatory_request __rcu *last_request =
 	(void __force __rcu *)&core_request_world;
 
-/* To trigger userspace events */
+/* To trigger userspace events and load firmware */
 static struct platform_device *reg_pdev;
 
 /*
@@ -139,12 +142,12 @@ static void restore_regulatory_settings(bool reset_user);
 
 static const struct ieee80211_regdomain *get_cfg80211_regdom(void)
 {
-	return rtnl_dereference(cfg80211_regdomain);
+	return rcu_dereference_rtnl(cfg80211_regdomain);
 }
 
 const struct ieee80211_regdomain *get_wiphy_regdom(struct wiphy *wiphy)
 {
-	return rtnl_dereference(wiphy->regd);
+	return rcu_dereference_rtnl(wiphy->regd);
 }
 
 static const char *reg_dfs_region_str(enum nl80211_dfs_regions dfs_region)
@@ -431,27 +434,39 @@ static const struct ieee80211_regdomain *
 reg_copy_regd(const struct ieee80211_regdomain *src_regd)
 {
 	struct ieee80211_regdomain *regd;
-	int size_of_regd;
+	int size_of_regd, size_of_wmms;
 	unsigned int i;
+	struct ieee80211_wmm_rule *d_wmm, *s_wmm;
 
 	size_of_regd =
 		sizeof(struct ieee80211_regdomain) +
 		src_regd->n_reg_rules * sizeof(struct ieee80211_reg_rule);
+	size_of_wmms = src_regd->n_wmm_rules *
+		sizeof(struct ieee80211_wmm_rule);
 
-	regd = kzalloc(size_of_regd, GFP_KERNEL);
+	regd = kzalloc(size_of_regd + size_of_wmms, GFP_KERNEL);
 	if (!regd)
 		return ERR_PTR(-ENOMEM);
 
 	memcpy(regd, src_regd, sizeof(struct ieee80211_regdomain));
 
-	for (i = 0; i < src_regd->n_reg_rules; i++)
+	d_wmm = (struct ieee80211_wmm_rule *)((u8 *)regd + size_of_regd);
+	s_wmm = (struct ieee80211_wmm_rule *)((u8 *)src_regd + size_of_regd);
+	memcpy(d_wmm, s_wmm, size_of_wmms);
+
+	for (i = 0; i < src_regd->n_reg_rules; i++) {
 		memcpy(&regd->reg_rules[i], &src_regd->reg_rules[i],
 		       sizeof(struct ieee80211_reg_rule));
+		if (!src_regd->reg_rules[i].wmm_rule)
+			continue;
 
+		regd->reg_rules[i].wmm_rule = d_wmm +
+			(src_regd->reg_rules[i].wmm_rule - s_wmm) /
+			sizeof(struct ieee80211_wmm_rule);
+	}
 	return regd;
 }
 
-#ifdef CONFIG_CFG80211_INTERNAL_REGDB
 struct reg_regdb_apply_request {
 	struct list_head list;
 	const struct ieee80211_regdomain *regdom;
@@ -483,39 +498,42 @@ static void reg_regdb_apply(struct work_struct *work)
 
 static DECLARE_WORK(reg_regdb_work, reg_regdb_apply);
 
-static int reg_query_builtin(const char *alpha2)
+static int reg_schedule_apply(const struct ieee80211_regdomain *regdom)
 {
-	const struct ieee80211_regdomain *regdom = NULL;
 	struct reg_regdb_apply_request *request;
-	unsigned int i;
-
-	for (i = 0; i < reg_regdb_size; i++) {
-		if (alpha2_equal(alpha2, reg_regdb[i]->alpha2)) {
-			regdom = reg_regdb[i];
-			break;
-		}
-	}
-
-	if (!regdom)
-		return -ENODATA;
 
 	request = kzalloc(sizeof(struct reg_regdb_apply_request), GFP_KERNEL);
-	if (!request)
-		return -ENOMEM;
-
-	request->regdom = reg_copy_regd(regdom);
-	if (IS_ERR_OR_NULL(request->regdom)) {
-		kfree(request);
+	if (!request) {
+		kfree(regdom);
 		return -ENOMEM;
 	}
+
+	request->regdom = regdom;
 
 	mutex_lock(&reg_regdb_apply_mutex);
 	list_add_tail(&request->list, &reg_regdb_apply_list);
 	mutex_unlock(&reg_regdb_apply_mutex);
 
 	schedule_work(&reg_regdb_work);
-
 	return 0;
+}
+
+#ifdef CONFIG_CFG80211_INTERNAL_REGDB
+static int reg_query_builtin(const char *alpha2)
+{
+	const struct ieee80211_regdomain *regdom = NULL;
+	unsigned int i;
+
+	for (i = 0; i < reg_regdb_size; i++) {
+		if (alpha2_equal(alpha2, reg_regdb[i]->alpha2)) {
+			regdom = reg_copy_regd(reg_regdb[i]);
+			break;
+		}
+	}
+	if (!regdom)
+		return -ENODATA;
+
+	return reg_schedule_apply(regdom);
 }
 
 /* Feel free to add any other sanity checks here */
@@ -607,10 +625,429 @@ static inline int call_crda(const char *alpha2)
 }
 #endif /* CONFIG_CFG80211_CRDA_SUPPORT */
 
+/* code to directly load a firmware database through request_firmware */
+static const struct fwdb_header *regdb;
+
+struct fwdb_country {
+	u8 alpha2[2];
+	__be16 coll_ptr;
+	/* this struct cannot be extended */
+} __packed __aligned(4);
+
+struct fwdb_collection {
+	u8 len;
+	u8 n_rules;
+	u8 dfs_region;
+	/* no optional data yet */
+	/* aligned to 2, then followed by __be16 array of rule pointers */
+} __packed __aligned(4);
+
+enum fwdb_flags {
+	FWDB_FLAG_NO_OFDM	= BIT(0),
+	FWDB_FLAG_NO_OUTDOOR	= BIT(1),
+	FWDB_FLAG_DFS		= BIT(2),
+	FWDB_FLAG_NO_IR		= BIT(3),
+	FWDB_FLAG_AUTO_BW	= BIT(4),
+};
+
+struct fwdb_wmm_ac {
+	u8 ecw;
+	u8 aifsn;
+	__be16 cot;
+} __packed;
+
+struct fwdb_wmm_rule {
+	struct fwdb_wmm_ac client[IEEE80211_NUM_ACS];
+	struct fwdb_wmm_ac ap[IEEE80211_NUM_ACS];
+} __packed;
+
+struct fwdb_rule {
+	u8 len;
+	u8 flags;
+	__be16 max_eirp;
+	__be32 start, end, max_bw;
+	/* start of optional data */
+	__be16 cac_timeout;
+	__be16 wmm_ptr;
+} __packed __aligned(4);
+
+#define FWDB_MAGIC 0x52474442
+#define FWDB_VERSION 20
+
+struct fwdb_header {
+	__be32 magic;
+	__be32 version;
+	struct fwdb_country country[];
+} __packed __aligned(4);
+
+static int ecw2cw(int ecw)
+{
+	return (1 << ecw) - 1;
+}
+
+static bool valid_wmm(struct fwdb_wmm_rule *rule)
+{
+	struct fwdb_wmm_ac *ac = (struct fwdb_wmm_ac *)rule;
+	int i;
+
+	for (i = 0; i < IEEE80211_NUM_ACS * 2; i++) {
+		u16 cw_min = ecw2cw((ac[i].ecw & 0xf0) >> 4);
+		u16 cw_max = ecw2cw(ac[i].ecw & 0x0f);
+		u8 aifsn = ac[i].aifsn;
+
+		if (cw_min >= cw_max)
+			return false;
+
+		if (aifsn < 1)
+			return false;
+	}
+
+	return true;
+}
+
+static bool valid_rule(const u8 *data, unsigned int size, u16 rule_ptr)
+{
+	struct fwdb_rule *rule = (void *)(data + (rule_ptr << 2));
+
+	if ((u8 *)rule + sizeof(rule->len) > data + size)
+		return false;
+
+	/* mandatory fields */
+	if (rule->len < offsetofend(struct fwdb_rule, max_bw))
+		return false;
+	if (rule->len >= offsetofend(struct fwdb_rule, wmm_ptr)) {
+		u32 wmm_ptr = be16_to_cpu(rule->wmm_ptr) << 2;
+		struct fwdb_wmm_rule *wmm;
+
+		if (wmm_ptr + sizeof(struct fwdb_wmm_rule) > size)
+			return false;
+
+		wmm = (void *)(data + wmm_ptr);
+
+		if (!valid_wmm(wmm))
+			return false;
+	}
+	return true;
+}
+
+static bool valid_country(const u8 *data, unsigned int size,
+			  const struct fwdb_country *country)
+{
+	unsigned int ptr = be16_to_cpu(country->coll_ptr) << 2;
+	struct fwdb_collection *coll = (void *)(data + ptr);
+	__be16 *rules_ptr;
+	unsigned int i;
+
+	/* make sure we can read len/n_rules */
+	if ((u8 *)coll + offsetofend(typeof(*coll), n_rules) > data + size)
+		return false;
+
+	/* make sure base struct and all rules fit */
+	if ((u8 *)coll + ALIGN(coll->len, 2) +
+	    (coll->n_rules * 2) > data + size)
+		return false;
+
+	/* mandatory fields must exist */
+	if (coll->len < offsetofend(struct fwdb_collection, dfs_region))
+		return false;
+
+	rules_ptr = (void *)((u8 *)coll + ALIGN(coll->len, 2));
+
+	for (i = 0; i < coll->n_rules; i++) {
+		u16 rule_ptr = be16_to_cpu(rules_ptr[i]);
+
+		if (!valid_rule(data, size, rule_ptr))
+			return false;
+	}
+
+	return true;
+}
+
+static bool valid_regdb(const u8 *data, unsigned int size)
+{
+	const struct fwdb_header *hdr = (void *)data;
+	const struct fwdb_country *country;
+
+	if (size < sizeof(*hdr))
+		return false;
+
+	if (hdr->magic != cpu_to_be32(FWDB_MAGIC))
+		return false;
+
+	if (hdr->version != cpu_to_be32(FWDB_VERSION))
+		return false;
+
+	country = &hdr->country[0];
+	while ((u8 *)(country + 1) <= data + size) {
+		if (!country->coll_ptr)
+			break;
+		if (!valid_country(data, size, country))
+			return false;
+		country++;
+	}
+
+	return true;
+}
+
+static void set_wmm_rule(struct ieee80211_wmm_rule *rule,
+			 struct fwdb_wmm_rule *wmm)
+{
+	unsigned int i;
+
+	for (i = 0; i < IEEE80211_NUM_ACS; i++) {
+		rule->client[i].cw_min =
+			ecw2cw((wmm->client[i].ecw & 0xf0) >> 4);
+		rule->client[i].cw_max = ecw2cw(wmm->client[i].ecw & 0x0f);
+		rule->client[i].aifsn =  wmm->client[i].aifsn;
+		rule->client[i].cot = 1000 * be16_to_cpu(wmm->client[i].cot);
+		rule->ap[i].cw_min = ecw2cw((wmm->ap[i].ecw & 0xf0) >> 4);
+		rule->ap[i].cw_max = ecw2cw(wmm->ap[i].ecw & 0x0f);
+		rule->ap[i].aifsn = wmm->ap[i].aifsn;
+		rule->ap[i].cot = 1000 * be16_to_cpu(wmm->ap[i].cot);
+	}
+}
+
+static int __regdb_query_wmm(const struct fwdb_header *db,
+			     const struct fwdb_country *country, int freq,
+			     u32 *dbptr, struct ieee80211_wmm_rule *rule)
+{
+	unsigned int ptr = be16_to_cpu(country->coll_ptr) << 2;
+	struct fwdb_collection *coll = (void *)((u8 *)db + ptr);
+	int i;
+
+	for (i = 0; i < coll->n_rules; i++) {
+		__be16 *rules_ptr = (void *)((u8 *)coll + ALIGN(coll->len, 2));
+		unsigned int rule_ptr = be16_to_cpu(rules_ptr[i]) << 2;
+		struct fwdb_rule *rrule = (void *)((u8 *)db + rule_ptr);
+		struct fwdb_wmm_rule *wmm;
+		unsigned int wmm_ptr;
+
+		if (rrule->len < offsetofend(struct fwdb_rule, wmm_ptr))
+			continue;
+
+		if (freq >= KHZ_TO_MHZ(be32_to_cpu(rrule->start)) &&
+		    freq <= KHZ_TO_MHZ(be32_to_cpu(rrule->end))) {
+			wmm_ptr = be16_to_cpu(rrule->wmm_ptr) << 2;
+			wmm = (void *)((u8 *)db + wmm_ptr);
+			set_wmm_rule(rule, wmm);
+			if (dbptr)
+				*dbptr = wmm_ptr;
+			return 0;
+		}
+	}
+
+	return -ENODATA;
+}
+
+int reg_query_regdb_wmm(char *alpha2, int freq, u32 *dbptr,
+			struct ieee80211_wmm_rule *rule)
+{
+	const struct fwdb_header *hdr = regdb;
+	const struct fwdb_country *country;
+
+	if (IS_ERR(regdb))
+		return PTR_ERR(regdb);
+
+	country = &hdr->country[0];
+	while (country->coll_ptr) {
+		if (alpha2_equal(alpha2, country->alpha2))
+			return __regdb_query_wmm(regdb, country, freq, dbptr,
+						 rule);
+
+		country++;
+	}
+
+	return -ENODATA;
+}
+EXPORT_SYMBOL(reg_query_regdb_wmm);
+
+struct wmm_ptrs {
+	struct ieee80211_wmm_rule *rule;
+	u32 ptr;
+};
+
+static struct ieee80211_wmm_rule *find_wmm_ptr(struct wmm_ptrs *wmm_ptrs,
+					       u32 wmm_ptr, int n_wmms)
+{
+	int i;
+
+	for (i = 0; i < n_wmms; i++) {
+		if (wmm_ptrs[i].ptr == wmm_ptr)
+			return wmm_ptrs[i].rule;
+	}
+	return NULL;
+}
+
+static int regdb_query_country(const struct fwdb_header *db,
+			       const struct fwdb_country *country)
+{
+	unsigned int ptr = be16_to_cpu(country->coll_ptr) << 2;
+	struct fwdb_collection *coll = (void *)((u8 *)db + ptr);
+	struct ieee80211_regdomain *regdom;
+	struct ieee80211_regdomain *tmp_rd;
+	unsigned int size_of_regd, i, n_wmms = 0;
+	struct wmm_ptrs *wmm_ptrs;
+
+	size_of_regd = sizeof(struct ieee80211_regdomain) +
+		coll->n_rules * sizeof(struct ieee80211_reg_rule);
+
+	regdom = kzalloc(size_of_regd, GFP_KERNEL);
+	if (!regdom)
+		return -ENOMEM;
+
+	wmm_ptrs = kcalloc(coll->n_rules, sizeof(*wmm_ptrs), GFP_KERNEL);
+	if (!wmm_ptrs) {
+		kfree(regdom);
+		return -ENOMEM;
+	}
+
+	regdom->n_reg_rules = coll->n_rules;
+	regdom->alpha2[0] = country->alpha2[0];
+	regdom->alpha2[1] = country->alpha2[1];
+	regdom->dfs_region = coll->dfs_region;
+
+	for (i = 0; i < regdom->n_reg_rules; i++) {
+		__be16 *rules_ptr = (void *)((u8 *)coll + ALIGN(coll->len, 2));
+		unsigned int rule_ptr = be16_to_cpu(rules_ptr[i]) << 2;
+		struct fwdb_rule *rule = (void *)((u8 *)db + rule_ptr);
+		struct ieee80211_reg_rule *rrule = &regdom->reg_rules[i];
+
+		rrule->freq_range.start_freq_khz = be32_to_cpu(rule->start);
+		rrule->freq_range.end_freq_khz = be32_to_cpu(rule->end);
+		rrule->freq_range.max_bandwidth_khz = be32_to_cpu(rule->max_bw);
+
+		rrule->power_rule.max_antenna_gain = 0;
+		rrule->power_rule.max_eirp = be16_to_cpu(rule->max_eirp);
+
+		rrule->flags = 0;
+		if (rule->flags & FWDB_FLAG_NO_OFDM)
+			rrule->flags |= NL80211_RRF_NO_OFDM;
+		if (rule->flags & FWDB_FLAG_NO_OUTDOOR)
+			rrule->flags |= NL80211_RRF_NO_OUTDOOR;
+		if (rule->flags & FWDB_FLAG_DFS)
+			rrule->flags |= NL80211_RRF_DFS;
+		if (rule->flags & FWDB_FLAG_NO_IR)
+			rrule->flags |= NL80211_RRF_NO_IR;
+		if (rule->flags & FWDB_FLAG_AUTO_BW)
+			rrule->flags |= NL80211_RRF_AUTO_BW;
+
+		rrule->dfs_cac_ms = 0;
+
+		/* handle optional data */
+		if (rule->len >= offsetofend(struct fwdb_rule, cac_timeout))
+			rrule->dfs_cac_ms =
+				1000 * be16_to_cpu(rule->cac_timeout);
+		if (rule->len >= offsetofend(struct fwdb_rule, wmm_ptr)) {
+			u32 wmm_ptr = be16_to_cpu(rule->wmm_ptr) << 2;
+			struct ieee80211_wmm_rule *wmm_pos =
+				find_wmm_ptr(wmm_ptrs, wmm_ptr, n_wmms);
+			struct fwdb_wmm_rule *wmm;
+			struct ieee80211_wmm_rule *wmm_rule;
+
+			if (wmm_pos) {
+				rrule->wmm_rule = wmm_pos;
+				continue;
+			}
+			wmm = (void *)((u8 *)db + wmm_ptr);
+			tmp_rd = krealloc(regdom, size_of_regd + (n_wmms + 1) *
+					  sizeof(struct ieee80211_wmm_rule),
+					  GFP_KERNEL);
+
+			if (!tmp_rd) {
+				kfree(regdom);
+				kfree(wmm_ptrs);
+				return -ENOMEM;
+			}
+			regdom = tmp_rd;
+
+			wmm_rule = (struct ieee80211_wmm_rule *)
+				((u8 *)regdom + size_of_regd + n_wmms *
+				sizeof(struct ieee80211_wmm_rule));
+
+			set_wmm_rule(wmm_rule, wmm);
+			wmm_ptrs[n_wmms].ptr = wmm_ptr;
+			wmm_ptrs[n_wmms++].rule = wmm_rule;
+		}
+	}
+	kfree(wmm_ptrs);
+
+	return reg_schedule_apply(regdom);
+}
+
+static int query_regdb(const char *alpha2)
+{
+	const struct fwdb_header *hdr = regdb;
+	const struct fwdb_country *country;
+
+	if (IS_ERR(regdb))
+		return PTR_ERR(regdb);
+
+	country = &hdr->country[0];
+	while (country->coll_ptr) {
+		if (alpha2_equal(alpha2, country->alpha2))
+			return regdb_query_country(regdb, country);
+		country++;
+	}
+
+	return -ENODATA;
+}
+
+static void regdb_fw_cb(const struct firmware *fw, void *context)
+{
+	void *db;
+
+	if (!fw) {
+		pr_info("failed to load regulatory.db\n");
+		regdb = ERR_PTR(-ENODATA);
+		goto restore;
+	}
+
+	if (!valid_regdb(fw->data, fw->size)) {
+		pr_info("loaded regulatory.db is malformed\n");
+		release_firmware(fw);
+		regdb = ERR_PTR(-EINVAL);
+		goto restore;
+	}
+
+	db = kmemdup(fw->data, fw->size, GFP_KERNEL);
+	release_firmware(fw);
+
+	if (!db)
+		goto restore;
+	regdb = db;
+
+	if (query_regdb(context))
+		goto restore;
+	goto free;
+ restore:
+	rtnl_lock();
+	restore_regulatory_settings(true);
+	rtnl_unlock();
+ free:
+	kfree(context);
+}
+
+static int query_regdb_file(const char *alpha2)
+{
+	if (regdb)
+		return query_regdb(alpha2);
+
+	alpha2 = kmemdup(alpha2, 2, GFP_KERNEL);
+	if (!alpha2)
+		return -ENOMEM;
+
+	return request_firmware_nowait(THIS_MODULE, true, "regulatory.db",
+				       &reg_pdev->dev, GFP_KERNEL,
+				       (void *)alpha2, regdb_fw_cb);
+}
+
 static bool reg_query_database(struct regulatory_request *request)
 {
 	/* query internal regulatory database (if it exists) */
 	if (reg_query_builtin(request->alpha2) == 0)
+		return true;
+
+	if (query_regdb_file(request->alpha2) == 0)
 		return true;
 
 	if (call_crda(request->alpha2) == 0)
@@ -1054,7 +1491,7 @@ static u32 map_regdom_flags(u32 rd_flags)
 }
 
 static const struct ieee80211_reg_rule *
-freq_reg_info_regd(struct wiphy *wiphy, u32 center_freq,
+freq_reg_info_regd(u32 center_freq,
 		   const struct ieee80211_regdomain *regd, u32 bw)
 {
 	int i;
@@ -1099,7 +1536,7 @@ __freq_reg_info(struct wiphy *wiphy, u32 center_freq, u32 min_bw)
 	u32 bw;
 
 	for (bw = MHZ_TO_KHZ(20); bw >= min_bw; bw = bw / 2) {
-		reg_rule = freq_reg_info_regd(wiphy, center_freq, regd, bw);
+		reg_rule = freq_reg_info_regd(center_freq, regd, bw);
 		if (!IS_ERR(reg_rule))
 			return reg_rule;
 	}
@@ -1538,7 +1975,9 @@ static void reg_process_ht_flags_channel(struct wiphy *wiphy,
 {
 	struct ieee80211_supported_band *sband = wiphy->bands[channel->band];
 	struct ieee80211_channel *channel_before = NULL, *channel_after = NULL;
+	const struct ieee80211_regdomain *regd;
 	unsigned int i;
+	u32 flags;
 
 	if (!is_ht40_allowed(channel)) {
 		channel->flags |= IEEE80211_CHAN_NO_HT40;
@@ -1558,17 +1997,30 @@ static void reg_process_ht_flags_channel(struct wiphy *wiphy,
 			channel_after = c;
 	}
 
+	flags = 0;
+	regd = get_wiphy_regdom(wiphy);
+	if (regd) {
+		const struct ieee80211_reg_rule *reg_rule =
+			freq_reg_info_regd(MHZ_TO_KHZ(channel->center_freq),
+					   regd, MHZ_TO_KHZ(20));
+
+		if (!IS_ERR(reg_rule))
+			flags = reg_rule->flags;
+	}
+
 	/*
 	 * Please note that this assumes target bandwidth is 20 MHz,
 	 * if that ever changes we also need to change the below logic
 	 * to include that as well.
 	 */
-	if (!is_ht40_allowed(channel_before))
+	if (!is_ht40_allowed(channel_before) ||
+	    flags & NL80211_RRF_NO_HT40MINUS)
 		channel->flags |= IEEE80211_CHAN_NO_HT40MINUS;
 	else
 		channel->flags &= ~IEEE80211_CHAN_NO_HT40MINUS;
 
-	if (!is_ht40_allowed(channel_after))
+	if (!is_ht40_allowed(channel_after) ||
+	    flags & NL80211_RRF_NO_HT40PLUS)
 		channel->flags |= IEEE80211_CHAN_NO_HT40PLUS;
 	else
 		channel->flags &= ~IEEE80211_CHAN_NO_HT40PLUS;
@@ -1681,7 +2133,7 @@ static void reg_leave_invalid_chans(struct wiphy *wiphy)
 
 	ASSERT_RTNL();
 
-	list_for_each_entry(wdev, &rdev->wdev_list, list)
+	list_for_each_entry(wdev, &rdev->wiphy.wdev_list, list)
 		if (!reg_wdev_chan_valid(wiphy, wdev))
 			cfg80211_leave(rdev, wdev);
 }
@@ -1767,8 +2219,7 @@ static void handle_channel_custom(struct wiphy *wiphy,
 	u32 bw;
 
 	for (bw = MHZ_TO_KHZ(20); bw >= MHZ_TO_KHZ(5); bw = bw / 2) {
-		reg_rule = freq_reg_info_regd(wiphy,
-					      MHZ_TO_KHZ(chan->center_freq),
+		reg_rule = freq_reg_info_regd(MHZ_TO_KHZ(chan->center_freq),
 					      regd, bw);
 		if (!IS_ERR(reg_rule))
 			break;
@@ -2151,6 +2602,88 @@ reg_process_hint_country_ie(struct wiphy *wiphy,
 	return REG_REQ_IGNORE;
 }
 
+bool reg_dfs_domain_same(struct wiphy *wiphy1, struct wiphy *wiphy2)
+{
+	const struct ieee80211_regdomain *wiphy1_regd = NULL;
+	const struct ieee80211_regdomain *wiphy2_regd = NULL;
+	const struct ieee80211_regdomain *cfg80211_regd = NULL;
+	bool dfs_domain_same;
+
+	rcu_read_lock();
+
+	cfg80211_regd = rcu_dereference(cfg80211_regdomain);
+	wiphy1_regd = rcu_dereference(wiphy1->regd);
+	if (!wiphy1_regd)
+		wiphy1_regd = cfg80211_regd;
+
+	wiphy2_regd = rcu_dereference(wiphy2->regd);
+	if (!wiphy2_regd)
+		wiphy2_regd = cfg80211_regd;
+
+	dfs_domain_same = wiphy1_regd->dfs_region == wiphy2_regd->dfs_region;
+
+	rcu_read_unlock();
+
+	return dfs_domain_same;
+}
+
+static void reg_copy_dfs_chan_state(struct ieee80211_channel *dst_chan,
+				    struct ieee80211_channel *src_chan)
+{
+	if (!(dst_chan->flags & IEEE80211_CHAN_RADAR) ||
+	    !(src_chan->flags & IEEE80211_CHAN_RADAR))
+		return;
+
+	if (dst_chan->flags & IEEE80211_CHAN_DISABLED ||
+	    src_chan->flags & IEEE80211_CHAN_DISABLED)
+		return;
+
+	if (src_chan->center_freq == dst_chan->center_freq &&
+	    dst_chan->dfs_state == NL80211_DFS_USABLE) {
+		dst_chan->dfs_state = src_chan->dfs_state;
+		dst_chan->dfs_state_entered = src_chan->dfs_state_entered;
+	}
+}
+
+static void wiphy_share_dfs_chan_state(struct wiphy *dst_wiphy,
+				       struct wiphy *src_wiphy)
+{
+	struct ieee80211_supported_band *src_sband, *dst_sband;
+	struct ieee80211_channel *src_chan, *dst_chan;
+	int i, j, band;
+
+	if (!reg_dfs_domain_same(dst_wiphy, src_wiphy))
+		return;
+
+	for (band = 0; band < IEEE80211_NUM_BANDS; band++) {
+		dst_sband = dst_wiphy->bands[band];
+		src_sband = src_wiphy->bands[band];
+		if (!dst_sband || !src_sband)
+			continue;
+
+		for (i = 0; i < dst_sband->n_channels; i++) {
+			dst_chan = &dst_sband->channels[i];
+			for (j = 0; j < src_sband->n_channels; j++) {
+				src_chan = &src_sband->channels[j];
+				reg_copy_dfs_chan_state(dst_chan, src_chan);
+			}
+		}
+	}
+}
+
+static void wiphy_all_share_dfs_chan_state(struct wiphy *wiphy)
+{
+	struct cfg80211_registered_device *rdev;
+
+	ASSERT_RTNL();
+
+	list_for_each_entry(rdev, &cfg80211_rdev_list, list) {
+		if (wiphy == &rdev->wiphy)
+			continue;
+		wiphy_share_dfs_chan_state(wiphy, &rdev->wiphy);
+	}
+}
+
 /* This processes *all* regulatory hints */
 static void reg_process_hint(struct regulatory_request *reg_request)
 {
@@ -2194,6 +2727,7 @@ static void reg_process_hint(struct regulatory_request *reg_request)
 	if (treatment == REG_REQ_ALREADY_SET && wiphy &&
 	    wiphy->regulatory_flags & REGULATORY_STRICT_REG) {
 		wiphy_update_regulatory(wiphy, reg_request->initiator);
+		wiphy_all_share_dfs_chan_state(wiphy);
 		reg_check_channels();
 	}
 
@@ -3143,6 +3677,7 @@ void wiphy_regulatory_register(struct wiphy *wiphy)
 
 	lr = get_last_request();
 	wiphy_update_regulatory(wiphy, lr->initiator);
+	wiphy_all_share_dfs_chan_state(wiphy);
 }
 
 void wiphy_regulatory_deregister(struct wiphy *wiphy)
@@ -3200,6 +3735,67 @@ int cfg80211_get_unii(int freq)
 bool regulatory_indoor_allowed(void)
 {
 	return reg_is_indoor;
+}
+
+bool regulatory_pre_cac_allowed(struct wiphy *wiphy)
+{
+	const struct ieee80211_regdomain *regd = NULL;
+	const struct ieee80211_regdomain *wiphy_regd = NULL;
+	bool pre_cac_allowed = false;
+
+	rcu_read_lock();
+
+	regd = rcu_dereference(cfg80211_regdomain);
+	wiphy_regd = rcu_dereference(wiphy->regd);
+	if (!wiphy_regd) {
+		if (regd->dfs_region == NL80211_DFS_ETSI)
+			pre_cac_allowed = true;
+
+		rcu_read_unlock();
+
+		return pre_cac_allowed;
+	}
+
+	if (regd->dfs_region == wiphy_regd->dfs_region &&
+	    wiphy_regd->dfs_region == NL80211_DFS_ETSI)
+		pre_cac_allowed = true;
+
+	rcu_read_unlock();
+
+	return pre_cac_allowed;
+}
+
+void regulatory_propagate_dfs_state(struct wiphy *wiphy,
+				    struct cfg80211_chan_def *chandef,
+				    enum nl80211_dfs_state dfs_state,
+				    enum nl80211_radar_event event)
+{
+	struct cfg80211_registered_device *rdev;
+
+	ASSERT_RTNL();
+
+	if (WARN_ON(!cfg80211_chandef_valid(chandef)))
+		return;
+
+	list_for_each_entry(rdev, &cfg80211_rdev_list, list) {
+		if (wiphy == &rdev->wiphy)
+			continue;
+
+		if (!reg_dfs_domain_same(wiphy, &rdev->wiphy))
+			continue;
+
+		if (!ieee80211_get_channel(&rdev->wiphy,
+					   chandef->chan->center_freq))
+			continue;
+
+		cfg80211_set_dfs_state(&rdev->wiphy, chandef, dfs_state);
+
+		if (event == NL80211_RADAR_DETECTED ||
+		    event == NL80211_RADAR_CAC_FINISHED)
+			cfg80211_sched_dfs_chan_update(rdev);
+
+		nl80211_radar_notify(rdev, chandef, event, NULL, GFP_KERNEL);
+	}
 }
 
 int __init regulatory_init(void)
@@ -3281,4 +3877,7 @@ void regulatory_exit(void)
 		list_del(&reg_request->list);
 		kfree(reg_request);
 	}
+
+	if (!IS_ERR_OR_NULL(regdb))
+		kfree(regdb);
 }

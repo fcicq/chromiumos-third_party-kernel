@@ -258,7 +258,7 @@ static int rk3399_dfi_get_target(struct devfreq *devfreq, unsigned long *freq)
 	stat = &devfreq->last_status;
 
 	if (stat->total_time == 0) {
-		*freq = (devfreq->max_freq) ? devfreq->max_freq : UINT_MAX;
+		*freq = dmcfreq->max_freq;
 		return 0;
 	}
 
@@ -274,10 +274,10 @@ static int rk3399_dfi_get_target(struct devfreq *devfreq, unsigned long *freq)
 					  dmcfreq->target_load);
 	*freq = (unsigned long)a;
 
-	if (devfreq->min_freq && *freq < devfreq->min_freq)
-		*freq = devfreq->min_freq;
-	if (devfreq->max_freq && *freq > devfreq->max_freq)
-		*freq = devfreq->max_freq;
+	if (*freq < dmcfreq->min_freq)
+		*freq = dmcfreq->min_freq;
+	if (*freq > dmcfreq->max_freq)
+		*freq = dmcfreq->max_freq;
 
 	return 0;
 }
@@ -287,7 +287,7 @@ static void rk3399_dfi_calc_top_threshold(struct devfreq *devfreq)
 	struct rk3399_dmcfreq *dmcfreq = dev_get_drvdata(devfreq->dev.parent);
 	unsigned int percent;
 
-	if (devfreq->max_freq && dmcfreq->rate >= devfreq->max_freq)
+	if (dmcfreq->rate >= dmcfreq->max_freq)
 		percent = 100;
 	else
 		percent = (rk3399_need_boost() ? dmcfreq->boosted_target_load :
@@ -303,7 +303,7 @@ static void rk3399_dfi_calc_floor_threshold(struct devfreq *devfreq)
 	unsigned long rate;
 	unsigned int percent;
 
-	if (dmcfreq->rate <= devfreq->min_freq)
+	if (dmcfreq->rate <= dmcfreq->min_freq)
 		percent = 0;
 	else
 		percent = (rk3399_need_boost() ? dmcfreq->boosted_target_load :
@@ -562,6 +562,7 @@ static int rk3399_dmcfreq_target(struct device *dev, unsigned long *freq,
 	rk3399_dfi_calc_top_threshold(dmcfreq->devfreq);
 	devfreq_event_set_event(dmcfreq->edev);
 out:
+	*freq = dmcfreq->rate;
 	mutex_unlock(&dmcfreq->lock);
 	return err;
 }
@@ -695,7 +696,7 @@ int rockchip_dmcfreq_unblock(struct devfreq *devfreq)
 	int ret = 0;
 
 	mutex_lock(&dmcfreq->en_lock);
-	if (dmcfreq->num_sync_nb <= 1 && dmcfreq->disable_count > 0) {
+	if (dmcfreq->num_sync_nb <= 1 && dmcfreq->disable_count == 1) {
 		rockchip_ddrclk_set_timeout_en(dmcfreq->dmc_clk, true);
 		ret = devfreq_resume_device(devfreq);
 	}
@@ -840,6 +841,12 @@ static int rk3399_dmcfreq_probe(struct platform_device *pdev)
 
 	rk3399_devfreq_dmc_profile.initial_freq = data->rate;
 
+	ret = devfreq_add_governor(&rk3399_dfi_governor);
+	if (ret < 0) {
+		dev_err(dev, "Failed to add dfi governor\n");
+		return ret;
+	}
+
 	data->dev = dev;
 	platform_set_drvdata(pdev, data);
 	data->devfreq = devm_devfreq_add_device(dev,
@@ -861,7 +868,7 @@ static int rk3399_dmcfreq_probe(struct platform_device *pdev)
 		return PTR_ERR(opp);
 	}
 	rate = dev_pm_opp_get_freq(opp);
-	data->devfreq->max_freq = rate;
+	data->max_freq = rate;
 	rate = 0;
 	opp = devfreq_recommended_opp(dev, &rate,
 				      DEVFREQ_FLAG_LEAST_UPPER_BOUND);
@@ -870,7 +877,7 @@ static int rk3399_dmcfreq_probe(struct platform_device *pdev)
 		return PTR_ERR(opp);
 	}
 	rate = dev_pm_opp_get_freq(opp);
-	data->devfreq->min_freq = rate;
+	data->min_freq = rate;
 	rcu_read_unlock();
 
 	devm_devfreq_register_opp_notifier(dev, data->devfreq);
@@ -909,16 +916,11 @@ static int rk3399_dmcfreq_probe(struct platform_device *pdev)
 		per_cpu(cpufreq_cur, cpu_tmp) = policy.cur;
 	}
 
-	dev_set_drvdata(&data->edev->dev, data->devfreq);
-	ret = devfreq_add_governor(&rk3399_dfi_governor);
-	if (ret < 0) {
-		dev_err(dev, "Failed to add dfi governor\n");
-		goto cpu_notifier_unregister;
-	}
+	/* The dfi irq won't trigger a frequency update until this is done. */
+	rockchip_dfi_set_devfreq(data->edev, data->devfreq);
 
 	return 0;
-cpu_notifier_unregister:
-	unregister_cpu_notifier(&data->cpu_hotplug_nb);
+
 trans_unregister:
 	cpufreq_unregister_notifier(&data->cpufreq_trans_nb,
 				    CPUFREQ_TRANSITION_NOTIFIER);
@@ -937,6 +939,8 @@ pd_unregister:
 static int rk3399_dmcfreq_remove(struct platform_device *pdev)
 {
 	struct rk3399_dmcfreq *dmcfreq = dev_get_drvdata(&pdev->dev);
+
+	rockchip_dfi_set_devfreq(dmcfreq->edev, NULL);
 
 	unregister_cpu_notifier(&dmcfreq->cpu_hotplug_nb);
 	WARN_ON(cpufreq_unregister_notifier(&dmcfreq->cpufreq_trans_nb,

@@ -140,7 +140,9 @@ void nf_unregister_net_hook(struct net *net, const struct nf_hook_ops *reg)
 	}
 	mutex_unlock(&nf_hook_mutex);
 	if (&elem->list == hook_list) {
-		WARN(1, "nf_unregister_net_hook: hook not found!\n");
+		/* Netfilter in kernel 4.4 is racy.  http://crbug.com/774279 */
+		/* WARN(1, "nf_unregister_net_hook: hook not found!\n"); */
+		pr_warn("nf_unregister_net_hook: hook not found (ignoring)\n");
 		return;
 	}
 #ifdef CONFIG_NETFILTER_INGRESS

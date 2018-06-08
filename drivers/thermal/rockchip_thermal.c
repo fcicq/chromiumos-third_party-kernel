@@ -908,8 +908,9 @@ static irqreturn_t rockchip_thermal_alarm_irq_thread(int irq, void *dev)
 
 	thermal->chip->irq_ack(thermal->regs);
 
-	for (i = 0; i < thermal->chip->chn_num; i++)
-		thermal_zone_device_update(thermal->sensors[i].tzd);
+	for (i = 0; i < ARRAY_SIZE(thermal->sensors); i++)
+		thermal_zone_device_update(thermal->sensors[i].tzd,
+					   THERMAL_EVENT_UNSPECIFIED);
 
 	return IRQ_HANDLED;
 }

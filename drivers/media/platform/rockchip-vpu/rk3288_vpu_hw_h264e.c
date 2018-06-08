@@ -901,8 +901,8 @@ static void rk3288_vpu_h264e_set_params(struct rockchip_vpu_dev *vpu,
 	u32 reg;
 	u32 prev_mode_favor = h264_prev_mode_favor[params->qp];
 
-	u32 mbs_in_row = MB_WIDTH(ctx->dst_fmt.width);
-	u32 mbs_in_col = MB_HEIGHT(ctx->dst_fmt.height);
+	u32 mbs_in_row = MB_WIDTH(ctx->src_fmt.width);
+	u32 mbs_in_col = MB_HEIGHT(ctx->src_fmt.height);
 	struct v4l2_rect *crop = &ctx->src_crop;
 	u32 overfill_r, overfill_b, bytes_per_line;
 	u32 skip_penalty;
@@ -1091,8 +1091,8 @@ void rk3288_vpu_h264e_run(struct rockchip_vpu_ctx *ctx)
 		(struct rk3288_h264e_reg_params *)ctx->run.h264e.reg_params;
 	struct rockchip_vpu_dev *vpu = ctx->dev;
 	u32 reg;
-	u32 mbs_in_row = (ctx->dst_fmt.width + 15) / 16;
-	u32 mbs_in_col = (ctx->dst_fmt.height + 15) / 16;
+	u32 mbs_in_row = MB_WIDTH(ctx->src_fmt.width);
+	u32 mbs_in_col = MB_HEIGHT(ctx->src_fmt.height);
 
 	vpu_debug_enter();
 

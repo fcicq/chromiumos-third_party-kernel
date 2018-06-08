@@ -226,12 +226,25 @@ static void update_fdomain_capacity_request(int cpu)
 	if (freq_new == gd->requested_freq)
 		goto out;
 
-	gd->requested_freq = freq_new;
-
 	/*
+	 * If we have a slow cpufreq driver, then before waking up the
+	 * kschedfreq thread, check if we're still in a throttle period.
+	 *
 	 * Throttling is not yet supported on platforms with fast cpufreq
 	 * drivers.
 	 */
+	if (cpufreq_driver_slow) {
+		ktime_t now, throttle;
+
+		now = ktime_get();
+		throttle = freq_new < policy->cur ?
+			gd->down_throttle : gd->up_throttle;
+		if (ktime_before(now, throttle))
+			goto out;
+	}
+
+	gd->requested_freq = freq_new;
+
 	if (cpufreq_driver_slow)
 		irq_work_queue_on(&gd->irq_work, cpu);
 	else

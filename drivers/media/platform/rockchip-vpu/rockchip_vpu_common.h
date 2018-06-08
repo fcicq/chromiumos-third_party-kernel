@@ -30,6 +30,7 @@
 
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-device.h>
+#include <media/v4l2-event.h>
 #include <media/v4l2-ioctl.h>
 #include <media/videobuf2-core.h>
 #include <media/videobuf2-dma-contig.h>
@@ -56,9 +57,7 @@ struct rockchip_vpu_codec_ops;
  * struct rockchip_vpu_variant - information about VPU hardware variant
  *
  * @enc_offset:			Offset from VPU base to encoder registers.
- * @enc_reg_num:		Number of registers of encoder block.
  * @dec_offset:			Offset from VPU base to decoder registers.
- * @dec_reg_num:		Number of registers of decoder block.
  * @needs_enc_after_dec_war:	Needs dummy encoder.
  * @needs_dpb_map:		Needs dpb reorder mapping.
  * @enc_fmts:			Encoder formats.
@@ -72,9 +71,7 @@ struct rockchip_vpu_codec_ops;
  */
 struct rockchip_vpu_variant {
 	unsigned enc_offset;
-	unsigned enc_reg_num;
 	unsigned dec_offset;
-	unsigned dec_reg_num;
 	bool needs_enc_after_dec_war;
 	bool needs_dpb_map;
 	const struct rockchip_vpu_fmt *enc_fmts;
@@ -349,6 +346,7 @@ struct rockchip_vpu_run {
  * @vq_dst:		Videobuf2 destination queue
  * @dst_queue:		Internal destination buffer queue.
  * @dst_bufs:		Private buffers wrapping VB2 buffers (destination).
+ * @flush_buf:		Dummy buffer for CMD_STOP flushing purposes.
  *
  * @ctrls:		Array containing pointer to registered controls.
  * @ctrl_handler:	Control handler used to register controls.
@@ -360,6 +358,7 @@ struct rockchip_vpu_run {
  *			processing run.
  * @run_ops:		Set of operations related to currently scheduled run.
  * @hw:			Structure containing hardware-related context.
+ * @stopped:		Context received CMD_STOP {de,en}coder command.
  */
 struct rockchip_vpu_ctx {
 	struct rockchip_vpu_dev *dev;
@@ -378,6 +377,7 @@ struct rockchip_vpu_ctx {
 	struct vb2_queue vq_dst;
 	struct list_head dst_queue;
 	struct vb2_buffer *dst_bufs[VIDEO_MAX_FRAME];
+	struct rockchip_vpu_buf flush_buf;
 
 	/* Controls */
 	struct v4l2_ctrl *ctrls[ROCKCHIP_VPU_MAX_CTRLS];
@@ -390,6 +390,7 @@ struct rockchip_vpu_ctx {
 	struct rockchip_vpu_run run;
 	const struct rockchip_vpu_run_ops *run_ops;
 	struct rockchip_vpu_hw_ctx hw;
+	bool stopped;
 };
 
 /**

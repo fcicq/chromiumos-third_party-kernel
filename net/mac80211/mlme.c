@@ -6,7 +6,7 @@
  * Copyright 2006-2007	Jiri Benc <jbenc@suse.cz>
  * Copyright 2007, Michael Wu <flamingice@sourmilk.net>
  * Copyright 2013-2014  Intel Mobile Communications GmbH
- * Copyright (C) 2015 Intel Deutschland GmbH
+ * Copyright (C) 2015 - 2016 Intel Deutschland GmbH
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -196,16 +196,7 @@ ieee80211_determine_chantype(struct ieee80211_sub_if_data *sdata,
 
 	/* check 40 MHz support, if we have it */
 	if (sta_ht_cap.cap & IEEE80211_HT_CAP_SUP_WIDTH_20_40) {
-		switch (ht_oper->ht_param & IEEE80211_HT_PARAM_CHA_SEC_OFFSET) {
-		case IEEE80211_HT_PARAM_CHA_SEC_ABOVE:
-			chandef->width = NL80211_CHAN_WIDTH_40;
-			chandef->center_freq1 += 10;
-			break;
-		case IEEE80211_HT_PARAM_CHA_SEC_BELOW:
-			chandef->width = NL80211_CHAN_WIDTH_40;
-			chandef->center_freq1 -= 10;
-			break;
-		}
+		ieee80211_chandef_ht_oper(ht_oper, chandef);
 	} else {
 		/* 40 MHz (and 80 MHz) must be supported for VHT */
 		ret = IEEE80211_STA_DISABLE_VHT;
@@ -219,35 +210,11 @@ ieee80211_determine_chantype(struct ieee80211_sub_if_data *sdata,
 		goto out;
 	}
 
-	vht_chandef.chan = channel;
-	vht_chandef.center_freq1 =
-		ieee80211_channel_to_frequency(vht_oper->center_freq_seg1_idx,
-					       channel->band);
-	vht_chandef.center_freq2 = 0;
-
-	switch (vht_oper->chan_width) {
-	case IEEE80211_VHT_CHANWIDTH_USE_HT:
-		vht_chandef.width = chandef->width;
-		vht_chandef.center_freq1 = chandef->center_freq1;
-		break;
-	case IEEE80211_VHT_CHANWIDTH_80MHZ:
-		vht_chandef.width = NL80211_CHAN_WIDTH_80;
-		break;
-	case IEEE80211_VHT_CHANWIDTH_160MHZ:
-		vht_chandef.width = NL80211_CHAN_WIDTH_160;
-		break;
-	case IEEE80211_VHT_CHANWIDTH_80P80MHZ:
-		vht_chandef.width = NL80211_CHAN_WIDTH_80P80;
-		vht_chandef.center_freq2 =
-			ieee80211_channel_to_frequency(
-				vht_oper->center_freq_seg2_idx,
-				channel->band);
-		break;
-	default:
+	vht_chandef = *chandef;
+	if (!ieee80211_chandef_vht_oper(vht_oper, &vht_chandef)) {
 		if (!(ifmgd->flags & IEEE80211_STA_DISABLE_VHT))
 			sdata_info(sdata,
-				   "AP VHT operation IE has invalid channel width (%d), disable VHT\n",
-				   vht_oper->chan_width);
+				   "AP VHT information is invalid, disable VHT\n");
 		ret = IEEE80211_STA_DISABLE_VHT;
 		goto out;
 	}
@@ -592,7 +559,7 @@ static void ieee80211_add_vht_ie(struct ieee80211_sub_if_data *sdata,
 		struct ieee80211_sub_if_data *other;
 
 		list_for_each_entry_rcu(other, &local->interfaces, list) {
-			if (other->flags & IEEE80211_SDATA_MU_MIMO_OWNER) {
+			if (other->vif.mu_mimo_owner) {
 				disable_mu_mimo = true;
 				break;
 			}
@@ -600,7 +567,7 @@ static void ieee80211_add_vht_ie(struct ieee80211_sub_if_data *sdata,
 		if (disable_mu_mimo)
 			cap &= ~IEEE80211_VHT_CAP_MU_BEAMFORMEE_CAPABLE;
 		else
-			sdata->flags |= IEEE80211_SDATA_MU_MIMO_OWNER;
+			sdata->vif.mu_mimo_owner = true;
 	}
 
 	mask = IEEE80211_VHT_CAP_BEAMFORMEE_STS_MASK;
@@ -1839,6 +1806,7 @@ static bool ieee80211_sta_wmm_params(struct ieee80211_local *local,
 				   params[ac].cw_min, params[ac].cw_max, aci);
 			return false;
 		}
+		ieee80211_regulatory_limit_wmm_params(sdata, &params[ac], ac);
 	}
 
 	for (ac = 0; ac < IEEE80211_NUM_ACS; ac++) {
@@ -2078,7 +2046,14 @@ static void ieee80211_set_disassoc(struct ieee80211_sub_if_data *sdata,
 	memset(&ifmgd->ht_capa_mask, 0, sizeof(ifmgd->ht_capa_mask));
 	memset(&ifmgd->vht_capa, 0, sizeof(ifmgd->vht_capa));
 	memset(&ifmgd->vht_capa_mask, 0, sizeof(ifmgd->vht_capa_mask));
-	sdata->flags &= ~IEEE80211_SDATA_MU_MIMO_OWNER;
+
+	/* reset MU-MIMO ownership and group data */
+	memset(sdata->vif.bss_conf.mu_group.membership, 0,
+	       sizeof(sdata->vif.bss_conf.mu_group.membership));
+	memset(sdata->vif.bss_conf.mu_group.position, 0,
+	       sizeof(sdata->vif.bss_conf.mu_group.position));
+	changed |= BSS_CHANGED_MU_GROUPS;
+	sdata->vif.mu_mimo_owner = false;
 
 	sdata->ap_power_level = IEEE80211_UNSET_POWER_LEVEL;
 
@@ -2535,7 +2510,8 @@ static void ieee80211_destroy_assoc_data(struct ieee80211_sub_if_data *sdata,
 		eth_zero_addr(sdata->u.mgd.bssid);
 		ieee80211_bss_info_change_notify(sdata, BSS_CHANGED_BSSID);
 		sdata->u.mgd.flags = 0;
-		sdata->flags &= ~IEEE80211_SDATA_MU_MIMO_OWNER;
+		sdata->vif.mu_mimo_owner = false;
+
 		mutex_lock(&sdata->local->mtx);
 		ieee80211_vif_release_channel(sdata);
 		mutex_unlock(&sdata->local->mtx);
@@ -4325,6 +4301,10 @@ static int ieee80211_prep_connection(struct ieee80211_sub_if_data *sdata,
 
 	if (WARN_ON(!ifmgd->auth_data && !ifmgd->assoc_data))
 		return -EINVAL;
+
+	/* If a reconfig is happening, bail out */
+	if (local->in_reconfig)
+		return -EBUSY;
 
 	if (assoc) {
 		rcu_read_lock();

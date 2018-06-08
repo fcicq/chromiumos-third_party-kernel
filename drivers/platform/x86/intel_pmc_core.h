@@ -177,6 +177,8 @@ struct pmc_reg_map {
  * gpe0_sts_val		gpe0_sts_val register value, read during
  *			resume_early(), used to report wake source
  *			in debugfs
+ * wake_source		Wake source string
+ *
  * pmc_dev contains info about power management controller device.
  */
 struct pmc_dev {
@@ -193,6 +195,7 @@ struct pmc_dev {
 	struct mutex lock; /* generic mutex lock for PMC Core */
 	u32 pm1_en_sts_val;
 	u32 gpe0_sts_val[4];
+	char wake_source[1024];
 };
 
 #endif /* PMC_CORE_H */

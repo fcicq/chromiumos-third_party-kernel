@@ -34,9 +34,12 @@
 #define RT5514_CLK_CTRL1			0x2104
 #define RT5514_CLK_CTRL2			0x2108
 #define RT5514_PLL3_CALIB_CTRL1			0x2110
+#define RT5514_PLL3_CALIB_CTRL4			0x2120
 #define RT5514_PLL3_CALIB_CTRL5			0x2124
+#define RT5514_PLL3_CALIB_CTRL6			0x2128
 #define RT5514_DELAY_BUF_CTRL1			0x2140
 #define RT5514_DELAY_BUF_CTRL3			0x2148
+#define RT5514_ASRC_IN_CTRL1			0x2180
 #define RT5514_DOWNFILTER0_CTRL1		0x2190
 #define RT5514_DOWNFILTER0_CTRL2		0x2194
 #define RT5514_DOWNFILTER0_CTRL3		0x2198
@@ -185,8 +188,14 @@
 #define RT5514_CLK_AD0_EN_BIT			23
 #define RT5514_CLK_DMIC_OUT_SEL_MASK		(0x7 << 8)
 #define RT5514_CLK_DMIC_OUT_SEL_SFT		8
+#define RT5514_CLK_AD_ANA1_SEL_MASK		(0xf << 0)
+#define RT5514_CLK_AD_ANA1_SEL_SFT		0
 
 /* RT5514_CLK_CTRL2 (0x2108) */
+#define RT5514_CLK_AD1_ASRC_EN			(0x1 << 17)
+#define RT5514_CLK_AD1_ASRC_EN_BIT		17
+#define RT5514_CLK_AD0_ASRC_EN			(0x1 << 16)
+#define RT5514_CLK_AD0_ASRC_EN_BIT		16
 #define RT5514_CLK_SYS_DIV_OUT_MASK		(0x7 << 8)
 #define RT5514_CLK_SYS_DIV_OUT_SFT		8
 #define RT5514_SEL_ADC_OSR_MASK			(0x7 << 4)
@@ -254,7 +263,7 @@ struct rt5514_priv {
 	struct rt5514_platform_data pdata;
 	struct snd_soc_codec *codec;
 	struct regmap *i2c_regmap, *regmap;
-	struct clk *mclk;
+	struct clk *mclk, *dsp_calib_clk;
 	int sysclk;
 	int sysclk_src;
 	int lrck;
@@ -265,6 +274,7 @@ struct rt5514_priv {
 	int dsp_enabled;
 	u8 *model_buf;
 	unsigned int model_len;
+	unsigned int pll3_cal_value;
 };
 
 #endif /* __RT5514_H__ */

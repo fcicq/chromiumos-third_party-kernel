@@ -91,11 +91,10 @@ bool mesh_matches_local(struct ieee80211_sub_if_data *sdata,
 	if (sdata->vif.bss_conf.basic_rates != basic_rates)
 		return false;
 
-	ieee80211_ht_oper_to_chandef(sdata->vif.bss_conf.chandef.chan,
-				     ie->ht_operation, &sta_chan_def);
-
-	ieee80211_vht_oper_to_chandef(sdata->vif.bss_conf.chandef.chan,
-				      ie->vht_operation, &sta_chan_def);
+	cfg80211_chandef_create(&sta_chan_def, sdata->vif.bss_conf.chandef.chan,
+				NL80211_CHAN_NO_HT);
+	ieee80211_chandef_ht_oper(ie->ht_operation, &sta_chan_def);
+	ieee80211_chandef_vht_oper(ie->vht_operation, &sta_chan_def);
 
 	if (!cfg80211_chandef_compatible(&sdata->vif.bss_conf.chandef,
 					 &sta_chan_def))
@@ -295,10 +294,6 @@ int mesh_add_meshconf_ie(struct ieee80211_sub_if_data *sdata,
 	/* Mesh PS mode. See IEEE802.11-2012 8.4.2.100.8 */
 	*pos |= ifmsh->ps_peers_deep_sleep ?
 			IEEE80211_MESHCONF_CAPAB_POWER_SAVE_LEVEL : 0x00;
-	*pos++ |= ifmsh->adjusting_tbtt ?
-			IEEE80211_MESHCONF_CAPAB_TBTT_ADJUSTING : 0x00;
-	*pos++ = 0x00;
-
 	return 0;
 }
 
@@ -866,7 +861,6 @@ int ieee80211_start_mesh(struct ieee80211_sub_if_data *sdata)
 	ifmsh->mesh_cc_id = 0;	/* Disabled */
 	/* register sync ops from extensible synchronization framework */
 	ifmsh->sync_ops = ieee80211_mesh_sync_ops_get(ifmsh->mesh_sp_id);
-	ifmsh->adjusting_tbtt = false;
 	ifmsh->sync_offset_clockdrift_max = 0;
 	set_bit(MESH_WORK_HOUSEKEEPING, &ifmsh->wrkq_flags);
 	ieee80211_mesh_root_setup(ifmsh);

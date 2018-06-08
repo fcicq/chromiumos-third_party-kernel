@@ -2,11 +2,13 @@
  * GPIO driver for TPS68470 PMIC
  *
  * Copyright (C) 2017 Intel Corporation
+ *
  * Authors:
- * Antti Laakso <antti.laakso@intel.com>
- * Tianshu Qiu <tian.shu.qiu@intel.com>
- * Jian Xu Zheng <jian.xu.zheng@intel.com>
- * Yuning Pu <yuning.pu@intel.com>
+ *	Antti Laakso <antti.laakso@intel.com>
+ *	Tianshu Qiu <tian.shu.qiu@intel.com>
+ *	Jian Xu Zheng <jian.xu.zheng@intel.com>
+ *	Yuning Pu <yuning.pu@intel.com>
+ *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
  * published by the Free Software Foundation version 2.
@@ -152,7 +154,8 @@ static int tps68470_gpio_probe(struct platform_device *pdev)
 	tps68470_gpio->gc.base = -1;
 	tps68470_gpio->gc.parent = &pdev->dev;
 
-	ret = gpiochip_add_data(&tps68470_gpio->gc, tps68470_gpio);
+	ret = devm_gpiochip_add_data(&pdev->dev, &tps68470_gpio->gc,
+				     tps68470_gpio);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "Failed to register gpio_chip: %d\n", ret);
 		return ret;
@@ -163,21 +166,11 @@ static int tps68470_gpio_probe(struct platform_device *pdev)
 	return ret;
 }
 
-static int tps68470_gpio_remove(struct platform_device *pdev)
-{
-	struct tps68470_gpio_data *tps68470_gpio = platform_get_drvdata(pdev);
-
-	gpiochip_remove(&tps68470_gpio->gc);
-
-	return 0;
-}
-
 static struct platform_driver tps68470_gpio_driver = {
 	.driver = {
 		   .name = "tps68470-gpio",
 	},
 	.probe = tps68470_gpio_probe,
-	.remove = tps68470_gpio_remove,
 };
 
 builtin_platform_driver(tps68470_gpio_driver)

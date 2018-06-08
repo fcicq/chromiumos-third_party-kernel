@@ -3,6 +3,7 @@
  */
 
 #include <linux/init.h>
+#include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/slab.h>
 #include <linux/module.h>
@@ -1063,6 +1064,28 @@ int snd_hdac_codec_write(struct hdac_device *hdac, hda_nid_t nid,
 	return codec_write(hdac, nid, flags, verb, parm);
 }
 EXPORT_SYMBOL_GPL(snd_hdac_codec_write);
+ /**
+ * snd_hdac_codec_write_nocached - send a single command with codec power
+sequence
+ * @hdac: the HDAC device
+ * @nid: NID to send the command
+ * @flags: optional bit flags
+ * @verb: the verb to send
+ * @parm: the parameter for the verb
+ *
+ * Send a single command and ensure that codec is powered up if it is not.
+ *
+ * Returns 0 if successful, or a negative error code.
+ */
+int snd_hdac_codec_write_nocached(struct hdac_device *hdac, hda_nid_t nid,
+			int flags, unsigned int verb, unsigned int parm)
+
+{
+	int cmd = snd_hdac_regmap_encode_verb(nid, verb);
+
+	return snd_hdac_regmap_write_raw(hdac, cmd, parm);
+}
+EXPORT_SYMBOL_GPL(snd_hdac_codec_write_nocached);
 
 /**
  * snd_hdac_check_power_state - check whether the actual power state matches
@@ -1086,3 +1109,37 @@ bool snd_hdac_check_power_state(struct hdac_device *hdac,
 	return (state == target_state);
 }
 EXPORT_SYMBOL_GPL(snd_hdac_check_power_state);
+/**
+ * snd_hdac_sync_power_state - wait until actual power state matches
+ * with the target state
+ *
+ * @hdac: the HDAC device
+ * @nid: NID to send the command
+ * @target_state: target state to check for
+ *
+ * Return power state or PS_ERROR if codec rejects GET verb.
+ */
+unsigned int snd_hdac_sync_power_state(struct hdac_device *codec,
+			hda_nid_t nid, unsigned int power_state)
+{
+	unsigned long end_time = jiffies + msecs_to_jiffies(500);
+	unsigned int state, actual_state, count;
+
+	for (count = 0; count < 500; count++) {
+		state = snd_hdac_codec_read(codec, nid, 0,
+				AC_VERB_GET_POWER_STATE, 0);
+		if (state & AC_PWRST_ERROR) {
+			msleep(20);
+			break;
+		}
+		actual_state = (state >> 4) & 0x0f;
+		if (actual_state == power_state)
+			break;
+		if (time_after_eq(jiffies, end_time))
+			break;
+		/* wait until the codec reachs to the target state */
+		msleep(1);
+	}
+	return state;
+}
+EXPORT_SYMBOL_GPL(snd_hdac_sync_power_state);

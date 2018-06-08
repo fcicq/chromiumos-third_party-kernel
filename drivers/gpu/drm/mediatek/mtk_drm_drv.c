@@ -41,38 +41,12 @@
 struct mtk_atomic_state {
 	struct drm_atomic_state base;
 	struct list_head list;
-	struct kref kref;
 	struct work_struct work;
 };
 
 static inline struct mtk_atomic_state *to_mtk_state(struct drm_atomic_state *s)
 {
 	return container_of(s, struct mtk_atomic_state, base);
-}
-
-static void mtk_atomic_state_free(struct kref *k)
-{
-	struct mtk_atomic_state *mtk_state =
-			container_of(k, struct mtk_atomic_state, kref);
-	struct drm_atomic_state *state = &mtk_state->base;
-
-	drm_atomic_state_clear(state);
-	drm_atomic_state_default_release(state);
-	kfree(mtk_state);
-}
-
-void mtk_atomic_state_get(struct drm_atomic_state *state)
-{
-	struct mtk_atomic_state *mtk_state = to_mtk_state(state);
-
-	kref_get(&mtk_state->kref);
-}
-
-static void mtk_atomic_state_put(struct drm_atomic_state *state)
-{
-	struct mtk_atomic_state *mtk_state = to_mtk_state(state);
-
-	kref_put(&mtk_state->kref, mtk_atomic_state_free);
 }
 
 void mtk_atomic_state_put_queue(struct drm_atomic_state *state)
@@ -194,7 +168,7 @@ static void mtk_unreference_work(struct work_struct *work)
 	list_for_each_entry_safe(state, tmp, &mtk_drm->unreference.list, list) {
 		list_del(&state->list);
 		spin_unlock_irqrestore(&mtk_drm->unreference.lock, flags);
-		mtk_atomic_state_put(&state->base);
+		drm_atomic_state_put(&state->base);
 		spin_lock_irqsave(&mtk_drm->unreference.lock, flags);
 	}
 	spin_unlock_irqrestore(&mtk_drm->unreference.lock, flags);
@@ -250,7 +224,7 @@ static void mtk_atomic_complete(struct drm_device *drm,
 
 	mtk_atomic_put_crtcs(drm, state);
 
-	mtk_atomic_state_put(state);
+	drm_atomic_state_put(state);
 }
 
 static void mtk_atomic_work(struct work_struct *work)
@@ -305,7 +279,6 @@ static struct drm_atomic_state *mtk_drm_atomic_state_alloc(
 	}
 
 	INIT_LIST_HEAD(&mtk_state->list);
-	kref_init(&mtk_state->kref);
 	INIT_WORK(&mtk_state->work, mtk_atomic_work);
 
 	return &mtk_state->base;
@@ -313,7 +286,10 @@ static struct drm_atomic_state *mtk_drm_atomic_state_alloc(
 
 static void mtk_drm_atomic_state_free(struct drm_atomic_state *state)
 {
-	mtk_atomic_state_put(state);
+	struct mtk_atomic_state *mtk_state = to_mtk_state(state);
+
+	drm_atomic_state_default_release(state);
+	kfree(mtk_state);
 }
 
 static const struct drm_mode_config_funcs mtk_drm_mode_config_funcs = {
