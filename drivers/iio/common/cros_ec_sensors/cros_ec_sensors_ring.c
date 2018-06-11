@@ -158,7 +158,7 @@ static int cros_ec_ring_median_cmp(const void *ts1, const void *ts2)
  */
 static s64 cros_ec_ring_median(s64 *array, size_t length)
 {
-	sort(array, length, sizeof(s64), cros_ec_ring_median_cmp, 0);
+	sort(array, length, sizeof(s64), cros_ec_ring_median_cmp, NULL);
 	return array[length / 2];
 }
 
@@ -217,7 +217,7 @@ static s64 cros_ec_ring_median(s64 *array, size_t length)
  * @b IRQ timestamp, EC timebase (us)
  * @c IRQ timestamp, AP timebase (ns)
  */
-void cros_ec_ring_ts_filter_update(
+static void cros_ec_ring_ts_filter_update(
 			struct cros_ec_sensors_ts_filter_state *state,
 			s64 b, s64 c)
 {
@@ -237,7 +237,7 @@ void cros_ec_ring_ts_filter_update(
 	if (dx == 0)
 		return; /* we already have this irq in the history */
 	dy = (state->y_history[0] + state->y_offset) - y;
-	m = (dy * M_PRECISION) / dx;
+	m = div64_s64(dy * M_PRECISION, dx);
 
 	/* Move everything over, also update offset to all absolute coords .*/
 	for (i = state->history_len - 1; i >= 1; i--) {
@@ -275,7 +275,8 @@ void cros_ec_ring_ts_filter_update(
 	 */
 	for (i = 0; i < state->history_len; i++)
 		error[i] = state->y_history[i] -
-			   state->median_m * state->x_history[i] / M_PRECISION;
+			   div_s64(state->median_m * state->x_history[i],
+				   M_PRECISION);
 	state->median_error = cros_ec_ring_median(error, state->history_len);
 }
 
@@ -298,10 +299,10 @@ void cros_ec_ring_ts_filter_update(
  * Remember to undo the "y = c - b * 1000" modification:
  *   f(x) = median_m * (x - x_offset) + median_error + y_offset + x * 1000
  */
-s64 cros_ec_ring_ts_filter(struct cros_ec_sensors_ts_filter_state *state,
-			   s64 x)
+static s64 cros_ec_ring_ts_filter(struct cros_ec_sensors_ts_filter_state *state,
+				  s64 x)
 {
-	return state->median_m * (x - state->x_offset) / M_PRECISION
+	return div_s64(state->median_m * (x - state->x_offset), M_PRECISION)
 	       + state->median_error + state->y_offset + x * 1000;
 }
 
@@ -805,12 +806,12 @@ static int cros_ec_ring_remove(struct platform_device *pdev)
 }
 
 #ifdef CONFIG_PM_SLEEP
-const struct dev_pm_ops cros_ec_ring_pm_ops = {
+static const struct dev_pm_ops cros_ec_ring_pm_ops = {
 	.prepare = cros_ec_ring_prepare,
 	.complete = cros_ec_ring_complete
 };
 #else
-const struct dev_pm_ops cros_ec_ring_pm_ops = { };
+static const struct dev_pm_ops cros_ec_ring_pm_ops = { };
 #endif
 
 static struct platform_driver cros_ec_ring_platform_driver = {
