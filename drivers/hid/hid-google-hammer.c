@@ -18,6 +18,7 @@
 #include <linux/usb.h>
 
 #include "hid-ids.h"
+#include "hid-google-hammer.h"
 
 #define MAX_BRIGHTNESS 100
 
@@ -88,8 +89,7 @@ static int hammer_register_leds(struct hid_device *hdev)
 	return devm_led_classdev_register(&hdev->dev, &kbd_backlight->cdev);
 }
 
-static int hammer_input_configured(struct hid_device *hdev,
-				   struct hid_input *hi)
+int hammer_input_configured(struct hid_device *hdev, struct hid_input *hi)
 {
 	struct usb_interface *intf = to_usb_interface(hdev->dev.parent);
 
@@ -107,6 +107,7 @@ static int hammer_input_configured(struct hid_device *hdev,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(hammer_input_configured);
 
 static const struct hid_device_id hammer_devices[] = {
 	{ HID_DEVICE(BUS_USB, HID_GROUP_GENERIC_OVERRIDE,
@@ -115,8 +116,6 @@ static const struct hid_device_id hammer_devices[] = {
 		     USB_VENDOR_ID_GOOGLE, USB_DEVICE_ID_GOOGLE_STAFF) },
 	{ HID_DEVICE(BUS_USB, HID_GROUP_GENERIC_OVERRIDE,
 		     USB_VENDOR_ID_GOOGLE, USB_DEVICE_ID_GOOGLE_WAND) },
-	{ HID_DEVICE(BUS_USB, HID_GROUP_GENERIC_OVERRIDE,
-		     USB_VENDOR_ID_GOOGLE, USB_DEVICE_ID_GOOGLE_WHISKERS) },
 	{ }
 };
 MODULE_DEVICE_TABLE(hid, hammer_devices);
