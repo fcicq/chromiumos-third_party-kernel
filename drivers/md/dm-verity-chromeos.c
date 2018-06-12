@@ -128,7 +128,7 @@ static int chromeos_invalidate_kernel_bio(struct block_device *root_bdev)
 	/* Ensure we do synchronous unblocked I/O. We may also need
 	 * sync_bdev() on completion, but it really shouldn't.
 	 */
-	int rw = REQ_SYNC | REQ_SOFTBARRIER | REQ_NOIDLE;
+	int rw;
 
 	devt = get_boot_dev();
 	if (!devt) {
@@ -160,6 +160,12 @@ static int chromeos_invalidate_kernel_bio(struct block_device *root_bdev)
 		goto failed_to_alloc_page;
 	}
 
+	/*
+	 * Request read operation with REQ_FLUSH flag to ensure that the
+	 * cache of non-volatile storage device has been flushed before read is
+	 * started.
+	 */
+	rw = REQ_SYNC | REQ_NOIDLE | REQ_FLUSH;
 	if (chromeos_invalidate_kernel_submit(bio, bdev, rw, page)) {
 		ret = -1;
 		goto failed_to_submit_read;
@@ -194,7 +200,12 @@ static int chromeos_invalidate_kernel_bio(struct block_device *root_bdev)
 	 */
 	bio_reset(bio);
 
-	rw |= REQ_WRITE;
+	/*
+	 * Request write operation with REQ_FUA flag to ensure that I/O
+	 * completion for the write is signaled only after the data has been
+	 * committed to non-volatile storage.
+	 */
+	rw = REQ_WRITE | REQ_SYNC | REQ_NOIDLE | REQ_FUA;
 	if (chromeos_invalidate_kernel_submit(bio, bdev, rw, page)) {
 		ret = -1;
 		goto failed_to_submit_write;
