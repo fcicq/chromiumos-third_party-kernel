@@ -39,8 +39,11 @@
 
 static void chromeos_invalidate_kernel_endio(struct bio *bio)
 {
-	if (bio->bi_error)
+	if (bio->bi_error) {
+		DMERR("%s: bio operation failed (error=0x%x)", __func__,
+		      bio->bi_error);
 		chromeos_set_need_recovery();
+	}
 
 	complete(bio->bi_private);
 }
@@ -189,7 +192,7 @@ static int chromeos_invalidate_kernel_bio(struct block_device *root_bdev)
 	bdev = blkdev_get_by_dev(devt, dev_mode,
 				 chromeos_invalidate_kernel_bio);
 	if (IS_ERR(bdev)) {
-		DMERR("invalidate_kernel: could not open device for reading");
+		DMERR("invalidate_kernel: could not open device for writing");
 		dev_mode = 0;
 		ret = -1;
 		goto failed_to_write;
