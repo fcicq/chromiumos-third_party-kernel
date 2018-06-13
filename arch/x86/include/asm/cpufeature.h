@@ -201,8 +201,11 @@
 #define X86_FEATURE_INTEL_PT	( 7*32+15) /* Intel Processor Trace */
 #define X86_FEATURE_RSB_CTXSW	( 7*32+19) /* Fill RSB on context switches */
 
+#define X86_FEATURE_L1TF_PTEINV	( 7*32+28) /* "" L1TF workaround PTE inversion */
+
 #define X86_FEATURE_RETPOLINE	( 7*32+29) /* Generic Retpoline mitigation for Spectre variant 2 */
 #define X86_FEATURE_RETPOLINE_AMD ( 7*32+30) /* AMD Retpoline mitigation for Spectre variant 2 */
+
 /* Because the ALTERNATIVE scheme is for members of the X86_FEATURE club... */
 #define X86_FEATURE_KAISER	( 7*32+31) /* CONFIG_PAGE_TABLE_ISOLATION w/o nokaiser */
 
@@ -283,6 +286,8 @@
 #define X86_BUG_CPU_MELTDOWN	X86_BUG(14) /* CPU is affected by meltdown attack and needs kernel page table isolation */
 #define X86_BUG_SPECTRE_V1	X86_BUG(15) /* CPU is affected by Spectre variant 1 attack with conditional branches */
 #define X86_BUG_SPECTRE_V2	X86_BUG(16) /* CPU is affected by Spectre variant 2 attack with indirect branches */
+#define X86_BUG_SPEC_STORE_BYPASS X86_BUG(17) /* CPU is affected by speculative store bypass attack */
+#define X86_BUG_L1TF		X86_BUG(18) /* CPU is affected by L1 Terminal Fault */
 
 #if defined(__KERNEL__) && !defined(__ASSEMBLY__)
 
