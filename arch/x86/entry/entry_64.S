@@ -313,7 +313,9 @@ tracesys_phase2:
 #else
 	andl	$__SYSCALL_MASK, %eax
 # ifdef CONFIG_ALT_SYSCALL
-	cmpl	ASM_THREAD_INFO(TI_nr_syscalls, %rsp, SIZEOF_PTREGS), %eax
+	movq	PER_CPU_VAR(current_task), %r11
+	movl	TASK_TI_nr_syscalls(%r11), %r11d
+	cmpl	%r11d, %eax
 # else
 	cmpl	$NR_syscalls, %eax
 # endif /* CONFIG_ALT_SYSCALL */
