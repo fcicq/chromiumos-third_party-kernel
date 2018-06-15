@@ -15,6 +15,7 @@
 #include <dt-bindings/power/qcom-rpmpd.h>
 #include <dt-bindings/reset/qcom,sdm845-aoss.h>
 #include <dt-bindings/soc/qcom,rpmh-rsc.h>
+#include <dt-bindings/soc/qcom,ipa.h>
 
 / {
 	interrupt-parent = <&intc>;
@@ -352,6 +353,10 @@
 	psci {
 		compatible = "arm,psci-1.0";
 		method = "smc";
+	};
+
+	qcom,rmnet-ipa {
+		compatible = "qcom,rmnet-ipa";
 	};
 
 	soc: soc {
@@ -913,6 +918,32 @@
 				      <0x1d87c00 0x1dc>;
 				#phy-cells = <0>;
 			};
+		};
+
+		ipa_hw: ipa@1e00000 {
+			compatible = "qcom,ipa";
+
+			qcom,ipa-hw-ver = <QCOM_IPA_HW_VER_v3_5_1>;
+			qcom,ee = <0>;
+
+			reg = <0x1e00000 0x34000>,
+			      <0x1e04000 0x2c000>;
+			reg-names = "ipa-base",
+				    "gsi-base";
+
+			interrupts-extended = <&intc 0 311 0>,
+					      <&intc 0 432 0>,
+					      <&ipa_smp2p_in 0 1>,
+					      <&ipa_smp2p_in 1 1>;
+			interrupt-names = "ipa-irq",
+					  "gsi-irq",
+					  "ipa-clock-query",
+					  "ipa-post-init";
+
+			qcom,smem-states = <&ipa_smp2p_out 0>,
+					   <&ipa_smp2p_out 1>;
+			qcom,smem-state-names = "ipa-clock-enabled-valid",
+						"ipa-clock-enabled";
 		};
 
 		tcsr_mutex_regs: syscon@1f40000 {
@@ -2138,6 +2169,17 @@
 
 			modem_smp2p_in: slave-kernel {
 				qcom,entry-name = "slave-kernel";
+				interrupt-controller;
+				#interrupt-cells = <2>;
+			};
+
+			ipa_smp2p_out: ipa-ap-to-modem {
+				qcom,entry-name = "ipa";
+				#qcom,smem-state-cells = <1>;
+			};
+
+			ipa_smp2p_in: ipa-modem-to-ap {
+				qcom,entry-name = "ipa";
 				interrupt-controller;
 				#interrupt-cells = <2>;
 			};
