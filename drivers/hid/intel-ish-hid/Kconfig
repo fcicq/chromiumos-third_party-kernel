@@ -14,4 +14,17 @@ config INTEL_ISH_HID
 	  Broxton and Kaby Lake.
 
 	  Say Y here if you want to support Intel ISH. If unsure, say N.
+
+config INTEL_ISH_LOADER
+	tristate "Host Firmware Load feature for Intel ISH"
+	help
+	  The Integrated Sensor Hub (ISH) enables the ability to offload
+	  sensor polling and algorithm processing to a dedicated low power
+	  processor in the chipset.
+
+	  The Host Firmware Load feature add support to load the ISH firmware
+	  from host file system.
+
+	  Say M here if you want to support Host Firmware Loading feature
+	  for Intel ISH. If unsure, say N.
 endmenu

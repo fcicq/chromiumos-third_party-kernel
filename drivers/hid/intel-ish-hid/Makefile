@@ -4,6 +4,7 @@
 #
 #
 obj-$(CONFIG_INTEL_ISH_HID) += intel-ishtp.o
+obj-$(CONFIG_INTEL_ISH_LOADER) += intel-ishtp.o
 intel-ishtp-objs := ishtp/init.o
 intel-ishtp-objs += ishtp/hbm.o
 intel-ishtp-objs += ishtp/client.o
@@ -12,11 +13,15 @@ intel-ishtp-objs += ishtp/dma-if.o
 intel-ishtp-objs += ishtp/client-buffers.o
 
 obj-$(CONFIG_INTEL_ISH_HID) += intel-ish-ipc.o
+obj-$(CONFIG_INTEL_ISH_LOADER) += intel-ish-ipc.o
 intel-ish-ipc-objs := ipc/ipc.o
 intel-ish-ipc-objs += ipc/pci-ish.o
 
 obj-$(CONFIG_INTEL_ISH_HID) += intel-ishtp-hid.o
 intel-ishtp-hid-objs := ishtp-hid.o
 intel-ishtp-hid-objs += ishtp-hid-client.o
+
+obj-$(CONFIG_INTEL_ISH_LOADER) += intel-ishtp-loader.o
+intel-ishtp-loader-objs += ishtp-loader-client.o
 
 ccflags-y += -Idrivers/hid/intel-ish-hid/ishtp
