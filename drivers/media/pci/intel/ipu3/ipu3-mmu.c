@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Copyright (c) 2018 Intel Corporation.
- * Copyright (C) 2018 Google, Inc.
+ * Copyright (C) 2018 Intel Corporation.
+ * Copyright 2018 Google LLC.
  *
  * Author: Tuukka Toivonen <tuukka.toivonen@intel.com>
  * Author: Sakari Ailus <sakari.ailus@linux.intel.com>
