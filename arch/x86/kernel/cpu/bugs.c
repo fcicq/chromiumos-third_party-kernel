@@ -99,32 +99,6 @@ static const char *spectre_v2_strings[] = {
 static enum spectre_v2_mitigation spectre_v2_enabled = SPECTRE_V2_NONE;
 
 
-static void __init l1tf_select_mitigation(void)
-{
-	u64 half_pa;
-
-	if (!boot_cpu_has_bug(X86_BUG_L1TF))
-		return;
-
-#if CONFIG_PGTABLE_LEVELS == 2
-	pr_warn("Kernel not compiled for PAE. No mitigation for L1TF\n");
-	return;
-#endif
-
-	/*
-	 * This is extremely unlikely to happen because almost all
-	 * systems have far more MAX_PA/2 than RAM can be fit into
-	 * DIMM slots.
-	 */
-	half_pa = (u64)l1tf_pfn_limit() << PAGE_SHIFT;
-	if (e820_any_mapped(half_pa, ULLONG_MAX - half_pa, E820_RAM)) {
-		pr_warn("System has more than MAX_PA/2 memory. L1TF mitigation not effective.\n");
-		return;
-	}
-
-	setup_force_cpu_cap(X86_FEATURE_L1TF_PTEINV);
-}
-
 #ifdef RETPOLINE
 static bool spectre_v2_bad_module;
 
@@ -328,6 +302,33 @@ retpoline_auto:
 	}
 }
 
+#undef pr_fmt
+#define pr_fmt(fmt)	"L1TF: " fmt
+static void __init l1tf_select_mitigation(void)
+{
+	u64 half_pa;
+
+	if (!boot_cpu_has_bug(X86_BUG_L1TF))
+		return;
+
+#if CONFIG_PGTABLE_LEVELS == 2
+	pr_warn("Kernel not compiled for PAE. No mitigation for L1TF\n");
+	return;
+#endif
+
+	/*
+	 * This is extremely unlikely to happen because almost all
+	 * systems have far more MAX_PA/2 than RAM can be fit into
+	 * DIMM slots.
+	 */
+	half_pa = (u64)l1tf_pfn_limit() << PAGE_SHIFT;
+	if (e820_any_mapped(half_pa, ULLONG_MAX - half_pa, E820_RAM)) {
+		pr_warn("System has more than MAX_PA/2 memory. L1TF mitigation not effective.\n");
+		return;
+	}
+
+	setup_force_cpu_cap(X86_FEATURE_L1TF_PTEINV);
+}
 #undef pr_fmt
 
 #ifdef CONFIG_SYSFS
