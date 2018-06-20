@@ -1266,6 +1266,7 @@ static void rkisp1_stop_streaming(struct vb2_queue *queue)
 	struct rkisp1_stream *stream = queue->drv_priv;
 	struct rkisp1_vdev_node *node = &stream->vnode;
 	struct rkisp1_device *dev = stream->ispdev;
+	struct rkisp1_stream *other = &dev->stream[stream->id ^ 1];
 	struct v4l2_device *v4l2_dev = &dev->v4l2_dev;
 	struct rkisp1_buffer *buf;
 	LIST_HEAD(buffers);
@@ -1292,6 +1293,11 @@ static void rkisp1_stop_streaming(struct vb2_queue *queue)
 	}
 	list_splice_tail_init(&stream->bufs_ready, &buffers);
 	list_splice_tail_init(&stream->bufs_pending, &buffers);
+	/*
+	 * Flush pending buffers of the other queue, since they have nothing
+	 * to wait for anymore.
+	 */
+	list_splice_tail_init(&other->bufs_pending, &other->bufs_ready);
 	spin_unlock_irqrestore(&dev->vbq_lock, lock_flags);
 
 	while (!list_empty(&buffers)) {
