@@ -143,27 +143,6 @@ config DRM_MSM_MDP4
 	  avoid possible conflicts.  Only select this option if the target
 	  MSM platform is MDP4 based.
 
-config DRM_MSM_HDCP
-	tristate "HDCP for MSM DRM"
-	depends on DRM_MSM
-	default n
-	help
-	  Chose this option if High-bandwidth Digital Content Protection (HDCP)
-	  support is needed in the MSM DRM/KMS driver.  Enabling this config
-	  will allow HDCP encrypted (copy protected) media to be displayed.
-	  This should only be enabled if required for platforms supporting HDCP
-	  over the desired interface.
-
-config DRM_MSM_WRITEBACK
-	bool "Enable Writeback support in msm DRM"
-	depends on DRM_MSM
-	default n
-	help
-	  Choose this option for writeback connector support.
-	  This option enables a virtual writeback connector where
-	  the output image is written back to memory in the format
-	  selected by the connector's mode and property settings.
-
 config DRM_MSM_DSI_14NM_PHY
 	bool "Enable DSI 14nm PHY driver in MSM DRM (used by MSM8996/APQ8096)"
 	depends on DRM_MSM_DSI
