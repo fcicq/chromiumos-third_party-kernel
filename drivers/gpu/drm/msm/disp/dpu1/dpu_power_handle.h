@@ -21,7 +21,7 @@
 #define DPU_POWER_HANDLE_ENABLE_BUS_IB_QUOTA	1600000000
 #define DPU_POWER_HANDLE_DISABLE_BUS_IB_QUOTA	0
 
-#include "dpu_io_util.h"
+#include <linux/dpu_io_util.h>
 
 /* event will be triggered before power handler disable */
 #define DPU_POWER_EVENT_PRE_DISABLE	0x1
