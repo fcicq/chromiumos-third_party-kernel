@@ -4112,6 +4112,8 @@ intel_dp_short_pulse(struct intel_dp *intel_dp)
 	intel_dp_check_link_status(intel_dp);
 	drm_modeset_unlock(&dev->mode_config.connection_mutex);
 
+	intel_psr_short_pulse(intel_dp);
+
 	return true;
 }
 
