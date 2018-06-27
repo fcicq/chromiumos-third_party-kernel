@@ -653,6 +653,7 @@ extern const struct ath10k_hw_clk_params qca6174_clk[];
 #define PCIE_INTR_CLR_ADDRESS			ar->regs->pcie_intr_clr_address
 #define SCRATCH_3_ADDRESS			ar->regs->scratch_3_address
 #define CPU_INTR_ADDRESS			0x0010
+#define FW_RAM_CONFIG_ADDRESS			0x0018
 
 #define CCNT_TO_MSEC(ar, x) ((x) / ar->hw_params.channel_counters_freq_hz)
 
