@@ -2014,10 +2014,6 @@ static const struct file_operations fops_fw_checksums = {
 
 int ath10k_debug_create(struct ath10k *ar)
 {
-	ar->debug.fw_crash_data = vzalloc(sizeof(*ar->debug.fw_crash_data));
-	if (!ar->debug.fw_crash_data)
-		return -ENOMEM;
-
 	INIT_LIST_HEAD(&ar->debug.fw_stats.pdevs);
 	INIT_LIST_HEAD(&ar->debug.fw_stats.vdevs);
 	INIT_LIST_HEAD(&ar->debug.fw_stats.peers);
@@ -2027,9 +2023,6 @@ int ath10k_debug_create(struct ath10k *ar)
 
 void ath10k_debug_destroy(struct ath10k *ar)
 {
-	vfree(ar->debug.fw_crash_data);
-	ar->debug.fw_crash_data = NULL;
-
 	ath10k_debug_fw_stats_reset(ar);
 
 	kfree(ar->debug.tpc_stats);

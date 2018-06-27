@@ -2090,11 +2090,18 @@ struct ath10k *ath10k_core_create(size_t priv_size, struct device *dev,
 	INIT_WORK(&ar->register_work, ath10k_core_register_work);
 	INIT_WORK(&ar->restart_work, ath10k_core_restart);
 
-	ret = ath10k_debug_create(ar);
+	ret = ath10k_coredump_create(ar);
 	if (ret)
 		goto err_free_aux_wq;
 
+	ret = ath10k_debug_create(ar);
+	if (ret)
+		goto err_free_coredump;
+
 	return ar;
+
+err_free_coredump:
+	ath10k_coredump_destroy(ar);
 
 err_free_aux_wq:
 	destroy_workqueue(ar->workqueue_aux);
@@ -2117,6 +2124,7 @@ void ath10k_core_destroy(struct ath10k *ar)
 	destroy_workqueue(ar->workqueue_aux);
 
 	ath10k_debug_destroy(ar);
+	ath10k_coredump_destroy(ar);
 	ath10k_wmi_free_host_mem(ar);
 	ath10k_mac_destroy(ar);
 }
