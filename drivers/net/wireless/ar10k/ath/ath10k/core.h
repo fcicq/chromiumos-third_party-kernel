@@ -903,6 +903,8 @@ struct ath10k {
 	u8 drv_priv[0] __aligned(sizeof(void *));
 };
 
+extern unsigned long ath10k_coredump_mask;
+
 struct ath10k *ath10k_core_create(size_t priv_size, struct device *dev,
 				  enum ath10k_bus bus,
 				  enum ath10k_hw_rev hw_rev,
