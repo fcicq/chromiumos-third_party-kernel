@@ -504,6 +504,10 @@ struct ath10k_hw_clk_params {
 #define TARGET_10_4_IPHDR_PAD_CONFIG		1
 #define TARGET_10_4_QWRAP_CONFIG		0
 
+/* Maximum number of Copy Engine's supported */
+#define CE_COUNT_MAX 12
+
+
 struct htt_rx_desc;
 
 /* Defines needed for Rx descriptor abstraction */
