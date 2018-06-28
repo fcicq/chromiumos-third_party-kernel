@@ -37,8 +37,17 @@ static inline unsigned long get_available_file_mem(void)
 	unsigned long clean_file_mem = file_mem - dirty_mem;
 	/* Conservatively estimate the amount of available_file_mem */
 	unsigned long available_file_mem = (clean_file_mem > min_file_mem) ?
-	    (clean_file_mem - min_file_mem) : 0;
+			(clean_file_mem - min_file_mem) : 0;
 	return available_file_mem;
+}
+
+/*
+ * Available anonymous memory.
+ */
+static inline unsigned long get_available_anon_mem(void)
+{
+	return global_page_state(NR_ACTIVE_ANON) +
+		global_page_state(NR_INACTIVE_ANON);
 }
 
 /*
@@ -59,13 +68,14 @@ static inline unsigned long get_available_mem_adj(void)
 	unsigned long free_mem =
 			global_page_state(NR_FREE_PAGES) - min_free_pages;
 	unsigned long available_mem = free_mem +
-	    get_available_file_mem();
-	long _nr_swap_pages = get_nr_swap_pages();
+			get_available_file_mem();
+	unsigned long swappable_pages = min_t(unsigned long,
+			get_nr_swap_pages(), get_available_anon_mem());
 	/*
 	 * The contribution of swap is reduced by a factor of
 	 * low_mem_ram_vs_swap_weight.
 	 */
-	return available_mem + _nr_swap_pages / low_mem_ram_vs_swap_weight;
+	return available_mem + swappable_pages / low_mem_ram_vs_swap_weight;
 }
 
 #ifdef CONFIG_LOW_MEM_NOTIFY
@@ -88,9 +98,7 @@ static inline bool low_mem_check(void)
 		return false;
 
 	if (unlikely(is_low_mem && !was_low_mem)) {
-		unsigned long anon_mem =
-			global_page_state(NR_ACTIVE_ANON) +
-			global_page_state(NR_INACTIVE_ANON);
+		unsigned long anon_mem = get_available_anon_mem();
 		if (unlikely(anon_mem < low_mem_lowest_seen_anon_mem)) {
 			printk(KERN_INFO "entering low_mem "
 			       "(avail RAM = %lu kB, avail swap %lu kB, "
