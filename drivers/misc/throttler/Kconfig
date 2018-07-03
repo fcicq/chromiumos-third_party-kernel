@@ -20,4 +20,14 @@ menuconfig THROTTLER_DEBUG
 
 	  Choose N unless you want to debug throttler drivers.
 
+config CROS_EC_THROTTLER
+	tristate "Throttler event monitor for the Chrome OS Embedded Controller"
+	depends on MFD_CROS_EC
+	help
+	  This driver adds support to throttle the system in reaction to
+	  Chrome OS EC events.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called cros_ec_throttler.
+
 endif # THROTTLER
