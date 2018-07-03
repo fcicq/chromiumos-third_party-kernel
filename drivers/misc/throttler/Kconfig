@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: GPL-2.0
+
+menuconfig THROTTLER
+	bool "Throttler support"
+	depends on OF
+	help
+	  This option enables core support for non-thermal throttling of CPUs
+	  and devfreq devices.
+
+	  Note that you also need a event monitor module usually called
+	  *_throttler.
+
+if THROTTLER
+
+menuconfig THROTTLER_DEBUG
+	bool "Enable throttler debugging"
+	help
+	  This option enables throttler debugging features like additional
+	  logging and a debugfs attribute for setting the logging level.
+
+	  Choose N unless you want to debug throttler drivers.
+
+endif # THROTTLER
