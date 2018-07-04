@@ -562,7 +562,7 @@ static int fault_in_user_writeable(u32 __user *uaddr)
 
 	down_read(&mm->mmap_sem);
 	ret = fixup_user_fault(current, mm, (unsigned long)uaddr,
-			       FAULT_FLAG_WRITE);
+			       FAULT_FLAG_WRITE, NULL);
 	up_read(&mm->mmap_sem);
 
 	return ret < 0 ? ret : 0;
@@ -1503,6 +1503,9 @@ static int futex_requeue(u32 __user *uaddr1, unsigned int flags,
 	struct futex_pi_state *pi_state = NULL;
 	struct futex_hash_bucket *hb1, *hb2;
 	struct futex_q *this, *next;
+
+	if (nr_wake < 0 || nr_requeue < 0)
+		return -EINVAL;
 
 	if (requeue_pi) {
 		/*
@@ -2728,6 +2731,7 @@ SYSCALL_DEFINE2(set_robust_list, struct robust_list_head __user *, head,
 
 	return 0;
 }
+EXPORT_SYMBOL(sys_set_robust_list);
 
 /**
  * sys_get_robust_list() - Get the robust-futex list head of a task

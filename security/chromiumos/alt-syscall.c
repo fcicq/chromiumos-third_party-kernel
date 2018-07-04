@@ -10,13 +10,11 @@
 
 #include <linux/alt-syscall.h>
 #include <linux/compat.h>
-#include <linux/fs.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/prctl.h>
 #include <linux/slab.h>
-#include <linux/stat.h>
 #include <linux/syscalls.h>
 #include <linux/timex.h>
 
@@ -73,7 +71,7 @@ static asmlinkage long block_syscall(void)
 	struct task_struct *task = current;
 	struct pt_regs *regs = task_pt_regs(task);
 
-	pr_warn("[%d] %s: blocked syscall %d\n", task_pid_nr(task),
+	pr_warn_ratelimited("[%d] %s: blocked syscall %d\n", task_pid_nr(task),
 		task->comm, syscall_get_nr(task, regs));
 
 	return -ENOSYS;
@@ -246,6 +244,10 @@ static asmlinkage long alt_sys_prctl(int option, unsigned long arg2,
 #define __NR_compat_inotify_init1	__NR_ia32_inotify_init1
 #define __NR_compat_inotify_rm_watch	__NR_ia32_inotify_rm_watch
 #define __NR_compat_ioctl	__NR_ia32_ioctl
+#define __NR_compat_io_destroy	__NR_ia32_io_destroy
+#define __NR_compat_io_getevents	__NR_ia32_io_getevents
+#define __NR_compat_io_setup	__NR_ia32_io_setup
+#define __NR_compat_io_submit	__NR_ia32_io_submit
 #define __NR_compat_ioprio_set	__NR_ia32_ioprio_set
 #define __NR_compat_kill	__NR_ia32_kill
 #define __NR_compat_lgetxattr	__NR_ia32_lgetxattr
@@ -321,6 +323,7 @@ static asmlinkage long alt_sys_prctl(int option, unsigned long arg2,
 #define __NR_compat_sched_getparam	__NR_ia32_sched_getparam
 #define __NR_compat_sched_getscheduler	__NR_ia32_sched_getscheduler
 #define __NR_compat_sched_setaffinity	__NR_ia32_sched_setaffinity
+#define __NR_compat_sched_setparam	__NR_ia32_sched_setparam
 #define __NR_compat_sched_setscheduler	__NR_ia32_sched_setscheduler
 #define __NR_compat_sched_yield	__NR_ia32_sched_yield
 #define __NR_compat_seccomp	__NR_ia32_seccomp
@@ -330,6 +333,7 @@ static asmlinkage long alt_sys_prctl(int option, unsigned long arg2,
 #define __NR_compat_set_robust_list	__NR_ia32_set_robust_list
 #define __NR_compat_set_tid_address	__NR_ia32_set_tid_address
 #define __NR_compat_set_thread_area	__NR_ia32_set_thread_area
+#define __NR_compat_setdomainname	__NR_ia32_setdomainname
 #define __NR_compat_setgid	__NR_ia32_setgid
 #define __NR_compat_setgroups	__NR_ia32_setgroups
 #define __NR_compat_setitimer	__NR_ia32_setitimer
@@ -353,6 +357,7 @@ static asmlinkage long alt_sys_prctl(int option, unsigned long arg2,
 #define __NR_compat_symlink	__NR_ia32_symlink
 #define __NR_compat_symlinkat	__NR_ia32_symlinkat
 #define __NR_compat_sync_file_range	__NR_ia32_sync_file_range
+#define __NR_compat_syncfs	__NR_ia32_syncfs
 #define __NR_compat_sysinfo	__NR_ia32_sysinfo
 #define __NR_compat_syslog	__NR_ia32_syslog
 #define __NR_compat_tee		__NR_ia32_tee
@@ -521,16 +526,13 @@ static asmlinkage long android_setpriority(int which, int who, int niceval)
 }
 
 static asmlinkage long
-android_sched_setscheduler(pid_t pid, int policy,
-			   struct sched_param __user *param)
+do_android_sched_setscheduler(pid_t pid, int policy,
+			      struct sched_param __user *param)
 {
 	struct sched_param lparam;
 	struct task_struct *p;
 	long retval;
 
-	/* negative values for policy are not valid */
-	if (policy < 0)
-		return -EINVAL;
 	if (!param || pid < 0)
 		return -EINVAL;
 	if (copy_from_user(&lparam, param, sizeof(struct sched_param)))
@@ -565,54 +567,27 @@ android_sched_setscheduler(pid_t pid, int policy,
 	return retval;
 }
 
-static asmlinkage long android_fallocate(int fd, int mode, loff_t offset,
-					 loff_t len)
+static asmlinkage long
+android_sched_setscheduler(pid_t pid, int policy,
+			   struct sched_param __user *param)
 {
-	long retval;
-	struct kstat st;
-
-	retval = sys_fallocate(fd, mode, offset, len);
-	if (retval != -EOPNOTSUPP || mode != 0)
-		return retval;
-
-	/* Emulate fallocate by ftruncate and fstat. */
-	retval = vfs_fstat(fd, &st);
-	if (retval < 0)
-		return -EOPNOTSUPP; /* Do not expose errno from fstat. */
-
-	len += offset;
-	if (len <= st.size) {
-		/*
-		 * When the file size is already larger than requested, do a
-		 * no-op ftruncate by specifying the current file size. In this
-		 * way, this function will return -1 appropriately when |fd| is
-		 * opened for reading.
-		 */
-		len = st.size;
-	}
-
-	return sys_ftruncate(fd, len);
+	/* negative values for policy are not valid */
+	if (policy < 0)
+		return -EINVAL;
+	return do_android_sched_setscheduler(pid, policy, param);
 }
 
 /*
- * The 64 bit values are passed by using two 32 bit registers. Its order
- * depends on the endian.
+ * sched_setparam() passes in -1 for its policy, to let the functions
+ * it calls know not to change it.
  */
-#ifdef CONFIG_CPU_BIG_ENDIGAN
-#define PACK64(hi, lo) (((u64)(hi) << 32) | (lo))
-#else
-#define PACK64(lo, hi) (((u64)(hi) << 32) | (lo))
-#endif
+#define SETPARAM_POLICY -1
 
-static asmlinkage long android_fallocate32(int fd, int mode,
-					   unsigned offset1, unsigned offset2,
-					   unsigned len1, unsigned len2)
+static asmlinkage long android_sched_setparam(pid_t pid,
+					      struct sched_param __user *param)
 {
-	return android_fallocate(fd, mode, (loff_t) PACK64(offset1, offset2),
-				 (loff_t) PACK64(len1, len2));
+	return do_android_sched_setscheduler(pid, SETPARAM_POLICY, param);
 }
-
-#undef PACK64
 
 static asmlinkage long
 android_perf_event_open(struct perf_event_attr __user *attr_uptr,
@@ -681,6 +656,7 @@ static struct syscall_whitelist_entry android_whitelist[] = {
 	SYSCALL_ENTRY(exit),
 	SYSCALL_ENTRY(exit_group),
 	SYSCALL_ENTRY(faccessat),
+	SYSCALL_ENTRY(fallocate),
 	SYSCALL_ENTRY(fchdir),
 	SYSCALL_ENTRY(fchmod),
 	SYSCALL_ENTRY(fchmodat),
@@ -715,6 +691,10 @@ static struct syscall_whitelist_entry android_whitelist[] = {
 	SYSCALL_ENTRY(inotify_init1),
 	SYSCALL_ENTRY(inotify_rm_watch),
 	SYSCALL_ENTRY(ioctl),
+	SYSCALL_ENTRY(io_destroy),
+	SYSCALL_ENTRY(io_getevents),
+	SYSCALL_ENTRY(io_setup),
+	SYSCALL_ENTRY(io_submit),
 	SYSCALL_ENTRY(ioprio_set),
 	SYSCALL_ENTRY(kill),
 	SYSCALL_ENTRY(lgetxattr),
@@ -779,12 +759,15 @@ static struct syscall_whitelist_entry android_whitelist[] = {
 	SYSCALL_ENTRY(sched_getparam),
 	SYSCALL_ENTRY(sched_getscheduler),
 	SYSCALL_ENTRY(sched_setaffinity),
+	SYSCALL_ENTRY_ALT(sched_setparam, android_sched_setparam),
 	SYSCALL_ENTRY_ALT(sched_setscheduler, android_sched_setscheduler),
 	SYSCALL_ENTRY(sched_yield),
 	SYSCALL_ENTRY(seccomp),
 	SYSCALL_ENTRY(sendfile),
 	SYSCALL_ENTRY(sendmmsg),
+	SYSCALL_ENTRY(set_robust_list),
 	SYSCALL_ENTRY(set_tid_address),
+	SYSCALL_ENTRY(setdomainname),
 	SYSCALL_ENTRY(setitimer),
 	SYSCALL_ENTRY(setns),
 	SYSCALL_ENTRY(setpgid),
@@ -800,6 +783,7 @@ static struct syscall_whitelist_entry android_whitelist[] = {
 	SYSCALL_ENTRY(symlinkat),
 	SYSCALL_ENTRY(sysinfo),
 	SYSCALL_ENTRY(syslog),
+	SYSCALL_ENTRY(syncfs),
 	SYSCALL_ENTRY(tee),
 	SYSCALL_ENTRY(tgkill),
 	SYSCALL_ENTRY(tkill),
@@ -897,13 +881,6 @@ static struct syscall_whitelist_entry android_whitelist[] = {
 	SYSCALL_ENTRY(recv),
 	SYSCALL_ENTRY(send),
 #endif
-#endif
-
-	/* Inject fallocate. */
-#if defined(CONFIG_X86_64) || defined(CONFIG_ARM64)
-	SYSCALL_ENTRY_ALT(fallocate, android_fallocate),
-#else
-	SYSCALL_ENTRY_ALT(fallocate, android_fallocate32),
 #endif
 
 	/*
@@ -1195,7 +1172,7 @@ static struct syscall_whitelist_entry android_compat_whitelist[] = {
 	COMPAT_SYSCALL_ENTRY(exit),
 	COMPAT_SYSCALL_ENTRY(exit_group),
 	COMPAT_SYSCALL_ENTRY(faccessat),
-	COMPAT_SYSCALL_ENTRY_ALT(fallocate, android_fallocate32),
+	COMPAT_SYSCALL_ENTRY(fallocate),
 	COMPAT_SYSCALL_ENTRY(fchdir),
 	COMPAT_SYSCALL_ENTRY(fchmod),
 	COMPAT_SYSCALL_ENTRY(fchmodat),
@@ -1233,6 +1210,10 @@ static struct syscall_whitelist_entry android_compat_whitelist[] = {
 	COMPAT_SYSCALL_ENTRY(inotify_init),
 	COMPAT_SYSCALL_ENTRY(inotify_init1),
 	COMPAT_SYSCALL_ENTRY(inotify_rm_watch),
+	COMPAT_SYSCALL_ENTRY(io_destroy),
+	COMPAT_SYSCALL_ENTRY(io_getevents),
+	COMPAT_SYSCALL_ENTRY(io_setup),
+	COMPAT_SYSCALL_ENTRY(io_submit),
 	COMPAT_SYSCALL_ENTRY(ioctl),
 	COMPAT_SYSCALL_ENTRY(ioprio_set),
 	COMPAT_SYSCALL_ENTRY(kill),
@@ -1308,6 +1289,8 @@ static struct syscall_whitelist_entry android_compat_whitelist[] = {
 	COMPAT_SYSCALL_ENTRY(sched_getparam),
 	COMPAT_SYSCALL_ENTRY(sched_getscheduler),
 	COMPAT_SYSCALL_ENTRY(sched_setaffinity),
+	COMPAT_SYSCALL_ENTRY_ALT(sched_setparam,
+				 android_sched_setparam),
 	COMPAT_SYSCALL_ENTRY_ALT(sched_setscheduler,
 				 android_sched_setscheduler),
 	COMPAT_SYSCALL_ENTRY(sched_yield),
@@ -1315,6 +1298,7 @@ static struct syscall_whitelist_entry android_compat_whitelist[] = {
 	COMPAT_SYSCALL_ENTRY(sendfile),
 	COMPAT_SYSCALL_ENTRY(sendfile64),
 	COMPAT_SYSCALL_ENTRY(sendmmsg),
+	COMPAT_SYSCALL_ENTRY(set_robust_list),
 	COMPAT_SYSCALL_ENTRY(set_tid_address),
 	COMPAT_SYSCALL_ENTRY(setitimer),
 	COMPAT_SYSCALL_ENTRY(setns),
@@ -1384,6 +1368,7 @@ static struct syscall_whitelist_entry android_compat_whitelist[] = {
 	COMPAT_SYSCALL_ENTRY(mmap2),
 	COMPAT_SYSCALL_ENTRY(_newselect),
 	COMPAT_SYSCALL_ENTRY(_llseek),
+	COMPAT_SYSCALL_ENTRY(setdomainname),
 	COMPAT_SYSCALL_ENTRY(sigaction),
 	COMPAT_SYSCALL_ENTRY(sigpending),
 	COMPAT_SYSCALL_ENTRY(sigprocmask),
@@ -1398,6 +1383,7 @@ static struct syscall_whitelist_entry android_compat_whitelist[] = {
 	COMPAT_SYSCALL_ENTRY(setuid32),
 	COMPAT_SYSCALL_ENTRY(stat64),
 	COMPAT_SYSCALL_ENTRY(statfs64),
+	COMPAT_SYSCALL_ENTRY(syncfs),
 	COMPAT_SYSCALL_ENTRY(truncate64),
 	COMPAT_SYSCALL_ENTRY(ugetrlimit),
 

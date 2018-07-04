@@ -499,6 +499,7 @@ int security_path_chown(struct path *path, kuid_t uid, kgid_t gid)
 		return 0;
 	return security_ops->path_chown(path, uid, gid);
 }
+EXPORT_SYMBOL(security_path_chown);
 
 int security_path_chroot(struct path *path)
 {
@@ -828,6 +829,10 @@ int security_file_receive(struct file *file)
 int security_file_open(struct file *file, const struct cred *cred)
 {
 	int ret;
+
+	ret = chromiumos_security_file_open(file, cred);
+	if (ret)
+		return ret;
 
 	ret = security_ops->file_open(file, cred);
 	if (ret)
