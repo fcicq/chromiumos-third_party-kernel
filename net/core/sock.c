@@ -119,6 +119,7 @@
 #include <linux/prefetch.h>
 #include <linux/cred.h>
 #include <linux/uidgid.h>
+#include <linux/android_aid.h>
 
 #include <asm/uaccess.h>
 
@@ -213,6 +214,22 @@ bool inet_sk_allowed(struct net *net, gid_t gid)
 	return in_android_group(net->user_ns, gid);
 }
 EXPORT_SYMBOL(inet_sk_allowed);
+
+bool android_ns_capable(struct net *net, int cap)
+{
+	if (ns_capable(net->user_ns, cap))
+		return true;
+	if (!net->core.sysctl_android_paranoid)
+		return false;
+	if (cap == CAP_NET_RAW &&
+	    in_android_group(net->user_ns, AID_NET_RAW))
+		return true;
+	if (cap == CAP_NET_ADMIN &&
+	    in_android_group(net->user_ns, AID_NET_ADMIN))
+		return true;
+	return false;
+}
+EXPORT_SYMBOL(android_ns_capable);
 
 #ifdef CONFIG_MEMCG_KMEM
 int mem_cgroup_sockets_init(struct mem_cgroup *memcg, struct cgroup_subsys *ss)
@@ -585,7 +602,7 @@ static int sock_setbindtodevice(struct sock *sk, char __user *optval,
 
 	/* Sorry... */
 	ret = -EPERM;
-	if (!ns_capable(net->user_ns, CAP_NET_RAW))
+	if (!android_ns_capable(net, CAP_NET_RAW))
 		goto out;
 
 	ret = -EINVAL;
@@ -1493,7 +1510,7 @@ void sk_destruct(struct sock *sk)
 
 static void __sk_free(struct sock *sk)
 {
-	if (unlikely(sock_diag_has_destroy_listeners(sk) && sk->sk_net_refcnt))
+	if (unlikely(sk->sk_net_refcnt && sock_diag_has_destroy_listeners(sk)))
 		sock_diag_broadcast_destroy(sk);
 	else
 		sk_destruct(sk);
@@ -1534,6 +1551,8 @@ struct sock *sk_clone_lock(const struct sock *sk, const gfp_t priority)
 		struct sk_filter *filter;
 
 		sock_copy(newsk, sk);
+
+		newsk->sk_prot_creator = sk->sk_prot;
 
 		/* SANITY */
 		if (likely(newsk->sk_net_refcnt))
@@ -2125,16 +2144,18 @@ int __sk_mem_schedule(struct sock *sk, int size, int kind)
 
 	/* guarantee minimum buffer size under pressure */
 	if (kind == SK_MEM_RECV) {
-		if (atomic_read(&sk->sk_rmem_alloc) < prot->sysctl_rmem[0])
+		if (atomic_read(&sk->sk_rmem_alloc) < sk_get_rmem0(sk, prot))
 			return 1;
 
 	} else { /* SK_MEM_SEND */
+		int wmem0 = sk_get_wmem0(sk, prot);
+
 		if (sk->sk_type == SOCK_STREAM) {
-			if (sk->sk_wmem_queued < prot->sysctl_wmem[0])
+			if (sk->sk_wmem_queued < wmem0)
 				return 1;
-		} else if (atomic_read(&sk->sk_wmem_alloc) <
-			   prot->sysctl_wmem[0])
+		} else if (atomic_read(&sk->sk_wmem_alloc) < wmem0) {
 				return 1;
+		}
 	}
 
 	if (sk_has_memory_pressure(sk)) {
@@ -2451,6 +2472,7 @@ void sock_init_data(struct socket *sock, struct sock *sk)
 
 	sk->sk_max_pacing_rate = ~0U;
 	sk->sk_pacing_rate = ~0U;
+	sk->sk_pacing_shift = 10;
 	sk->sk_incoming_cpu = -1;
 	/*
 	 * Before updating sk_refcnt, we must commit prior changes to memory

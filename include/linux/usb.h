@@ -330,6 +330,7 @@ struct usb_host_bos {
 	struct usb_ss_cap_descriptor	*ss_cap;
 	struct usb_ssp_cap_descriptor	*ssp_cap;
 	struct usb_ss_container_id_descriptor	*ss_id;
+	struct usb_ptm_cap_descriptor	*ptm_cap;
 };
 
 int __usb_get_extra_descriptor(char *buffer, unsigned size,
@@ -414,6 +415,16 @@ enum usb_port_connect_type {
 	USB_PORT_CONNECT_TYPE_HARD_WIRED,
 	USB_PORT_NOT_USED,
 };
+
+/*
+ * USB port quirks.
+ */
+
+/* For the given port, prefer the old (faster) enumeration scheme. */
+#define USB_PORT_QUIRK_OLD_SCHEME	BIT(0)
+
+/* Decrease TRSTRCY to 10ms during device enumeration. */
+#define USB_PORT_QUIRK_FAST_ENUM	BIT(1)
 
 /*
  * USB 2.0 Link Power Management (LPM) parameters.
@@ -1862,6 +1873,10 @@ usb_maxpacket(struct usb_device *udev, int pipe, int is_out)
 	/* NOTE:  only 0x07ff bits are for packet size... */
 	return usb_endpoint_maxp(&ep->desc);
 }
+
+/* ----------------------------------------------------------------------- */
+
+extern void usb_file_drop_privileges(struct file *file);
 
 /* ----------------------------------------------------------------------- */
 

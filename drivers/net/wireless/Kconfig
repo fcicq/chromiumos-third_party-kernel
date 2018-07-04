@@ -88,6 +88,14 @@ config USB_NET_RNDIS_WLAN
 
 	  If you choose to build a module, it'll be called rndis_wlan.
 
+config EVE_ETSI_WORKAROUND
+        bool "Enable Eve-specific wmm limits to meet ETSI requirements"
+        depends on WLAN
+        default n
+        help
+          Required for ETSI compliance for Eve. This turns on wmm
+          limits in the iwl7000 driver.
+
 config MAC80211_HWSIM
 	tristate "Simulated radio testing tool for mac80211"
 	depends on MAC80211

@@ -101,10 +101,17 @@ static void skl_enable_miscbdcge(struct device *dev, bool enable)
  */
 static int skl_init_chip(struct hdac_bus *bus, bool full_reset)
 {
+	struct hdac_ext_bus *ebus = hbus_to_ebus(bus);
+	struct hdac_ext_link *hlink;
 	int ret;
 
 	skl_enable_miscbdcge(bus->dev, false);
 	ret = snd_hdac_bus_init_chip(bus, full_reset);
+
+	/* Reset stream-to-link mapping */
+	list_for_each_entry(hlink, &ebus->hlink_list, list)
+		bus->io_ops->reg_writel(0, hlink->ml_addr + AZX_REG_ML_LOSIDV);
+
 	skl_enable_miscbdcge(bus->dev, true);
 
 	return ret;
@@ -452,146 +459,31 @@ static struct skl_ssp_clk skl_ssp_clks[] = {
 						{.name = "ssp5_sclkfs"},
 };
 
-static enum skl_clk_type skl_get_clk_type(u32 index)
+static int skl_find_machine(struct skl *skl, void *driver_data)
 {
-	switch (index) {
-	case 0 ... (SKL_SCLK_OFS - 1):
-		return SKL_MCLK;
-
-	case SKL_SCLK_OFS ... (SKL_SCLKFS_OFS - 1):
-		return SKL_SCLK;
-
-	case SKL_SCLKFS_OFS ... (SKL_MAX_CLK_CNT - 1):
-		return SKL_SCLK_FS;
-
-	default:
-		return -EINVAL;
-	}
-}
-
-static int skl_get_vbus_id(u32 index, u8 clk_type)
-{
-	switch (clk_type) {
-	case SKL_MCLK:
-		return index;
-
-	case SKL_SCLK:
-		return index - SKL_SCLK_OFS;
-
-	case SKL_SCLK_FS:
-		return index - SKL_SCLKFS_OFS;
-
-	default:
-		return -EINVAL;
-	}
-}
-
-static struct skl_clk_rate_cfg_table *skl_get_rate_cfg(
-		struct skl_clk_rate_cfg_table *rcfg,
-				unsigned long rate)
-{
-	int i;
-
-	for (i = 0; (i < SKL_MAX_CLK_RATES) && rcfg[i].rate; i++) {
-		if (rcfg[i].rate == rate)
-			return &rcfg[i];
-	}
-
-	return NULL;
-}
-
-static int skl_clk_prepare(void *pvt_data, u32 id, unsigned long rate)
-{
-	struct skl *skl = pvt_data;
-	struct skl_clk_rate_cfg_table *rcfg;
-	int vbus_id, clk_type, ret;
-
-	clk_type = skl_get_clk_type(id);
-	if (clk_type < 0)
-		return -EINVAL;
-
-	ret = skl_get_vbus_id(id, clk_type);
-	if (ret < 0)
-		return ret;
-
-	vbus_id = ret;
-
-	rcfg = skl_get_rate_cfg(skl_ssp_clks[id].rate_cfg, rate);
-	if (!rcfg)
-		return -EINVAL;
-
-	ret = skl_send_clk_dma_control(skl, rcfg, vbus_id, clk_type, true);
-
-	return ret;
-}
-
-static int skl_clk_unprepare(void *pvt_data, u32 id, unsigned long rate)
-{
-	struct skl *skl = pvt_data;
-	struct skl_clk_rate_cfg_table *rcfg;
-	int vbus_id, ret;
-	u8 clk_type;
-
-	clk_type = skl_get_clk_type(id);
-	ret = skl_get_vbus_id(id, clk_type);
-	if (ret < 0)
-		return ret;
-
-	vbus_id = ret;
-
-	rcfg = skl_get_rate_cfg(skl_ssp_clks[id].rate_cfg, rate);
-	if (!rcfg)
-		return -EINVAL;
-
-	return skl_send_clk_dma_control(skl, rcfg, vbus_id, clk_type, false);
-}
-
-static int skl_clk_set_rate(u32 id, unsigned long rate)
-{
-	struct skl_clk_rate_cfg_table *rcfg;
-	u8 clk_type;
-
-	if (!rate)
-		return -EINVAL;
-
-	clk_type = skl_get_clk_type(id);
-	rcfg = skl_get_rate_cfg(skl_ssp_clks[id].rate_cfg, rate);
-	if (!rcfg)
-		return -EINVAL;
-
-	skl_fill_clk_ipc(rcfg, clk_type);
-
-	return 0;
-}
-
-unsigned long skl_clk_recalc_rate(u32 id, unsigned long parent_rate)
-{
-	struct skl_clk_rate_cfg_table *rcfg;
-	u8 clk_type;
-
-	clk_type = skl_get_clk_type(id);
-	rcfg = skl_get_rate_cfg(skl_ssp_clks[id].rate_cfg, parent_rate);
-	if (!rcfg)
-		return 0;
-
-	skl_fill_clk_ipc(rcfg, clk_type);
-
-	return rcfg->rate;
-}
-
-static int skl_machine_device_register(struct skl *skl, void *driver_data)
-{
-	struct hdac_bus *bus = ebus_to_hbus(&skl->ebus);
-	struct platform_device *pdev;
 	struct sst_acpi_mach *mach = driver_data;
-	int ret;
+	struct hdac_bus *bus = ebus_to_hbus(&skl->ebus);
+	struct skl_machine_pdata *pdata;
 
 	mach = sst_acpi_find_machine(mach);
 	if (mach == NULL) {
 		dev_err(bus->dev, "No matching machine driver found\n");
 		return -ENODEV;
 	}
+
+	skl->mach = mach;
 	skl->fw_name = mach->fw_filename;
+	pdata = skl->mach->pdata;
+
+	return 0;
+}
+
+static int skl_machine_device_register(struct skl *skl)
+{
+	struct hdac_bus *bus = ebus_to_hbus(&skl->ebus);
+	struct sst_acpi_mach *mach = skl->mach;
+	struct platform_device *pdev;
+	int ret;
 
 	pdev = platform_device_alloc(mach->drv_name, -1);
 	if (pdev == NULL) {
@@ -682,21 +574,10 @@ void init_skl_xtal_rate(int pci_id)
 	}
 }
 
-/*
- * prepare/unprepare are used instead of enable/disable as IPC will be sent
- * in non-atomic context.
- */
-static struct skl_clk_ops clk_ops = {
-	.prepare = skl_clk_prepare,
-	.unprepare = skl_clk_unprepare,
-	.set_rate = skl_clk_set_rate,
-	.recalc_rate = skl_clk_recalc_rate,
-};
-
 static int skl_clock_device_register(struct skl *skl)
 {
-	struct skl_clk_pdata *clk_pdata;
 	struct platform_device_info pdevinfo = {NULL};
+	struct skl_clk_pdata *clk_pdata;
 
 	clk_pdata = devm_kzalloc(&skl->pci->dev, sizeof(*clk_pdata),
 							GFP_KERNEL);
@@ -711,7 +592,6 @@ static int skl_clock_device_register(struct skl *skl)
 
 	/* Query NHLT to fill the rates and parent */
 	skl_get_clks(skl, clk_pdata->ssp_clks);
-	clk_pdata->ops = &clk_ops;
 	clk_pdata->pvt_data = skl;
 
 	/* Register Platform device */
@@ -721,10 +601,7 @@ static int skl_clock_device_register(struct skl *skl)
 	pdevinfo.data = clk_pdata;
 	pdevinfo.size_data = sizeof(*clk_pdata);
 	skl->clk_dev = platform_device_register_full(&pdevinfo);
-	if (IS_ERR(skl->clk_dev))
-		return PTR_ERR(skl->clk_dev);
-
-	return 0;
+	return PTR_ERR_OR_ZERO(skl->clk_dev);
 }
 
 static void skl_clock_device_unregister(struct skl *skl)
@@ -741,7 +618,7 @@ static int probe_codec(struct hdac_ext_bus *ebus, int addr)
 	struct hdac_bus *bus = ebus_to_hbus(ebus);
 	unsigned int cmd = (addr << 28) | (AC_NODE_ROOT << 20) |
 		(AC_VERB_PARAMETERS << 8) | AC_PAR_VENDOR_ID;
-	unsigned int res;
+	unsigned int res = -1;
 
 	mutex_lock(&bus->cmd_mutex);
 	snd_hdac_bus_send_cmd(bus, cmd);
@@ -843,18 +720,30 @@ static void skl_probe_work(struct work_struct *work)
 	if (err < 0)
 		goto out_err;
 
+	/* register platform dai and controls */
+	err = skl_platform_register(bus->dev);
+	if (err < 0) {
+		dev_err(bus->dev, "platform register failed: %d\n", err);
+		return;
+	}
+
+	if (ebus->ppcap) {
+		err = skl_machine_device_register(skl);
+		if (err < 0) {
+			dev_err(bus->dev, "machine register failed: %d\n", err);
+			goto out_err;
+		}
+	}
+
 	if (IS_ENABLED(CONFIG_SND_SOC_HDAC_HDMI)) {
 		err = snd_hdac_display_power(bus, false);
 		if (err < 0) {
 			dev_err(bus->dev, "Cannot turn off display power on i915\n");
+			skl_machine_device_unregister(skl);
 			return;
 		}
 	}
 
-	/* register platform dai and controls */
-	err = skl_platform_register(bus->dev);
-	if (err < 0)
-		return;
 	/*
 	 * we are done probing so decrement link counts
 	 */
@@ -1022,18 +911,16 @@ static int skl_probe(struct pci_dev *pci,
 		if (err < 0)
 			goto out_clk_free;
 
-		err = skl_machine_device_register(skl,
-				  (void *)pci_id->driver_data);
+		err = skl_find_machine(skl, (void *)pci_id->driver_data);
 		if (err < 0)
 			goto out_nhlt_free;
 
 		err = skl_init_dsp(skl);
 		if (err < 0) {
 			dev_dbg(bus->dev, "error failed to register dsp\n");
-			goto out_mach_free;
+			goto out_nhlt_free;
 		}
 		skl->skl_sst->enable_miscbdcge = skl_enable_miscbdcge;
-
 	}
 	if (ebus->mlcap)
 		snd_hdac_ext_bus_get_ml_capabilities(ebus);
@@ -1051,8 +938,6 @@ static int skl_probe(struct pci_dev *pci,
 
 out_dsp_free:
 	skl_free_dsp(skl);
-out_mach_free:
-	skl_machine_device_unregister(skl);
 out_clk_free:
 	skl_clock_device_unregister(skl);
 out_nhlt_free:
@@ -1138,6 +1023,15 @@ static struct sst_codecs kbl_5663_5514_codecs = {
 	.codecs = {"10EC5663", "10EC5514"}
 };
 
+static struct sst_codecs kbl_7219_98357_codecs = {
+	.num_codecs = 1,
+	.codecs = {"MX98357A"}
+};
+
+static struct sst_codecs kbl_7219_98373_codecs = {
+	.num_codecs = 1,
+	.codecs = {"MX98373"}
+};
 
 static struct sst_acpi_mach sst_skl_devdata[] = {
 	{
@@ -1221,6 +1115,28 @@ static struct sst_acpi_mach sst_kbl_devdata[] = {
 		.id = "10EC5663",
 		.drv_name = "kbl_rt5663",
 		.fw_filename = "intel/dsp_fw_kbl.bin",
+	},
+	{
+		.id = "DLGS7219",
+		.drv_name = "kbl_da7219_max98357a",
+		.fw_filename = "intel/dsp_fw_kbl.bin",
+		.machine_quirk = sst_acpi_codec_list,
+		.quirk_data = &kbl_7219_98357_codecs,
+		.pdata = &skl_dmic_data
+	},
+	{
+		.id = "DLGS7219",
+		.drv_name = "kbl_da7219_max98373",
+		.fw_filename = "intel/dsp_fw_kbl.bin",
+		.machine_quirk = sst_acpi_codec_list,
+		.quirk_data = &kbl_7219_98373_codecs,
+                .pdata = &skl_dmic_data
+	},
+	{
+		.id = "MX98373",
+		.drv_name = "kbl_max98373",
+		.fw_filename = "intel/dsp_fw_kbl.bin",
+		.pdata = &skl_dmic_data
 	},
 
 	{}

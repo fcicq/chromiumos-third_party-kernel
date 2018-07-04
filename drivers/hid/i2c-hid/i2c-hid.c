@@ -143,10 +143,10 @@ struct i2c_hid {
 						   * register of the HID
 						   * descriptor. */
 	unsigned int		bufsize;	/* i2c buffer size */
-	char			*inbuf;		/* Input buffer */
-	char			*rawbuf;	/* Raw Input buffer */
-	char			*cmdbuf;	/* Command buffer */
-	char			*argsbuf;	/* Command arguments buffer */
+	u8			*inbuf;		/* Input buffer */
+	u8			*rawbuf;	/* Raw Input buffer */
+	u8			*cmdbuf;	/* Command buffer */
+	u8			*argsbuf;	/* Command arguments buffer */
 
 	unsigned long		flags;		/* device flags */
 	unsigned long		quirks;		/* Various quirks */
@@ -159,6 +159,9 @@ struct i2c_hid {
 
 	bool			irq_wake_enabled;
 	struct regulator	*supply;
+	struct gpio_desc	*reset_gpio;
+	int			assert_reset_us;
+	int			deassert_reset_us;
 };
 
 static const struct i2c_hid_quirks {
@@ -444,7 +447,8 @@ static int i2c_hid_hwreset(struct i2c_client *client)
 
 static void i2c_hid_get_input(struct i2c_hid *ihid)
 {
-	int ret, ret_size;
+	int ret;
+	u32 ret_size;
 	int size = le16_to_cpu(ihid->hdesc.wMaxInputLength);
 
 	if (size > ihid->bufsize)
@@ -469,7 +473,7 @@ static void i2c_hid_get_input(struct i2c_hid *ihid)
 		return;
 	}
 
-	if (ret_size > size) {
+	if ((ret_size > size) || (ret_size <= 2)) {
 		dev_err(&ihid->client->dev, "%s: incomplete report (%d/%d)\n",
 			__func__, size, ret_size);
 		return;
@@ -795,6 +799,34 @@ static struct hid_ll_driver i2c_hid_ll_driver = {
 	.raw_request = i2c_hid_raw_request,
 };
 
+static int i2c_hid_hw_power_on(struct i2c_hid *ihid)
+{
+	int ret;
+
+	ret = regulator_enable(ihid->supply);
+	if (ret < 0)
+		return ret;
+
+	gpiod_set_value_cansleep(ihid->reset_gpio, 1);
+	if (ihid->assert_reset_us)
+		usleep_range(ihid->assert_reset_us,
+			     ihid->assert_reset_us + 10);
+
+	gpiod_set_value_cansleep(ihid->reset_gpio, 0);
+	if (ihid->deassert_reset_us)
+		usleep_range(ihid->deassert_reset_us,
+			     ihid->deassert_reset_us + 10);
+
+	return ret;
+}
+
+static int i2c_hid_hw_power_off(struct i2c_hid *ihid)
+{
+	gpiod_set_value_cansleep(ihid->reset_gpio, 1);
+
+	return regulator_disable(ihid->supply);
+}
+
 static int i2c_hid_init_irq(struct i2c_client *client)
 {
 	struct i2c_hid *ihid = i2c_get_clientdata(client);
@@ -987,10 +1019,20 @@ static int i2c_hid_probe(struct i2c_client *client,
 		return ret;
 	}
 
-	ret = regulator_enable(ihid->supply);
+	ihid->reset_gpio = devm_gpiod_get_optional(&client->dev, "reset",
+						   GPIOD_OUT_HIGH);
+	if (IS_ERR(ihid->reset_gpio))
+		return PTR_ERR(ihid->reset_gpio);
+
+	device_property_read_u32(&client->dev, "assert-reset-us",
+				 &ihid->assert_reset_us);
+
+	device_property_read_u32(&client->dev, "deassert-reset-us",
+				 &ihid->deassert_reset_us);
+
+	ret = i2c_hid_hw_power_on(ihid);
 	if (ret < 0) {
-		dev_err(&client->dev, "Failed to enable power regulator: %d\n",
-			ret);
+		dev_err(&client->dev, "Failed to power on: %d\n", ret);
 		return ret;
 	}
 
@@ -1127,7 +1169,7 @@ static int i2c_hid_remove(struct i2c_client *client)
 	if (ihid->desc)
 		gpiod_put(ihid->desc);
 
-	regulator_disable(ihid->supply);
+	i2c_hid_hw_power_off(ihid);
 
 	kfree(ihid);
 
@@ -1182,7 +1224,7 @@ static int i2c_hid_suspend(struct device *dev)
 			hid_warn(hid, "Failed to enable irq wake: %d\n",
 				wake_status);
 	} else {
-		ret = regulator_disable(ihid->supply);
+		ret = i2c_hid_hw_power_off(ihid);
 		if (ret < 0)
 			hid_warn(hid, "Failed to disable power supply: %d\n",
 				 ret);
@@ -1200,10 +1242,9 @@ static int i2c_hid_resume(struct device *dev)
 	int wake_status;
 
 	if (!device_may_wakeup(&client->dev)) {
-		ret = regulator_enable(ihid->supply);
+		ret = i2c_hid_hw_power_on(ihid);
 		if (ret < 0)
-			hid_warn(hid, "Failed to enable power supply: %d\n",
-				 ret);
+			hid_warn(hid, "Failed to enable power: %d\n", ret);
 	} else if (ihid->irq_wake_enabled) {
 		wake_status = disable_irq_wake(ihid->irq);
 		if (!wake_status)

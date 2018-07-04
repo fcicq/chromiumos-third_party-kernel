@@ -13,6 +13,7 @@
  */
 
 #include <drm/drmP.h>
+#include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_dp_helper.h>
@@ -39,9 +40,10 @@
 #include "cdn-dp-reg.h"
 #include "rockchip_drm_vop.h"
 
-#define HDCP_RETRY_INTERVAL_MS		100
-#define HDCP_EVENT_TIMEOUT_MS		500
-#define HDCP_AUTHENTICATE_DELAY_MS	100
+#define HDCP_TOGGLE_INTERVAL_US		10000
+#define HDCP_RETRY_INTERVAL_US		20000
+#define HDCP_EVENT_TIMEOUT_US		3000000
+#define HDCP_AUTHENTICATE_DELAY_MS	400
 
 #define HDCP_KEY_DATA_START_TRANSFER	0
 #define HDCP_KEY_DATA_START_DECRYPT	1
@@ -191,8 +193,8 @@ static int cdn_dp_get_sink_count(struct cdn_dp_device *dp, u8 *sink_count)
 	u8 value;
 
 	*sink_count = 0;
-	ret = cdn_dp_dpcd_read(dp, DP_SINK_COUNT, &value, 1);
-	if (ret)
+	ret = drm_dp_dpcd_read(&dp->aux, DP_SINK_COUNT, &value, 1);
+	if (ret < 0)
 		return ret;
 
 	*sink_count = DP_GET_SINK_COUNT(value);
@@ -205,41 +207,84 @@ static int cdn_dp_start_hdcp1x_auth(struct cdn_dp_device *dp)
 	struct arm_smccc_res res;
 	uint64_t *buf;
 
-	mutex_lock(&dp->lock);
 	if (!dp->active) {
-		dev_err(dp->dev, "firmware is not active\n");
-		goto out;
+		DRM_DEV_ERROR(dp->dev, "firmware is not active\n");
+		return 0;
 	}
 
 	arm_smccc_smc(RK_SIP_HDCP_CONTROL, HDCP_KEY_DATA_START_TRANSFER,
 		      0, 0, 0, 0, 0, 0, &res);
+	if (res.a0) {
+		DRM_DEV_ERROR(dp->dev, "start hdcp transfer failed: %#lx\n",
+			      res.a0);
+		return -EIO;
+	}
 
-	buf = (uint64_t *)&dp->key;
-
-	for (; !res.a0 && (u8 *)buf - (u8 *)&dp->key < sizeof(dp->key);
+	BUILD_BUG_ON(sizeof(dp->key) % 6);
+	for (buf = (uint64_t *)&dp->key;
+	     !res.a0 && (u8 *)buf - (u8 *)&dp->key < sizeof(dp->key);
 	     buf += 6)
 		arm_smccc_smc(RK_SIP_HDCP_KEY_DATA64, buf[0], buf[1],
 			      buf[2], buf[3], buf[4], buf[5], 0, &res);
 
 	if (res.a0) {
-		dev_err(dp->dev, "send hdcp keys failed: %ld\n", res.a0);
-		ret = -EIO;
-		goto out;
+		DRM_DEV_ERROR(dp->dev, "send hdcp keys failed: %#lx\n", res.a0);
+		return -EIO;
 	}
 	arm_smccc_smc(RK_SIP_HDCP_CONTROL, HDCP_KEY_DATA_START_DECRYPT,
 		      0, 0, 0, 0, 0, 0, &res);
 
-	ret = cdn_dp_hdcp_tx_configuration(dp, HDCP_TX_1, true);
+	/*
+	 * First thing's first, disable HDCP. The hardware likes to start with
+	 * a fresh slate, so this ensures that re-enabling on unplug/replug
+	 * works.
+	 */
+	ret = cdn_dp_hdcp_tx_configuration(dp, HDCP_TX_CONFIGURATION_HDCP_V1,
+					   false);
 	if (ret) {
-		dev_err(dp->dev, "start hdcp authentication failed: %d\n", ret);
-		goto out;
+		DRM_DEV_ERROR(dp->dev, "HDCP pre-disable failed %d\n", ret);
+		return ret;
+	}
+	usleep_range(HDCP_TOGGLE_INTERVAL_US, HDCP_TOGGLE_INTERVAL_US * 2);
+
+	ret = cdn_dp_hdcp_tx_configuration(dp, HDCP_TX_CONFIGURATION_HDCP_V1,
+					   true);
+	if (ret) {
+		DRM_DEV_ERROR(dp->dev, "start hdcp authentication failed: %d\n",
+			      ret);
+		return ret;
 	}
 
 	schedule_delayed_work(&dp->hdcp_event_work,
 			      msecs_to_jiffies(HDCP_AUTHENTICATE_DELAY_MS));
 
-out:
-	mutex_unlock(&dp->lock);
+	return ret;
+}
+
+static int cdn_dp_stop_hdcp1x_auth(struct cdn_dp_device *dp)
+{
+	int ret;
+
+	if (!dp->active)
+		return 0;
+
+	ret = cdn_dp_hdcp_tx_configuration(dp, HDCP_TX_CONFIGURATION_HDCP_V1,
+					   false);
+	if (!ret)
+		DRM_DEV_INFO(dp->dev, "HDCP has been disabled\n");
+	else
+		DRM_DEV_ERROR(dp->dev, "Disable HDCP failed %d\n", ret);
+
+	dp->hdcp_enabled = false;
+
+	/* If hdcp is still desired, we're disabling because of error or
+	 * hotplug. In both of these cases, we'll want to change the content
+	 * protection property from ENABLED to DESIRED. Schedule the property
+	 * worker for this.
+	 */
+	if (dp->hdcp_desired)
+		schedule_work(&dp->hdcp_prop_work);
+
 	return ret;
 }
 
@@ -310,52 +355,15 @@ static void cdn_dp_connector_destroy(struct drm_connector *connector)
 	drm_connector_cleanup(connector);
 }
 
-static int cdn_dp_set_content_protection(struct cdn_dp_device *dp,
-					  struct drm_mode_object *obj,
-					  struct drm_property *property,
-					  uint64_t val)
-{
-	int ret;
-
-	switch (val) {
-	case DRM_MODE_CONTENT_PROTECTION_UNDESIRED:
-		ret = cdn_dp_hdcp_tx_configuration(dp, HDCP_TX_1, false);
-		break;
-
-	case DRM_MODE_CONTENT_PROTECTION_DESIRED:
-		ret = cdn_dp_start_hdcp1x_auth(dp);
-		break;
-
-	case DRM_MODE_CONTENT_PROTECTION_ENABLED:
-		ret = -EINVAL;
-	}
-	return ret;
-}
-
-static int cdn_dp_connector_set_property(struct drm_connector *connector,
-						struct drm_property *property,
-						uint64_t val)
-{
-	struct cdn_dp_device *dp = connector_to_dp(connector);
-	int ret = 0;
-
-	if (strcmp(property->name, "Content Protection") == 0)
-		ret = cdn_dp_set_content_protection(dp, &connector->base,
-						    property, val);
-
-	return ret;
-}
-
 static int cdn_dp_connector_atomic_get_property(
 					struct drm_connector *connector,
 					const struct drm_connector_state *state,
 					struct drm_property *property,
 					uint64_t *val)
 {
-	struct drm_mode_config *mc = &connector->dev->mode_config;
 	int i;
 
-	if (property == mc->content_protection_property) {
+	if (property == connector->content_protection_property) {
 		for (i = 0; i < connector->properties.count; i++) {
 			if (connector->properties.properties[i] == property) {
 				*val = connector->properties.values[i];
@@ -373,11 +381,15 @@ static struct drm_connector_funcs cdn_dp_atomic_connector_funcs = {
 	.destroy = cdn_dp_connector_destroy,
 	.fill_modes = drm_helper_probe_single_connector_modes,
 	.reset = drm_atomic_helper_connector_reset,
-	.set_property = cdn_dp_connector_set_property,
+	.set_property = drm_atomic_helper_connector_set_property,
 	.atomic_get_property = cdn_dp_connector_atomic_get_property,
 	.atomic_duplicate_state = drm_atomic_helper_connector_duplicate_state,
 	.atomic_destroy_state = drm_atomic_helper_connector_destroy_state,
 };
+
+bool is_connector_cdn_dp(struct drm_connector *connector) {
+	return connector->funcs == &cdn_dp_atomic_connector_funcs;
+}
 
 static int cdn_dp_connector_get_modes(struct drm_connector *connector)
 {
@@ -504,9 +516,9 @@ static int cdn_dp_get_sink_capability(struct cdn_dp_device *dp)
 	if (!cdn_dp_check_sink_connection(dp))
 		return -ENODEV;
 
-	ret = cdn_dp_dpcd_read(dp, DP_DPCD_REV, dp->dpcd,
-			       DP_RECEIVER_CAP_SIZE);
-	if (ret) {
+	ret = drm_dp_dpcd_read(&dp->aux, DP_DPCD_REV, dp->dpcd,
+			       sizeof(dp->dpcd));
+	if (ret < 0) {
 		DRM_DEV_ERROR(dp->dev, "Failed to get caps %d\n", ret);
 		return ret;
 	}
@@ -599,6 +611,8 @@ static int cdn_dp_disable(struct cdn_dp_device *dp)
 {
 	int ret, i;
 
+	WARN_ON(!mutex_is_locked(&dp->lock));
+
 	if (!dp->active)
 		return 0;
 
@@ -671,6 +685,13 @@ static int cdn_dp_enable(struct cdn_dp_device *dp)
 		}
 	}
 
+	/* Enable hdcp if it's desired */
+	if (dp->connector.state->content_protection ==
+	    DRM_MODE_CONTENT_PROTECTION_DESIRED)
+		ret = cdn_dp_start_hdcp1x_auth(dp);
+
+	return ret;
+
 err_clk_disable:
 	cdn_dp_clk_disable(dp);
 	return ret;
@@ -712,8 +733,8 @@ static bool cdn_dp_check_link_status(struct cdn_dp_device *dp)
 	if (!port || !dp->link.rate || !dp->link.num_lanes)
 		return false;
 
-	if (cdn_dp_dpcd_read(dp, DP_LANE0_1_STATUS, link_status,
-			     DP_LINK_STATUS_SIZE)) {
+	if (drm_dp_dpcd_read_link_status(&dp->aux, link_status) !=
+	    DP_LINK_STATUS_SIZE) {
 		DRM_ERROR("Failed to get link status\n");
 		return false;
 	}
@@ -726,22 +747,14 @@ static void cdn_dp_encoder_enable(struct drm_encoder *encoder)
 {
 	struct cdn_dp_device *dp = encoder_to_dp(encoder);
 	int ret, val;
-	struct rockchip_crtc_state *state;
 
-	state = to_rockchip_crtc_state(encoder->crtc->state);
-	switch (vop_get_crtc_vop_id(encoder->crtc)) {
-	case RK3399_VOP_LIT:
+	ret = drm_of_encoder_active_endpoint_id(dp->dev->of_node, encoder);
+	if (ret) {
 		DRM_DEV_DEBUG_KMS(dp->dev, "vop LIT output to cdn-dp\n");
 		val = DP_SEL_VOP_LIT | (DP_SEL_VOP_LIT << 16);
-		state->output_mode = ROCKCHIP_OUT_MODE_P888;
-		break;
-	case RK3399_VOP_BIG:
+	} else {
 		DRM_DEV_DEBUG_KMS(dp->dev, "vop BIG output to cdn-dp\n");
 		val = DP_SEL_VOP_LIT << 16;
-		state->output_mode = ROCKCHIP_OUT_MODE_AAAA;
-		break;
-	default:
-		break;
 	}
 
 	ret = cdn_dp_grf_write(dp, GRF_SOC_CON9, val);
@@ -765,11 +778,13 @@ static void cdn_dp_encoder_enable(struct drm_encoder *encoder)
 			goto out;
 		}
 	}
-
-	ret = cdn_dp_set_video_status(dp, CONTROL_VIDEO_IDLE);
-	if (ret) {
-		DRM_DEV_ERROR(dp->dev, "Failed to idle video %d\n", ret);
-		goto out;
+	if (dp->use_fw_training) {
+		ret = cdn_dp_set_video_status(dp, CONTROL_VIDEO_IDLE);
+		if (ret) {
+			DRM_DEV_ERROR(dp->dev,
+				      "Failed to idle video %d\n", ret);
+			goto out;
+		}
 	}
 
 	ret = cdn_dp_config_video(dp);
@@ -778,11 +793,15 @@ static void cdn_dp_encoder_enable(struct drm_encoder *encoder)
 		goto out;
 	}
 
-	ret = cdn_dp_set_video_status(dp, CONTROL_VIDEO_VALID);
-	if (ret) {
-		DRM_DEV_ERROR(dp->dev, "Failed to valid video %d\n", ret);
-		goto out;
+	if (dp->use_fw_training) {
+		ret = cdn_dp_set_video_status(dp, CONTROL_VIDEO_VALID);
+		if (ret) {
+			DRM_DEV_ERROR(dp->dev,
+				"Failed to valid video %d\n", ret);
+			goto out;
+		}
 	}
+
 out:
 	mutex_unlock(&dp->lock);
 	if (!ret)
@@ -795,6 +814,7 @@ static void cdn_dp_encoder_disable(struct drm_encoder *encoder)
 	int ret;
 
 	mutex_lock(&dp->lock);
+
 	if (dp->active) {
 		ret = cdn_dp_disable(dp);
 		if (ret) {
@@ -818,16 +838,80 @@ static void cdn_dp_encoder_disable(struct drm_encoder *encoder)
 		schedule_work(&dp->event_work);
 }
 
+void cdn_dp_hdcp_atomic_enable(struct drm_connector *connector)
+{
+	struct cdn_dp_device *dp = connector_to_dp(connector);
+	int ret;
+
+	cancel_delayed_work_sync(&dp->hdcp_event_work);
+
+	mutex_lock(&dp->lock);
+
+	dp->hdcp_desired = true;
+
+	ret = cdn_dp_start_hdcp1x_auth(dp);
+	if (ret)
+		DRM_DEV_ERROR(dp->dev, "hdcp start failed %d\n", ret);
+
+	mutex_unlock(&dp->lock);
+}
+
+void cdn_dp_hdcp_atomic_disable(struct drm_connector *connector)
+{
+	struct cdn_dp_device *dp = connector_to_dp(connector);
+	uint64_t val;
+	int ret;
+
+	cancel_delayed_work_sync(&dp->hdcp_event_work);
+
+	mutex_lock(&dp->lock);
+
+	val = dp->connector.state->content_protection;
+	dp->hdcp_desired = val == DRM_MODE_CONTENT_PROTECTION_DESIRED;
+
+	ret = cdn_dp_stop_hdcp1x_auth(dp);
+	if (ret)
+		DRM_DEV_ERROR(dp->dev, "Failed to stop hdcp%d\n", ret);
+
+	mutex_unlock(&dp->lock);
+}
+
+static int cdn_dp_hdcp_atomic_check(struct cdn_dp_device *dp,
+				    uint64_t old_val,
+				    struct drm_crtc_state *crtc_state,
+				    struct drm_connector_state *conn_state)
+{
+	mutex_lock(&dp->lock);
+
+	if (!conn_state->crtc) {
+		/*
+		 * If the connector is being disabled with CP enabled, mark it
+		 * desired so it's re-enabled when the connector is brought back
+		 */
+		if (old_val == DRM_MODE_CONTENT_PROTECTION_ENABLED)
+			conn_state->content_protection =
+				DRM_MODE_CONTENT_PROTECTION_DESIRED;
+	}
+
+	mutex_unlock(&dp->lock);
+	return 0;
+}
+
 static int cdn_dp_encoder_atomic_check(struct drm_encoder *encoder,
 				       struct drm_crtc_state *crtc_state,
 				       struct drm_connector_state *conn_state)
 {
+	struct cdn_dp_device *dp = encoder_to_dp(encoder);
 	struct rockchip_crtc_state *s = to_rockchip_crtc_state(crtc_state);
+	uint64_t old_cp = DRM_MODE_CONTENT_PROTECTION_UNDESIRED;
 
 	s->output_mode = ROCKCHIP_OUT_MODE_AAAA;
 	s->output_type = DRM_MODE_CONNECTOR_DisplayPort;
 
-	return 0;
+	if (dp->connector.state)
+		old_cp = dp->connector.state->content_protection;
+
+	return cdn_dp_hdcp_atomic_check(dp, old_cp, crtc_state, conn_state);
 }
 
 static struct drm_encoder_helper_funcs cdn_dp_encoder_helper_funcs = {
@@ -1083,6 +1167,8 @@ static void cdn_dp_pd_event_work(struct work_struct *work)
 	if (!cdn_dp_connected_port(dp)) {
 		DRM_DEV_INFO(dp->dev, "Not connected. Disabling cdn\n");
 		dp->connected = false;
+		if (dp->hdcp_desired)
+			cdn_dp_stop_hdcp1x_auth(dp);
 
 	/* Connected but not enabled, enable the block */
 	} else if (!dp->active) {
@@ -1091,12 +1177,16 @@ static void cdn_dp_pd_event_work(struct work_struct *work)
 		if (ret) {
 			DRM_DEV_ERROR(dp->dev, "Enable dp failed %d\n", ret);
 			dp->connected = false;
+			if (dp->hdcp_desired)
+				cdn_dp_stop_hdcp1x_auth(dp);
 		}
 
 	/* Enabled and connected to a dongle without a sink, notify userspace */
 	} else if (!cdn_dp_check_sink_connection(dp)) {
 		DRM_DEV_INFO(dp->dev, "Connected without sink. Assert hpd\n");
 		dp->connected = false;
+		if (dp->hdcp_desired)
+			cdn_dp_stop_hdcp1x_auth(dp);
 
 	/* Enabled and connected with a sink, re-train if requested */
 	} else if (!cdn_dp_check_link_status(dp)) {
@@ -1122,6 +1212,14 @@ static void cdn_dp_pd_event_work(struct work_struct *work)
 					      "Failed to config video %d\n",
 					      ret);
 			}
+		}
+
+		if (dp->hdcp_desired) {
+			ret = cdn_dp_start_hdcp1x_auth(dp);
+			if (ret)
+				DRM_DEV_ERROR(dp->dev,
+					      "Failed to re-enable hdcp %d\n",
+					      ret);
 		}
 	}
 
@@ -1151,22 +1249,12 @@ static int cdn_dp_pd_event(struct notifier_block *nb,
 	return NOTIFY_DONE;
 }
 
-static int cdn_dp_set_hdcp_drm_property(struct cdn_dp_device *dp, uint64_t val)
-{
-	struct drm_connector *connector = &dp->connector;
-	struct drm_mode_config *mc = &connector->dev->mode_config;
-
-	return drm_object_property_set_value(&connector->base,
-					     mc->content_protection_property,
-					     val);
-}
-
 static bool cdn_dp_hdcp_authorize(struct cdn_dp_device *dp)
 {
 	bool auth_done = false;
 	u16 tx_status;
 	u32 sw_event;
-	int ret;
+	int ret = 0;
 
 	mutex_lock(&dp->lock);
 
@@ -1182,33 +1270,36 @@ static bool cdn_dp_hdcp_authorize(struct cdn_dp_device *dp)
 	sw_event = cdn_dp_get_event(dp);
 
 	if (sw_event & HDCP_TX_STATUS_EVENT) {
-		auth_done = true;
-
 		ret = cdn_dp_hdcp_tx_status_req(dp, &tx_status);
 		if (ret)
 			goto out;
 		if (HDCP_TX_STATUS_ERROR(tx_status)) {
-			dev_err(dp->dev, "hdcp status error: %x\n",
+			dp->hdcp_enabled = false;
+			DRM_DEV_ERROR(dp->dev, "hdcp status error: %#x\n",
 				HDCP_TX_STATUS_ERROR(tx_status));
 			goto out;
 		} else if (tx_status & HDCP_TX_STATUS_AUTHENTICATED) {
-			cdn_dp_set_hdcp_drm_property(dp,
-				DRM_MODE_CONTENT_PROTECTION_ENABLED);
+			if (!ret) {
+				dp->hdcp_enabled = true;
+				auth_done = true;
+				DRM_DEV_INFO(dp->dev, "HDCP is enabled\n");
+			}
 			goto out;
-		} else {
-			auth_done = false;
 		}
 	}
 
 	if (sw_event & HDCP_TX_IS_RECEIVER_ID_VALID_EVENT) {
 		ret = cdn_dp_hdcp_tx_is_receiver_id_valid_req(dp);
 		if (ret) {
+			dp->hdcp_enabled = false;
 			auth_done = true;
 			goto out;
 		}
 		ret = cdn_dp_hdcp_tx_respond_id_valid(dp, true);
-		if (ret)
+		if (ret) {
+			dp->hdcp_enabled = false;
 			auth_done = true;
+		}
 	}
 
 out:
@@ -1221,16 +1312,89 @@ static void cdn_dp_hdcp_event_work(struct work_struct *work)
 {
 	struct cdn_dp_device *dp = container_of(work, struct cdn_dp_device,
 						hdcp_event_work.work);
-	unsigned long timeout = jiffies +
-				msecs_to_jiffies(HDCP_EVENT_TIMEOUT_MS);
+	bool auth_done;
+	int ret;
 
-	while (time_before(jiffies, timeout)) {
-		if (cdn_dp_hdcp_authorize(dp))
-			return;
-		msleep(HDCP_RETRY_INTERVAL_MS);
+	ret = readx_poll_timeout(cdn_dp_hdcp_authorize, dp, auth_done,
+				 auth_done, HDCP_RETRY_INTERVAL_US,
+				 HDCP_EVENT_TIMEOUT_US);
+	if (ret)
+		DRM_DEV_ERROR(dp->dev, "Failed to authorize hdcp\n");
+
+	/*
+	 * Ensure the content_protection property value is consistent with the
+	 * current authentication state of the hardware. This might mean a
+	 * transition from DESIRED->ENABLED, or in the case of error,
+	 * ENABLED->DESIRED. We never transition to ->UNDESIRED, that's up to
+	 * atomic_check().
+	 */
+	schedule_work(&dp->hdcp_prop_work);
+}
+
+static void cdn_dp_hdcp_prop_work(struct work_struct *work)
+{
+	struct cdn_dp_device *dp = container_of(work, struct cdn_dp_device,
+						hdcp_prop_work);
+	struct drm_device *dev = dp->drm_dev;
+	struct drm_connector *connector = &dp->connector;
+	struct drm_connector_state *state;
+	uint64_t val;
+
+	drm_modeset_lock(&dev->mode_config.connection_mutex, NULL);
+	mutex_lock(&dp->lock);
+
+	/*
+	 * This worker is only used to flip between ENABLED/DESIRED. Either of
+	 * those to UNDESIRED is handled by core. If !hdcp_desired, we're
+	 * running just after hdcp has been disabled, so just exit
+	 */
+	if (dp->hdcp_desired) {
+		if (dp->hdcp_enabled)
+			val = DRM_MODE_CONTENT_PROTECTION_ENABLED;
+		else
+			val = DRM_MODE_CONTENT_PROTECTION_DESIRED;
+
+		state = connector->state;
+		state->content_protection = val;
 	}
 
-	dev_err(dp->dev, "Failed to authorize hdcp\n");
+	mutex_unlock(&dp->lock);
+	drm_modeset_unlock(&dev->mode_config.connection_mutex);
+
+}
+
+static ssize_t cdn_dp_aux_transfer(struct drm_dp_aux *aux,
+				   struct drm_dp_aux_msg *msg)
+{
+	struct cdn_dp_device *dp = container_of(aux, struct cdn_dp_device, aux);
+	int ret;
+	u8 status;
+
+	switch (msg->request & ~DP_AUX_I2C_MOT) {
+	case DP_AUX_NATIVE_WRITE:
+	case DP_AUX_I2C_WRITE:
+	case DP_AUX_I2C_WRITE_STATUS_UPDATE:
+		ret = cdn_dp_dpcd_write(dp, msg->address, msg->buffer,
+					msg->size);
+		break;
+	case DP_AUX_NATIVE_READ:
+	case DP_AUX_I2C_READ:
+		ret = cdn_dp_dpcd_read(dp, msg->address, msg->buffer,
+				       msg->size);
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	status = cdn_dp_get_aux_status(dp);
+	if (status == AUX_STATUS_ACK)
+		msg->reply = DP_AUX_NATIVE_REPLY_ACK;
+	else if (status == AUX_STATUS_NACK)
+		msg->reply = DP_AUX_NATIVE_REPLY_NACK;
+	else if (status == AUX_STATUS_DEFER)
+		msg->reply = DP_AUX_NATIVE_REPLY_DEFER;
+
+	return ret;
 }
 
 static int cdn_dp_bind(struct device *dev, struct device *master, void *data)
@@ -1240,7 +1404,6 @@ static int cdn_dp_bind(struct device *dev, struct device *master, void *data)
 	struct drm_connector *connector;
 	struct cdn_dp_port *port;
 	struct drm_device *drm_dev = data;
-	struct drm_mode_config *mode_config;
 	int ret, i;
 
 	ret = cdn_dp_parse_dt(dp);
@@ -1251,9 +1414,18 @@ static int cdn_dp_bind(struct device *dev, struct device *master, void *data)
 	dp->connected = false;
 	dp->active = false;
 	dp->active_port = -1;
+	dp->fw_loaded = false;
+	dp->aux.name = "DP-AUX";
+	dp->aux.transfer = cdn_dp_aux_transfer;
+	dp->aux.dev = dev;
+
+	ret = drm_dp_aux_register(&dp->aux);
+	if (ret)
+		return ret;
 
 	INIT_WORK(&dp->event_work, cdn_dp_pd_event_work);
 	INIT_DELAYED_WORK(&dp->hdcp_event_work, cdn_dp_hdcp_event_work);
+	INIT_WORK(&dp->hdcp_prop_work, cdn_dp_hdcp_prop_work);
 
 	encoder = &dp->encoder;
 
@@ -1310,10 +1482,11 @@ static int cdn_dp_bind(struct device *dev, struct device *master, void *data)
 
 	schedule_work(&dp->event_work);
 
-	mode_config = &connector->dev->mode_config;
-	drm_object_attach_property(&connector->base,
-				   mode_config->content_protection_property,
-				   DRM_MODE_CONTENT_PROTECTION_UNDESIRED);
+	ret = drm_connector_attach_content_protection_property(connector);
+	if (ret) {
+		DRM_DEV_ERROR(dev, "Failed to attach protection (%d)\n", ret);
+		goto err_free_connector;
+	}
 
 	return 0;
 
@@ -1337,7 +1510,8 @@ static void cdn_dp_unbind(struct device *dev, struct device *master, void *data)
 	connector->funcs->destroy(connector);
 
 	pm_runtime_disable(dev);
-	release_firmware(dp->fw);
+	if (dp->fw_loaded)
+		release_firmware(dp->fw);
 	kfree(dp->edid);
 	dp->edid = NULL;
 }
@@ -1363,13 +1537,13 @@ static ssize_t hdcp_key_store(struct device *dev,
 	 * would be (308 * 2) byte.
 	 */
 	if (count != (CDN_DP_HDCP_KEY_LEN * 2)) {
-		dev_err(dev, "mis-match hdcp cipher length\n");
+		DRM_DEV_ERROR(dev, "mis-match hdcp cipher length\n");
 		return -EINVAL;
 	}
 
 	cell = nvmem_cell_get(dev, "cpu-id");
 	if (IS_ERR(cell)) {
-		dev_err(dev, "missing cpu-id nvmen cell property\n");
+		DRM_DEV_ERROR(dev, "missing cpu-id nvmen cell property\n");
 		return -ENODEV;
 	}
 
@@ -1380,7 +1554,7 @@ static ssize_t hdcp_key_store(struct device *dev,
 		return PTR_ERR(cpu_id);
 
 	if (len != CDN_DP_HDCP_UID_LEN) {
-		dev_err(dev, "mismatch cpu-id size\n");
+		DRM_DEV_ERROR(dev, "mismatch cpu-id size\n");
 		ret = -EINVAL;
 		goto err;
 	}
@@ -1395,7 +1569,8 @@ static ssize_t hdcp_key_store(struct device *dev,
 	 */
 	ret = hex2bin((u8 *)&dp->key, buf, CDN_DP_HDCP_KEY_LEN);
 	if (ret) {
-		dev_err(dev, "failed to decode the input HDCP key format\n");
+		DRM_DEV_ERROR(dev, "decode input HDCP key format failed %d\n",
+			      ret);
 		goto err;
 	}
 
@@ -1466,7 +1641,7 @@ static int cdn_dp_probe(struct platform_device *pdev)
 			continue;
 
 		port = devm_kzalloc(dev, sizeof(*port), GFP_KERNEL);
-		if (!dp)
+		if (!port)
 			return -ENOMEM;
 
 		port->extcon = extcon;
@@ -1522,7 +1697,7 @@ static const struct dev_pm_ops cdn_dp_pm_ops = {
 				cdn_dp_resume)
 };
 
-static struct platform_driver cdn_dp_driver = {
+struct platform_driver cdn_dp_driver = {
 	.probe = cdn_dp_probe,
 	.remove = cdn_dp_remove,
 	.shutdown = cdn_dp_shutdown,
@@ -1533,9 +1708,3 @@ static struct platform_driver cdn_dp_driver = {
 		   .pm = &cdn_dp_pm_ops,
 	},
 };
-
-module_platform_driver(cdn_dp_driver);
-
-MODULE_AUTHOR("Chris Zhong <zyw@rock-chips.com>");
-MODULE_DESCRIPTION("cdn DP Driver");
-MODULE_LICENSE("GPL v2");

@@ -239,6 +239,9 @@ struct ath10k_hw_regs {
 	u32 pcie_intr_fw_mask;
 	u32 pcie_intr_ce_mask_all;
 	u32 pcie_intr_clr_address;
+	u32 cpu_pll_init_address;
+	u32 cpu_speed_address;
+	u32 core_clk_div_address;
 };
 
 extern const struct ath10k_hw_regs qca988x_regs;
@@ -335,6 +338,30 @@ enum ath10k_hw_rate_cck {
 enum ath10k_hw_4addr_pad {
 	ATH10K_HW_4ADDR_PAD_AFTER,
 	ATH10K_HW_4ADDR_PAD_BEFORE,
+};
+
+enum ath10k_hw_refclk_speed {
+	ATH10K_HW_REFCLK_UNKNOWN = -1,
+	ATH10K_HW_REFCLK_48_MHZ = 0,
+	ATH10K_HW_REFCLK_19_2_MHZ = 1,
+	ATH10K_HW_REFCLK_24_MHZ = 2,
+	ATH10K_HW_REFCLK_26_MHZ = 3,
+	ATH10K_HW_REFCLK_37_4_MHZ = 4,
+	ATH10K_HW_REFCLK_38_4_MHZ = 5,
+	ATH10K_HW_REFCLK_40_MHZ = 6,
+	ATH10K_HW_REFCLK_52_MHZ = 7,
+
+	/* must be the last one */
+	ATH10K_HW_REFCLK_COUNT,
+};
+
+struct ath10k_hw_clk_params {
+	u32 refclk;
+	u32 div;
+	u32 rnfrac;
+	u32 settle_time;
+	u32 refdiv;
+	u32 outdiv;
 };
 
 /* Target specific defines for MAIN firmware */
@@ -476,6 +503,20 @@ enum ath10k_hw_4addr_pad {
 #define TARGET_10_4_ATF_CONFIG			0
 #define TARGET_10_4_IPHDR_PAD_CONFIG		1
 #define TARGET_10_4_QWRAP_CONFIG		0
+
+struct htt_rx_desc;
+
+/* Defines needed for Rx descriptor abstraction */
+struct ath10k_hw_ops {
+	int (*rx_desc_get_l3_pad_bytes)(struct htt_rx_desc *rxd);
+	int (*enable_pll_clk)(struct ath10k *ar);
+};
+
+extern const struct ath10k_hw_ops qca988x_ops;
+extern const struct ath10k_hw_ops qca99x0_ops;
+extern const struct ath10k_hw_ops qca6174_ops;
+
+extern const struct ath10k_hw_clk_params qca6174_clk[];
 
 /* Number of Copy Engines supported */
 #define CE_COUNT ar->hw_values->ce_count
@@ -693,5 +734,39 @@ enum ath10k_hw_4addr_pad {
 #define WINDOW_WRITE_ADDR_ADDRESS		MISSING
 
 #define RTC_STATE_V_GET(x) (((x) & RTC_STATE_V_MASK) >> RTC_STATE_V_LSB)
+
+/* qca6174 PLL offset/mask */
+#define SOC_CORE_CLK_CTRL_OFFSET		0x00000114
+#define SOC_CORE_CLK_CTRL_DIV_LSB		0
+#define SOC_CORE_CLK_CTRL_DIV_MASK		0x00000007
+
+#define EFUSE_OFFSET				0x0000032c
+#define EFUSE_XTAL_SEL_LSB			8
+#define EFUSE_XTAL_SEL_MASK			0x00000700
+
+#define BB_PLL_CONFIG_OFFSET			0x000002f4
+#define BB_PLL_CONFIG_FRAC_LSB			0
+#define BB_PLL_CONFIG_FRAC_MASK			0x0003ffff
+#define BB_PLL_CONFIG_OUTDIV_LSB		18
+#define BB_PLL_CONFIG_OUTDIV_MASK		0x001c0000
+
+#define WLAN_PLL_SETTLE_OFFSET			0x0018
+#define WLAN_PLL_SETTLE_TIME_LSB		0
+#define WLAN_PLL_SETTLE_TIME_MASK		0x000007ff
+
+#define WLAN_PLL_CONTROL_OFFSET			0x0014
+#define WLAN_PLL_CONTROL_DIV_LSB		0
+#define WLAN_PLL_CONTROL_DIV_MASK		0x000003ff
+#define WLAN_PLL_CONTROL_REFDIV_LSB		10
+#define WLAN_PLL_CONTROL_REFDIV_MASK		0x00003c00
+#define WLAN_PLL_CONTROL_BYPASS_LSB		16
+#define WLAN_PLL_CONTROL_BYPASS_MASK		0x00010000
+#define WLAN_PLL_CONTROL_NOPWD_LSB		18
+#define WLAN_PLL_CONTROL_NOPWD_MASK		0x00040000
+
+#define RTC_SYNC_STATUS_OFFSET			0x0244
+#define RTC_SYNC_STATUS_PLL_CHANGING_LSB	5
+#define RTC_SYNC_STATUS_PLL_CHANGING_MASK	0x00000020
+/* qca6174 PLL offset/mask end */
 
 #endif /* _HW_H_ */

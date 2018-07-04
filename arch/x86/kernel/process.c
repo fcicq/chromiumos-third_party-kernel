@@ -31,6 +31,7 @@
 #include <asm/tlbflush.h>
 #include <asm/mce.h>
 #include <asm/vm86.h>
+#include <asm/switch_to.h>
 
 /*
  * per-CPU TSS segments. Threads are completely 'soft' on Linux,
@@ -39,7 +40,7 @@
  * section. Since TSS's are completely CPU-local, we want them
  * on exact cacheline boundaries, to eliminate cacheline ping-pong.
  */
-__visible DEFINE_PER_CPU_SHARED_ALIGNED(struct tss_struct, cpu_tss) = {
+__visible DEFINE_PER_CPU_SHARED_ALIGNED_USER_MAPPED(struct tss_struct, cpu_tss) = {
 	.x86_tss = {
 		.sp0 = TOP_OF_INIT_STACK,
 #ifdef CONFIG_X86_32
@@ -521,9 +522,7 @@ unsigned long get_wchan(struct task_struct *p)
 	 * PADDING
 	 * ----------- top = topmax - TOP_OF_KERNEL_STACK_PADDING
 	 * stack
-	 * ----------- bottom = start + sizeof(thread_info)
-	 * thread_info
-	 * ----------- start
+	 * ----------- bottom = start
 	 *
 	 * The tasks stack pointer points at the location where the
 	 * framepointer is stored. The data on the stack is:
@@ -534,13 +533,13 @@ unsigned long get_wchan(struct task_struct *p)
 	 */
 	top = start + THREAD_SIZE - TOP_OF_KERNEL_STACK_PADDING;
 	top -= 2 * sizeof(unsigned long);
-	bottom = start + sizeof(struct thread_info);
+	bottom = start;
 
 	sp = READ_ONCE(p->thread.sp);
 	if (sp < bottom || sp > top)
 		return 0;
 
-	fp = READ_ONCE_NOCHECK(*(unsigned long *)sp);
+	fp = READ_ONCE_NOCHECK(((struct inactive_task_frame *)sp)->bp);
 	do {
 		if (fp < bottom || fp > top)
 			return 0;

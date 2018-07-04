@@ -260,6 +260,9 @@ static ssize_t at24_read(struct at24_data *at24,
 	if (unlikely(!count))
 		return count;
 
+	if (off + count > at24->chip.byte_len)
+		return -EINVAL;
+
 	client = at24_translate_offset(at24, (unsigned int *)&off);
 
 	ret = pm_runtime_get_sync(&client->dev);
@@ -323,6 +326,9 @@ static ssize_t at24_eeprom_write(struct at24_data *at24, const char *buf,
 	ssize_t status = 0;
 	unsigned long timeout, write_time;
 	unsigned next_page;
+
+	if (offset + count > at24->chip.byte_len)
+		return -EINVAL;
 
 	/* Get corresponding I2C address and adjust offset */
 	client = at24_translate_offset(at24, &offset);
@@ -482,6 +488,24 @@ static void at24_get_pdata(struct device *dev, struct at24_platform_data *chip)
 
 	if (device_property_present(dev, "read-only"))
 		chip->flags |= AT24_FLAG_READONLY;
+
+	err = device_property_read_u32(dev, "address-width", &val);
+	if (!err) {
+		switch (val) {
+		case 8:
+			if (chip->flags & AT24_FLAG_ADDR16)
+				dev_warn(dev, "Override address width to be 8,"
+					 "while default is 16\n");
+			chip->flags &= ~AT24_FLAG_ADDR16;
+			break;
+		case 16:
+			chip->flags |= AT24_FLAG_ADDR16;
+			break;
+		default:
+			dev_warn(dev, "Bad \"address-width\" property: %u\n",
+				 val);
+		}
+	}
 
 	err = device_property_read_u32(dev, "size", &val);
 	if (!err)

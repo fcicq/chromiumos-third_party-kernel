@@ -582,6 +582,7 @@ struct dev_pm_info {
 	pm_message_t		power_state;
 	unsigned int		can_wakeup:1;
 	unsigned int		async_suspend:1;
+	bool			in_dpm_list:1;	/* Owned by the PM core */
 	bool			is_prepared:1;	/* Owned by the PM core */
 	bool			is_suspended:1;	/* Ditto */
 	bool			is_noirq_suspended:1;
@@ -598,6 +599,7 @@ struct dev_pm_info {
 	enum pm_wakeup_type	wakeup_source_type;
 	bool			wakeup_path:1;
 	bool			syscore:1;
+	bool			no_pm_callbacks:1;	/* Owned by the PM core */
 	bool			use_dark_resume:1;
 #else
 	unsigned int		should_wakeup:1;
@@ -621,6 +623,7 @@ struct dev_pm_info {
 	unsigned int		use_autosuspend:1;
 	unsigned int		timer_autosuspends:1;
 	unsigned int		memalloc_noio:1;
+	unsigned int		links_count;
 	enum rpm_request	request;
 	enum rpm_status		runtime_status;
 	int			runtime_error;

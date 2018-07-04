@@ -44,8 +44,8 @@
 
 #define ATH10K_SCAN_ID 0
 #define WMI_READY_TIMEOUT (5 * HZ)
-#define ATH10K_FLUSH_TIMEOUT_HZ (5*HZ)
-#define ATH10K_CONNECTION_LOSS_HZ (3*HZ)
+#define ATH10K_FLUSH_TIMEOUT_HZ (5 * HZ)
+#define ATH10K_CONNECTION_LOSS_HZ (3 * HZ)
 #define ATH10K_NUM_CHANS 39
 
 /* Antenna noise floor */
@@ -323,7 +323,7 @@ struct ath10k_sta {
 #endif
 };
 
-#define ATH10K_VDEV_SETUP_TIMEOUT_HZ (5*HZ)
+#define ATH10K_VDEV_SETUP_TIMEOUT_HZ (5 * HZ)
 
 enum ath10k_beacon_state {
 	ATH10K_BEACON_SCHEDULED = 0,
@@ -695,6 +695,12 @@ struct ath10k {
 			size_t board_size;
 			size_t board_ext_size;
 		} fw;
+
+		const struct ath10k_hw_ops *hw_ops;
+
+		/* hw specific clock control parameters */
+		const struct ath10k_hw_clk_params *hw_clk;
+		int target_cpu_freq;
 	} hw_params;
 
 	const struct firmware *board;

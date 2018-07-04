@@ -2001,7 +2001,7 @@ int uvc_ctrl_add_mapping(struct uvc_video_chain *chain,
 		goto done;
 	}
 
-	/* validate that the user provided bit-size and offset is valid */
+	/* Validate the user-provided bit-size and offset */
 	if (mapping->size > 32 ||
 	    mapping->offset + mapping->size > ctrl->info.size * 8) {
 		ret = -EINVAL;

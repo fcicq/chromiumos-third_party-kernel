@@ -461,6 +461,7 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 	char str[5];
 	unsigned long dma_align;
 	int i;
+	bool need_alignment;
 
 	vpu_debug_enter();
 
@@ -516,13 +517,31 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 		/* Fill in remaining fields. */
 		calculate_plane_sizes(fmt, pix_fmt_mp);
 
+		/* TODO(crbug.com/824662): handle sizeimage in Chromium.
+		 * Align plane size to full cache line by adjusting the height.
+		 * Considering the I420 format, the width is multiple of MB_DIM,
+		 * the size of uv plane is 1/4 of y plane. So the height should
+		 * be multiple of (cache * 4 / MB_DIM).
+		 */
 		dma_align = dma_get_cache_alignment();
+		need_alignment = false;
 		for (i = 0; i < fmt->num_planes; i++) {
 			if (!IS_ALIGNED(pix_fmt_mp->plane_fmt[i].sizeimage,
 					dma_align)) {
-				vpu_err("plane size does not match cache alignment\n");
+				need_alignment = true;
+				break;
+			}
+		}
+		if (need_alignment) {
+			pix_fmt_mp->height = round_up(pix_fmt_mp->height,
+						      dma_align * 4 / MB_DIM);
+			if (pix_fmt_mp->height >
+			    ctx->vpu_dst_fmt->frmsize.max_height) {
+				vpu_err("Aligned height higher than maximum.\n");
 				return -EINVAL;
 			}
+			/* Fill in remaining fields again. */
+			calculate_plane_sizes(fmt, pix_fmt_mp);
 		}
 		break;
 
@@ -1035,6 +1054,85 @@ out:
 	return ret;
 }
 
+static int rockchip_vpu_encoder_cmd(struct rockchip_vpu_ctx *ctx,
+				    struct v4l2_encoder_cmd *cmd, bool try)
+{
+	struct rockchip_vpu_dev *dev = ctx->dev;
+	unsigned long flags;
+	int ret = 0;
+
+	switch (cmd->cmd) {
+	case V4L2_ENC_CMD_STOP:
+	case V4L2_ENC_CMD_START:
+		if (cmd->flags != 0) {
+			vpu_err("Invalid flags for encoder command (%u)",
+				cmd->flags);
+			return -EINVAL;
+		}
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	spin_lock_irqsave(&dev->irqlock, flags);
+
+	switch (cmd->cmd) {
+	case V4L2_ENC_CMD_STOP:
+		if (!list_empty(&ctx->flush_buf.list)) {
+			vpu_err("Cannot stop while flush already in progress");
+			ret = -EBUSY;
+			break;
+		}
+
+		if (!ctx->stopped && !try)
+			list_add_tail(&ctx->flush_buf.list, &ctx->src_queue);
+		break;
+
+	case V4L2_ENC_CMD_START:
+		if (!list_empty(&ctx->flush_buf.list)
+		    || (ctx->stopped && !ctx->vq_dst.last_buffer_dequeued)) {
+			vpu_err("Cannot restart with flush still in progress");
+			ret = -EBUSY;
+			break;
+		}
+
+		if (!vb2_is_streaming(&ctx->vq_src)) {
+			vpu_err("Cannot start with OUTPUT queue not streaming");
+			ret = -EINVAL;
+			break;
+		}
+
+		if (!try) {
+			vb2_clear_last_buffer_dequeued(&ctx->vq_dst);
+			ctx->stopped = false;
+		}
+		break;
+	}
+
+	spin_unlock_irqrestore(&dev->irqlock, flags);
+
+	if (!try)
+		rockchip_vpu_try_context(dev, ctx);
+
+	return ret;
+}
+
+static int vidioc_try_encoder_cmd(struct file *file, void *priv,
+				 struct v4l2_encoder_cmd *cmd)
+{
+	struct rockchip_vpu_ctx *ctx = fh_to_ctx(priv);
+
+	return rockchip_vpu_encoder_cmd(ctx, cmd, true);
+}
+
+static int vidioc_encoder_cmd(struct file *file, void *priv,
+			      struct v4l2_encoder_cmd *cmd)
+{
+	struct rockchip_vpu_ctx *ctx = fh_to_ctx(priv);
+
+	return rockchip_vpu_encoder_cmd(ctx, cmd, false);
+}
+
 static const struct v4l2_ioctl_ops rockchip_vpu_enc_ioctl_ops = {
 	.vidioc_querycap = vidioc_querycap,
 	.vidioc_enum_framesizes = vidioc_enum_framesizes,
@@ -1056,6 +1154,8 @@ static const struct v4l2_ioctl_ops rockchip_vpu_enc_ioctl_ops = {
 	.vidioc_cropcap = vidioc_cropcap,
 	.vidioc_g_crop = vidioc_g_crop,
 	.vidioc_s_crop = vidioc_s_crop,
+	.vidioc_try_encoder_cmd = vidioc_try_encoder_cmd,
+	.vidioc_encoder_cmd = vidioc_encoder_cmd,
 };
 
 static int rockchip_vpu_queue_setup(struct vb2_queue *vq,
@@ -1166,15 +1266,22 @@ static void rockchip_vpu_buf_finish(struct vb2_buffer *vb)
 {
 	struct vb2_queue *vq = vb->vb2_queue;
 	struct rockchip_vpu_ctx *ctx = fh_to_ctx(vq->drv_priv);
+	struct rockchip_vpu_buf *buf = vb_to_buf(vb);
+	bool flush_buf;
 
 	vpu_debug_enter();
 
+	/* Zero-size buffer with V4L2_BUF_FLAG_LAST means the flush is done. */
+	flush_buf = (buf->b.flags & V4L2_BUF_FLAG_LAST
+		     && vb2_get_plane_payload(vb, 0) == 0);
 	if (vq->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE
 	    && vb->state == VB2_BUF_STATE_DONE
-	    && ctx->vpu_dst_fmt->fourcc == V4L2_PIX_FMT_VP8) {
-		struct rockchip_vpu_buf *buf;
-
-		buf = vb_to_buf(vb);
+	    && ctx->vpu_dst_fmt->fourcc == V4L2_PIX_FMT_VP8
+	    && !flush_buf) {
+		/*
+		 * TODO(akahuang): This function is not only used for RK3388.
+		 * Rename it (or maybe move it to the VP8 plugin).
+		 */
 		rk3288_vpu_vp8e_assemble_bitstream(ctx, buf);
 	}
 
@@ -1190,16 +1297,19 @@ static int rockchip_vpu_start_streaming(struct vb2_queue *q, unsigned int count)
 
 	vpu_debug_enter();
 
-	if (q->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+	if (q->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
 		ret = rockchip_vpu_init(ctx);
 		if (ret < 0) {
 			vpu_err("rockchip_vpu_init failed\n");
 			return ret;
 		}
 
-		ready = vb2_is_streaming(&ctx->vq_src);
-	} else if (q->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
+		vb2_clear_last_buffer_dequeued(&ctx->vq_dst);
+		ctx->stopped = false;
+
 		ready = vb2_is_streaming(&ctx->vq_dst);
+	} else if (q->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+		ready = vb2_is_streaming(&ctx->vq_src);
 	}
 
 	if (ready)
@@ -1231,6 +1341,7 @@ static void rockchip_vpu_stop_streaming(struct vb2_queue *q)
 		break;
 
 	case V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE:
+		list_del_init(&ctx->flush_buf.list);
 		list_splice_init(&ctx->src_queue, &queue);
 		break;
 
@@ -1250,7 +1361,7 @@ static void rockchip_vpu_stop_streaming(struct vb2_queue *q)
 		list_del(&b->list);
 	}
 
-	if (q->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE)
+	if (q->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE)
 		rockchip_vpu_deinit(ctx);
 
 	vpu_debug_leave();

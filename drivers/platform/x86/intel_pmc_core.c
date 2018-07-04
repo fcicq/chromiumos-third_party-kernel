@@ -121,22 +121,22 @@ static const struct pmc_bit_map spt_pfear_map[] = {
 };
 
 static const struct pmc_bit_map spt_pm1_en_sts_map[] = {
-	{"Power Button",		SPT_PMC_BIT_PWRBTN_STS},
+	{"Power-Button",		SPT_PMC_BIT_PWRBTN_STS},
 	{"RTC",				SPT_PMC_BIT_RTC_STS},
-	{"PCI Express Wake",		SPT_PMC_BIT_PCIEXP_WAKE_STS},
+	{"PCI-Express-Wake",		SPT_PMC_BIT_PCIEXP_WAKE_STS},
 	{},
 };
 
 static const struct pmc_bit_map spt_gpe0_sts_map[] = {
-	{"Hot Plug",			BIT(1)},
-	{"Software GPE",		BIT(2)},
-	{"TCO SCI",			BIT(6)},
-	{"SMBus Wake",			BIT(7)},
-	{"PCI Express",			BIT(9)},
-	{"Battery Low",			BIT(10)},
+	{"Hot-Plug",			BIT(1)},
+	{"Software-GPE",		BIT(2)},
+	{"TCO-SCI",			BIT(6)},
+	{"SMBus-Wake",			BIT(7)},
+	{"PCI-Express",			BIT(9)},
+	{"Battery-Low",			BIT(10)},
 	{"PME",				BIT(11)},
-	{"PME Bus 0",			BIT(13)},
-	{"GPIO Tier2",			BIT(15)},
+	{"PME-Bus0",			BIT(13)},
+	{"GPIO-Tier2",			BIT(15)},
 	{"LAN_Wake#",			BIT(16)},
 	{"WADT",			BIT(18)},
 	{},
@@ -533,36 +533,10 @@ static void pmc_core_dbgfs_unregister(struct pmc_dev *pmcdev)
 
 static int pmc_core_wake_source_show(struct seq_file *s, void *unused)
 {
-	int index, reg_index, bit_index;
 	struct pmc_dev *pmcdev = s->private;
-	const struct pmc_bit_map *map1 = pmcdev->map->pm1_en_sts;
-	const struct pmc_bit_map *map2 = pmcdev->map->gpe0_sts;
 
-	for (index = 0; map1[index].name; index++)
-		if (map1[index].bit_mask & pmc.pm1_en_sts_val)
-			seq_printf(s, "%s ", map1[index].name);
-
-	/* Generic GPE0_STS[95:0] wake mapping */
-	for (reg_index = 0;
-	     reg_index < SPT_PMC_GPE0_127_96_REG_INDEX &&
-				pmc.gpe0_sts_val[reg_index];
-	     reg_index++) {
-		unsigned long data = pmc.gpe0_sts_val[reg_index];
-
-		for_each_set_bit(bit_index, &data, 32)
-			seq_printf(s,
-				   "GPE0[%d] ",
-				   (reg_index * 32 + bit_index));
-	}
-
-	/* GPE0_STS_127_96 has specific mapping */
-	for (index = 0; map2[index].name; index++)
-		if (map2[index].bit_mask &
-		    pmc.gpe0_sts_val[SPT_PMC_GPE0_127_96_REG_INDEX])
-			seq_printf(s, "%s ", map2[index].name);
-
-	seq_puts(s, "\n");
-
+	/* Pass the wake source string */
+	seq_printf(s, "%s\n", pmcdev->wake_source);
 	return 0;
 }
 
@@ -624,7 +598,7 @@ static int pmc_core_dbgfs_register(struct pmc_dev *pmcdev)
 	if (!file)
 		goto err;
 
-	file = debugfs_create_file("sleep_wake_source",
+	file = debugfs_create_file("last_wake_source",
 				   S_IFREG | S_IRUGO, dir, pmcdev,
 				   &pmc_core_wake_source_ops);
 
@@ -728,6 +702,58 @@ static int pmc_core_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	return 0;
 }
 
+static void pmc_decode_wake_source(struct device *dev)
+{
+	struct pmc_dev *pmcdev = &pmc;
+	int index, reg_index, bit_index;
+	char *s = pmcdev->wake_source;
+	size_t rc, size = sizeof(pmcdev->wake_source) - 1;
+	const struct pmc_bit_map *map1 = pmcdev->map->pm1_en_sts;
+	const struct pmc_bit_map *map2 = pmcdev->map->gpe0_sts;
+
+	for (index = 0; map1[index].name; index++) {
+		if (map1[index].bit_mask & pmc.pm1_en_sts_val) {
+			rc = snprintf(s, size, "%s ", map1[index].name);
+			s += rc;
+			size -= rc;
+		}
+	}
+
+	/* Generic GPE0_STS[95:0] wake mapping */
+	for (reg_index = 0;
+	     reg_index < SPT_PMC_GPE0_127_96_REG_INDEX &&
+				pmc.gpe0_sts_val[reg_index];
+	     reg_index++) {
+		unsigned long data = pmc.gpe0_sts_val[reg_index];
+
+		for_each_set_bit(bit_index, &data, 32) {
+			rc = snprintf(s,
+				      size,
+				      "GPE0[%d] ",
+				      (reg_index * 32 + bit_index));
+			s += rc;
+			size -= rc;
+		}
+	}
+
+	/* GPE0_STS_127_96 has specific mapping */
+	for (index = 0; map2[index].name; index++) {
+		if (map2[index].bit_mask &
+		    pmc.gpe0_sts_val[SPT_PMC_GPE0_127_96_REG_INDEX]) {
+			rc = snprintf(s, size, "%s ", map2[index].name);
+			s += rc;
+			size -= rc;
+		}
+	}
+
+	/* Say "Unknown" if no wake_source is identified */
+	if (size == sizeof(pmcdev->wake_source) - 1)
+		snprintf(s, size, "Unknown");
+
+	/* Log the wake source */
+	dev_info(dev, "last_wake_source: %s\n", pmc.wake_source);
+}
+
 static void pmc_read_wake_source(void)
 {
 	int i;
@@ -775,10 +801,11 @@ static int pmc_suspend_noirq(struct device *dev)
 static int pmc_resume_noirq(struct device *dev)
 {
 	/*
-	 * Do nothing, but read the PM STS & GPE STS registers for later
-	 * These are used to report the wake source in debugfs
+	 * Do nothing, but read the PM STS & GPE STS registers, decode
+	 * the wake source, and report via PMC debugfs
 	 */
 	pmc_read_wake_source();
+	pmc_decode_wake_source(dev);
 	return 0;
 }
 

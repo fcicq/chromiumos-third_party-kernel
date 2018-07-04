@@ -66,7 +66,7 @@ static void rockchip_ddrclk_set_rate_func(struct work_struct *work)
 		*/
 		local_irq_disable();
 		if (ddrclk->timeout_en &&
-		    ktime_after(ktime_add_ns(ktime_get(), DMC_MIN_VBLANK_NS),
+		    ktime_after(ktime_add_ns(ktime_get(), DMC_MIN_SET_RATE_NS),
 				timeout)) {
 			local_irq_enable();
 			continue;

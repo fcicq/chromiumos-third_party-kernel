@@ -1,16 +1,5 @@
-/*
- * Copyright (c) 2017 Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License version
- * 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- */
+/* SPDX-License-Identifier: GPL-2.0 */
+/* Copyright (C) 2018 Intel Corporation */
 
 #ifndef __IPU3_CSS_FW_H
 #define __IPU3_CSS_FW_H
@@ -37,7 +26,7 @@ enum imgu_fw_acc_type {
 };
 
 struct imgu_fw_isp_parameter {
-	u32 offset;		/* Offset in isp_<mem>)parameters, etc. */
+	u32 offset;		/* Offset in isp_<mem> config, params, etc. */
 	u32 size;		/* Disabled if 0 */
 };
 
@@ -79,12 +68,10 @@ struct imgu_fw_state_memory_offsets {
 
 union imgu_fw_all_memory_offsets {
 	struct {
-		struct imgu_fw_param_memory_offsets *param __aligned(8);
-		struct imgu_fw_config_memory_offsets *config __aligned(8);
-		struct imgu_fw_state_memory_offsets *state __aligned(8);
+		u64 imgu_fw_mem_offsets[3]; /* params, config, state */
 	} offsets;
 	struct {
-		void *ptr __aligned(8);
+		u64 ptr;
 	} array[IMGU_ABI_PARAM_CLASS_NUM];
 };
 
@@ -93,23 +80,29 @@ struct imgu_fw_binary_xinfo {
 	struct imgu_abi_binary_info sp;
 
 	/* Rest of the binary info, only interesting to the host. */
-	enum imgu_fw_acc_type type;
+	u32 type;	/* enum imgu_fw_acc_type */
 
 	u32 num_output_formats __aligned(8);
-	enum imgu_abi_frame_format output_formats[IMGU_ABI_FRAME_FORMAT_NUM];
+	u32 output_formats[IMGU_ABI_FRAME_FORMAT_NUM];	/* enum frame_format */
 
 	/* number of supported vf formats */
 	u32 num_vf_formats __aligned(8);
 	/* types of supported vf formats */
-	enum imgu_abi_frame_format vf_formats[IMGU_ABI_FRAME_FORMAT_NUM];
+	u32 vf_formats[IMGU_ABI_FRAME_FORMAT_NUM];	/* enum frame_format */
 	u8 num_output_pins;
 	imgu_fw_ptr xmem_addr;
 
-	const struct imgu_fw_blob_descr *blob __aligned(8);
+	u64 imgu_fw_blob_descr_ptr __aligned(8);
 	u32 blob_index __aligned(8);
 	union imgu_fw_all_memory_offsets mem_offsets __aligned(8);
 	struct imgu_fw_binary_xinfo *next __aligned(8);
 };
+
+/* Scalar processor sw state */
+#define IMGU_ABI_SP_SWSTATE_TERMINATED	0
+#define IMGU_ABI_SP_SWSTATE_INITIALIZED	1
+#define IMGU_ABI_SP_SWSTATE_CONNECTED	2
+#define IMGU_ABI_SP_SWSTATE_RUNNING	3
 
 struct imgu_fw_sp_info {
 	u32 init_dmem_data;	/* data sect config, stored to dmem */
@@ -120,16 +113,11 @@ struct imgu_fw_sp_info {
 	u32 host_sp_com;	/* Host <-> SP commands */
 	u32 isp_started;	/* P'ed from sensor thread, csim only */
 	u32 sw_state;		/* Polled from css */
-#define IMGU_ABI_SP_SWSTATE_TERMINATED	0
-#define IMGU_ABI_SP_SWSTATE_INITIALIZED	1
-#define IMGU_ABI_SP_SWSTATE_CONNECTED	2
-#define IMGU_ABI_SP_SWSTATE_RUNNING	3
 	u32 host_sp_queues_initialized;	/* Polled from the SP */
 	u32 sleep_mode;		/* different mode to halt SP */
 	u32 invalidate_tlb;	/* inform SP to invalidate mmu TLB */
-	u32 debug_buffer_ddr_address;	/* inform SP the addr of DDR debug
-					 * queue
-					 */
+	u32 debug_buffer_ddr_address;	/* the addr of DDR debug queue */
+
 	/* input system perf count array */
 	u32 perf_counter_input_system_error;
 	u32 threads_stack;	/* sp thread's stack pointers */
@@ -143,14 +131,15 @@ struct imgu_fw_sp_info {
 	u32 tagger_frames_addr;	/* Base address of tagger state */
 };
 
+/* Boot loader sw state */
+#define IMGU_ABI_BL_SWSTATE_OK		0x100
+#define IMGU_ABI_BL_SWSTATE_BUSY	(IMGU_ABI_BL_SWSTATE_OK + 1)
+#define IMGU_ABI_BL_SWSTATE_ERR		(IMGU_ABI_BL_SWSTATE_OK + 2)
+
 struct imgu_fw_bl_info {
 	u32 num_dma_cmds;	/* Number of cmds sent by CSS */
 	u32 dma_cmd_list;	/* Dma command list sent by CSS */
 	u32 sw_state;		/* Polled from css */
-#define IMGU_ABI_BL_SWSTATE_OK		0x100
-#define IMGU_ABI_BL_SWSTATE_BUSY	(IMGU_ABI_BL_SWSTATE_OK + 1)
-#define IMGU_ABI_BL_SWSTATE_ERR		(IMGU_ABI_BL_SWSTATE_OK + 2)
-	/* Entry functions */
 	u32 bl_entry;		/* The SP entry function */
 };
 
@@ -168,26 +157,19 @@ union imgu_fw_union {
 
 struct imgu_fw_info {
 	size_t header_size;	/* size of fw header */
-	enum imgu_fw_type type __aligned(8);
+	u32 type __aligned(8);	/* enum imgu_fw_type */
 	union imgu_fw_union info;	/* Binary info */
 	struct imgu_abi_blob_info blob;	/* Blob info */
 	/* Dynamic part */
-	struct imgu_fw_info *next;
+	u64 next;
 
 	u32 loaded __aligned(8);	/* Firmware has been loaded */
-	const u8 *isp_code __aligned(8);	/* ISP pointer to code */
+	const u64 isp_code __aligned(8);	/* ISP pointer to code */
 	/* Firmware handle between user space and kernel */
 	u32 handle __aligned(8);
 	/* Sections to copy from/to ISP */
 	struct imgu_abi_isp_param_segments mem_initializers;
 	/* Initializer for local ISP memories */
-};
-
-struct imgu_fw_blob_descr {
-	const unsigned char *blob;
-	struct imgu_fw_info header;
-	const char *name;
-	union imgu_fw_all_memory_offsets mem_offsets;
 };
 
 struct imgu_fw_bi_file_h {
@@ -206,10 +188,11 @@ struct imgu_fw_header {
 int ipu3_css_fw_init(struct ipu3_css *css);
 void ipu3_css_fw_cleanup(struct ipu3_css *css);
 
-const int ipu3_css_fw_obgrid_size(const struct imgu_fw_info *bi);
+unsigned int ipu3_css_fw_obgrid_size(const struct imgu_fw_info *bi);
 void *ipu3_css_fw_pipeline_params(struct ipu3_css *css,
-		enum imgu_abi_param_class c, enum imgu_abi_memories m,
-		struct imgu_fw_isp_parameter *par, size_t par_size,
-		void *binary_params);
+				  enum imgu_abi_param_class cls,
+				  enum imgu_abi_memories mem,
+				  struct imgu_fw_isp_parameter *par,
+				  size_t par_size, void *binary_params);
 
 #endif

@@ -146,7 +146,6 @@ enum ieee80211_ac_numbers {
 	IEEE80211_AC_BE		= 2,
 	IEEE80211_AC_BK		= 3,
 };
-#define IEEE80211_NUM_ACS	4
 
 /**
  * struct ieee80211_tx_queue_params - transmit queue configuration
@@ -298,6 +297,7 @@ struct ieee80211_vif_chanctx_switch {
  *	note that this is only called when it changes after the channel
  *	context had been assigned.
  * @BSS_CHANGED_OCB: OCB join status changed
+ * @BSS_CHANGED_MU_GROUPS: VHT MU-MIMO group id or user position changed
  */
 enum ieee80211_bss_change {
 	BSS_CHANGED_ASSOC		= 1<<0,
@@ -323,6 +323,7 @@ enum ieee80211_bss_change {
 	BSS_CHANGED_BEACON_INFO		= 1<<20,
 	BSS_CHANGED_BANDWIDTH		= 1<<21,
 	BSS_CHANGED_OCB                 = 1<<22,
+	BSS_CHANGED_MU_GROUPS		= 1<<23,
 
 	/* when adding here, make sure to change ieee80211_reconfig */
 };
@@ -436,6 +437,19 @@ struct ieee80211_event {
 };
 
 /**
+ * struct ieee80211_mu_group_data - STA's VHT MU-MIMO group data
+ *
+ * This structure describes the group id data of VHT MU-MIMO
+ *
+ * @membership: 64 bits array - a bit is set if station is member of the group
+ * @position: 2 bits per group id indicating the position in the group
+ */
+struct ieee80211_mu_group_data {
+	u8 membership[WLAN_MEMBERSHIP_LEN];
+	u8 position[WLAN_USER_POSITION_LEN];
+};
+
+/**
  * struct ieee80211_bss_conf - holds the BSS's changing parameters
  *
  * This structure keeps information about a BSS (and an association
@@ -477,6 +491,7 @@ struct ieee80211_event {
  * @enable_beacon: whether beaconing should be enabled or not
  * @chandef: Channel definition for this BSS -- the hardware might be
  *	configured a higher bandwidth than this BSS uses, for example.
+ * @mu_group: VHT MU-MIMO group membership data
  * @ht_operation_mode: HT operation mode like in &struct ieee80211_ht_operation.
  *	This field is only valid when the channel is a wide HT/VHT channel.
  *	Note that with TDLS this can be the case (channel is HT, protection must
@@ -535,6 +550,7 @@ struct ieee80211_bss_conf {
 	s32 cqm_rssi_thold;
 	u32 cqm_rssi_hyst;
 	struct cfg80211_chan_def chandef;
+	struct ieee80211_mu_group_data mu_group;
 	__be32 arp_addr_list[IEEE80211_BSS_ARP_ADDR_LIST_LEN];
 	int arp_addr_cnt;
 	bool qos;
@@ -975,7 +991,7 @@ ieee80211_tx_info_clear_status(struct ieee80211_tx_info *info)
  * @RX_FLAG_DECRYPTED: This frame was decrypted in hardware.
  * @RX_FLAG_MMIC_STRIPPED: the Michael MIC is stripped off this frame,
  *	verification has been done by the hardware.
- * @RX_FLAG_IV_STRIPPED: The IV/ICV are stripped from this frame.
+ * @RX_FLAG_IV_STRIPPED: The IV and ICV are stripped from this frame.
  *	If this flag is set, the stack cannot do any replay detection
  *	hence the driver or hardware will have to do that.
  * @RX_FLAG_PN_VALIDATED: Currently only valid for CCMP/GCMP frames, this
@@ -1013,6 +1029,8 @@ ieee80211_tx_info_clear_status(struct ieee80211_tx_info *info)
  *	on this subframe
  * @RX_FLAG_AMPDU_DELIM_CRC_KNOWN: The delimiter CRC field is known (the CRC
  *	is stored in the @ampdu_delimiter_crc field)
+ * @RX_FLAG_MIC_STRIPPED: The mic was stripped of this packet. Decryption was
+ *	done by the hardware
  * @RX_FLAG_LDPC: LDPC was used
  * @RX_FLAG_STBC_MASK: STBC 2 bit bitmask. 1 - Nss=1, 2 - Nss=2, 3 - Nss=3
  * @RX_FLAG_10MHZ: 10 MHz (half channel) was used
@@ -1029,6 +1047,11 @@ ieee80211_tx_info_clear_status(struct ieee80211_tx_info *info)
  * @RX_FLAG_RADIOTAP_VENDOR_DATA: This frame contains vendor-specific
  *	radiotap data in the skb->data (before the frame) as described by
  *	the &struct ieee80211_vendor_radiotap.
+ * @RX_FLAG_ALLOW_SAME_PN: Allow the same PN as same packet before.
+ *	This is used for AMSDU subframes which can have the same PN as
+ *	the first subframe.
+ * @RX_FLAG_ICV_STRIPPED: The ICV is stripped from this frame. CRC checking must
+ *	be done in the hardware.
  */
 enum mac80211_rx_flags {
 	RX_FLAG_MMIC_ERROR		= BIT(0),
@@ -1059,6 +1082,9 @@ enum mac80211_rx_flags {
 	RX_FLAG_5MHZ			= BIT(29),
 	RX_FLAG_AMSDU_MORE		= BIT(30),
 	RX_FLAG_RADIOTAP_VENDOR_DATA	= BIT(31),
+	RX_FLAG_MIC_STRIPPED		= BIT_ULL(32),
+	RX_FLAG_ALLOW_SAME_PN		= BIT_ULL(33),
+	RX_FLAG_ICV_STRIPPED		= BIT_ULL(34),
 };
 
 #define RX_FLAG_STBC_SHIFT		26
@@ -1113,7 +1139,7 @@ struct ieee80211_rx_status {
 	u64 mactime;
 	u32 device_timestamp;
 	u32 ampdu_reference;
-	u32 flag;
+	u64 flag;
 	u16 freq;
 	u8 vht_flag;
 	u8 rate_idx;
@@ -1343,6 +1369,7 @@ enum ieee80211_vif_flags {
  * @csa_active: marks whether a channel switch is going on. Internally it is
  *	write-protected by sdata_lock and local->mtx so holding either is fine
  *	for read access.
+ * @mu_mimo_owner: indicates interface owns MU-MIMO capability
  * @driver_flags: flags/capabilities the driver has for this interface,
  *	these need to be set (or cleared) when the interface is added
  *	or, if supported by the driver, the interface type is changed
@@ -1369,6 +1396,7 @@ struct ieee80211_vif {
 	u8 addr[ETH_ALEN];
 	bool p2p;
 	bool csa_active;
+	bool mu_mimo_owner;
 
 	u8 cab_queue;
 	u8 hw_queue[IEEE80211_NUM_ACS];
@@ -3283,6 +3311,19 @@ enum ieee80211_reconfig_type {
  *	the function call.
  *
  * @wake_tx_queue: Called when new packets have been added to the queue.
+ * @sync_rx_queues: Process all pending frames in RSS queues. This is a
+ *	synchronization which is needed in case driver has in its RSS queues
+ *	pending frames that were received prior to the control path action
+ *	currently taken (e.g. disassociation) but are not processed yet.
+ *
+ * @start_nan: join an existing NAN cluster, or create a new one.
+ * @stop_nan: leave the NAN cluster.
+ * @nan_change_conf: change NAN configuration. The data in cfg80211_nan_conf
+ *	contains full new configuration and changes specify which parameters
+ *	are changed with respect to the last NAN config.
+ *	The driver gets both full configuration and the changed parameters since
+ *	some devices may need the full configuration while others need only the
+ *	changed parameters.
  */
 struct ieee80211_ops {
 	void (*tx)(struct ieee80211_hw *hw,
@@ -3520,6 +3561,16 @@ struct ieee80211_ops {
 
 	void (*wake_tx_queue)(struct ieee80211_hw *hw,
 			      struct ieee80211_txq *txq);
+	void (*sync_rx_queues)(struct ieee80211_hw *hw);
+
+	int (*start_nan)(struct ieee80211_hw *hw,
+			 struct ieee80211_vif *vif,
+			 struct cfg80211_nan_conf *conf);
+	int (*stop_nan)(struct ieee80211_hw *hw,
+			struct ieee80211_vif *vif);
+	int (*nan_change_conf)(struct ieee80211_hw *hw,
+			       struct ieee80211_vif *vif,
+			       struct cfg80211_nan_conf *conf, u32 changes);
 };
 
 /**
@@ -3888,7 +3939,7 @@ static inline int ieee80211_sta_ps_transition_ni(struct ieee80211_sta *sta,
  * The TX headroom reserved by mac80211 for its own tx_status functions.
  * This is enough for the radiotap header.
  */
-#define IEEE80211_TX_STATUS_HEADROOM	14
+#define IEEE80211_TX_STATUS_HEADROOM	ALIGN(14, 4)
 
 /**
  * ieee80211_sta_set_buffered - inform mac80211 about driver-buffered frames
@@ -5336,6 +5387,21 @@ ieee80211_vif_type_p2p(struct ieee80211_vif *vif)
 {
 	return ieee80211_iftype_p2p(vif->type, vif->p2p);
 }
+
+/**
+ * ieee80211_update_mu_groups - set the VHT MU-MIMO groud data
+ *
+ * @vif: the specified virtual interface
+ * @membership: 64 bits array - a bit is set if station is member of the group
+ * @position: 2 bits per group id indicating the position in the group
+ *
+ * Note: This function assumes that the given vif is valid and the position and
+ * membership data is of the correct size and are in the same byte order as the
+ * matching GroupId management frame.
+ * Calls to this function need to be serialized with RX path.
+ */
+void ieee80211_update_mu_groups(struct ieee80211_vif *vif,
+				const u8 *membership, const u8 *position);
 
 void ieee80211_enable_rssi_reports(struct ieee80211_vif *vif,
 				   int rssi_min_thold,

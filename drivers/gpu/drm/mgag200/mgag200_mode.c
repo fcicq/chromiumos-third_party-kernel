@@ -1680,12 +1680,6 @@ static struct drm_encoder *mga_connector_best_encoder(struct drm_connector
 	return NULL;
 }
 
-static enum drm_connector_status mga_vga_detect(struct drm_connector
-						   *connector, bool force)
-{
-	return connector_status_connected;
-}
-
 static void mga_connector_destroy(struct drm_connector *connector)
 {
 	struct mga_connector *mga_connector = to_mga_connector(connector);
@@ -1702,7 +1696,6 @@ struct drm_connector_helper_funcs mga_vga_connector_helper_funcs = {
 
 struct drm_connector_funcs mga_vga_connector_funcs = {
 	.dpms = drm_helper_connector_dpms,
-	.detect = mga_vga_detect,
 	.fill_modes = drm_helper_probe_single_connector_modes,
 	.destroy = mga_connector_destroy,
 };

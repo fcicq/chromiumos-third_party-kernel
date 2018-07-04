@@ -1,28 +1,19 @@
-/*
- * Copyright (c) 2017 Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License version
- * 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- */
+// SPDX-License-Identifier: GPL-2.0
+// Copyright (C) 2018 Intel Corporation
 
-#include <asm/cacheflush.h>
 #include <linux/device.h>
 #include <linux/firmware.h>
+#include <linux/mm.h>
 #include <linux/slab.h>
 
 #include "ipu3-css.h"
 #include "ipu3-css-fw.h"
+#include "ipu3-dmamap.h"
 
-static void ipu3_css_fw_show_binary(struct device *dev,
-			struct imgu_fw_info *bi, const char *name)
+static void ipu3_css_fw_show_binary(struct device *dev, struct imgu_fw_info *bi,
+				    const char *name)
 {
-	int i;
+	unsigned int i;
 
 	dev_dbg(dev, "found firmware binary type %i size %i name %s\n",
 		bi->type, bi->blob.size, name);
@@ -63,30 +54,31 @@ static void ipu3_css_fw_show_binary(struct device *dev,
 	dev_dbg(dev, "\n");
 }
 
-const int ipu3_css_fw_obgrid_size(const struct imgu_fw_info *bi)
+unsigned int ipu3_css_fw_obgrid_size(const struct imgu_fw_info *bi)
 {
-	unsigned int stripes = bi->info.isp.sp.iterator.num_stripes;
-	unsigned int width, height, obgrid_size;
+	unsigned int width = DIV_ROUND_UP(bi->info.isp.sp.internal.max_width,
+					  IMGU_OBGRID_TILE_SIZE * 2) + 1;
+	unsigned int height = DIV_ROUND_UP(bi->info.isp.sp.internal.max_height,
+					   IMGU_OBGRID_TILE_SIZE * 2) + 1;
+	unsigned int obgrid_size;
 
-	width = ALIGN(DIV_ROUND_UP(bi->info.isp.sp.internal.max_width,
-		IMGU_OBGRID_TILE_SIZE * 2) + 1, IPU3_UAPI_ISP_VEC_ELEMS / 4);
-	height = DIV_ROUND_UP(bi->info.isp.sp.internal.max_height,
-		IMGU_OBGRID_TILE_SIZE * 2) + 1;
+	width = ALIGN(width, IPU3_UAPI_ISP_VEC_ELEMS / 4);
 	obgrid_size = PAGE_ALIGN(width * height *
-		sizeof(struct ipu3_uapi_obgrid_param)) * stripes;
-
+				 sizeof(struct ipu3_uapi_obgrid_param)) *
+				 bi->info.isp.sp.iterator.num_stripes;
 	return obgrid_size;
 }
 
 void *ipu3_css_fw_pipeline_params(struct ipu3_css *css,
-		enum imgu_abi_param_class c, enum imgu_abi_memories m,
-		struct imgu_fw_isp_parameter *par, size_t par_size,
-		void *binary_params)
+				  enum imgu_abi_param_class cls,
+				  enum imgu_abi_memories mem,
+				  struct imgu_fw_isp_parameter *par,
+				  size_t par_size, void *binary_params)
 {
 	struct imgu_fw_info *bi = &css->fwp->binary_header[css->current_binary];
 
 	if (par->offset + par->size >
-	    bi->info.isp.sp.mem_initializers.params[c][m].size)
+	    bi->info.isp.sp.mem_initializers.params[cls][mem].size)
 		return NULL;
 
 	if (par->size != par_size)
@@ -101,10 +93,10 @@ void *ipu3_css_fw_pipeline_params(struct ipu3_css *css,
 void ipu3_css_fw_cleanup(struct ipu3_css *css)
 {
 	if (css->binary) {
-		int i;
+		unsigned int i;
 
 		for (i = 0; i < css->fwp->file_header.binary_nr; i++)
-			ipu3_css_dma_free(css->dma_dev, &css->binary[i]);
+			ipu3_dmamap_free(css->dev, &css->binary[i]);
 		kfree(css->binary);
 	}
 	if (css->fw)
@@ -118,8 +110,8 @@ int ipu3_css_fw_init(struct ipu3_css *css)
 {
 	static const u32 BLOCK_MAX = 65536;
 	struct device *dev = css->dev;
-	int binary_nr = 0;
-	int i, j, r;
+	unsigned int i, j, binary_nr;
+	int r;
 
 	r = request_firmware(&css->fw, IMGU_FW_NAME, css->dev);
 	if (r)
@@ -136,15 +128,18 @@ int ipu3_css_fw_init(struct ipu3_css *css)
 	    css->fw->size)
 		goto bad_fw;
 
-	dev_info(dev, "loaded firmware version %.64s, %u binaries, %u bytes\n",
+	dev_info(dev, "loaded firmware version %.64s, %u binaries, %zu bytes\n",
 		 css->fwp->file_header.version, css->fwp->file_header.binary_nr,
-		 (int)css->fw->size);
+		 css->fw->size);
 
 	/* Validate and display info on fw binaries */
 
 	binary_nr = css->fwp->file_header.binary_nr;
 
-	css->fw_bl = css->fw_sp[0] = css->fw_sp[1] = -1;
+	css->fw_bl = -1;
+	css->fw_sp[0] = -1;
+	css->fw_sp[1] = -1;
+
 	for (i = 0; i < binary_nr; i++) {
 		struct imgu_fw_info *bi = &css->fwp->binary_header[i];
 		const char *name = (void *)css->fwp + bi->blob.prog_name_offset;
@@ -153,11 +148,9 @@ int ipu3_css_fw_init(struct ipu3_css *css)
 		if (bi->blob.prog_name_offset >= css->fw->size)
 			goto bad_fw;
 		len = strnlen(name, css->fw->size - bi->blob.prog_name_offset);
-		if (len + 1 >= css->fw->size - bi->blob.prog_name_offset ||
+		if (len + 1 > css->fw->size - bi->blob.prog_name_offset ||
 		    len + 1 >= IMGU_ABI_MAX_BINARY_NAME)
 			goto bad_fw;
-
-		ipu3_css_fw_show_binary(dev, bi, name);
 
 		if (bi->blob.size != bi->blob.text_size + bi->blob.icache_size
 		    + bi->blob.data_size + bi->blob.padding_size)
@@ -168,28 +161,23 @@ int ipu3_css_fw_init(struct ipu3_css *css)
 		if (bi->type == IMGU_FW_BOOTLOADER_FIRMWARE) {
 			css->fw_bl = i;
 			if (bi->info.bl.sw_state >= css->iomem_length ||
-			    bi->info.bl.num_dma_cmds >= css->iomem_length
-			    || bi->info.bl.dma_cmd_list >=
-			    css->iomem_length)
+			    bi->info.bl.num_dma_cmds >= css->iomem_length ||
+			    bi->info.bl.dma_cmd_list >= css->iomem_length)
 				goto bad_fw;
 		}
 		if (bi->type == IMGU_FW_SP_FIRMWARE ||
 		    bi->type == IMGU_FW_SP1_FIRMWARE) {
 			css->fw_sp[bi->type == IMGU_FW_SP_FIRMWARE ? 0 : 1] = i;
-			if (bi->info.sp.per_frame_data >= css->iomem_length
-			    || bi->info.sp.init_dmem_data >=
-			    css->iomem_length
-			    || bi->info.sp.host_sp_queue >=
-			    css->iomem_length
-			    || bi->info.sp.isp_started >= css->iomem_length
-			    || bi->info.sp.sw_state >= css->iomem_length
-			    || bi->info.sp.host_sp_queues_initialized >=
-			    css->iomem_length
-			    || bi->info.sp.sleep_mode >= css->iomem_length
-			    || bi->info.sp.invalidate_tlb >=
-			    css->iomem_length
-			    || bi->info.sp.host_sp_com >= css->iomem_length
-			    || bi->info.sp.output + 12 >=
+			if (bi->info.sp.per_frame_data >= css->iomem_length ||
+			    bi->info.sp.init_dmem_data >= css->iomem_length ||
+			    bi->info.sp.host_sp_queue >= css->iomem_length ||
+			    bi->info.sp.isp_started >= css->iomem_length ||
+			    bi->info.sp.sw_state >= css->iomem_length ||
+			    bi->info.sp.sleep_mode >= css->iomem_length ||
+			    bi->info.sp.invalidate_tlb >= css->iomem_length ||
+			    bi->info.sp.host_sp_com >= css->iomem_length ||
+			    bi->info.sp.output + 12 >= css->iomem_length ||
+			    bi->info.sp.host_sp_queues_initialized >=
 			    css->iomem_length)
 				goto bad_fw;
 		}
@@ -203,8 +191,8 @@ int ipu3_css_fw_init(struct ipu3_css *css)
 		    IPU3_UAPI_MAX_STRIPES)
 			goto bad_fw;
 
-		if (bi->info.isp.num_output_formats > IMGU_ABI_FRAME_FORMAT_NUM
-		    || bi->info.isp.num_vf_formats > IMGU_ABI_FRAME_FORMAT_NUM)
+		if (bi->info.isp.num_vf_formats > IMGU_ABI_FRAME_FORMAT_NUM ||
+		    bi->info.isp.num_output_formats > IMGU_ABI_FRAME_FORMAT_NUM)
 			goto bad_fw;
 
 		for (j = 0; j < bi->info.isp.num_output_formats; j++)
@@ -225,15 +213,17 @@ int ipu3_css_fw_init(struct ipu3_css *css)
 			goto bad_fw;
 
 		if (bi->blob.memory_offsets.offsets[IMGU_ABI_PARAM_CLASS_PARAM]
-		    + sizeof(struct imgu_fw_param_memory_offsets)
-		    > css->fw->size ||
+		    + sizeof(struct imgu_fw_param_memory_offsets) >
+		    css->fw->size ||
 		    bi->blob.memory_offsets.offsets[IMGU_ABI_PARAM_CLASS_CONFIG]
-		    + sizeof(struct imgu_fw_config_memory_offsets)
-		    > css->fw->size ||
+		    + sizeof(struct imgu_fw_config_memory_offsets) >
+		    css->fw->size ||
 		    bi->blob.memory_offsets.offsets[IMGU_ABI_PARAM_CLASS_STATE]
-		    + sizeof(struct imgu_fw_state_memory_offsets)
-		    > css->fw->size)
+		    + sizeof(struct imgu_fw_state_memory_offsets) >
+		    css->fw->size)
 			goto bad_fw;
+
+		ipu3_css_fw_show_binary(dev, bi, name);
 	}
 
 	if (css->fw_bl == -1 || css->fw_sp[0] == -1 || css->fw_sp[1] == -1)
@@ -252,7 +242,7 @@ int ipu3_css_fw_init(struct ipu3_css *css)
 		void *blob = (void *)css->fwp + bi->blob.offset;
 		size_t size = bi->blob.size;
 
-		if (ipu3_css_dma_alloc(css->dma_dev, &css->binary[i], size)) {
+		if (!ipu3_dmamap_alloc(css->dev, &css->binary[i], size)) {
 			r = -ENOMEM;
 			goto error_out;
 		}

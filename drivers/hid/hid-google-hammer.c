@@ -38,6 +38,18 @@ static int hammer_kbd_brightness_set_blocking(struct led_classdev *cdev,
 	led->buf[0] = 0;
 	led->buf[1] = br;
 
+	/*
+	 * Request USB HID device to be in Full On mode,
+	 * So that sending hardware output report and hardware
+	 * raw request won't fail.
+	 */
+	ret = hid_hw_power(led->hdev, PM_HINT_FULLON);
+	if (ret < 0) {
+		hid_err(led->hdev, "failed: device not resumed %d\n",
+			ret);
+		return ret;
+	}
+
 	ret = hid_hw_output_report(led->hdev, led->buf, sizeof(led->buf));
 	if (ret == -ENOSYS)
 		ret = hid_hw_raw_request(led->hdev, 0, led->buf,
@@ -47,6 +59,9 @@ static int hammer_kbd_brightness_set_blocking(struct led_classdev *cdev,
 	if (ret < 0)
 		hid_err(led->hdev, "failed to set keyboard backlight: %d\n",
 			ret);
+	/* Request USB HID device back to Normal Mode. */
+	hid_hw_power(led->hdev, PM_HINT_NORMAL);
+
 	return ret;
 }
 
@@ -78,10 +93,12 @@ static int hammer_input_configured(struct hid_device *hdev,
 {
 	struct usb_interface *intf = to_usb_interface(hdev->dev.parent);
 
-	if (intf->cur_altsetting->desc.bInterfaceProtocol ==
-	    USB_INTERFACE_PROTOCOL_KEYBOARD) {
-		int err = hammer_register_leds(hdev);
+	struct list_head *report_list =
+		&hdev->report_enum[HID_OUTPUT_REPORT].report_list;
 
+	if (intf->cur_altsetting->desc.bInterfaceProtocol ==
+	    USB_INTERFACE_PROTOCOL_KEYBOARD && !list_empty(report_list)) {
+		int err = hammer_register_leds(hdev);
 		if (err)
 			hid_warn(hdev,
 				 "Failed to register keyboard backlight: %d\n",
@@ -96,6 +113,10 @@ static const struct hid_device_id hammer_devices[] = {
 		     USB_VENDOR_ID_GOOGLE, USB_DEVICE_ID_GOOGLE_HAMMER) },
 	{ HID_DEVICE(BUS_USB, HID_GROUP_GENERIC_OVERRIDE,
 		     USB_VENDOR_ID_GOOGLE, USB_DEVICE_ID_GOOGLE_STAFF) },
+	{ HID_DEVICE(BUS_USB, HID_GROUP_GENERIC_OVERRIDE,
+		     USB_VENDOR_ID_GOOGLE, USB_DEVICE_ID_GOOGLE_WAND) },
+	{ HID_DEVICE(BUS_USB, HID_GROUP_GENERIC_OVERRIDE,
+		     USB_VENDOR_ID_GOOGLE, USB_DEVICE_ID_GOOGLE_WHISKERS) },
 	{ }
 };
 MODULE_DEVICE_TABLE(hid, hammer_devices);

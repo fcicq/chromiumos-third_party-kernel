@@ -23,7 +23,8 @@
 #define SOUND_SOC_SKL_SSP_CLK_H
 
 #define SKL_MAX_SSP		6
-#define SKL_MAX_CLK_SRC		3 /* xtal/cardinal/pll, parent of ssp clocks and mclk */
+/* xtal/cardinal/pll, parent of ssp clocks and mclk */
+#define SKL_MAX_CLK_SRC		3
 #define SKL_MAX_SSP_CLK_TYPES	3 /* mclk, sclk, sclkfs */
 
 #define SKL_MAX_CLK_CNT		(SKL_MAX_SSP * SKL_MAX_SSP_CLK_TYPES)
@@ -69,7 +70,7 @@ struct skl_dmactrl_mclk_cfg {
 	u32 keep_running:1;
 	u32 clk_stop_over:1;
 	u32 rsvd1:14;
-} __packed;
+};
 
 struct skl_dmactrl_sclkfs_cfg {
 	struct skl_tlv_hdr hdr;
@@ -83,7 +84,7 @@ struct skl_dmactrl_sclkfs_cfg {
 	u32 valid_bit_depth : 8;
 	u32 sample_type : 8;
 	u32 reserved : 8;
-} __packed;
+};
 
 union skl_clk_ctrl_ipc {
 	struct skl_dmactrl_mclk_cfg mclk;
@@ -106,18 +107,10 @@ struct skl_ssp_clk {
 	struct skl_clk_rate_cfg_table rate_cfg[SKL_MAX_CLK_RATES];
 };
 
-struct skl_clk_ops {
-	int (*prepare)(void *pvt_data, u32 id, unsigned long rate);
-	int (*unprepare)(void *pvt_data, u32 id, unsigned long rate);
-	int (*set_rate)(u32 id, unsigned long rate);
-	unsigned long (*recalc_rate)(u32 id, unsigned long parent_rate);
-};
-
 struct skl_clk_pdata {
 	struct skl_clk_parent_src *parent_clks;
 	int num_clks;
 	struct skl_ssp_clk *ssp_clks;
-	struct skl_clk_ops *ops;
 	void *pvt_data;
 };
 

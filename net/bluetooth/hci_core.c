@@ -548,6 +548,7 @@ static void hci_set_event_mask_page_2(struct hci_request *req)
 {
 	struct hci_dev *hdev = req->hdev;
 	u8 events[8] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+	bool changed = false;
 
 	/* If Connectionless Slave Broadcast master role is supported
 	 * enable all necessary events for it.
@@ -557,6 +558,7 @@ static void hci_set_event_mask_page_2(struct hci_request *req)
 		events[1] |= 0x80;	/* Synchronization Train Complete */
 		events[2] |= 0x10;	/* Slave Page Response Timeout */
 		events[2] |= 0x20;	/* CSB Channel Map Change */
+		changed = true;
 	}
 
 	/* If Connectionless Slave Broadcast slave role is supported
@@ -567,13 +569,24 @@ static void hci_set_event_mask_page_2(struct hci_request *req)
 		events[2] |= 0x02;	/* CSB Receive */
 		events[2] |= 0x04;	/* CSB Timeout */
 		events[2] |= 0x08;	/* Truncated Page Complete */
+		changed = true;
 	}
 
 	/* Enable Authenticated Payload Timeout Expired event if supported */
-	if (lmp_ping_capable(hdev) || hdev->le_features[0] & HCI_LE_PING)
+	if (lmp_ping_capable(hdev) || hdev->le_features[0] & HCI_LE_PING) {
 		events[2] |= 0x80;
+		changed = true;
+	}
 
-	hci_req_add(req, HCI_OP_SET_EVENT_MASK_PAGE_2, sizeof(events), events);
+	/* Some Broadcom based controllers indicate support for Set Event
+	 * Mask Page 2 command, but then actually do not support it. Since
+	 * the default value is all bits set to zero, the command is only
+	 * required if the event mask has to be changed. In case no change
+	 * to the event mask is needed, skip this command.
+	 */
+	if (changed)
+		hci_req_add(req, HCI_OP_SET_EVENT_MASK_PAGE_2,
+			    sizeof(events), events);
 }
 
 static int hci_init3_req(struct hci_request *req, unsigned long opt)
@@ -2966,6 +2979,9 @@ struct hci_dev *hci_alloc_dev(void)
 	hdev->le_max_rx_len = 0x001b;
 	hdev->le_max_rx_time = 0x0148;
 
+	hdev->count_adv_change_in_progress = 0;
+	hdev->count_scan_change_in_progress = 0;
+
 	hdev->rpa_timeout = HCI_DEFAULT_RPA_TIMEOUT;
 	hdev->discov_interleaved_timeout = DISCOV_INTERLEAVED_TIMEOUT;
 	hdev->conn_info_min_age = DEFAULT_CONN_INFO_MIN_AGE;
@@ -4211,7 +4227,6 @@ static void hci_rx_work(struct work_struct *work)
 	}
 }
 
-#ifdef CONFIG_BT_EVE_HACKS
 /* This is a conditional HCI command. The HCI command
  * would be executed only when the run-time condition
  * is met.
@@ -4246,18 +4261,25 @@ static bool skip_conditional_cmd(struct work_struct *work, struct sk_buff *skb)
 		cur_enabled = hci_dev_test_flag(hdev, bit_num_cur_ena);
 		cur_changing = hci_dev_test_flag(hdev, bit_num_cur_chng);
 
-		BT_DBG("COND opcode=%d, wanted=%d, on=%d, chngn=%d",
-			hci_skb_opcode(skb), desired_enabled, cur_enabled, cur_changing);
+		BT_DBG("COND opcode=0x%04x, wanted=%d, on=%d, chngn=%d",
+		       hci_skb_opcode(skb), desired_enabled, cur_enabled,
+		       cur_changing);
 
-		/* No need to enable/disable anything if it is already in that state or
-		 * about to be
+		/* No need to enable/disable anything if it is already in that
+		 * state or about to be.
+		 * The following condition is good for at most 1 pending
+		 * enabled command and 1 pending disabled command.
+		 * Refer to crbug.com/781749 for more context.
 		 */
-		if (cur_enabled == desired_enabled || cur_changing) {
+		if ((cur_enabled == desired_enabled && !cur_changing) ||
+		    (cur_enabled != desired_enabled && cur_changing)) {
+			BT_INFO("  COND LE cmd (0x%04x) is already %d (chg %d),"
+				" skip transition to %d", hci_skb_opcode(skb),
+				cur_enabled, cur_changing, desired_enabled);
+
 			skb_orphan(skb);
 			kfree_skb(skb);
 
-			BT_INFO("  COND LE cmd is already %d (chg %d), skip transition to %d",
-			        cur_enabled, cur_changing, desired_enabled);
 			/* See if there are more commands to do in cmd_q. */
 			atomic_set(&hdev->cmd_cnt, 1);
 			if (!skb_queue_empty(&hdev->cmd_q)) {
@@ -4269,14 +4291,35 @@ static bool skip_conditional_cmd(struct work_struct *work, struct sk_buff *skb)
 			ret = true;
 			goto out;
 		}
+
 		hci_dev_set_flag(hdev, bit_num_cur_chng);
+		if (bit_num_cur_chng == HCI_LE_ADV_CHANGE_IN_PROGRESS) {
+			hdev->count_adv_change_in_progress++;
+			if (hdev->count_adv_change_in_progress <= 0 ||
+			    hdev->count_adv_change_in_progress >= 3)
+				BT_WARN("Unexpected "
+					"count_adv_change_in_progress: %d",
+					hdev->count_adv_change_in_progress);
+			else
+				BT_DBG("count_adv_change_in_progress: %d",
+				       hdev->count_adv_change_in_progress);
+		} else if (bit_num_cur_chng == HCI_LE_SCAN_CHANGE_IN_PROGRESS) {
+			hdev->count_scan_change_in_progress++;
+			if (hdev->count_scan_change_in_progress <= 0 ||
+			    hdev->count_scan_change_in_progress >= 3)
+				BT_WARN("Unexpected "
+					"count_scan_change_in_progress: %d",
+					hdev->count_scan_change_in_progress);
+			else
+				BT_DBG("count_scan_change_in_progress: %d",
+				       hdev->count_scan_change_in_progress);
+		}
 	}
 
 out:
 	hci_dev_unlock(hdev);
 	return ret;
 }
-#endif
 
 static void hci_cmd_work(struct work_struct *work)
 {
@@ -4295,11 +4338,9 @@ static void hci_cmd_work(struct work_struct *work)
 		if (hdev->sent_cmd) {
 			atomic_dec(&hdev->cmd_cnt);
 
-#ifdef CONFIG_BT_EVE_HACKS
 			/* Check if the command could be skipped. */
 			if (skip_conditional_cmd(work, skb))
 				return;
-#endif
 
 			hci_send_frame(hdev, skb);
 			if (test_bit(HCI_RESET, &hdev->flags))

@@ -30,11 +30,14 @@
 #include <linux/export.h>
 #include <linux/notifier.h>
 #include <linux/reboot.h>
+#include <media/cec.h>
 #include <drm/drmP.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_crtc.h>
 #include <drm/drm_crtc_helper.h>
+#include <drm/drm_dp_helper.h>
 #include <drm/drm_edid.h>
+#include <drm/drm_hdcp.h>
 #include "intel_drv.h"
 #include <drm/i915_drm.h>
 #include "i915_drv.h"
@@ -984,10 +987,29 @@ static uint32_t skl_get_aux_send_ctl(struct intel_dp *intel_dp,
 	       DP_AUX_CH_CTL_SYNC_PULSE_SKL(32);
 }
 
+static uint32_t intel_dp_get_aux_send_ctl(struct intel_dp *intel_dp,
+					  bool has_aux_irq,
+					  int send_bytes,
+					  uint32_t aux_clock_divider,
+					  bool aksv_write)
+{
+	uint32_t val = 0;
+
+	if (aksv_write) {
+		send_bytes += 5;
+		val |= DP_AUX_CH_CTL_AUX_AKSV_SELECT;
+	}
+
+	return val | intel_dp->get_aux_send_ctl(intel_dp,
+						has_aux_irq,
+						send_bytes,
+						aux_clock_divider);
+}
+
 static int
 intel_dp_aux_ch(struct intel_dp *intel_dp,
 		const uint8_t *send, int send_bytes,
-		uint8_t *recv, int recv_size)
+		uint8_t *recv, int recv_size, bool aksv_write)
 {
 	struct intel_digital_port *intel_dig_port = dp_to_dig_port(intel_dp);
 	struct drm_i915_private *dev_priv =
@@ -1047,10 +1069,11 @@ intel_dp_aux_ch(struct intel_dp *intel_dp,
 	}
 
 	while ((aux_clock_divider = intel_dp->get_aux_clock_divider(intel_dp, clock++))) {
-		u32 send_ctl = intel_dp->get_aux_send_ctl(intel_dp,
-							  has_aux_irq,
-							  send_bytes,
-							  aux_clock_divider);
+		u32 send_ctl = intel_dp_get_aux_send_ctl(intel_dp,
+							 has_aux_irq,
+							 send_bytes,
+							 aux_clock_divider,
+							 aksv_write);
 
 		/* Must try at least 3 times according to DP spec */
 		for (try = 0; try < 5; try++) {
@@ -1187,7 +1210,8 @@ intel_dp_aux_transfer(struct drm_dp_aux *aux, struct drm_dp_aux_msg *msg)
 		if (msg->buffer)
 			memcpy(txbuf + HEADER_SIZE, msg->buffer, msg->size);
 
-		ret = intel_dp_aux_ch(intel_dp, txbuf, txsize, rxbuf, rxsize);
+		ret = intel_dp_aux_ch(intel_dp, txbuf, txsize, rxbuf, rxsize,
+				      false);
 		if (ret > 0) {
 			msg->reply = rxbuf[0] >> 4;
 
@@ -1209,7 +1233,8 @@ intel_dp_aux_transfer(struct drm_dp_aux *aux, struct drm_dp_aux_msg *msg)
 		if (WARN_ON(rxsize > 20))
 			return -E2BIG;
 
-		ret = intel_dp_aux_ch(intel_dp, txbuf, txsize, rxbuf, rxsize);
+		ret = intel_dp_aux_ch(intel_dp, txbuf, txsize, rxbuf, rxsize,
+				      false);
 		if (ret > 0) {
 			msg->reply = rxbuf[0] >> 4;
 			/*
@@ -1497,37 +1522,6 @@ static void intel_dp_print_rates(struct intel_dp *intel_dp)
 	DRM_DEBUG_KMS("common rates: %s\n", str);
 }
 
-static bool
-__intel_dp_read_desc(struct intel_dp *intel_dp, struct intel_dp_desc *desc)
-{
-	u32 base = drm_dp_is_branch(intel_dp->dpcd) ? DP_BRANCH_OUI :
-						      DP_SINK_OUI;
-
-	return drm_dp_dpcd_read(&intel_dp->aux, base, desc, sizeof(*desc)) ==
-	       sizeof(*desc);
-}
-
-static bool intel_dp_read_desc(struct intel_dp *intel_dp)
-{
-	struct intel_dp_desc *desc = &intel_dp->desc;
-	bool oui_sup = intel_dp->dpcd[DP_DOWN_STREAM_PORT_COUNT] &
-		       DP_OUI_SUPPORT;
-	int dev_id_len;
-
-	if (!__intel_dp_read_desc(intel_dp, desc))
-		return false;
-
-	dev_id_len = strnlen(desc->device_id, sizeof(desc->device_id));
-	DRM_DEBUG_KMS("DP %s: OUI %*phD%s dev-ID %*pE HW-rev %d.%d SW-rev %d.%d\n",
-		      drm_dp_is_branch(intel_dp->dpcd) ? "branch" : "sink",
-		      (int)sizeof(desc->oui), desc->oui, oui_sup ? "" : "(NS)",
-		      dev_id_len, desc->device_id,
-		      desc->hw_rev >> 4, desc->hw_rev & 0xf,
-		      desc->sw_major_rev, desc->sw_minor_rev);
-
-	return true;
-}
-
 int
 intel_dp_max_link_rate(struct intel_dp *intel_dp)
 {
@@ -1602,6 +1596,8 @@ intel_dp_compute_config(struct intel_encoder *encoder,
 	int common_rates[DP_MAX_SUPPORTED_RATES] = {};
 	int common_len;
 	uint8_t link_bw, rate_select;
+	bool reduce_m_n = drm_dp_has_quirk(&intel_dp->desc,
+					   DP_DPCD_QUIRK_LIMITED_M_N);
 
 	common_len = intel_dp_common_rates(intel_dp, common_rates);
 
@@ -1720,7 +1716,8 @@ found:
 	intel_link_compute_m_n(bpp, lane_count,
 			       adjusted_mode->crtc_clock,
 			       pipe_config->port_clock,
-			       &pipe_config->dp_m_n);
+			       &pipe_config->dp_m_n,
+			       reduce_m_n);
 
 	if (intel_connector->panel.downclock_mode != NULL &&
 		dev_priv->drrs.type == SEAMLESS_DRRS_SUPPORT) {
@@ -1728,7 +1725,8 @@ found:
 			intel_link_compute_m_n(bpp, lane_count,
 				intel_connector->panel.downclock_mode->clock,
 				pipe_config->port_clock,
-				&pipe_config->dp_m2_n2);
+				&pipe_config->dp_m2_n2,
+				reduce_m_n);
 	}
 
 	/*
@@ -3584,6 +3582,9 @@ intel_edp_init_dpcd(struct intel_dp *intel_dp)
 	if (!intel_dp_read_dpcd(intel_dp))
 		return false;
 
+	drm_dp_read_desc(&intel_dp->aux, &intel_dp->desc,
+			 drm_dp_is_branch(intel_dp->dpcd));
+
 	if (intel_dp->dpcd[DP_DPCD_REV] >= 0x11)
 		dev_priv->no_aux_handshake = intel_dp->dpcd[DP_MAX_DOWNSPREAD] &
 			DP_NO_AUX_HANDSHAKE_LINK_TRAINING;
@@ -3610,6 +3611,9 @@ intel_edp_init_dpcd(struct intel_dp *intel_dp)
 		dev_priv->psr.psr2_support = dev_priv->psr.aux_frame_sync;
 		DRM_DEBUG_KMS("PSR2 %s on sink",
 			      dev_priv->psr.psr2_support ? "supported" : "not supported");
+
+		/* TODO(b/67599437) PSR2 is broken */
+		dev_priv->psr.psr2_support = false;
 
 		if (dev_priv->psr.psr2_support) {
 			dev_priv->psr.y_cord_support =
@@ -4420,6 +4424,7 @@ intel_dp_set_edid(struct intel_dp *intel_dp)
 		intel_dp->has_audio = intel_dp->force_audio == HDMI_AUDIO_ON;
 	else
 		intel_dp->has_audio = drm_detect_monitor_audio(edid);
+	cec_s_phys_addr_from_edid(intel_dp->aux.cec_adap, edid);
 }
 
 static void
@@ -4429,6 +4434,7 @@ intel_dp_unset_edid(struct intel_dp *intel_dp)
 
 	kfree(intel_connector->detect_edid);
 	intel_connector->detect_edid = NULL;
+	cec_phys_addr_invalidate(intel_dp->aux.cec_adap);
 
 	intel_dp->has_audio = false;
 }
@@ -4491,7 +4497,8 @@ intel_dp_long_pulse(struct intel_connector *intel_connector)
 
 	intel_dp_print_rates(intel_dp);
 
-	intel_dp_read_desc(intel_dp);
+	drm_dp_read_desc(&intel_dp->aux, &intel_dp->desc,
+			 drm_dp_is_branch(intel_dp->dpcd));
 
 	intel_dp_configure_mst(intel_dp);
 
@@ -4502,6 +4509,14 @@ intel_dp_long_pulse(struct intel_connector *intel_connector)
 		 * with EDID on it
 		 */
 		status = connector_status_disconnected;
+		if (connector->registered) {
+			/*
+			 * CEC is not supported for an MST device, unregister
+			 * the existing CEC adapter, if any.
+			 */
+			cec_unregister_adapter(intel_dp->aux.cec_adap);
+			intel_dp->aux.cec_adap = NULL;
+		}
 		goto out;
 	} else if (connector->status == connector_status_connected) {
 		/*
@@ -4547,6 +4562,25 @@ out:
 	if (status != connector_status_connected && !intel_dp->is_mst)
 		intel_dp_unset_edid(intel_dp);
 
+	if (status == connector_status_connected && connector->registered) {
+		/*
+		 * A new DP-to-HDMI adapter could have been plugged in, so
+		 * call drm_dp_cec_configure_adapter to check if a CEC device
+		 * should be unregistered and/or registered, depending on the
+		 * CEC capabilities of the adapter.
+		 *
+		 * The CEC device is associated with the connector, so it
+		 * sticks around when the adapter is unplugged and is only
+		 * unregistered if the connector is unregistered or if another
+		 * adapter is plugged in with no or different CEC capabilities.
+		 *
+		 * This is what CEC applications expect.
+		 */
+		drm_dp_cec_configure_adapter(&intel_dp->aux,
+					     connector->name, dev->dev,
+					     intel_connector->detect_edid);
+	}
+
 	intel_display_power_put(to_i915(dev), power_domain);
 	return status;
 }
@@ -4563,6 +4597,8 @@ intel_dp_detect(struct drm_connector *connector, bool force)
 	/* If full detect is not performed yet, do a full detect */
 	if (!intel_dp->detect_done)
 		status = intel_dp_long_pulse(intel_dp->attached_connector);
+
+	intel_dp->detect_done = false;
 
 	return status;
 }
@@ -4718,6 +4754,10 @@ intel_dp_set_property(struct drm_connector *connector,
 		goto done;
 	}
 
+	if (property == connector->content_protection_property)
+		return drm_atomic_helper_connector_set_property(connector,
+								property, val);
+
 	return -EINVAL;
 
 done:
@@ -4731,6 +4771,7 @@ static int
 intel_dp_connector_register(struct drm_connector *connector)
 {
 	struct intel_dp *intel_dp = intel_attached_dp(connector);
+	struct drm_device *dev = connector->dev;
 	int ret;
 
 	ret = intel_connector_register(connector);
@@ -4742,6 +4783,15 @@ intel_dp_connector_register(struct drm_connector *connector)
 	DRM_DEBUG_KMS("registering %s bus for %s\n",
 		      intel_dp->aux.name, connector->kdev->kobj.name);
 
+	if (connector->status == connector_status_connected &&
+	    !intel_dp->is_mst && !intel_dp->aux.cec_adap) {
+		struct intel_connector *intel_connector =
+			intel_dp->attached_connector;
+
+		drm_dp_cec_configure_adapter(&intel_dp->aux,
+					     connector->name, dev->dev,
+					     intel_connector->detect_edid);
+	}
 	intel_dp->aux.dev = connector->kdev;
 	return drm_dp_aux_register(&intel_dp->aux);
 }
@@ -4749,7 +4799,11 @@ intel_dp_connector_register(struct drm_connector *connector)
 static void
 intel_dp_connector_unregister(struct drm_connector *connector)
 {
-	drm_dp_aux_unregister(&intel_attached_dp(connector)->aux);
+	struct intel_dp *intel_dp = intel_attached_dp(connector);
+
+	cec_unregister_adapter(intel_dp->aux.cec_adap);
+	intel_dp->aux.cec_adap = NULL;
+	drm_dp_aux_unregister(&intel_dp->aux);
 	intel_connector_unregister(connector);
 }
 
@@ -4757,6 +4811,11 @@ static void
 intel_dp_connector_destroy(struct drm_connector *connector)
 {
 	struct intel_connector *intel_connector = to_intel_connector(connector);
+
+	if (intel_connector->hdcp_shim) {
+		cancel_delayed_work_sync(&intel_connector->hdcp_check_work);
+		cancel_work_sync(&intel_connector->hdcp_prop_work);
+	}
 
 	kfree(intel_connector->detect_edid);
 
@@ -4816,6 +4875,236 @@ void intel_dp_encoder_suspend(struct intel_encoder *intel_encoder)
 	edp_panel_vdd_off_sync(intel_dp);
 	pps_unlock(intel_dp);
 }
+
+static
+int intel_dp_hdcp_write_an_aksv(struct intel_digital_port *intel_dig_port,
+				u8 *an)
+{
+	struct intel_dp *intel_dp = enc_to_intel_dp(&intel_dig_port->base.base);
+	uint8_t txbuf[4], rxbuf[2], reply = 0;
+	ssize_t dpcd_ret;
+	int ret;
+
+	/* Output An first, that's easy */
+	dpcd_ret = drm_dp_dpcd_write(&intel_dig_port->dp.aux, DP_AUX_HDCP_AN,
+				     an, DRM_HDCP_AN_LEN);
+	if (dpcd_ret != DRM_HDCP_AN_LEN) {
+		DRM_ERROR("Failed to write An over DP/AUX (%zd)\n", dpcd_ret);
+		return dpcd_ret >= 0 ? -EIO : dpcd_ret;
+	}
+
+	/*
+	 * Since Aksv is Oh-So-Secret, we can't access it in software. So in
+	 * order to get it on the wire, we need to create the AUX header as if
+	 * we were writing the data, and then tickle the hardware to output the
+	 * data once the header is sent out.
+	 */
+	txbuf[0] = (DP_AUX_NATIVE_WRITE << 4) |
+		   ((DP_AUX_HDCP_AKSV >> 16) & 0xf);
+	txbuf[1] = (DP_AUX_HDCP_AKSV >> 8) & 0xff;
+	txbuf[2] = DP_AUX_HDCP_AKSV & 0xff;
+	txbuf[3] = DRM_HDCP_KSV_LEN - 1;
+
+	ret = intel_dp_aux_ch(intel_dp, txbuf, sizeof(txbuf), rxbuf,
+			      sizeof(rxbuf), true);
+	if (ret < 0) {
+		DRM_ERROR("Write Aksv over DP/AUX failed (%d)\n", ret);
+		return ret;
+	} else if (ret == 0) {
+		DRM_ERROR("Aksv write over DP/AUX was empty\n");
+		return -EIO;
+	}
+
+	reply = (rxbuf[0] >> 4) & DP_AUX_NATIVE_REPLY_MASK;
+	return reply == DP_AUX_NATIVE_REPLY_ACK ? 0 : -EIO;
+}
+
+static int intel_dp_hdcp_read_bksv(struct intel_digital_port *intel_dig_port,
+				   u8 *bksv)
+{
+	ssize_t ret;
+	ret = drm_dp_dpcd_read(&intel_dig_port->dp.aux, DP_AUX_HDCP_BKSV, bksv,
+			       DRM_HDCP_KSV_LEN);
+	if (ret != DRM_HDCP_KSV_LEN) {
+		DRM_ERROR("Read Bksv from DP/AUX failed (%zd)\n", ret);
+		return ret >= 0 ? -EIO : ret;
+	}
+	return 0;
+}
+
+static int intel_dp_hdcp_read_bstatus(struct intel_digital_port *intel_dig_port,
+				      u8 *bstatus)
+{
+	ssize_t ret;
+	/*
+	 * For some reason the HDMI and DP HDCP specs call this register
+	 * definition by different names. In the HDMI spec, it's called BSTATUS,
+	 * but in DP it's called BINFO.
+	 */
+	ret = drm_dp_dpcd_read(&intel_dig_port->dp.aux, DP_AUX_HDCP_BINFO,
+			       bstatus, DRM_HDCP_BSTATUS_LEN);
+	if (ret != DRM_HDCP_BSTATUS_LEN) {
+		DRM_ERROR("Read bstatus from DP/AUX failed (%zd)\n", ret);
+		return ret >= 0 ? -EIO : ret;
+	}
+	return 0;
+}
+
+static
+int intel_dp_hdcp_read_bcaps(struct intel_digital_port *intel_dig_port,
+			     u8 *bcaps)
+{
+	ssize_t ret;
+
+	ret = drm_dp_dpcd_read(&intel_dig_port->dp.aux, DP_AUX_HDCP_BCAPS,
+			       bcaps, 1);
+	if (ret != 1) {
+		DRM_ERROR("Read bcaps from DP/AUX failed (%zd)\n", ret);
+		return ret >= 0 ? -EIO : ret;
+	}
+
+	return 0;
+}
+
+static
+int intel_dp_hdcp_repeater_present(struct intel_digital_port *intel_dig_port,
+				   bool *repeater_present)
+{
+	ssize_t ret;
+	u8 bcaps;
+
+	ret = intel_dp_hdcp_read_bcaps(intel_dig_port, &bcaps);
+	if (ret)
+		return ret;
+
+	*repeater_present = bcaps & DP_BCAPS_REPEATER_PRESENT;
+	return 0;
+}
+
+static
+int intel_dp_hdcp_read_ri_prime(struct intel_digital_port *intel_dig_port,
+				u8 *ri_prime)
+{
+	ssize_t ret;
+	ret = drm_dp_dpcd_read(&intel_dig_port->dp.aux, DP_AUX_HDCP_RI_PRIME,
+			       ri_prime, DRM_HDCP_RI_LEN);
+	if (ret != DRM_HDCP_RI_LEN) {
+		DRM_ERROR("Read Ri' from DP/AUX failed (%zd)\n", ret);
+		return ret >= 0 ? -EIO : ret;
+	}
+	return 0;
+}
+
+static
+int intel_dp_hdcp_read_ksv_ready(struct intel_digital_port *intel_dig_port,
+				 bool *ksv_ready)
+{
+	ssize_t ret;
+	u8 bstatus;
+	ret = drm_dp_dpcd_read(&intel_dig_port->dp.aux, DP_AUX_HDCP_BSTATUS,
+			       &bstatus, 1);
+	if (ret != 1) {
+		DRM_ERROR("Read bstatus from DP/AUX failed (%zd)\n", ret);
+		return ret >= 0 ? -EIO : ret;
+	}
+	*ksv_ready = bstatus & DP_BSTATUS_READY;
+	return 0;
+}
+
+static
+int intel_dp_hdcp_read_ksv_fifo(struct intel_digital_port *intel_dig_port,
+				int num_downstream, u8 *ksv_fifo)
+{
+	ssize_t ret;
+	int i;
+
+	/* KSV list is read via 15 byte window (3 entries @ 5 bytes each) */
+	for (i = 0; i < num_downstream; i += 3) {
+		size_t len = min(num_downstream - i, 3) * DRM_HDCP_KSV_LEN;
+		ret = drm_dp_dpcd_read(&intel_dig_port->dp.aux,
+				       DP_AUX_HDCP_KSV_FIFO,
+				       ksv_fifo + i * DRM_HDCP_KSV_LEN,
+				       len);
+		if (ret != len) {
+			DRM_ERROR("Read ksv[%d] from DP/AUX failed (%zd)\n", i,
+				  ret);
+			return ret >= 0 ? -EIO : ret;
+		}
+	}
+	return 0;
+}
+
+static
+int intel_dp_hdcp_read_v_prime_part(struct intel_digital_port *intel_dig_port,
+				    int i, u32 *part)
+{
+	ssize_t ret;
+
+	if (i >= DRM_HDCP_V_PRIME_NUM_PARTS)
+		return -EINVAL;
+
+	ret = drm_dp_dpcd_read(&intel_dig_port->dp.aux,
+			       DP_AUX_HDCP_V_PRIME(i), part,
+			       DRM_HDCP_V_PRIME_PART_LEN);
+	if (ret != DRM_HDCP_V_PRIME_PART_LEN) {
+		DRM_ERROR("Read v'[%d] from DP/AUX failed (%zd)\n", i, ret);
+		return ret >= 0 ? -EIO : ret;
+	}
+	return 0;
+}
+
+static
+int intel_dp_hdcp_toggle_signalling(struct intel_digital_port *intel_dig_port,
+				    bool enable)
+{
+	/* Not used for single stream DisplayPort setups */
+	return 0;
+}
+
+static
+bool intel_dp_hdcp_check_link(struct intel_digital_port *intel_dig_port)
+{
+	ssize_t ret;
+	u8 bstatus;
+
+	ret = drm_dp_dpcd_read(&intel_dig_port->dp.aux, DP_AUX_HDCP_BSTATUS,
+			       &bstatus, 1);
+	if (ret != 1) {
+		DRM_ERROR("Read bstatus from DP/AUX failed (%zd)\n", ret);
+		return false;
+	}
+
+	return !(bstatus & (DP_BSTATUS_LINK_FAILURE | DP_BSTATUS_REAUTH_REQ));
+}
+
+static
+int intel_dp_hdcp_capable(struct intel_digital_port *intel_dig_port,
+			  bool *hdcp_capable)
+{
+	ssize_t ret;
+	u8 bcaps;
+
+	ret = intel_dp_hdcp_read_bcaps(intel_dig_port, &bcaps);
+	if (ret)
+		return ret;
+
+	*hdcp_capable = bcaps & DP_BCAPS_HDCP_CAPABLE;
+	return 0;
+}
+
+static const struct intel_hdcp_shim intel_dp_hdcp_shim = {
+	.write_an_aksv = intel_dp_hdcp_write_an_aksv,
+	.read_bksv = intel_dp_hdcp_read_bksv,
+	.read_bstatus = intel_dp_hdcp_read_bstatus,
+	.repeater_present = intel_dp_hdcp_repeater_present,
+	.read_ri_prime = intel_dp_hdcp_read_ri_prime,
+	.read_ksv_ready = intel_dp_hdcp_read_ksv_ready,
+	.read_ksv_fifo = intel_dp_hdcp_read_ksv_fifo,
+	.read_v_prime_part = intel_dp_hdcp_read_v_prime_part,
+	.toggle_signalling = intel_dp_hdcp_toggle_signalling,
+	.check_link = intel_dp_hdcp_check_link,
+	.hdcp_capable = intel_dp_hdcp_capable,
+};
 
 static void intel_edp_panel_vdd_sanitize(struct intel_dp *intel_dp)
 {
@@ -4944,10 +5233,14 @@ intel_dp_hpd_pulse(struct intel_digital_port *intel_dig_port, bool long_hpd)
 	}
 
 	if (!intel_dp->is_mst) {
+		drm_dp_cec_irq(&intel_dp->aux);
 		if (!intel_dp_short_pulse(intel_dp)) {
 			intel_dp->detect_done = false;
 			goto put_power;
 		}
+
+		/* Short pulse can signify loss of hdcp authentication */
+		intel_hdcp_check_link(intel_dp->attached_connector);
 	}
 
 	ret = IRQ_HANDLED;
@@ -5822,6 +6115,12 @@ intel_dp_init_connector(struct intel_digital_port *intel_dig_port,
 	}
 
 	intel_dp_add_properties(intel_dp, connector);
+
+	if (is_hdcp_supported(dev_priv, port) && !intel_dp_is_edp(dev_priv, port)) {
+		int ret = intel_hdcp_init(intel_connector, &intel_dp_hdcp_shim);
+		if (ret)
+			DRM_DEBUG_KMS("HDCP init failed, skipping.\n");
+	}
 
 	/* For G4X desktop chip, PEG_BAND_GAP_DATA 3:0 must first be written
 	 * 0xd.  Failure to do so will result in spurious interrupts being

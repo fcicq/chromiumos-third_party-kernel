@@ -3,7 +3,8 @@
  * Copyright 2005, Devicescape Software, Inc.
  * Copyright 2006-2007	Jiri Benc <jbenc@suse.cz>
  * Copyright 2007-2010	Johannes Berg <johannes@sipsolutions.net>
- * Copyright 2013-2014  Intel Mobile Communications GmbH
+ * Copyright 2013-2015  Intel Mobile Communications GmbH
+ * Copyright (C) 2018 Intel Corporation
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -682,7 +683,6 @@ struct ieee80211_if_mesh {
 	const struct ieee80211_mesh_sync_ops *sync_ops;
 	s64 sync_offset_clockdrift_max;
 	spinlock_t sync_offset_lock;
-	bool adjusting_tbtt;
 	/* mesh power save */
 	enum nl80211_mesh_power_mode nonpeer_pm;
 	int ps_peers_light_sleep;
@@ -720,7 +720,6 @@ struct ieee80211_if_mesh {
  *	back to wireless media and to the local net stack.
  * @IEEE80211_SDATA_DISCONNECT_RESUME: Disconnect after resume.
  * @IEEE80211_SDATA_IN_DRIVER: indicates interface was added to driver
- * @IEEE80211_SDATA_MU_MIMO_OWNER: indicates interface owns MU-MIMO capability
  */
 enum ieee80211_sub_if_data_flags {
 	IEEE80211_SDATA_ALLMULTI		= BIT(0),
@@ -728,7 +727,6 @@ enum ieee80211_sub_if_data_flags {
 	IEEE80211_SDATA_DONT_BRIDGE_PACKETS	= BIT(3),
 	IEEE80211_SDATA_DISCONNECT_RESUME	= BIT(4),
 	IEEE80211_SDATA_IN_DRIVER		= BIT(5),
-	IEEE80211_SDATA_MU_MIMO_OWNER		= BIT(6),
 };
 
 /**
@@ -811,6 +809,20 @@ struct txq_info {
 
 	/* keep last! */
 	struct ieee80211_txq txq;
+};
+
+struct ieee80211_if_mntr {
+	u32 flags;
+	u8 mu_follow_addr[ETH_ALEN] __aligned(2);
+};
+
+/**
+ * struct ieee80211_if_nan - NAN state
+ *
+ * @conf: current NAN configuration
+ */
+struct ieee80211_if_nan {
+	struct cfg80211_nan_conf conf;
 };
 
 struct ieee80211_sub_if_data {
@@ -911,7 +923,8 @@ struct ieee80211_sub_if_data {
 		struct ieee80211_if_ibss ibss;
 		struct ieee80211_if_mesh mesh;
 		struct ieee80211_if_ocb ocb;
-		u32 mntr_flags;
+		struct ieee80211_if_mntr mntr;
+		struct ieee80211_if_nan nan;
 	} u;
 
 #ifdef CONFIG_MAC80211_DEBUGFS
@@ -1483,6 +1496,11 @@ void ieee80211_bss_info_change_notify(struct ieee80211_sub_if_data *sdata,
 void ieee80211_configure_filter(struct ieee80211_local *local);
 u32 ieee80211_reset_erp_info(struct ieee80211_sub_if_data *sdata);
 
+u64 ieee80211_mgmt_tx_cookie(struct ieee80211_local *local);
+struct sk_buff *ieee80211_make_ack_skb(struct ieee80211_local *local,
+				       struct sk_buff *skb, u64 *cookie,
+				       gfp_t gfp);
+
 /* STA code */
 void ieee80211_sta_setup_sdata(struct ieee80211_sub_if_data *sdata);
 int ieee80211_mgd_auth(struct ieee80211_sub_if_data *sdata,
@@ -1577,16 +1595,22 @@ int ieee80211_request_sched_scan_stop(struct ieee80211_local *local);
 void ieee80211_sched_scan_end(struct ieee80211_local *local);
 void ieee80211_sched_scan_stopped_work(struct work_struct *work);
 
-/* off-channel helpers */
+/* off-channel/mgmt-tx */
 void ieee80211_offchannel_stop_vifs(struct ieee80211_local *local);
 void ieee80211_offchannel_return(struct ieee80211_local *local);
 void ieee80211_roc_setup(struct ieee80211_local *local);
 void ieee80211_start_next_roc(struct ieee80211_local *local);
 void ieee80211_roc_purge(struct ieee80211_local *local,
 			 struct ieee80211_sub_if_data *sdata);
-void ieee80211_roc_notify_destroy(struct ieee80211_roc_work *roc, bool free);
-void ieee80211_sw_roc_work(struct work_struct *work);
-void ieee80211_handle_roc_started(struct ieee80211_roc_work *roc);
+int ieee80211_remain_on_channel(struct wiphy *wiphy, struct wireless_dev *wdev,
+				struct ieee80211_channel *chan,
+				unsigned int duration, u64 *cookie);
+int ieee80211_cancel_remain_on_channel(struct wiphy *wiphy,
+				       struct wireless_dev *wdev, u64 cookie);
+int ieee80211_mgmt_tx(struct wiphy *wiphy, struct wireless_dev *wdev,
+		      struct cfg80211_mgmt_tx_params *params, u64 *cookie);
+int ieee80211_mgmt_tx_cancel_wait(struct wiphy *wiphy,
+				  struct wireless_dev *wdev, u64 cookie);
 
 /* channel switch handling */
 void ieee80211_csa_finalize_work(struct work_struct *work);
@@ -1707,6 +1731,8 @@ ieee80211_vht_cap_ie_to_sta_vht_cap(struct ieee80211_sub_if_data *sdata,
 enum ieee80211_sta_rx_bandwidth ieee80211_sta_cap_rx_bw(struct sta_info *sta);
 enum ieee80211_sta_rx_bandwidth ieee80211_sta_cur_vht_bw(struct sta_info *sta);
 void ieee80211_sta_set_rx_nss(struct sta_info *sta);
+void ieee80211_process_mu_groups(struct ieee80211_sub_if_data *sdata,
+				 struct ieee80211_mgmt *mgmt);
 u32 __ieee80211_vht_handle_opmode(struct ieee80211_sub_if_data *sdata,
                                   struct sta_info *sta, u8 opmode,
 				  enum ieee80211_band band);
@@ -1768,6 +1794,9 @@ extern const void *const mac80211_wiphy_privid; /* for wiphy privid */
 int ieee80211_frame_duration(enum ieee80211_band band, size_t len,
 			     int rate, int erp, int short_preamble,
 			     int shift);
+void ieee80211_regulatory_limit_wmm_params(struct ieee80211_sub_if_data *sdata,
+					   struct ieee80211_tx_queue_params *qparam,
+					   int ac);
 void ieee80211_set_wmm_default(struct ieee80211_sub_if_data *sdata,
 			       bool bss_notify, bool enable_qos);
 void ieee80211_xmit(struct ieee80211_sub_if_data *sdata,
@@ -1979,12 +2008,10 @@ int ieee80211_add_ext_srates_ie(struct ieee80211_sub_if_data *sdata,
 u8 *ieee80211_add_wmm_info_ie(u8 *buf, u8 qosinfo);
 
 /* channel management */
-void ieee80211_ht_oper_to_chandef(struct ieee80211_channel *control_chan,
-				  const struct ieee80211_ht_operation *ht_oper,
-				  struct cfg80211_chan_def *chandef);
-void ieee80211_vht_oper_to_chandef(struct ieee80211_channel *control_chan,
-				   const struct ieee80211_vht_operation *oper,
-				   struct cfg80211_chan_def *chandef);
+bool ieee80211_chandef_ht_oper(const struct ieee80211_ht_operation *ht_oper,
+			       struct cfg80211_chan_def *chandef);
+bool ieee80211_chandef_vht_oper(const struct ieee80211_vht_operation *oper,
+				struct cfg80211_chan_def *chandef);
 u32 ieee80211_chandef_downgrade(struct cfg80211_chan_def *c);
 
 int __must_check

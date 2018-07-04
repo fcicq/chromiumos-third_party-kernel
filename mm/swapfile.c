@@ -2195,7 +2195,11 @@ static struct swap_info_struct *alloc_swap_info(void)
 	return p;
 }
 
-static int claim_swapfile(struct swap_info_struct *p, struct inode *inode)
+/* This sysctl is only exposed when CONFIG_DISK_BASED_SWAP is enabled. */
+int sysctl_disk_based_swap;
+
+static int claim_swapfile(struct swap_info_struct *p, struct inode *inode,
+			  bool allow_disk_based_swap)
 {
 	int error;
 	/* On Chromium OS, we only support zram swap devices. */
@@ -2219,8 +2223,7 @@ static int claim_swapfile(struct swap_info_struct *p, struct inode *inode)
 		if (error < 0)
 			return error;
 		p->flags |= SWP_BLKDEV;
-	} else if (S_ISREG(inode->i_mode) &&
-		   IS_ENABLED(CONFIG_DISK_BASED_SWAP)) {
+	} else if (S_ISREG(inode->i_mode) && allow_disk_based_swap) {
 		p->bdev = inode->i_sb->s_bdev;
 		mutex_lock(&inode->i_mutex);
 		if (IS_SWAPFILE(inode))
@@ -2283,6 +2286,10 @@ static unsigned long read_swap_header(struct swap_info_struct *p,
 	maxpages = swp_offset(pte_to_swp_entry(
 			swp_entry_to_pte(swp_entry(0, ~0UL)))) + 1;
 	last_page = swap_header->info.last_page;
+	if (!last_page) {
+		pr_warn("Empty swap-file\n");
+		return 0;
+	}
 	if (last_page > maxpages) {
 		pr_warn("Truncating oversized swap area, only using %luk out of %luk\n",
 			maxpages << (PAGE_SHIFT - 10),
@@ -2427,6 +2434,7 @@ SYSCALL_DEFINE2(swapon, const char __user *, specialfile, int, swap_flags)
 	unsigned long *frontswap_map = NULL;
 	struct page *page = NULL;
 	struct inode *inode = NULL;
+	bool allow_disk_based_swap = sysctl_disk_based_swap ? true : false;
 
 	if (swap_flags & ~SWAP_FLAGS_VALID)
 		return -EINVAL;
@@ -2458,7 +2466,7 @@ SYSCALL_DEFINE2(swapon, const char __user *, specialfile, int, swap_flags)
 	inode = mapping->host;
 
 	/* If S_ISREG(inode->i_mode) will do mutex_lock(&inode->i_mutex); */
-	error = claim_swapfile(p, inode);
+	error = claim_swapfile(p, inode, allow_disk_based_swap);
 	if (unlikely(error))
 		goto bad_swap;
 
@@ -2602,7 +2610,7 @@ bad_swap:
 	vfree(cluster_info);
 	if (swap_file) {
 		if (inode && S_ISREG(inode->i_mode)) {
-			if (IS_ENABLED(CONFIG_DISK_BASED_SWAP))
+			if (allow_disk_based_swap)
 				mutex_unlock(&inode->i_mutex);
 			inode = NULL;
 		}

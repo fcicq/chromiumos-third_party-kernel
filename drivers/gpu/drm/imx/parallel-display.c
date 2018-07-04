@@ -40,12 +40,6 @@ struct imx_parallel_display {
 	struct drm_panel *panel;
 };
 
-static enum drm_connector_status imx_pd_connector_detect(
-		struct drm_connector *connector, bool force)
-{
-	return connector_status_connected;
-}
-
 static int imx_pd_connector_get_modes(struct drm_connector *connector)
 {
 	struct imx_parallel_display *imxpd = con_to_imxpd(connector);
@@ -151,7 +145,6 @@ static void imx_pd_encoder_disable(struct drm_encoder *encoder)
 static struct drm_connector_funcs imx_pd_connector_funcs = {
 	.dpms = drm_helper_connector_dpms,
 	.fill_modes = drm_helper_probe_single_connector_modes,
-	.detect = imx_pd_connector_detect,
 	.destroy = imx_drm_connector_destroy,
 };
 

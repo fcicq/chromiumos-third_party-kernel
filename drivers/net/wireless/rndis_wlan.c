@@ -2134,6 +2134,7 @@ static void rndis_get_scan_results(struct work_struct *work)
 	struct rndis_wlan_private *priv =
 		container_of(work, struct rndis_wlan_private, scan_work.work);
 	struct usbnet *usbdev = priv->usbdev;
+	struct cfg80211_scan_info info = {};
 	int ret;
 
 	netdev_dbg(usbdev->net, "get_scan_results\n");
@@ -2143,7 +2144,8 @@ static void rndis_get_scan_results(struct work_struct *work)
 
 	ret = rndis_check_bssid_list(usbdev, NULL, NULL);
 
-	cfg80211_scan_done(priv->scan_request, ret < 0);
+	info.aborted = ret < 0;
+	cfg80211_scan_done(priv->scan_request, &info);
 
 	priv->scan_request = NULL;
 }
@@ -3425,6 +3427,10 @@ static int rndis_wlan_bind(struct usbnet *usbdev, struct usb_interface *intf)
 
 	/* because rndis_command() sleeps we need to use workqueue */
 	priv->workqueue = create_singlethread_workqueue("rndis_wlan");
+	if (!priv->workqueue) {
+		wiphy_free(wiphy);
+		return -ENOMEM;
+	}
 	INIT_WORK(&priv->work, rndis_wlan_worker);
 	INIT_DELAYED_WORK(&priv->dev_poller_work, rndis_device_poller);
 	INIT_DELAYED_WORK(&priv->scan_work, rndis_get_scan_results);
@@ -3574,7 +3580,11 @@ static int rndis_wlan_stop(struct usbnet *usbdev)
 	flush_workqueue(priv->workqueue);
 
 	if (priv->scan_request) {
-		cfg80211_scan_done(priv->scan_request, true);
+		struct cfg80211_scan_info info = {
+			.aborted = true,
+		};
+
+		cfg80211_scan_done(priv->scan_request, &info);
 		priv->scan_request = NULL;
 	}
 

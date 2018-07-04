@@ -20,6 +20,7 @@
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/iio/buffer.h>
+#include <linux/iio/common/cros_ec_sensors_core.h>
 #include <linux/iio/iio.h>
 #include <linux/iio/kfifo_buf.h>
 #include <linux/iio/trigger_consumer.h>
@@ -30,8 +31,6 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/platform_device.h>
-
-#include "cros_ec_sensors_core.h"
 
 #define MAX_CHANNELS (MAX_AXIS + 1)
 
@@ -251,6 +250,14 @@ static int cros_ec_sensors_probe(struct platform_device *pdev)
 			break;
 		case MOTIONSENSE_TYPE_MAG:
 			channel->type = IIO_MAGN;
+			/*
+			 * Workaround for b:68394559:
+			 * The BMM150 frequency reported by the EC can be too
+			 * high. Scale it down to default when greater than
+			 * 50Hz.
+			 */
+			if (state->core.max_freq > 50000)
+				state->core.max_freq = 25000;
 			break;
 		default:
 			dev_warn(&pdev->dev, "unknown\n");

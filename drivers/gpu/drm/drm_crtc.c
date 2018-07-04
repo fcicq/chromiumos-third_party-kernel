@@ -38,6 +38,7 @@
 #include <drm/drm_crtc.h>
 #include <drm/drm_edid.h>
 #include <drm/drm_fourcc.h>
+#include <drm/drm_gem.h>
 #include <drm/drm_modeset_lock.h>
 #include <drm/drm_atomic.h>
 #include <drm/drm_debugfs_crc.h>
@@ -761,10 +762,13 @@ int drm_mode_destroy_dumb_ioctl(struct drm_device *dev,
 {
 	struct drm_mode_destroy_dumb *args = data;
 
-	if (!dev->driver->dumb_destroy)
+	if (!dev->driver->dumb_create)
 		return -ENOSYS;
 
-	return dev->driver->dumb_destroy(file_priv, dev, args->handle);
+	if (dev->driver->dumb_destroy)
+		return dev->driver->dumb_destroy(file_priv, dev, args->handle);
+	else
+		return drm_gem_dumb_destroy(file_priv, dev, args->handle);
 }
 
 /**

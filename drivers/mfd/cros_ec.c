@@ -102,15 +102,38 @@ static struct cros_ec_dev_platform ec_p = {
 	.cmd_offset = EC_CMD_PASSTHRU_OFFSET(CROS_EC_DEV_EC_INDEX),
 };
 
+static int get_next_event_xfer(struct cros_ec_device *ec_dev,
+			       struct cros_ec_command *msg,
+			       struct ec_response_get_next_event_v1 *event,
+			       int version, uint32_t size)
+{
+	int ret;
+
+	msg->command = EC_CMD_GET_NEXT_EVENT;
+	msg->version = version;
+	msg->insize = size;
+
+	ret = cros_ec_cmd_xfer(ec_dev, msg);
+	if (ret > 0) {
+		ec_dev->event_size = ret - 1;
+		ec_dev->event_data = *event;
+	}
+
+	return ret;
+}
+
 int cros_ec_get_next_event(struct cros_ec_device *ec_dev)
 {
+	static int cmd_version = 1;
 	struct {
 		struct cros_ec_command msg;
-		struct ec_response_get_next_event event;
+		struct ec_response_get_next_event_v1 event;
 	} __packed buf;
 	struct cros_ec_command *msg = &buf.msg;
-	struct ec_response_get_next_event *event = &buf.event;
+	struct ec_response_get_next_event_v1 *event = &buf.event;
 	int ret;
+
+	BUILD_BUG_ON(sizeof(union ec_response_get_next_data_v1) != 16);
 
 	memset(&buf, 0, sizeof(buf));
 
@@ -119,15 +142,19 @@ int cros_ec_get_next_event(struct cros_ec_device *ec_dev)
 		return -EHOSTDOWN;
 	}
 
-	msg->version = 0;
-	msg->command = EC_CMD_GET_NEXT_EVENT;
-	msg->insize = sizeof(struct ec_response_get_next_event);
+	if (cmd_version == 1) {
+		ret = get_next_event_xfer(ec_dev, msg, event, 1,
+				sizeof(struct ec_response_get_next_event_v1));
+		if (ret < 0 || msg->result != EC_RES_INVALID_VERSION)
+			return ret;
 
-	ret = cros_ec_cmd_xfer(ec_dev, msg);
-	if (ret > 0) {
-		ec_dev->event_size = ret - 1;
-		ec_dev->event_data = *event;
+		/* Fallback to version 0 for future send attempts */
+		cmd_version = 0;
 	}
+
+	ret = get_next_event_xfer(ec_dev, msg, event, 0,
+				  sizeof(struct ec_response_get_next_event));
+
 	return ret;
 }
 EXPORT_SYMBOL(cros_ec_get_next_event);
@@ -136,9 +163,9 @@ static int cros_ec_get_keyboard_state_event(struct cros_ec_device *ec_dev)
 {
 	struct {
 		struct cros_ec_command msg;
-		union ec_response_get_next_data data;
+		union ec_response_get_next_data_v1 data;
 	} __packed buf;
-	union ec_response_get_next_data *data = &buf.data;
+	union ec_response_get_next_data_v1 *data = &buf.data;
 	struct cros_ec_command *msg = &buf.msg;
 	int ret;
 
@@ -174,6 +201,20 @@ u32 cros_ec_get_host_event(struct cros_ec_device *ec_dev)
 	return host_event;
 }
 EXPORT_SYMBOL(cros_ec_get_host_event);
+
+s64 cros_ec_get_time_ns(void)
+{
+	return ktime_get_boot_ns();
+}
+EXPORT_SYMBOL(cros_ec_get_time_ns);
+
+static irqreturn_t ec_irq_handler(int irq, void *data) {
+	struct cros_ec_device *ec_dev = data;
+
+	ec_dev->last_event_time = cros_ec_get_time_ns();
+
+	return IRQ_WAKE_THREAD;
+}
 
 static irqreturn_t ec_irq_thread(int irq, void *data)
 {
@@ -266,9 +307,10 @@ int cros_ec_register(struct cros_ec_device *ec_dev)
 	}
 
 	if (ec_dev->irq) {
-		err = request_threaded_irq(ec_dev->irq, NULL, ec_irq_thread,
-					   IRQF_TRIGGER_LOW | IRQF_ONESHOT,
-					   "chromeos-ec", ec_dev);
+		err = devm_request_threaded_irq(dev, ec_dev->irq,
+				ec_irq_handler, ec_irq_thread,
+				IRQF_TRIGGER_LOW | IRQF_ONESHOT,
+				"chromeos-ec", ec_dev);
 		if (err) {
 			dev_err(dev, "request irq %d: error %d\n",
 				ec_dev->irq, err);
@@ -282,7 +324,7 @@ int cros_ec_register(struct cros_ec_device *ec_dev)
 		dev_err(dev,
 			"Failed to register Embedded Controller subdevice %d\n",
 			err);
-		goto mfd_err;
+		return err;
 	}
 
 	if (ec_dev->max_passthru) {
@@ -300,7 +342,7 @@ int cros_ec_register(struct cros_ec_device *ec_dev)
 			dev_err(dev,
 				"Failed to register Power Delivery subdevice %d\n",
 				err);
-			goto mfd_err;
+			return err;
 		}
 	}
 
@@ -309,7 +351,7 @@ int cros_ec_register(struct cros_ec_device *ec_dev)
 		if (err) {
 			mfd_remove_devices(dev);
 			dev_err(dev, "Failed to register sub-devices\n");
-			goto mfd_err;
+			return err;
 		}
 	}
 
@@ -327,13 +369,7 @@ int cros_ec_register(struct cros_ec_device *ec_dev)
 #ifdef CONFIG_ACPI
 	cros_ec_install_handler(dev);
 #endif
-
 	return 0;
-
-mfd_err:
-      	if (ec_dev->irq)
-		free_irq(ec_dev->irq, ec_dev);
-	return err;
 }
 EXPORT_SYMBOL(cros_ec_register);
 
@@ -391,7 +427,7 @@ int cros_ec_suspend(struct cros_ec_device *ec_dev)
 }
 EXPORT_SYMBOL(cros_ec_suspend);
 
-static void cros_ec_drain_events(struct cros_ec_device *ec_dev)
+static void cros_ec_report_events_during_suspend(struct cros_ec_device *ec_dev)
 {
 	while (cros_ec_get_next_event(ec_dev) > 0)
 		blocking_notifier_call_chain(&ec_dev->event_notifier,
@@ -417,20 +453,16 @@ int cros_ec_resume(struct cros_ec_device *ec_dev)
 		dev_dbg(ec_dev->dev, "Error %d sending resume event to ec",
 			ret);
 
-	/*
-	 * In some case, we need to distinguish events that occur during
-	 * suspend if the EC is not a wake source. For example, keypresses
-	 * during suspend should be discarded if it does not wake the system.
-	 *
-	 * If the EC is not a wake source, drain the event queue and mark them
-	 * as "queued during suspend".
-	 */
 	if (ec_dev->wake_enabled) {
 		disable_irq_wake(ec_dev->irq);
 		ec_dev->wake_enabled = 0;
-	} else {
-		cros_ec_drain_events(ec_dev);
 	}
+	/*
+	 * Let the mfd devices know about events that occur during
+	 * suspend. This way the clients know what to do with them.
+	 */
+	cros_ec_report_events_during_suspend(ec_dev);
+
 
 	return 0;
 }

@@ -172,6 +172,8 @@ static inline u16 ieee80211_sn_sub(u16 sn1, u16 sn2)
 
 /* number of user priorities 802.11 uses */
 #define IEEE80211_NUM_UPS		8
+/* number of ACs */
+#define IEEE80211_NUM_ACS		4
 
 #define IEEE80211_QOS_CTL_LEN		2
 /* 1d tag mask */
@@ -843,6 +845,8 @@ enum ieee80211_vht_opmode_bits {
 };
 
 #define WLAN_SA_QUERY_TR_ID_LEN 2
+#define WLAN_MEMBERSHIP_LEN 8
+#define WLAN_USER_POSITION_LEN 16
 
 /**
  * struct ieee80211_tpc_report_ie
@@ -989,6 +993,11 @@ struct ieee80211_mgmt {
 					u8 action_code;
 					u8 operating_mode;
 				} __packed vht_opmode_notif;
+				struct {
+					u8 action_code;
+					u8 membership[WLAN_MEMBERSHIP_LEN];
+					u8 position[WLAN_USER_POSITION_LEN];
+				} __packed vht_group_notif;
 				struct {
 					u8 action_code;
 					u8 dialog_token;
@@ -2031,6 +2040,9 @@ enum ieee80211_key_len {
 #define IEEE80211_GCMP_HDR_LEN		8
 #define IEEE80211_GCMP_MIC_LEN		16
 #define IEEE80211_GCMP_PN_LEN		6
+
+#define FILS_NONCE_LEN			16
+#define FILS_MAX_KEK_LEN		64
 
 /* Public action codes */
 enum ieee80211_pub_actioncode {

@@ -3546,9 +3546,44 @@ static int reset_chelsio_generic_dev(struct pci_dev *dev, int probe)
 	return 0;
 }
 
+/*
+ * Some Marvell Wifi devices may utilize FLR for reset/recovery when their
+ * firmware crashes. However, Marvell firmware can have trouble reinitializing
+ * the device correctly after just a single reset, so we instead perform 2
+ * resets, allowing the driver to reinitialize the driver in between.
+ *
+ * Lifted partially from pci_reset_function(), but done entirely under
+ * pci_dev_lock().
+ */
+static int reset_marvell_wifi_double_flr(struct pci_dev *dev, int probe)
+{
+	int ret;
+
+	if (probe)
+		return pcie_flr(dev, probe);
+
+	/* Perform first reset. */
+	ret = pcie_flr(dev, 0);
+	if (ret)
+		return ret;
+
+	/*
+	 * Notify and restore any driver in between resets, to give it a chance
+	 * to reload firmware. Without this, the device may not come up
+	 * completely correctly.
+	 */
+	pci_dev_restore(dev);
+	pci_dev_save_and_disable(dev);
+
+	/* Perform second reset. */
+	return pcie_flr(dev, 0);
+}
+
 #define PCI_DEVICE_ID_INTEL_82599_SFP_VF   0x10ed
 #define PCI_DEVICE_ID_INTEL_IVB_M_VGA      0x0156
 #define PCI_DEVICE_ID_INTEL_IVB_M2_VGA     0x0166
+
+#define PCIE_DEVICE_ID_MARVELL_88W8997     0x2b42
 
 static const struct pci_dev_reset_methods pci_dev_reset_methods[] = {
 	{ PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_82599_SFP_VF,
@@ -3559,6 +3594,10 @@ static const struct pci_dev_reset_methods pci_dev_reset_methods[] = {
 		reset_ivb_igd },
 	{ PCI_VENDOR_ID_CHELSIO, PCI_ANY_ID,
 		reset_chelsio_generic_dev },
+	{ PCI_VENDOR_ID_MARVELL, PCIE_DEVICE_ID_MARVELL_88W8997,
+		reset_marvell_wifi_double_flr },
+	{ PCI_VENDOR_ID_MARVELL_EXT, PCIE_DEVICE_ID_MARVELL_88W8997,
+		reset_marvell_wifi_double_flr },
 	{ 0 }
 };
 
@@ -3616,6 +3655,8 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_MARVELL_EXT, 0x9120,
 			 quirk_dma_func1_alias);
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_MARVELL_EXT, 0x9123,
 			 quirk_dma_func1_alias);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_MARVELL_EXT, 0x9128,
+			 quirk_dma_func1_alias);
 /* https://bugzilla.kernel.org/show_bug.cgi?id=42679#c14 */
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_MARVELL_EXT, 0x9130,
 			 quirk_dma_func1_alias);
@@ -3628,10 +3669,15 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_MARVELL_EXT, 0x917a,
 /* https://bugzilla.kernel.org/show_bug.cgi?id=42679#c46 */
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_MARVELL_EXT, 0x91a0,
 			 quirk_dma_func1_alias);
+/* https://bugzilla.kernel.org/show_bug.cgi?id=42679#c127 */
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_MARVELL_EXT, 0x9220,
+			 quirk_dma_func1_alias);
 /* https://bugzilla.kernel.org/show_bug.cgi?id=42679#c49 */
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_MARVELL_EXT, 0x9230,
 			 quirk_dma_func1_alias);
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_TTI, 0x0642,
+			 quirk_dma_func1_alias);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_TTI, 0x0645,
 			 quirk_dma_func1_alias);
 /* https://bugs.gentoo.org/show_bug.cgi?id=497630 */
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_JMICRON,

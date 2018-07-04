@@ -20,10 +20,6 @@
 #include "evdi_drv.h"
 #include "evdi_cursor.h"
 
-#define EVDI_CURSOR_W 64
-#define EVDI_CURSOR_H 64
-#define EVDI_CURSOR_BUF (EVDI_CURSOR_W * EVDI_CURSOR_H)
-
 static void evdi_crtc_dpms(struct drm_crtc *crtc, int mode)
 {
 	EVDI_CHECKPT();
@@ -101,6 +97,20 @@ static int evdi_crtc_cursor_set(struct drm_crtc *crtc,
 	struct evdi_device *evdi = dev->dev_private;
 	struct drm_gem_object *obj = NULL;
 	struct evdi_gem_object *eobj = NULL;
+	/*
+	 * evdi_crtc_cursor_set is callback function using
+	 * deprecated cursor entry point.
+	 * There is no info about underlaying pixel format.
+	 * Hence we are assuming that it is in ARGB 32bpp format.
+	 * This format it the only one supported in cursor composition
+	 * function.
+	 * This format is also enforced during framebuffer creation.
+	 *
+	 * Proper format will be available when driver start support
+	 * universal planes for cursor.
+	 */
+	uint32_t format = DRM_FORMAT_ARGB8888;
+	uint32_t stride = 4 * width;
 
 	EVDI_CHECKPT();
 	if (handle) {
@@ -113,13 +123,15 @@ static int evdi_crtc_cursor_set(struct drm_crtc *crtc,
 		mutex_unlock(&dev->struct_mutex);
 	}
 
-	if (eobj)
-		evdi_cursor_download(evdi->cursor, eobj);
-
-	evdi_cursor_enable(evdi->cursor, eobj != NULL);
+	evdi_cursor_set(evdi->cursor,
+			eobj, width, height, hot_x, hot_y,
+			format, stride);
 	drm_gem_object_unreference_unlocked(obj);
-	evdi_crtc_mark_full_screen_dirty(evdi, crtc);
 
+	if (evdi_enable_cursor_blending)
+		evdi_crtc_mark_full_screen_dirty(evdi, crtc);
+	else
+		evdi_painter_send_cursor_set(evdi->painter, evdi->cursor);
 	return 0;
 }
 
@@ -128,9 +140,12 @@ static int evdi_crtc_cursor_move(struct drm_crtc *crtc, int x, int y)
 	struct drm_device *dev = crtc->dev;
 	struct evdi_device *evdi = dev->dev_private;
 
-	evdi_cursor_move(x, y, evdi->cursor);
+	evdi_cursor_move(evdi->cursor, x, y);
 
-	evdi_crtc_mark_full_screen_dirty(evdi, crtc);
+	if (evdi_enable_cursor_blending)
+		evdi_crtc_mark_full_screen_dirty(evdi, crtc);
+	else
+		evdi_painter_send_cursor_move(evdi->painter, evdi->cursor);
 	return 0;
 }
 
@@ -184,12 +199,10 @@ static void evdi_plane_atomic_update(struct drm_plane *plane,
 void evdi_cursor_atomic_get_rect(struct drm_clip_rect *rect,
 				 struct drm_plane_state *state)
 {
-	rect->x1 = (state->crtc_x < (EVDI_CURSOR_W/2)
-		 ? 0 : (state->crtc_x - (EVDI_CURSOR_W/2)));
-	rect->y1 = (state->crtc_y < (EVDI_CURSOR_H/2)
-		 ? 0 : (state->crtc_y - (EVDI_CURSOR_H/2)));
-	rect->x2 = state->crtc_x + (EVDI_CURSOR_W/2);
-	rect->y2 = state->crtc_y + (EVDI_CURSOR_H/2);
+	rect->x1 = (state->crtc_x < 0) ? 0 : state->crtc_x;
+	rect->y1 = (state->crtc_y < 0) ? 0 : state->crtc_y;
+	rect->x2 = state->crtc_x + state->crtc_w;
+	rect->y2 = state->crtc_y + state->crtc_h;
 }
 
 static void evdi_cursor_atomic_update(struct drm_plane *plane,
@@ -198,30 +211,58 @@ static void evdi_cursor_atomic_update(struct drm_plane *plane,
 	if (plane && plane->state && plane->dev && plane->dev->dev_private) {
 		struct drm_plane_state *state = plane->state;
 		struct evdi_device *evdi = plane->dev->dev_private;
-		struct evdi_framebuffer *cursor_efb = to_evdi_fb(state->fb);
+		struct drm_framebuffer *fb = state->fb;
+		struct evdi_framebuffer *efb = to_evdi_fb(fb);
 
 		struct drm_clip_rect old_rect;
 		struct drm_clip_rect rect;
+		bool cursor_changed = false;
+		bool cursor_position_changed = false;
+		int32_t cursor_position_x = 0;
+		int32_t cursor_position_y = 0;
 
 		mutex_lock(&plane->dev->struct_mutex);
 
-		evdi_cursor_move(state->crtc_x, state->crtc_y, evdi->cursor);
+		evdi_cursor_position(evdi->cursor, &cursor_position_x,
+						   &cursor_position_y);
+		evdi_cursor_move(evdi->cursor, state->crtc_x, state->crtc_y);
+		cursor_position_changed = cursor_position_x != state->crtc_x ||
+					  cursor_position_y != state->crtc_y;
 
-		if (state->fb != old_state->fb) {
-			if (cursor_efb != NULL)
-				evdi_cursor_download(evdi->cursor,
-						     cursor_efb->obj);
+		if (fb != old_state->fb) {
+			if (fb != NULL) {
+				uint32_t stride = 4 * fb->width;
 
-			evdi_cursor_enable(evdi->cursor, cursor_efb != NULL);
+				evdi_cursor_set(evdi->cursor,
+						efb->obj,
+						fb->width,
+						fb->height,
+						0,
+						0,
+						fb->format->format,
+						stride);
+			}
+
+			evdi_cursor_enable(evdi->cursor, fb != NULL);
+			cursor_changed = true;
 		}
 
 		mutex_unlock(&plane->dev->struct_mutex);
 
-		evdi_cursor_atomic_get_rect(&old_rect, old_state);
-		evdi_cursor_atomic_get_rect(&rect, state);
+		if (evdi_enable_cursor_blending) {
+			evdi_cursor_atomic_get_rect(&old_rect, old_state);
+			evdi_cursor_atomic_get_rect(&rect, state);
 
-		evdi_painter_mark_dirty(evdi, &old_rect);
-		evdi_painter_mark_dirty(evdi, &rect);
+			evdi_painter_mark_dirty(evdi, &old_rect);
+			evdi_painter_mark_dirty(evdi, &rect);
+			return;
+		}
+		if (cursor_changed)
+			evdi_painter_send_cursor_set(evdi->painter,
+						     evdi->cursor);
+		if (cursor_position_changed)
+			evdi_painter_send_cursor_move(evdi->painter,
+						      evdi->cursor);
 	}
 }
 
@@ -268,7 +309,7 @@ static struct drm_plane *evdi_create_plane(
 				       &evdi_plane_funcs,
 				       formats,
 				       ARRAY_SIZE(formats),
-				       NULL, 0,
+				       NULL,
 				       type, NULL);
 	if (ret) {
 		EVDI_ERROR("Failed to initialize primary plane\n");
@@ -336,8 +377,8 @@ void evdi_modeset_init(struct drm_device *dev)
 	EVDI_CHECKPT();
 	drm_mode_config_init(dev);
 
-	dev->mode_config.min_width = EVDI_CURSOR_W;
-	dev->mode_config.min_height = EVDI_CURSOR_H;
+	dev->mode_config.min_width = 64;
+	dev->mode_config.min_height = 64;
 
 	dev->mode_config.max_width = 3840;
 	dev->mode_config.max_height = 2160;

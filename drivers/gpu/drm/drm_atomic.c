@@ -280,6 +280,8 @@ drm_atomic_get_crtc_state(struct drm_atomic_state *state,
 		return ERR_PTR(-ENOMEM);
 
 	state->crtcs[index].state = crtc_state;
+	state->crtcs[index].old_state = crtc->state;
+	state->crtcs[index].new_state = crtc_state;
 	state->crtcs[index].ptr = crtc;
 	crtc_state->state = state;
 
@@ -430,24 +432,27 @@ drm_atomic_replace_property_blob(struct drm_property_blob **blob,
 }
 
 static int
-drm_atomic_replace_property_blob_from_id(struct drm_crtc *crtc,
+drm_atomic_replace_property_blob_from_id(struct drm_device *dev,
 					 struct drm_property_blob **blob,
 					 uint64_t blob_id,
 					 ssize_t expected_size,
 					 bool *replaced)
 {
-	struct drm_device *dev = crtc->dev;
 	struct drm_property_blob *new_blob = NULL;
 
 	if (blob_id != 0) {
 		new_blob = drm_property_lookup_blob(dev, blob_id);
 		if (new_blob == NULL)
 			return -EINVAL;
-		if (expected_size > 0 && expected_size != new_blob->length)
+
+		if (expected_size > 0 && expected_size != new_blob->length) {
+			drm_property_unreference_blob(new_blob);
 			return -EINVAL;
+		}
 	}
 
 	drm_atomic_replace_property_blob(blob, new_blob, replaced);
+	drm_property_unreference_blob(new_blob);
 
 	return 0;
 }
@@ -486,7 +491,7 @@ int drm_atomic_crtc_set_property(struct drm_crtc *crtc,
 		drm_property_unreference_blob(mode);
 		return ret;
 	} else if (property == config->degamma_lut_property) {
-		ret = drm_atomic_replace_property_blob_from_id(crtc,
+		ret = drm_atomic_replace_property_blob_from_id(dev,
 					&state->degamma_lut,
 					val,
 					-1,
@@ -494,7 +499,7 @@ int drm_atomic_crtc_set_property(struct drm_crtc *crtc,
 		state->color_mgmt_changed = replaced;
 		return ret;
 	} else if (property == config->ctm_property) {
-		ret = drm_atomic_replace_property_blob_from_id(crtc,
+		ret = drm_atomic_replace_property_blob_from_id(dev,
 					&state->ctm,
 					val,
 					sizeof(struct drm_color_ctm),
@@ -502,7 +507,7 @@ int drm_atomic_crtc_set_property(struct drm_crtc *crtc,
 		state->color_mgmt_changed = replaced;
 		return ret;
 	} else if (property == config->gamma_lut_property) {
-		ret = drm_atomic_replace_property_blob_from_id(crtc,
+		ret = drm_atomic_replace_property_blob_from_id(dev,
 					&state->gamma_lut,
 					val,
 					-1,
@@ -685,6 +690,8 @@ drm_atomic_get_plane_state(struct drm_atomic_state *state,
 
 	state->planes[index].state = plane_state;
 	state->planes[index].ptr = plane;
+	state->planes[index].old_state = plane->state;
+	state->planes[index].new_state = plane_state;
 	plane_state->state = state;
 
 	DRM_DEBUG_ATOMIC("Added [PLANE:%d:%s] %p state to %p\n",
@@ -725,6 +732,8 @@ int drm_atomic_plane_set_property(struct drm_plane *plane,
 {
 	struct drm_device *dev = plane->dev;
 	struct drm_mode_config *config = &dev->mode_config;
+	bool replaced = false;
+	int ret;
 
 	if (property == config->prop_fb_id) {
 		struct drm_framebuffer *fb = drm_framebuffer_lookup(dev, val);
@@ -766,6 +775,14 @@ int drm_atomic_plane_set_property(struct drm_plane *plane,
 		state->rotation = val;
 	} else if (property == plane->zpos_property) {
 		state->zpos = val;
+	} else if (property == plane->ctm_property) {
+		ret = drm_atomic_replace_property_blob_from_id(dev,
+					&state->ctm,
+					val,
+					sizeof(struct drm_color_ctm),
+					&replaced);
+		state->color_mgmt_changed |= replaced;
+		return ret;
 	} else if (plane->funcs->atomic_set_property) {
 		return plane->funcs->atomic_set_property(plane, state,
 				property, val);
@@ -818,6 +835,8 @@ drm_atomic_plane_get_property(struct drm_plane *plane,
 		*val = state->rotation;
 	} else if (property == plane->zpos_property) {
 		*val = state->zpos;
+	} else if (property == plane->ctm_property) {
+		*val = (state->ctm) ? state->ctm->base.id : 0;
 	} else if (plane->funcs->atomic_get_property) {
 		return plane->funcs->atomic_get_property(plane, state, property, val);
 	} else {
@@ -1016,6 +1035,8 @@ drm_atomic_get_connector_state(struct drm_atomic_state *state,
 
 	drm_connector_reference(connector);
 	state->connectors[index].state = connector_state;
+	state->connectors[index].old_state = connector->state;
+	state->connectors[index].new_state = connector_state;
 	state->connectors[index].ptr = connector;
 	connector_state->state = state;
 
@@ -1067,12 +1088,19 @@ int drm_atomic_connector_set_property(struct drm_connector *connector,
 		 * now?) atomic writes to DPMS property:
 		 */
 		return -EINVAL;
+	} else if (property == connector->content_protection_property) {
+		if (val == DRM_MODE_CONTENT_PROTECTION_ENABLED) {
+			DRM_DEBUG_KMS("only drivers can set CP Enabled\n");
+			return -EINVAL;
+		}
+		state->content_protection = val;
 	} else if (connector->funcs->atomic_set_property) {
 		return connector->funcs->atomic_set_property(connector,
 				state, property, val);
 	} else {
 		return -EINVAL;
 	}
+	return 0;
 }
 EXPORT_SYMBOL(drm_atomic_connector_set_property);
 
@@ -1112,6 +1140,8 @@ drm_atomic_connector_get_property(struct drm_connector *connector,
 		*val = (state->crtc) ? state->crtc->base.id : 0;
 	} else if (property == config->dpms_property) {
 		*val = connector->dpms;
+	} else if (property == connector->content_protection_property) {
+		*val = state->content_protection;
 	} else if (connector->funcs->atomic_get_property) {
 		return connector->funcs->atomic_get_property(connector,
 				state, property, val);

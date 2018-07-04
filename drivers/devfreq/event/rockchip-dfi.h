@@ -23,6 +23,8 @@ int rockchip_dfi_calc_top_threshold(struct devfreq_event_dev *edev,
 int rockchip_dfi_calc_floor_threshold(struct devfreq_event_dev *edev,
 				      unsigned long rate,
 				      unsigned int percent);
+void rockchip_dfi_set_devfreq(struct devfreq_event_dev *edev,
+			      struct devfreq *devfreq);
 #else
 static inline int rockchip_dfi_calc_top_threshold(
 		struct devfreq_event_dev *edev,
@@ -32,5 +34,7 @@ static inline int rockchip_dfi_calc_floor_threshold(
 		struct devfreq_event_dev *edev,
 		unsigned long rate,
 		unsigned int percent) { return 0; }
+static inline void rockchip_dfi_set_devfreq(struct devfreq_event_dev *edev,
+					    struct devfreq *devfreq) {}
 #endif
 #endif

@@ -139,6 +139,7 @@ static const struct drm_plane_funcs drm_simple_kms_plane_funcs = {
  * @funcs: callbacks for the display pipe (optional)
  * @formats: array of supported formats (DRM_FORMAT\_\*)
  * @format_count: number of elements in @formats
+ * @format_modifiers: array of formats modifiers
  * @connector: connector to attach and register
  *
  * Sets up a display pipeline which consist of a really simple
@@ -154,6 +155,7 @@ int drm_simple_display_pipe_init(struct drm_device *dev,
 			struct drm_simple_display_pipe *pipe,
 			const struct drm_simple_display_pipe_funcs *funcs,
 			const uint32_t *formats, unsigned int format_count,
+			const uint64_t *format_modifiers,
 			struct drm_connector *connector)
 {
 	struct drm_encoder *encoder = &pipe->encoder;
@@ -167,7 +169,8 @@ int drm_simple_display_pipe_init(struct drm_device *dev,
 	drm_plane_helper_add(plane, &drm_simple_kms_plane_helper_funcs);
 	ret = drm_universal_plane_init(dev, plane, 0,
 				       &drm_simple_kms_plane_funcs,
-				       formats, format_count, NULL, 0,
+				       formats, format_count,
+				       format_modifiers,
 				       DRM_PLANE_TYPE_PRIMARY, NULL);
 	if (ret)
 		return ret;

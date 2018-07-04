@@ -108,6 +108,7 @@ static void dwc3_rockchip_otg_extcon_evt_work(struct work_struct *work)
 		 */
 		msleep(100);
 		reset_control_assert(rockchip->otg_rst);
+		udelay(1);
 		reset_control_deassert(rockchip->otg_rst);
 
 		/*
@@ -382,6 +383,10 @@ static int dwc3_rockchip_suspend(struct device *dev)
 static int dwc3_rockchip_resume(struct device *dev)
 {
 	struct dwc3_rockchip *rockchip = dev_get_drvdata(dev);
+
+	reset_control_assert(rockchip->otg_rst);
+	udelay(1);
+	reset_control_deassert(rockchip->otg_rst);
 
 	rockchip->suspended = false;
 

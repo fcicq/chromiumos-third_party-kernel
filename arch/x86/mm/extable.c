@@ -2,6 +2,7 @@
 #include <linux/spinlock.h>
 #include <linux/sort.h>
 #include <asm/uaccess.h>
+#include <linux/sched.h>
 
 static inline unsigned long
 ex_insn_addr(const struct exception_table_entry *x)
@@ -39,7 +40,7 @@ int fixup_exception(struct pt_regs *regs)
 
 		if (fixup->fixup - fixup->insn >= 0x7ffffff0 - 4) {
 			/* Special hack for uaccess_err */
-			current_thread_info()->uaccess_err = 1;
+			current->thread.uaccess_err = 1;
 			new_ip -= 0x7ffffff0;
 		}
 		regs->ip = new_ip;

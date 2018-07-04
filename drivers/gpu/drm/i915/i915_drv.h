@@ -128,7 +128,14 @@ typedef struct {
 	fp; \
 })
 
-static inline uint_fixed_16_16_t u32_to_fixed_16_16(uint32_t val)
+static inline bool is_fixed16_zero(uint_fixed_16_16_t val)
+{
+	if (val.val == 0)
+		return true;
+	return false;
+}
+
+static inline uint_fixed_16_16_t u32_to_fixed16(uint32_t val)
 {
 	uint_fixed_16_16_t fp;
 
@@ -138,17 +145,17 @@ static inline uint_fixed_16_16_t u32_to_fixed_16_16(uint32_t val)
 	return fp;
 }
 
-static inline uint32_t fixed_16_16_to_u32_round_up(uint_fixed_16_16_t fp)
+static inline uint32_t fixed16_to_u32_round_up(uint_fixed_16_16_t fp)
 {
 	return DIV_ROUND_UP(fp.val, 1 << 16);
 }
 
-static inline uint32_t fixed_16_16_to_u32(uint_fixed_16_16_t fp)
+static inline uint32_t fixed16_to_u32(uint_fixed_16_16_t fp)
 {
 	return fp.val >> 16;
 }
 
-static inline uint_fixed_16_16_t min_fixed_16_16(uint_fixed_16_16_t min1,
+static inline uint_fixed_16_16_t min_fixed16(uint_fixed_16_16_t min1,
 						 uint_fixed_16_16_t min2)
 {
 	uint_fixed_16_16_t min;
@@ -157,7 +164,7 @@ static inline uint_fixed_16_16_t min_fixed_16_16(uint_fixed_16_16_t min1,
 	return min;
 }
 
-static inline uint_fixed_16_16_t max_fixed_16_16(uint_fixed_16_16_t max1,
+static inline uint_fixed_16_16_t max_fixed16(uint_fixed_16_16_t max1,
 						 uint_fixed_16_16_t max2)
 {
 	uint_fixed_16_16_t max;
@@ -198,16 +205,7 @@ static inline uint_fixed_16_16_t mul_fixed16(uint_fixed_16_16_t val,
 	return fp;
 }
 
-static inline uint_fixed_16_16_t fixed_16_16_div(uint32_t val, uint32_t d)
-{
-	uint_fixed_16_16_t fp, res;
-
-	fp = u32_to_fixed_16_16(val);
-	res.val = DIV_ROUND_UP(fp.val, d);
-	return res;
-}
-
-static inline uint_fixed_16_16_t fixed_16_16_div_u64(uint32_t val, uint32_t d)
+static inline uint_fixed_16_16_t div_fixed16(uint32_t val, uint32_t d)
 {
 	uint_fixed_16_16_t res;
 	uint64_t interm_val;
@@ -231,7 +229,7 @@ static inline uint32_t div_round_up_u32_fixed16(uint32_t val,
 	return clamp_t(uint32_t, interm_val, 0, ~0);
 }
 
-static inline uint_fixed_16_16_t mul_u32_fixed_16_16(uint32_t val,
+static inline uint_fixed_16_16_t mul_u32_fixed16(uint32_t val,
 						     uint_fixed_16_16_t mul)
 {
 	uint64_t intermediate_val;
@@ -348,6 +346,28 @@ enum port {
 	I915_MAX_PORTS
 };
 #define port_name(p) ((p) + 'A')
+
+/*
+ * Ports identifier referenced from other drivers.
+ * Expected to remain stable over time
+ */
+static inline const char *port_identifier(enum port port)
+{
+	switch (port) {
+	case PORT_A:
+		return "Port A";
+	case PORT_B:
+		return "Port B";
+	case PORT_C:
+		return "Port C";
+	case PORT_D:
+		return "Port D";
+	case PORT_E:
+		return "Port E";
+	default:
+		return "<invalid>";
+	}
+}
 
 #define I915_NUM_PHYS_VLV 2
 
@@ -532,6 +552,14 @@ struct i915_hotplug {
 	for ((domain) = 0; (domain) < POWER_DOMAIN_NUM; (domain)++)	\
 		for_each_if ((1 << (domain)) & (mask))
 
+#define for_each_new_intel_crtc_in_state(__state, crtc, new_crtc_state, __i) \
+       for ((__i) = 0; \
+            (__i) < (__state)->base.dev->mode_config.num_crtc && \
+                    ((crtc) = to_intel_crtc((__state)->base.crtcs[__i].ptr), \
+                     (new_crtc_state) = to_intel_crtc_state((__state)->base.crtcs[__i].new_state), 1); \
+            (__i)++) \
+               for_each_if (crtc)
+
 struct drm_i915_private;
 struct i915_mm_struct;
 struct i915_mmu_object;
@@ -554,7 +582,7 @@ struct drm_i915_file_private {
 
 	struct intel_rps_client {
 		struct list_head link;
-		unsigned boosts;
+		atomic_t boosts;
 	} rps;
 
 	unsigned int bsd_engine;
@@ -580,7 +608,8 @@ struct intel_link_m_n {
 
 void intel_link_compute_m_n(int bpp, int nlanes,
 			    int pixel_clock, int link_clock,
-			    struct intel_link_m_n *m_n);
+			    struct intel_link_m_n *m_n,
+			    bool reduce_m_n);
 
 /* Interface history:
  *
@@ -799,54 +828,67 @@ struct intel_csr {
 	uint32_t allowed_dc_mask;
 };
 
-#define DEV_INFO_FOR_EACH_FLAG(func, sep) \
-	func(is_mobile) sep \
-	func(is_i85x) sep \
-	func(is_i915g) sep \
-	func(is_i945gm) sep \
-	func(is_g33) sep \
-	func(hws_needs_physical) sep \
-	func(is_g4x) sep \
-	func(is_pineview) sep \
-	func(is_broadwater) sep \
-	func(is_crestline) sep \
-	func(is_ivybridge) sep \
-	func(is_valleyview) sep \
-	func(is_cherryview) sep \
-	func(is_haswell) sep \
-	func(is_broadwell) sep \
-	func(is_skylake) sep \
-	func(is_broxton) sep \
-	func(is_kabylake) sep \
-	func(is_preliminary) sep \
-	func(has_fbc) sep \
-	func(has_psr) sep \
-	func(has_runtime_pm) sep \
-	func(has_csr) sep \
-	func(has_resource_streamer) sep \
-	func(has_rc6) sep \
-	func(has_rc6p) sep \
-	func(has_dp_mst) sep \
-	func(has_gmbus_irq) sep \
-	func(has_hw_contexts) sep \
-	func(has_logical_ring_contexts) sep \
-	func(has_l3_dpf) sep \
-	func(has_gmch_display) sep \
-	func(has_guc) sep \
-	func(has_pipe_cxsr) sep \
-	func(has_hotplug) sep \
-	func(cursor_needs_physical) sep \
-	func(has_overlay) sep \
-	func(overlay_needs_physical) sep \
-	func(supports_tv) sep \
-	func(has_llc) sep \
-	func(has_snoop) sep \
-	func(has_ddi) sep \
-	func(has_fpga_dbg) sep \
-	func(has_pooled_eu)
+#define DEV_INFO_FOR_EACH_FLAG(func) \
+	func(is_mobile); \
+	func(is_pineview); \
+	func(is_alpha_support); \
+	/* Keep has_* in alphabetical order */ \
+	func(has_64bit_reloc); \
+	func(has_csr); \
+	func(has_ddi); \
+	func(has_dp_mst); \
+	func(has_fbc); \
+	func(has_fpga_dbg); \
+	func(has_gmbus_irq); \
+	func(has_gmch_display); \
+	func(has_guc); \
+	func(has_hotplug); \
+	func(has_hw_contexts); \
+	func(has_l3_dpf); \
+	func(has_llc); \
+	func(has_logical_ring_contexts); \
+	func(has_overlay); \
+	func(has_pipe_cxsr); \
+	func(has_pooled_eu); \
+	func(has_psr); \
+	func(has_rc6); \
+	func(has_rc6p); \
+	func(has_resource_streamer); \
+	func(has_runtime_pm); \
+	func(has_snoop); \
+	func(cursor_needs_physical); \
+	func(hws_needs_physical); \
+	func(overlay_needs_physical); \
+	func(supports_tv)
 
-#define DEFINE_FLAG(name) u8 name:1
-#define SEP_SEMICOLON ;
+/* Keep in gen based order, and chronological order within a gen */
+enum intel_platform {
+	INTEL_PLATFORM_UNINITIALIZED = 0,
+	INTEL_I830,
+	INTEL_I845G,
+	INTEL_I85X,
+	INTEL_I865G,
+	INTEL_I915G,
+	INTEL_I915GM,
+	INTEL_I945G,
+	INTEL_I945GM,
+	INTEL_G33,
+	INTEL_PINEVIEW,
+	INTEL_BROADWATER,
+	INTEL_CRESTLINE,
+	INTEL_G4X,
+	INTEL_IRONLAKE,
+	INTEL_SANDYBRIDGE,
+	INTEL_IVYBRIDGE,
+	INTEL_VALLEYVIEW,
+	INTEL_HASWELL,
+	INTEL_BROADWELL,
+	INTEL_CHERRYVIEW,
+	INTEL_SKYLAKE,
+	INTEL_BROXTON,
+	INTEL_KABYLAKE,
+	INTEL_GEMINILAKE,
+};
 
 struct intel_device_info {
 	u32 display_mmio_offset;
@@ -856,9 +898,12 @@ struct intel_device_info {
 	u8 num_scalers[I915_MAX_PIPES];
 	u8 gen;
 	u16 gen_mask;
+	enum intel_platform platform;
 	u8 ring_mask; /* Rings supported by the HW */
 	u8 num_rings;
-	DEV_INFO_FOR_EACH_FLAG(DEFINE_FLAG, SEP_SEMICOLON);
+#define DEFINE_FLAG(name) u8 name:1
+	DEV_INFO_FOR_EACH_FLAG(DEFINE_FLAG);
+#undef DEFINE_FLAG
 	u16 ddb_size; /* in blocks */
 	/* Register offsets for the various display pipes and transcoders */
 	int pipe_offsets[I915_MAX_TRANSCODERS];
@@ -884,9 +929,6 @@ struct intel_device_info {
 		u16 gamma_lut_size;
 	} color;
 };
-
-#undef DEFINE_FLAG
-#undef SEP_SEMICOLON
 
 struct intel_display_error_state;
 
@@ -1314,13 +1356,10 @@ struct intel_gen6_power_mgmt {
 	int last_adj;
 	enum { LOW_POWER, BETWEEN, HIGH_POWER } power;
 
-	spinlock_t client_lock;
-	struct list_head clients;
-	bool client_boost;
-
 	bool enabled;
 	struct delayed_work autoenable_work;
-	unsigned boosts;
+	atomic_t num_waiters;
+	atomic_t boosts;
 
 	/* manual wa residency calculations */
 	struct intel_rps_ei ei;
@@ -1643,8 +1682,8 @@ struct intel_vbt_data {
 		bool require_aux_wakeup;
 		int idle_frames;
 		enum psr_lines_to_wait lines_to_wait;
-		int tp1_wakeup_time;
-		int tp2_tp3_wakeup_time;
+		int tp1_wakeup_time_us;
+		int tp2_tp3_wakeup_time_us;
 	} psr;
 
 	struct {
@@ -1738,11 +1777,12 @@ static inline bool skl_ddb_entry_equal(const struct skl_ddb_entry *e1,
 }
 
 struct skl_ddb_allocation {
-	struct skl_ddb_entry plane[I915_MAX_PIPES][I915_MAX_PLANES]; /* packed/uv */
-	struct skl_ddb_entry y_plane[I915_MAX_PIPES][I915_MAX_PLANES];
+	/* packed/y */
+	struct skl_ddb_entry plane[I915_MAX_PIPES][I915_MAX_PLANES];
+	struct skl_ddb_entry uv_plane[I915_MAX_PIPES][I915_MAX_PLANES];
 };
 
-struct skl_wm_values {
+struct skl_ddb_values {
 	unsigned dirty_pipes;
 	struct skl_ddb_allocation ddb;
 };
@@ -1751,6 +1791,21 @@ struct skl_wm_level {
 	bool plane_en;
 	uint16_t plane_res_b;
 	uint8_t plane_res_l;
+};
+
+/* Stores plane specific WM parameters */
+struct skl_wm_params {
+	bool x_tiled, y_tiled;
+	bool rc_surface;
+	bool is_planar;
+	uint32_t width;
+	uint8_t cpp;
+	uint32_t plane_pixel_rate;
+	uint32_t y_min_scanlines;
+	uint32_t plane_bytes_per_line;
+	uint_fixed_16_16_t plane_blocks_per_line;
+	uint_fixed_16_16_t y_tile_minimum;
+	uint32_t linetime_us;
 };
 
 /*
@@ -2249,7 +2304,7 @@ struct drm_i915_private {
 		/* current hardware state */
 		union {
 			struct ilk_wm_values hw;
-			struct skl_wm_values skl_hw;
+			struct skl_ddb_values skl_hw;
 			struct vlv_wm_values vlv;
 		};
 
@@ -2647,32 +2702,33 @@ intel_info(const struct drm_i915_private *dev_priv)
 
 #define IS_I830(dev_priv)	(INTEL_DEVID(dev_priv) == 0x3577)
 #define IS_845G(dev_priv)	(INTEL_DEVID(dev_priv) == 0x2562)
-#define IS_I85X(dev_priv)	((dev_priv)->info.is_i85x)
+#define IS_I85X(dev_priv)	((dev_priv)->info.platform == INTEL_I85X)
 #define IS_I865G(dev_priv)	(INTEL_DEVID(dev_priv) == 0x2572)
-#define IS_I915G(dev_priv)	((dev_priv)->info.is_i915g)
+#define IS_I915G(dev_priv)	((dev_priv)->info.platform == INTEL_I915G)
 #define IS_I915GM(dev_priv)	(INTEL_DEVID(dev_priv) == 0x2592)
 #define IS_I945G(dev_priv)	(INTEL_DEVID(dev_priv) == 0x2772)
-#define IS_I945GM(dev_priv)	((dev_priv)->info.is_i945gm)
-#define IS_BROADWATER(dev_priv)	((dev_priv)->info.is_broadwater)
-#define IS_CRESTLINE(dev_priv)	((dev_priv)->info.is_crestline)
+#define IS_I945GM(dev_priv)	((dev_priv)->info.platform == INTEL_I945GM)
+#define IS_BROADWATER(dev_priv)	((dev_priv)->info.platform == INTEL_BROADWATER)
+#define IS_CRESTLINE(dev_priv)	((dev_priv)->info.platform == INTEL_CRESTLINE)
 #define IS_GM45(dev_priv)	(INTEL_DEVID(dev_priv) == 0x2A42)
-#define IS_G4X(dev_priv)	((dev_priv)->info.is_g4x)
+#define IS_G4X(dev_priv)	((dev_priv)->info.platform == INTEL_G4X)
 #define IS_PINEVIEW_G(dev_priv)	(INTEL_DEVID(dev_priv) == 0xa001)
 #define IS_PINEVIEW_M(dev_priv)	(INTEL_DEVID(dev_priv) == 0xa011)
 #define IS_PINEVIEW(dev_priv)	((dev_priv)->info.is_pineview)
-#define IS_G33(dev_priv)	((dev_priv)->info.is_g33)
+#define IS_G33(dev_priv)	((dev_priv)->info.platform == INTEL_G33)
 #define IS_IRONLAKE_M(dev_priv)	(INTEL_DEVID(dev_priv) == 0x0046)
-#define IS_IVYBRIDGE(dev_priv)	((dev_priv)->info.is_ivybridge)
+#define IS_IVYBRIDGE(dev_priv)	((dev_priv)->info.platform == INTEL_IVYBRIDGE)
 #define IS_IVB_GT1(dev_priv)	(INTEL_DEVID(dev_priv) == 0x0156 || \
 				 INTEL_DEVID(dev_priv) == 0x0152 || \
 				 INTEL_DEVID(dev_priv) == 0x015a)
-#define IS_VALLEYVIEW(dev_priv)	((dev_priv)->info.is_valleyview)
-#define IS_CHERRYVIEW(dev_priv)	((dev_priv)->info.is_cherryview)
-#define IS_HASWELL(dev_priv)	((dev_priv)->info.is_haswell)
-#define IS_BROADWELL(dev_priv)	((dev_priv)->info.is_broadwell)
-#define IS_SKYLAKE(dev_priv)	((dev_priv)->info.is_skylake)
-#define IS_BROXTON(dev_priv)	((dev_priv)->info.is_broxton)
-#define IS_KABYLAKE(dev_priv)	((dev_priv)->info.is_kabylake)
+#define IS_VALLEYVIEW(dev_priv)	((dev_priv)->info.platform == INTEL_VALLEYVIEW)
+#define IS_CHERRYVIEW(dev_priv)	((dev_priv)->info.platform == INTEL_CHERRYVIEW)
+#define IS_HASWELL(dev_priv)	((dev_priv)->info.platform == INTEL_HASWELL)
+#define IS_BROADWELL(dev_priv)	((dev_priv)->info.platform == INTEL_BROADWELL)
+#define IS_SKYLAKE(dev_priv)	((dev_priv)->info.platform == INTEL_SKYLAKE)
+#define IS_BROXTON(dev_priv)	((dev_priv)->info.platform == INTEL_BROXTON)
+#define IS_KABYLAKE(dev_priv)	((dev_priv)->info.platform == INTEL_KABYLAKE)
+#define IS_GEMINILAKE(dev_priv)	((dev_priv)->info.platform == INTEL_GEMINILAKE)
 #define IS_MOBILE(dev_priv)	((dev_priv)->info.is_mobile)
 #define IS_HSW_EARLY_SDV(dev_priv) (IS_HASWELL(dev_priv) && \
 				    (INTEL_DEVID(dev_priv) & 0xFF00) == 0x0C00)
@@ -2713,7 +2769,7 @@ intel_info(const struct drm_i915_private *dev_priv)
 #define IS_SKL_GT4(dev_priv)	(IS_SKYLAKE(dev_priv) && \
 				 (INTEL_DEVID(dev_priv) & 0x00F0) == 0x0030)
 
-#define IS_PRELIMINARY_HW(intel_info) ((intel_info)->is_preliminary)
+#define IS_ALPHA_SUPPORT(intel_info) ((intel_info)->is_alpha_support)
 
 #define SKL_REVID_A0		0x0
 #define SKL_REVID_B0		0x1
@@ -2835,6 +2891,8 @@ intel_info(const struct drm_i915_private *dev_priv)
 #define HAS_CSR(dev_priv)	((dev_priv)->info.has_csr)
 
 #define HAS_RUNTIME_PM(dev_priv) ((dev_priv)->info.has_runtime_pm)
+#define HAS_64BIT_RELOC(dev_priv) ((dev_priv)->info.has_64bit_reloc)
+
 /*
  * For now, anything with a GuC requires uCode loading, and then supports
  * command submission once loaded. But these are logically independent
@@ -2995,11 +3053,22 @@ u64 intel_uncore_edram_size(struct drm_i915_private *dev_priv);
 
 void assert_forcewakes_inactive(struct drm_i915_private *dev_priv);
 
+int __intel_wait_for_register(struct drm_i915_private *dev_priv,
+			      i915_reg_t reg,
+			      const u32 mask,
+			      const u32 value,
+			      const unsigned long timeout_ms,
+			      u32 *out_value);
+static inline
 int intel_wait_for_register(struct drm_i915_private *dev_priv,
 			    i915_reg_t reg,
 			    const u32 mask,
 			    const u32 value,
-			    const unsigned long timeout_ms);
+			    const unsigned long timeout_ms)
+{
+	return __intel_wait_for_register(dev_priv, reg, mask, value, timeout_ms,
+					 NULL);
+}
 int intel_wait_for_register_fw(struct drm_i915_private *dev_priv,
 			       i915_reg_t reg,
 			       const u32 mask,
@@ -3570,6 +3639,7 @@ extern int intel_setup_gmbus(struct drm_i915_private *dev_priv);
 extern void intel_teardown_gmbus(struct drm_i915_private *dev_priv);
 extern bool intel_gmbus_is_valid_pin(struct drm_i915_private *dev_priv,
 				     unsigned int pin);
+extern int intel_gmbus_output_aksv(struct i2c_adapter *adapter);
 
 extern struct i2c_adapter *
 intel_gmbus_get_adapter(struct drm_i915_private *dev_priv, unsigned int pin);
@@ -3646,6 +3716,7 @@ mkwrite_device_info(struct drm_i915_private *dev_priv)
 	return (struct intel_device_info *)&dev_priv->info;
 }
 
+const char *intel_platform_name(enum intel_platform platform);
 void intel_device_info_runtime_init(struct drm_i915_private *dev_priv);
 void intel_device_info_dump(struct drm_i915_private *dev_priv);
 

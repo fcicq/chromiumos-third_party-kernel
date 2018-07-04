@@ -63,6 +63,7 @@
 
 #include <linux/mfd/syscon.h>
 #include <linux/phy/phy.h>
+#include <soc/rockchip/rockchip_phy_typec.h>
 
 #define CMN_SSM_BANDGAP			(0x21 << 2)
 #define CMN_SSM_BIAS			(0x22 << 2)
@@ -324,21 +325,29 @@
  * clock 0: PLL 0 div 1
  * clock 1: PLL 1 div 2
  */
-#define CLK_PLL_CONFIG			0X30
+#define CLK_PLL1_DIV1			0x20
+#define CLK_PLL1_DIV2			0x30
 #define CLK_PLL_MASK			0x33
 
 #define CMN_READY			BIT(0)
 
+#define DP_PLL_CLOCK_ENABLE_ACK		BIT(3)
 #define DP_PLL_CLOCK_ENABLE		BIT(2)
+#define DP_PLL_ENABLE_ACK		BIT(1)
 #define DP_PLL_ENABLE			BIT(0)
 #define DP_PLL_DATA_RATE_RBR		((2 << 12) | (4 << 8))
 #define DP_PLL_DATA_RATE_HBR		((2 << 12) | (4 << 8))
 #define DP_PLL_DATA_RATE_HBR2		((1 << 12) | (2 << 8))
+#define DP_PLL_DATA_RATE_MASK		0xff00
 
-#define DP_MODE_A0			BIT(4)
-#define DP_MODE_A2			BIT(6)
-#define DP_MODE_ENTER_A0		0xc101
-#define DP_MODE_ENTER_A2		0xc104
+#define DP_MODE_MASK			0xf
+#define DP_MODE_ENTER_A0		BIT(0)
+#define DP_MODE_ENTER_A2		BIT(2)
+#define DP_MODE_ENTER_A3		BIT(3)
+#define DP_MODE_A0_ACK			BIT(4)
+#define DP_MODE_A2_ACK			BIT(6)
+#define DP_MODE_A3_ACK			BIT(7)
+#define DP_LINK_RESET_DEASSERTED	BIT(8)
 
 #define PHY_MODE_SET_TIMEOUT		100000
 
@@ -350,39 +359,7 @@
 #define MODE_DFP_USB			BIT(1)
 #define MODE_DFP_DP			BIT(2)
 
-struct usb3phy_reg {
-	u32 offset;
-	u32 enable_bit;
-	u32 write_enable;
-};
-
-struct rockchip_usb3phy_port_cfg {
-	struct usb3phy_reg typec_conn_dir;
-	struct usb3phy_reg usb3tousb2_en;
-	struct usb3phy_reg usb3_host_disable;
-	struct usb3phy_reg usb3_host_port;
-	struct usb3phy_reg external_psm;
-	struct usb3phy_reg pipe_status;
-	struct usb3phy_reg uphy_dp_sel;
-};
-
-struct rockchip_typec_phy {
-	struct device *dev;
-	void __iomem *base;
-	struct extcon_dev *extcon;
-	struct regmap *grf_regs;
-	struct clk *clk_core;
-	struct clk *clk_ref;
-	struct reset_control *uphy_rst;
-	struct reset_control *pipe_rst;
-	struct reset_control *tcphy_rst;
-	struct rockchip_usb3phy_port_cfg port_cfgs;
-	/* mutex to protect access to individual PHYs */
-	struct mutex lock;
-
-	bool flip;
-	u8 mode;
-};
+#define DP_DEFAULT_RATE			162000
 
 struct phy_reg {
 	u16 value;
@@ -406,15 +383,15 @@ struct phy_reg usb3_pll_cfg[] = {
 	{ 0x8,		CMN_DIAG_PLL0_LF_PROG },
 };
 
-struct phy_reg dp_pll_cfg[] = {
+struct phy_reg dp_pll_rbr_cfg[] = {
 	{ 0xf0,		CMN_PLL1_VCOCAL_INIT },
 	{ 0x18,		CMN_PLL1_VCOCAL_ITER },
 	{ 0x30b9,	CMN_PLL1_VCOCAL_START },
-	{ 0x21c,	CMN_PLL1_INTDIV },
+	{ 0x87,		CMN_PLL1_INTDIV },
 	{ 0,		CMN_PLL1_FRACDIV },
-	{ 0x5,		CMN_PLL1_HIGH_THR },
-	{ 0x35,		CMN_PLL1_SS_CTRL1 },
-	{ 0x7f1e,	CMN_PLL1_SS_CTRL2 },
+	{ 0x22,		CMN_PLL1_HIGH_THR },
+	{ 0x8000,	CMN_PLL1_SS_CTRL1 },
+	{ 0,		CMN_PLL1_SS_CTRL2 },
 	{ 0x20,		CMN_PLL1_DSM_DIAG },
 	{ 0,		CMN_PLLSM1_USER_DEF_CTRL },
 	{ 0,		CMN_DIAG_PLL1_OVRD },
@@ -425,7 +402,92 @@ struct phy_reg dp_pll_cfg[] = {
 	{ 0x8,		CMN_DIAG_PLL1_LF_PROG },
 	{ 0x100,	CMN_DIAG_PLL1_PTATIS_TUNE1 },
 	{ 0x7,		CMN_DIAG_PLL1_PTATIS_TUNE2 },
-	{ 0x4,		CMN_DIAG_PLL1_INCLK_CTRL },
+	{ 0x1,		CMN_DIAG_PLL1_INCLK_CTRL },
+};
+
+struct phy_reg dp_pll_hbr_cfg[] = {
+	{ 0xf0,		CMN_PLL1_VCOCAL_INIT },
+	{ 0x18,		CMN_PLL1_VCOCAL_ITER },
+	{ 0x30b4,	CMN_PLL1_VCOCAL_START },
+	{ 0xe1,		CMN_PLL1_INTDIV },
+	{ 0,		CMN_PLL1_FRACDIV },
+	{ 0x5,		CMN_PLL1_HIGH_THR },
+	{ 0x8000,	CMN_PLL1_SS_CTRL1 },
+	{ 0,		CMN_PLL1_SS_CTRL2 },
+	{ 0x20,		CMN_PLL1_DSM_DIAG },
+	{ 0x1000,	CMN_PLLSM1_USER_DEF_CTRL },
+	{ 0,		CMN_DIAG_PLL1_OVRD },
+	{ 0,		CMN_DIAG_PLL1_FBH_OVRD },
+	{ 0,		CMN_DIAG_PLL1_FBL_OVRD },
+	{ 0x7,		CMN_DIAG_PLL1_V2I_TUNE },
+	{ 0x45,		CMN_DIAG_PLL1_CP_TUNE },
+	{ 0x8,		CMN_DIAG_PLL1_LF_PROG },
+	{ 0x1,		CMN_DIAG_PLL1_PTATIS_TUNE1 },
+	{ 0x1,		CMN_DIAG_PLL1_PTATIS_TUNE2 },
+	{ 0x1,		CMN_DIAG_PLL1_INCLK_CTRL },
+};
+
+struct phy_reg dp_pll_hbr2_cfg[] = {
+	{ 0xf0,		CMN_PLL1_VCOCAL_INIT },
+	{ 0x18,		CMN_PLL1_VCOCAL_ITER },
+	{ 0x30b4,	CMN_PLL1_VCOCAL_START },
+	{ 0xe1,		CMN_PLL1_INTDIV },
+	{ 0,		CMN_PLL1_FRACDIV },
+	{ 0x5,		CMN_PLL1_HIGH_THR },
+	{ 0x8000,	CMN_PLL1_SS_CTRL1 },
+	{ 0,		CMN_PLL1_SS_CTRL2 },
+	{ 0x20,		CMN_PLL1_DSM_DIAG },
+	{ 0x1000,	CMN_PLLSM1_USER_DEF_CTRL },
+	{ 0,		CMN_DIAG_PLL1_OVRD },
+	{ 0,		CMN_DIAG_PLL1_FBH_OVRD },
+	{ 0,		CMN_DIAG_PLL1_FBL_OVRD },
+	{ 0x7,		CMN_DIAG_PLL1_V2I_TUNE },
+	{ 0x45,		CMN_DIAG_PLL1_CP_TUNE },
+	{ 0x8,		CMN_DIAG_PLL1_LF_PROG },
+	{ 0x1,		CMN_DIAG_PLL1_PTATIS_TUNE1 },
+	{ 0x1,		CMN_DIAG_PLL1_PTATIS_TUNE2 },
+	{ 0x1,		CMN_DIAG_PLL1_INCLK_CTRL },
+};
+static const struct rockchip_usb3phy_port_cfg rk3399_usb3phy_port_cfgs[] = {
+	{
+		.reg = 0xff7c0000,
+		.typec_conn_dir	= { 0xe580, 0, 16 },
+		.usb3tousb2_en	= { 0xe580, 3, 19 },
+		.external_psm	= { 0xe588, 14, 30 },
+		.pipe_status	= { 0xe5c0, 0, 0 },
+		.usb3_host_disable = { 0x2434, 0, 16 },
+		.usb3_host_port = { 0x2434, 12, 28 },
+		.uphy_dp_sel	= { 0x6268, 19, 19 },
+	},
+	{
+		.reg = 0xff800000,
+		.typec_conn_dir	= { 0xe58c, 0, 16 },
+		.usb3tousb2_en	= { 0xe58c, 3, 19 },
+		.external_psm	= { 0xe594, 14, 30 },
+		.pipe_status	= { 0xe5c0, 16, 16 },
+		.usb3_host_disable = { 0x2444, 0, 16 },
+		.usb3_host_port = { 0x2444, 12, 28 },
+		.uphy_dp_sel	= { 0x6268, 3, 19 },
+	},
+	{ /* sentinel */ }
+};
+
+/* default phy config */
+static const struct phy_config tcphy_default_config[3][4] = {
+	{{ .swing = 0x2a, .pe = 0x00 },
+	 { .swing = 0x1f, .pe = 0x15 },
+	 { .swing = 0x14, .pe = 0x22 },
+	 { .swing = 0x02, .pe = 0x2b } },
+
+	{{ .swing = 0x21, .pe = 0x00 },
+	 { .swing = 0x12, .pe = 0x15 },
+	 { .swing = 0x02, .pe = 0x22 },
+	 { .swing = 0,    .pe = 0 } },
+
+	{{ .swing = 0x15, .pe = 0x00 },
+	 { .swing = 0x00, .pe = 0x15 },
+	 { .swing = 0,    .pe = 0 },
+	 { .swing = 0,    .pe = 0 } },
 };
 
 static void tcphy_cfg_24m(struct rockchip_typec_phy *tcphy)
@@ -449,7 +511,7 @@ static void tcphy_cfg_24m(struct rockchip_typec_phy *tcphy)
 
 	rdata = readl(tcphy->base + CMN_DIAG_HSCLK_SEL);
 	rdata &= ~CLK_PLL_MASK;
-	rdata |= CLK_PLL_CONFIG;
+	rdata |= CLK_PLL1_DIV2;
 	writel(rdata, tcphy->base + CMN_DIAG_HSCLK_SEL);
 }
 
@@ -463,17 +525,45 @@ static void tcphy_cfg_usb3_pll(struct rockchip_typec_phy *tcphy)
 		       tcphy->base + usb3_pll_cfg[i].addr);
 }
 
-static void tcphy_cfg_dp_pll(struct rockchip_typec_phy *tcphy)
+static void tcphy_cfg_dp_pll(struct rockchip_typec_phy *tcphy, int link_rate)
 {
-	u32 i;
+	struct phy_reg *phy_cfg;
+	u32 clk_ctrl;
+	u32 i, cfg_size, hsclk_sel;
 
-	/* set the default mode to RBR */
-	writel(DP_PLL_CLOCK_ENABLE | DP_PLL_ENABLE | DP_PLL_DATA_RATE_RBR,
-	       tcphy->base + DP_CLK_CTL);
+	hsclk_sel = readl(tcphy->base + CMN_DIAG_HSCLK_SEL);
+	hsclk_sel &= ~CLK_PLL_MASK;
+
+	switch (link_rate) {
+	case 540000:
+		clk_ctrl = DP_PLL_DATA_RATE_HBR2;
+		hsclk_sel |= CLK_PLL1_DIV1;
+		phy_cfg = dp_pll_hbr2_cfg;
+		cfg_size = ARRAY_SIZE(dp_pll_hbr2_cfg);
+		break;
+	case 270000:
+		clk_ctrl = DP_PLL_DATA_RATE_HBR;
+		hsclk_sel |= CLK_PLL1_DIV2;
+		phy_cfg = dp_pll_hbr_cfg;
+		cfg_size = ARRAY_SIZE(dp_pll_hbr_cfg);
+		break;
+	case 162000:
+	default:
+		clk_ctrl = DP_PLL_DATA_RATE_RBR;
+		hsclk_sel |= CLK_PLL1_DIV2;
+		phy_cfg = dp_pll_rbr_cfg;
+		cfg_size = ARRAY_SIZE(dp_pll_rbr_cfg);
+		break;
+	}
+
+	clk_ctrl |= DP_PLL_CLOCK_ENABLE | DP_PLL_ENABLE;
+	writel(clk_ctrl, tcphy->base + DP_CLK_CTL);
+
+	writel(hsclk_sel, tcphy->base + CMN_DIAG_HSCLK_SEL);
 
 	/* load the configuration of PLL1 */
-	for (i = 0; i < ARRAY_SIZE(dp_pll_cfg); i++)
-		writel(dp_pll_cfg[i].value, tcphy->base + dp_pll_cfg[i].addr);
+	for (i = 0; i < cfg_size; i++)
+		writel(phy_cfg[i].value, tcphy->base + phy_cfg[i].addr);
 }
 
 static void tcphy_tx_usb3_cfg_lane(struct rockchip_typec_phy *tcphy, u32 lane)
@@ -508,9 +598,10 @@ static void tcphy_rx_usb3_cfg_lane(struct rockchip_typec_phy *tcphy, u32 lane)
 	}
 }
 
-static void tcphy_dp_cfg_lane(struct rockchip_typec_phy *tcphy, u32 lane)
+static void tcphy_dp_cfg_lane(struct rockchip_typec_phy *tcphy, int link_rate,
+			      u8 swing, u8 pre_emp, u32 lane)
 {
-	u16 rdata;
+	u16 val;
 
 	writel(0xbefc, tcphy->base + XCVR_PSM_RCTRL(lane));
 	writel(0x6799, tcphy->base + TX_PSC_A0(lane));
@@ -518,25 +609,32 @@ static void tcphy_dp_cfg_lane(struct rockchip_typec_phy *tcphy, u32 lane)
 	writel(0x98, tcphy->base + TX_PSC_A2(lane));
 	writel(0x98, tcphy->base + TX_PSC_A3(lane));
 
-	writel(0, tcphy->base + TX_TXCC_MGNFS_MULT_000(lane));
-	writel(0, tcphy->base + TX_TXCC_MGNFS_MULT_001(lane));
-	writel(0, tcphy->base + TX_TXCC_MGNFS_MULT_010(lane));
-	writel(0, tcphy->base + TX_TXCC_MGNFS_MULT_011(lane));
-	writel(0, tcphy->base + TX_TXCC_MGNFS_MULT_100(lane));
-	writel(0, tcphy->base + TX_TXCC_MGNFS_MULT_101(lane));
-	writel(0, tcphy->base + TX_TXCC_MGNFS_MULT_110(lane));
-	writel(0, tcphy->base + TX_TXCC_MGNFS_MULT_111(lane));
-	writel(0, tcphy->base + TX_TXCC_CPOST_MULT_10(lane));
-	writel(0, tcphy->base + TX_TXCC_CPOST_MULT_01(lane));
-	writel(0, tcphy->base + TX_TXCC_CPOST_MULT_00(lane));
-	writel(0, tcphy->base + TX_TXCC_CPOST_MULT_11(lane));
+	writel(tcphy->config[swing][pre_emp].swing,
+	       tcphy->base + TX_TXCC_MGNFS_MULT_000(lane));
+	writel(tcphy->config[swing][pre_emp].pe,
+	       tcphy->base + TX_TXCC_CPOST_MULT_00(lane));
 
-	writel(0x128, tcphy->base + TX_TXCC_CAL_SCLR_MULT(lane));
-	writel(0x400, tcphy->base + TX_DIAG_TX_DRV(lane));
+	if (swing == 2 && pre_emp == 0 && link_rate != 540000) {
+		writel(0x700, tcphy->base + TX_DIAG_TX_DRV(lane));
+		writel(0x13c, tcphy->base + TX_TXCC_CAL_SCLR_MULT(lane));
+	} else {
+		writel(0x128, tcphy->base + TX_TXCC_CAL_SCLR_MULT(lane));
+		writel(0x0400, tcphy->base + TX_DIAG_TX_DRV(lane));
+	}
 
-	rdata = readl(tcphy->base + XCVR_DIAG_PLLDRC_CTRL(lane));
-	rdata = (rdata & 0x8fff) | 0x6000;
-	writel(rdata, tcphy->base + XCVR_DIAG_PLLDRC_CTRL(lane));
+	val = readl(tcphy->base + XCVR_DIAG_PLLDRC_CTRL(lane));
+	val = val & 0x8fff;
+	switch (link_rate) {
+	case 540000:
+		val |= (4 << 12);
+		break;
+	case 162000:
+	case 270000:
+	default:
+		val |= (6 << 12);
+		break;
+	}
+	writel(val, tcphy->base + XCVR_DIAG_PLLDRC_CTRL(lane));
 }
 
 static inline int property_enable(struct rockchip_typec_phy *tcphy,
@@ -703,7 +801,7 @@ static void tcphy_dp_aux_calibration(struct rockchip_typec_phy *tcphy)
 
 static int tcphy_phy_init(struct rockchip_typec_phy *tcphy, u8 mode)
 {
-	struct rockchip_usb3phy_port_cfg *cfg = &tcphy->port_cfgs;
+	const struct rockchip_usb3phy_port_cfg *cfg = tcphy->port_cfgs;
 	int ret, i;
 	u32 val;
 
@@ -727,30 +825,33 @@ static int tcphy_phy_init(struct rockchip_typec_phy *tcphy, u8 mode)
 	tcphy_cfg_24m(tcphy);
 
 	if (mode == MODE_DFP_DP) {
-		tcphy_cfg_dp_pll(tcphy);
+		tcphy_cfg_dp_pll(tcphy, DP_DEFAULT_RATE);
 		for (i = 0; i < 4; i++)
-			tcphy_dp_cfg_lane(tcphy, i);
+			tcphy_dp_cfg_lane(tcphy, DP_DEFAULT_RATE, 0, 0, i);
 
 		writel(PIN_ASSIGN_C_E, tcphy->base + PMA_LANE_CFG);
 	} else {
 		tcphy_cfg_usb3_pll(tcphy);
-		tcphy_cfg_dp_pll(tcphy);
+		tcphy_cfg_dp_pll(tcphy, DP_DEFAULT_RATE);
 		if (tcphy->flip) {
 			tcphy_tx_usb3_cfg_lane(tcphy, 3);
 			tcphy_rx_usb3_cfg_lane(tcphy, 2);
-			tcphy_dp_cfg_lane(tcphy, 0);
-			tcphy_dp_cfg_lane(tcphy, 1);
+			tcphy_dp_cfg_lane(tcphy, DP_DEFAULT_RATE, 0, 0, 0);
+			tcphy_dp_cfg_lane(tcphy, DP_DEFAULT_RATE, 0, 0, 1);
 		} else {
 			tcphy_tx_usb3_cfg_lane(tcphy, 0);
 			tcphy_rx_usb3_cfg_lane(tcphy, 1);
-			tcphy_dp_cfg_lane(tcphy, 2);
-			tcphy_dp_cfg_lane(tcphy, 3);
+			tcphy_dp_cfg_lane(tcphy, DP_DEFAULT_RATE, 0, 0, 2);
+			tcphy_dp_cfg_lane(tcphy, DP_DEFAULT_RATE, 0, 0, 3);
 		}
 
 		writel(PIN_ASSIGN_D_F, tcphy->base + PMA_LANE_CFG);
 	}
 
-	writel(DP_MODE_ENTER_A2, tcphy->base + DP_MODE_CTL);
+	val = readl(tcphy->base + DP_MODE_CTL);
+	val &= ~DP_MODE_MASK;
+	val |= DP_MODE_ENTER_A2 | DP_LINK_RESET_DEASSERTED;
+	writel(val, tcphy->base + DP_MODE_CTL);
 
 	reset_control_deassert(tcphy->uphy_rst);
 
@@ -790,12 +891,14 @@ static int tcphy_get_mode(struct rockchip_typec_phy *tcphy)
 	struct extcon_dev *edev = tcphy->extcon;
 	union extcon_property_value property;
 	unsigned int id;
-	bool dfp, ufp, dp;
+	bool ufp, dp;
 	u8 mode;
 	int ret;
 
+	if (!edev)
+		return MODE_DFP_USB;
+
 	ufp = extcon_get_state(edev, EXTCON_USB);
-	dfp = extcon_get_state(edev, EXTCON_USB_HOST);
 	dp = extcon_get_state(edev, EXTCON_DISP_DP);
 
 	mode = MODE_DFP_USB;
@@ -834,7 +937,7 @@ static int tcphy_get_mode(struct rockchip_typec_phy *tcphy)
 static int tcphy_cfg_usb3_to_usb2_only(struct rockchip_typec_phy *tcphy,
 				       bool value)
 {
-	struct rockchip_usb3phy_port_cfg *cfg = &tcphy->port_cfgs;
+	const struct rockchip_usb3phy_port_cfg *cfg = tcphy->port_cfgs;
 
 	property_enable(tcphy, &cfg->usb3tousb2_en, value);
 	property_enable(tcphy, &cfg->usb3_host_disable, value);
@@ -846,7 +949,7 @@ static int tcphy_cfg_usb3_to_usb2_only(struct rockchip_typec_phy *tcphy,
 static int rockchip_usb3_phy_power_on(struct phy *phy)
 {
 	struct rockchip_typec_phy *tcphy = phy_get_drvdata(phy);
-	struct rockchip_usb3phy_port_cfg *cfg = &tcphy->port_cfgs;
+	const struct rockchip_usb3phy_port_cfg *cfg = tcphy->port_cfgs;
 	const struct usb3phy_reg *reg = &cfg->pipe_status;
 	int timeout, new_mode, ret = 0;
 	u32 val;
@@ -874,14 +977,14 @@ static int rockchip_usb3_phy_power_on(struct phy *phy)
 			goto unlock_ret;
 	}
 
-	/* enable usb3 host */
-	tcphy_cfg_usb3_to_usb2_only(tcphy, false);
-
 	/* wait TCPHY for pipe ready */
 	for (timeout = 0; timeout < 100; timeout++) {
 		regmap_read(tcphy->grf_regs, reg->offset, &val);
 		if (!(val & BIT(reg->enable_bit))) {
 			tcphy->mode |= new_mode & (MODE_DFP_USB | MODE_UFP_USB);
+
+			/* enable usb3 host */
+			tcphy_cfg_usb3_to_usb2_only(tcphy, false);
 			goto unlock_ret;
 		}
 		usleep_range(10, 20);
@@ -925,7 +1028,7 @@ static const struct phy_ops rockchip_usb3_phy_ops = {
 static int rockchip_dp_phy_power_on(struct phy *phy)
 {
 	struct rockchip_typec_phy *tcphy = phy_get_drvdata(phy);
-	struct rockchip_usb3phy_port_cfg *cfg = &tcphy->port_cfgs;
+	const struct rockchip_usb3phy_port_cfg *cfg = tcphy->port_cfgs;
 	int new_mode, ret = 0;
 	u32 val;
 
@@ -961,7 +1064,7 @@ static int rockchip_dp_phy_power_on(struct phy *phy)
 	property_enable(tcphy, &cfg->uphy_dp_sel, 1);
 
 	ret = readx_poll_timeout(readl, tcphy->base + DP_MODE_CTL,
-				 val, val & DP_MODE_A2, 1000,
+				 val, val & DP_MODE_A2_ACK, 1000,
 				 PHY_MODE_SET_TIMEOUT);
 	if (ret < 0) {
 		dev_err(tcphy->dev, "failed to wait TCPHY enter A2\n");
@@ -970,13 +1073,19 @@ static int rockchip_dp_phy_power_on(struct phy *phy)
 
 	tcphy_dp_aux_calibration(tcphy);
 
-	writel(DP_MODE_ENTER_A0, tcphy->base + DP_MODE_CTL);
+	/* enter A0 mode */
+	val = readl(tcphy->base + DP_MODE_CTL);
+	val &= ~DP_MODE_MASK;
+	val |= DP_MODE_ENTER_A0;
+	writel(val, tcphy->base + DP_MODE_CTL);
 
 	ret = readx_poll_timeout(readl, tcphy->base + DP_MODE_CTL,
-				 val, val & DP_MODE_A0, 1000,
+				 val, val & DP_MODE_A0_ACK, 1000,
 				 PHY_MODE_SET_TIMEOUT);
 	if (ret < 0) {
-		writel(DP_MODE_ENTER_A2, tcphy->base + DP_MODE_CTL);
+		val &= ~DP_MODE_MASK;
+		val |= DP_MODE_ENTER_A2;
+		writel(val, tcphy->base + DP_MODE_CTL);
 		dev_err(tcphy->dev, "failed to wait TCPHY enter A0\n");
 		goto power_on_finish;
 	}
@@ -994,6 +1103,7 @@ unlock_ret:
 static int rockchip_dp_phy_power_off(struct phy *phy)
 {
 	struct rockchip_typec_phy *tcphy = phy_get_drvdata(phy);
+	u32 val;
 
 	mutex_lock(&tcphy->lock);
 
@@ -1002,7 +1112,10 @@ static int rockchip_dp_phy_power_off(struct phy *phy)
 
 	tcphy->mode &= ~MODE_DFP_DP;
 
-	writel(DP_MODE_ENTER_A2, tcphy->base + DP_MODE_CTL);
+	val = readl(tcphy->base + DP_MODE_CTL);
+	val &= ~DP_MODE_MASK;
+	val |= DP_MODE_ENTER_A2;
+	writel(val, tcphy->base + DP_MODE_CTL);
 
 	if (tcphy->mode == MODE_DISCONNECT)
 		tcphy_phy_deinit(tcphy);
@@ -1018,65 +1131,34 @@ static const struct phy_ops rockchip_dp_phy_ops = {
 	.owner		= THIS_MODULE,
 };
 
-static int tcphy_get_param(struct device *dev,
-			   struct usb3phy_reg *reg,
-			   const char *name)
+static int typec_dp_phy_config(struct phy *phy, int link_rate,
+			 int lanes, u8 swing, u8 pre_emp)
 {
-	u32 buffer[3];
-	int ret;
+	struct rockchip_typec_phy *tcphy = phy_get_drvdata(phy);
+	u8 i;
 
-	ret = of_property_read_u32_array(dev->of_node, name, buffer, 3);
-	if (ret) {
-		dev_err(dev, "Can not parse %s\n", name);
-		return ret;
+	tcphy_cfg_dp_pll(tcphy, link_rate);
+
+	if (tcphy->mode == MODE_DFP_DP) {
+		for (i = 0; i < 4; i++)
+			tcphy_dp_cfg_lane(tcphy, link_rate, swing, pre_emp, i);
+	} else {
+		if (tcphy->flip) {
+			tcphy_dp_cfg_lane(tcphy, link_rate, swing, pre_emp, 0);
+			tcphy_dp_cfg_lane(tcphy, link_rate, swing, pre_emp, 1);
+		} else {
+			tcphy_dp_cfg_lane(tcphy, link_rate, swing, pre_emp, 2);
+			tcphy_dp_cfg_lane(tcphy, link_rate, swing, pre_emp, 3);
+		}
 	}
 
-	reg->offset = buffer[0];
-	reg->enable_bit = buffer[1];
-	reg->write_enable = buffer[2];
 	return 0;
 }
 
 static int tcphy_parse_dt(struct rockchip_typec_phy *tcphy,
 			  struct device *dev)
 {
-	struct rockchip_usb3phy_port_cfg *cfg = &tcphy->port_cfgs;
 	int ret;
-
-	ret = tcphy_get_param(dev, &cfg->typec_conn_dir,
-			      "rockchip,typec-conn-dir");
-	if (ret)
-		return ret;
-
-	ret = tcphy_get_param(dev, &cfg->usb3tousb2_en,
-			      "rockchip,usb3tousb2-en");
-	if (ret)
-		return ret;
-
-	ret = tcphy_get_param(dev, &cfg->usb3_host_disable,
-			      "rockchip,usb3-host-disable");
-	if (ret)
-		return ret;
-
-	ret = tcphy_get_param(dev, &cfg->usb3_host_port,
-			      "rockchip,usb3-host-port");
-	if (ret)
-		return ret;
-
-	ret = tcphy_get_param(dev, &cfg->external_psm,
-			      "rockchip,external-psm");
-	if (ret)
-		return ret;
-
-	ret = tcphy_get_param(dev, &cfg->pipe_status,
-			      "rockchip,pipe-status");
-	if (ret)
-		return ret;
-
-	ret = tcphy_get_param(dev, &cfg->uphy_dp_sel,
-			      "rockchip,uphy-dp-sel");
-	if (ret)
-		return ret;
 
 	tcphy->grf_regs = syscon_regmap_lookup_by_phandle(dev->of_node,
 							  "rockchip,grf");
@@ -1115,12 +1197,22 @@ static int tcphy_parse_dt(struct rockchip_typec_phy *tcphy,
 		return PTR_ERR(tcphy->tcphy_rst);
 	}
 
+	/*
+	 * check if phy_config pass from dts, if no,
+	 * use default phy config value.
+	 */
+	ret = of_property_read_u32_array(dev->of_node, "rockchip,phy-config",
+		(u32 *)tcphy->config, sizeof(tcphy->config) / sizeof(u32));
+	if (ret)
+		memcpy(tcphy->config, tcphy_default_config,
+		       sizeof(tcphy->config));
+
 	return 0;
 }
 
 static void typec_phy_pre_init(struct rockchip_typec_phy *tcphy)
 {
-	struct rockchip_usb3phy_port_cfg *cfg = &tcphy->port_cfgs;
+	const struct rockchip_usb3phy_port_cfg *cfg = tcphy->port_cfgs;
 
 	reset_control_assert(tcphy->tcphy_rst);
 	reset_control_assert(tcphy->uphy_rst);
@@ -1141,16 +1233,42 @@ static int rockchip_typec_phy_probe(struct platform_device *pdev)
 	struct rockchip_typec_phy *tcphy;
 	struct phy_provider *phy_provider;
 	struct resource *res;
-	int ret;
+	const struct rockchip_usb3phy_port_cfg *phy_cfgs;
+	const struct of_device_id *match;
+	int index, ret;
 
 	tcphy = devm_kzalloc(dev, sizeof(*tcphy), GFP_KERNEL);
 	if (!tcphy)
 		return -ENOMEM;
 
+	match = of_match_device(dev->driver->of_match_table, dev);
+	if (!match || !match->data) {
+		dev_err(dev, "phy configs are not assigned!\n");
+		return -EINVAL;
+	}
+
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	tcphy->base = devm_ioremap_resource(dev, res);
 	if (IS_ERR(tcphy->base))
 		return PTR_ERR(tcphy->base);
+
+	phy_cfgs = match->data;
+	/* find out a proper config which can be matched with dt. */
+	index = 0;
+	while (phy_cfgs[index].reg) {
+		if (phy_cfgs[index].reg == res->start) {
+			tcphy->port_cfgs = &phy_cfgs[index];
+			break;
+		}
+
+		++index;
+	}
+
+	if (!tcphy->port_cfgs) {
+		dev_err(dev, "no phy-config can be matched with %s node\n",
+			np->name);
+		return -EINVAL;
+	}
 
 	ret = tcphy_parse_dt(tcphy, dev);
 	if (ret)
@@ -1164,11 +1282,16 @@ static int rockchip_typec_phy_probe(struct platform_device *pdev)
 
 	tcphy->extcon = extcon_get_edev_by_phandle(dev, 0);
 	if (IS_ERR(tcphy->extcon)) {
-		if (PTR_ERR(tcphy->extcon) != -EPROBE_DEFER)
-			dev_err(dev, "Invalid or missing extcon\n");
-		return PTR_ERR(tcphy->extcon);
+		if (PTR_ERR(tcphy->extcon) == -ENODEV) {
+			tcphy->extcon = NULL;
+		} else {
+			if (PTR_ERR(tcphy->extcon) != -EPROBE_DEFER)
+				dev_err(dev, "Invalid or missing extcon\n");
+			return PTR_ERR(tcphy->extcon);
+		}
 	}
 
+	tcphy->typec_phy_config = typec_dp_phy_config;
 	pm_runtime_enable(dev);
 
 	for_each_available_child_of_node(np, child_np) {
@@ -1211,8 +1334,11 @@ static int rockchip_typec_phy_remove(struct platform_device *pdev)
 }
 
 static const struct of_device_id rockchip_typec_phy_dt_ids[] = {
-	{ .compatible = "rockchip,rk3399-typec-phy" },
-	{}
+	{
+		.compatible = "rockchip,rk3399-typec-phy",
+		.data = &rk3399_usb3phy_port_cfgs
+	},
+	{ /* sentinel */ }
 };
 
 MODULE_DEVICE_TABLE(of, rockchip_typec_phy_dt_ids);

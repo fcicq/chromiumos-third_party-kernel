@@ -310,7 +310,7 @@ static int sync_file_release(struct inode *inode, struct file *file)
 {
 	struct sync_file *sync_file = file->private_data;
 
-	if (test_bit(POLL_ENABLED, &sync_file->fence->flags))
+	if (test_bit(POLL_ENABLED, &sync_file->flags))
 		dma_fence_remove_callback(sync_file->fence, &sync_file->cb);
 	dma_fence_put(sync_file->fence);
 	kfree(sync_file);
@@ -324,7 +324,8 @@ static unsigned int sync_file_poll(struct file *file, poll_table *wait)
 
 	poll_wait(file, &sync_file->wq, wait);
 
-	if (!test_and_set_bit(POLL_ENABLED, &sync_file->fence->flags)) {
+	if (list_empty(&sync_file->cb.node) &&
+	    !test_and_set_bit(POLL_ENABLED, &sync_file->flags)) {
 		if (dma_fence_add_callback(sync_file->fence, &sync_file->cb,
 					   fence_check_cb_func) < 0)
 			wake_up_all(&sync_file->wq);
@@ -388,7 +389,7 @@ err_put_fd:
 	return err;
 }
 
-static void sync_fill_fence_info(struct dma_fence *fence,
+static int sync_fill_fence_info(struct dma_fence *fence,
 				 struct sync_fence_info *info)
 {
 	strlcpy(info->obj_name, fence->ops->get_timeline_name(fence),
@@ -397,7 +398,14 @@ static void sync_fill_fence_info(struct dma_fence *fence,
 		sizeof(info->driver_name));
 
 	info->status = dma_fence_get_status(fence);
-	info->timestamp_ns = ktime_to_ns(fence->timestamp);
+	while (test_bit(DMA_FENCE_FLAG_SIGNALED_BIT, &fence->flags) &&
+	       !test_bit(DMA_FENCE_FLAG_TIMESTAMP_BIT, &fence->flags))
+		cpu_relax();
+	info->timestamp_ns =
+		ktime_to_ns(test_bit(DMA_FENCE_FLAG_TIMESTAMP_BIT, &fence->flags) ?
+			fence->timestamp : ktime_set(0, 0));
+
+	return info->status;
 }
 
 static long sync_file_ioctl_fence_info(struct sync_file *sync_file,
@@ -423,8 +431,12 @@ static long sync_file_ioctl_fence_info(struct sync_file *sync_file,
 	 * sync_fence_info and return the actual number of fences on
 	 * info->num_fences.
 	 */
-	if (!info.num_fences)
+	if (!info.num_fences) {
+		info.status = dma_fence_is_signaled(sync_file->fence);
 		goto no_fences;
+	} else {
+		info.status = 1;
+	}
 
 	if (info.num_fences < num_fences)
 		return -EINVAL;
@@ -434,8 +446,10 @@ static long sync_file_ioctl_fence_info(struct sync_file *sync_file,
 	if (!fence_info)
 		return -ENOMEM;
 
-	for (i = 0; i < num_fences; i++)
-		sync_fill_fence_info(fences[i], &fence_info[i]);
+	for (i = 0; i < num_fences; i++) {
+		int status = sync_fill_fence_info(fences[i], &fence_info[i]);
+		info.status = info.status <= 0 ? info.status : status;
+	}
 
 	if (copy_to_user(u64_to_user_ptr(info.sync_fence_info), fence_info,
 			 size)) {
@@ -445,7 +459,6 @@ static long sync_file_ioctl_fence_info(struct sync_file *sync_file,
 
 no_fences:
 	sync_file_get_name(sync_file, info.name, sizeof(info.name));
-	info.status = dma_fence_is_signaled(sync_file->fence);
 	info.num_fences = num_fences;
 
 	if (copy_to_user((void __user *)arg, &info, sizeof(info)))

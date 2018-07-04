@@ -108,6 +108,11 @@
 #define DRM_MODE_DIRTY_ON       1
 #define DRM_MODE_DIRTY_ANNOTATE 2
 
+/* Content Protection Flags */
+#define DRM_MODE_CONTENT_PROTECTION_UNDESIRED	0
+#define DRM_MODE_CONTENT_PROTECTION_DESIRED     1
+#define DRM_MODE_CONTENT_PROTECTION_ENABLED     2
+
 struct drm_mode_modeinfo {
 	__u32 clock;
 	__u16 hdisplay;
@@ -192,33 +197,6 @@ struct drm_mode_get_plane {
 
 	__u32 count_format_types;
 	__u64 format_type_ptr;
-};
-
-struct drm_format_modifier {
-	/* Bitmask of formats in get_plane format list this info
-	 * applies to. */
-	uint64_t formats;
-
-	/* This modifier can be used with the format for this plane. */
-	uint64_t modifier;
-};
-
-struct drm_mode_get_plane2 {
-	__u32 plane_id;
-
-	__u32 crtc_id;
-	__u32 fb_id;
-
-	__u32 possible_crtcs;
-	__u32 gamma_size;
-
-	__u32 count_format_types;
-	__u64 format_type_ptr;
-
-	/* New in v2 */
-	__u32 count_format_modifiers;
-	__u32 flags;
-	__u64 format_modifier_ptr;
 };
 
 struct drm_mode_get_plane_res {
@@ -669,6 +647,56 @@ struct drm_mode_atomic {
 	__u64 prop_values_ptr;
 	__u64 reserved;
 	__u64 user_data;
+};
+
+struct drm_format_modifier_blob {
+#define FORMAT_BLOB_CURRENT 1
+	/* Version of this blob format */
+	u32 version;
+
+	/* Flags */
+	u32 flags;
+
+	/* Number of fourcc formats supported */
+	u32 count_formats;
+
+	/* Where in this blob the formats exist (in bytes) */
+	u32 formats_offset;
+
+	/* Number of drm_format_modifiers */
+	u32 count_modifiers;
+
+	/* Where in this blob the modifiers exist (in bytes) */
+	u32 modifiers_offset;
+
+	/* u32 formats[] */
+	/* struct drm_format_modifier modifiers[] */
+};
+
+struct drm_format_modifier {
+	/* Bitmask of formats in get_plane format list this info applies to. The
+	 * offset allows a sliding window of which 64 formats (bits).
+	 *
+	 * Some examples:
+	 * In today's world with < 65 formats, and formats 0, and 2 are
+	 * supported
+	 * 0x0000000000000005
+	 *		  ^-offset = 0, formats = 5
+	 *
+	 * If the number formats grew to 128, and formats 98-102 are
+	 * supported with the modifier:
+	 *
+	 * 0x0000003c00000000 0000000000000000
+	 *		  ^
+	 *		  |__offset = 64, formats = 0x3c00000000
+	 *
+	 */
+	__u64 formats;
+	__u32 offset;
+	__u32 pad;
+
+	/* The modifier that applies to the >get_plane format list bitmask. */
+	__u64 modifier;
 };
 
 /**

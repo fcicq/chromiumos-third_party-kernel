@@ -30,6 +30,7 @@
 #define __DRM_MODESET_HELPER_VTABLES_H__
 
 #include <drm/drm_crtc.h>
+#include <drm/drm_encoder.h>
 
 /**
  * DOC: overview
@@ -83,6 +84,40 @@ struct drm_crtc_helper_funcs {
 	void (*dpms)(struct drm_crtc *crtc, int mode);
 	void (*prepare)(struct drm_crtc *crtc);
 	void (*commit)(struct drm_crtc *crtc);
+
+	/**
+	 * @mode_valid:
+	 *
+	 * This callback is used to check if a specific mode is valid in this
+	 * crtc. This should be implemented if the crtc has some sort of
+	 * restriction in the modes it can display. For example, a given crtc
+	 * may be responsible to set a clock value. If the clock can not
+	 * produce all the values for the available modes then this callback
+	 * can be used to restrict the number of modes to only the ones that
+	 * can be displayed.
+	 *
+	 * This hook is used by the probe helpers to filter the mode list in
+	 * drm_helper_probe_single_connector_modes(), and it is used by the
+	 * atomic helpers to validate modes supplied by userspace in
+	 * drm_atomic_helper_check_modeset().
+	 *
+	 * This function is optional.
+	 *
+	 * NOTE:
+	 *
+	 * Since this function is both called from the check phase of an atomic
+	 * commit, and the mode validation in the probe paths it is not allowed
+	 * to look at anything else but the passed-in mode, and validate it
+	 * against configuration-invariant hardward constraints. Any further
+	 * limits which depend upon the configuration can only be checked in
+	 * @mode_fixup or @atomic_check.
+	 *
+	 * RETURNS:
+	 *
+	 * drm_mode_status Enum
+	 */
+	enum drm_mode_status (*mode_valid)(struct drm_crtc *crtc,
+					   const struct drm_display_mode *mode);
 
 	/* Provider can fixup or change mode timings before modeset occurs */
 	bool (*mode_fixup)(struct drm_crtc *crtc,
@@ -152,6 +187,40 @@ static inline void drm_crtc_helper_add(struct drm_crtc *crtc,
  */
 struct drm_encoder_helper_funcs {
 	void (*dpms)(struct drm_encoder *encoder, int mode);
+
+	/**
+	 * @mode_valid:
+	 *
+	 * This callback is used to check if a specific mode is valid in this
+	 * encoder. This should be implemented if the encoder has some sort
+	 * of restriction in the modes it can display. For example, a given
+	 * encoder may be responsible to set a clock value. If the clock can
+	 * not produce all the values for the available modes then this callback
+	 * can be used to restrict the number of modes to only the ones that
+	 * can be displayed.
+	 *
+	 * This hook is used by the probe helpers to filter the mode list in
+	 * drm_helper_probe_single_connector_modes(), and it is used by the
+	 * atomic helpers to validate modes supplied by userspace in
+	 * drm_atomic_helper_check_modeset().
+	 *
+	 * This function is optional.
+	 *
+	 * NOTE:
+	 *
+	 * Since this function is both called from the check phase of an atomic
+	 * commit, and the mode validation in the probe paths it is not allowed
+	 * to look at anything else but the passed-in mode, and validate it
+	 * against configuration-invariant hardward constraints. Any further
+	 * limits which depend upon the configuration can only be checked in
+	 * @mode_fixup or @atomic_check.
+	 *
+	 * RETURNS:
+	 *
+	 * drm_mode_status Enum
+	 */
+	enum drm_mode_status (*mode_valid)(struct drm_encoder *crtc,
+					   const struct drm_display_mode *mode);
 
 	bool (*mode_fixup)(struct drm_encoder *encoder,
 			   const struct drm_display_mode *mode,

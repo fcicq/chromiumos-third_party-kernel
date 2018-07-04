@@ -13,6 +13,7 @@
 #include <net/dsfield.h>
 #include <linux/if_vlan.h>
 #include <linux/mpls.h>
+#include <linux/gcd.h>
 #include "core.h"
 #include "rdev-ops.h"
 
@@ -913,7 +914,7 @@ void cfg80211_process_rdev_events(struct cfg80211_registered_device *rdev)
 
 	ASSERT_RTNL();
 
-	list_for_each_entry(wdev, &rdev->wdev_list, list)
+	list_for_each_entry(wdev, &rdev->wiphy.wdev_list, list)
 		cfg80211_process_wdev_events(wdev);
 }
 
@@ -930,8 +931,9 @@ int cfg80211_change_iface(struct cfg80211_registered_device *rdev,
 	if (otype == NL80211_IFTYPE_AP_VLAN)
 		return -EOPNOTSUPP;
 
-	/* cannot change into P2P device type */
-	if (ntype == NL80211_IFTYPE_P2P_DEVICE)
+	/* cannot change into P2P device or NAN */
+	if (ntype == NL80211_IFTYPE_P2P_DEVICE ||
+	    ntype == NL80211_IFTYPE_NAN)
 		return -EOPNOTSUPP;
 
 	if (!rdev->ops->change_virtual_intf ||
@@ -1010,6 +1012,7 @@ int cfg80211_change_iface(struct cfg80211_registered_device *rdev,
 			/* not happening */
 			break;
 		case NL80211_IFTYPE_P2P_DEVICE:
+		case NL80211_IFTYPE_NAN:
 			WARN_ON(1);
 			break;
 		}
@@ -1325,13 +1328,6 @@ size_t ieee80211_ie_split_ric(const u8 *ies, size_t ielen,
 }
 EXPORT_SYMBOL(ieee80211_ie_split_ric);
 
-size_t ieee80211_ie_split(const u8 *ies, size_t ielen,
-			  const u8 *ids, int n_ids, size_t offset)
-{
-	return ieee80211_ie_split_ric(ies, ielen, ids, n_ids, NULL, 0, offset);
-}
-EXPORT_SYMBOL(ieee80211_ie_split);
-
 bool ieee80211_operating_class_to_band(u8 operating_class,
 				       enum ieee80211_band *band)
 {
@@ -1485,31 +1481,57 @@ bool ieee80211_chandef_to_operating_class(struct cfg80211_chan_def *chandef,
 }
 EXPORT_SYMBOL(ieee80211_chandef_to_operating_class);
 
-int cfg80211_validate_beacon_int(struct cfg80211_registered_device *rdev,
-				 u32 beacon_int)
+static void cfg80211_calculate_bi_data(struct wiphy *wiphy, u32 new_beacon_int,
+				       u32 *beacon_int_gcd,
+				       bool *beacon_int_different)
 {
 	struct wireless_dev *wdev;
-	int res = 0;
 
-	if (!beacon_int)
-		return -EINVAL;
+	*beacon_int_gcd = 0;
+	*beacon_int_different = false;
 
-	list_for_each_entry(wdev, &rdev->wdev_list, list) {
+	list_for_each_entry(wdev, &wiphy->wdev_list, list) {
 		if (!wdev->beacon_interval)
 			continue;
-		if (wdev->beacon_interval != beacon_int) {
-			res = -EINVAL;
-			break;
+
+		if (!*beacon_int_gcd) {
+			*beacon_int_gcd = wdev->beacon_interval;
+			continue;
 		}
+
+		if (wdev->beacon_interval == *beacon_int_gcd)
+			continue;
+
+		*beacon_int_different = true;
+		*beacon_int_gcd = gcd(*beacon_int_gcd, wdev->beacon_interval);
 	}
 
-	return res;
+	if (new_beacon_int && *beacon_int_gcd != new_beacon_int) {
+		if (*beacon_int_gcd)
+			*beacon_int_different = true;
+		*beacon_int_gcd = gcd(*beacon_int_gcd, new_beacon_int);
+	}
+}
+
+int cfg80211_validate_beacon_int(struct cfg80211_registered_device *rdev,
+				 enum nl80211_iftype iftype, u32 beacon_int)
+{
+	/*
+	 * This is just a basic pre-condition check; if interface combinations
+	 * are possible the driver must already be checking those with a call
+	 * to cfg80211_check_combinations(), in which case we'll validate more
+	 * through the cfg80211_calculate_bi_data() call and code in
+	 * cfg80211_iter_combinations().
+	 */
+
+	if (beacon_int < 10 || beacon_int > 10000)
+		return -EINVAL;
+
+	return 0;
 }
 
 int cfg80211_iter_combinations(struct wiphy *wiphy,
-			       const int num_different_channels,
-			       const u8 radar_detect,
-			       const int iftype_num[NUM_NL80211_IFTYPES],
+			       struct iface_combination_params *params,
 			       void (*iter)(const struct ieee80211_iface_combination *c,
 					    void *data),
 			       void *data)
@@ -1519,8 +1541,23 @@ int cfg80211_iter_combinations(struct wiphy *wiphy,
 	int i, j, iftype;
 	int num_interfaces = 0;
 	u32 used_iftypes = 0;
+	u32 beacon_int_gcd;
+	bool beacon_int_different;
 
-	if (radar_detect) {
+	/*
+	 * This is a bit strange, since the iteration used to rely only on
+	 * the data given by the driver, but here it now relies on context,
+	 * in form of the currently operating interfaces.
+	 * This is OK for all current users, and saves us from having to
+	 * push the GCD calculations into all the drivers.
+	 * In the future, this should probably rely more on data that's in
+	 * cfg80211 already - the only thing not would appear to be any new
+	 * interfaces (while being brought up) and channel/radar data.
+	 */
+	cfg80211_calculate_bi_data(wiphy, params->new_beacon_int,
+				   &beacon_int_gcd, &beacon_int_different);
+
+	if (params->radar_detect) {
 		rcu_read_lock();
 		regdom = rcu_dereference(cfg80211_regdomain);
 		if (regdom)
@@ -1529,8 +1566,8 @@ int cfg80211_iter_combinations(struct wiphy *wiphy,
 	}
 
 	for (iftype = 0; iftype < NUM_NL80211_IFTYPES; iftype++) {
-		num_interfaces += iftype_num[iftype];
-		if (iftype_num[iftype] > 0 &&
+		num_interfaces += params->iftype_num[iftype];
+		if (params->iftype_num[iftype] > 0 &&
 		    !(wiphy->software_iftypes & BIT(iftype)))
 			used_iftypes |= BIT(iftype);
 	}
@@ -1544,7 +1581,7 @@ int cfg80211_iter_combinations(struct wiphy *wiphy,
 
 		if (num_interfaces > c->max_interfaces)
 			continue;
-		if (num_different_channels > c->num_different_channels)
+		if (params->num_different_channels > c->num_different_channels)
 			continue;
 
 		limits = kmemdup(c->limits, sizeof(limits[0]) * c->n_limits,
@@ -1559,16 +1596,17 @@ int cfg80211_iter_combinations(struct wiphy *wiphy,
 				all_iftypes |= limits[j].types;
 				if (!(limits[j].types & BIT(iftype)))
 					continue;
-				if (limits[j].max < iftype_num[iftype])
+				if (limits[j].max < params->iftype_num[iftype])
 					goto cont;
-				limits[j].max -= iftype_num[iftype];
+				limits[j].max -= params->iftype_num[iftype];
 			}
 		}
 
-		if (radar_detect != (c->radar_detect_widths & radar_detect))
+		if (params->radar_detect !=
+			(c->radar_detect_widths & params->radar_detect))
 			goto cont;
 
-		if (radar_detect && c->radar_detect_regions &&
+		if (params->radar_detect && c->radar_detect_regions &&
 		    !(c->radar_detect_regions & BIT(region)))
 			goto cont;
 
@@ -1579,6 +1617,14 @@ int cfg80211_iter_combinations(struct wiphy *wiphy,
 		 */
 		if ((all_iftypes & used_iftypes) != used_iftypes)
 			goto cont;
+
+		if (beacon_int_gcd) {
+			if (c->beacon_int_min_gcd &&
+			    beacon_int_gcd < c->beacon_int_min_gcd)
+				goto cont;
+			if (!c->beacon_int_min_gcd && beacon_int_different)
+				goto cont;
+		}
 
 		/* This combination covered all interface types and
 		 * supported the requested numbers, so we're good.
@@ -1602,14 +1648,11 @@ cfg80211_iter_sum_ifcombs(const struct ieee80211_iface_combination *c,
 }
 
 int cfg80211_check_combinations(struct wiphy *wiphy,
-				const int num_different_channels,
-				const u8 radar_detect,
-				const int iftype_num[NUM_NL80211_IFTYPES])
+				struct iface_combination_params *params)
 {
 	int err, num = 0;
 
-	err = cfg80211_iter_combinations(wiphy, num_different_channels,
-					 radar_detect, iftype_num,
+	err = cfg80211_iter_combinations(wiphy, params,
 					 cfg80211_iter_sum_ifcombs, &num);
 	if (err)
 		return err;
@@ -1619,120 +1662,6 @@ int cfg80211_check_combinations(struct wiphy *wiphy,
 	return 0;
 }
 EXPORT_SYMBOL(cfg80211_check_combinations);
-
-int cfg80211_can_use_iftype_chan(struct cfg80211_registered_device *rdev,
-				 struct wireless_dev *wdev,
-				 enum nl80211_iftype iftype,
-				 struct ieee80211_channel *chan,
-				 enum cfg80211_chan_mode chanmode,
-				 u8 radar_detect)
-{
-	struct wireless_dev *wdev_iter;
-	int num[NUM_NL80211_IFTYPES];
-	struct ieee80211_channel
-			*used_channels[CFG80211_MAX_NUM_DIFFERENT_CHANNELS];
-	struct ieee80211_channel *ch;
-	enum cfg80211_chan_mode chmode;
-	int num_different_channels = 0;
-	int total = 1;
-	int i;
-
-	ASSERT_RTNL();
-
-	if (WARN_ON(hweight32(radar_detect) > 1))
-		return -EINVAL;
-
-	if (WARN_ON(iftype >= NUM_NL80211_IFTYPES))
-		return -EINVAL;
-
-	/* Always allow software iftypes */
-	if (rdev->wiphy.software_iftypes & BIT(iftype)) {
-		if (radar_detect)
-			return -EINVAL;
-		return 0;
-	}
-
-	memset(num, 0, sizeof(num));
-	memset(used_channels, 0, sizeof(used_channels));
-
-	num[iftype] = 1;
-
-	/* TODO: We'll probably not need this anymore, since this
-	 * should only be called with CHAN_MODE_UNDEFINED. There are
-	 * still a couple of pending calls where other chanmodes are
-	 * used, but we should get rid of them.
-	 */
-	switch (chanmode) {
-	case CHAN_MODE_UNDEFINED:
-		break;
-	case CHAN_MODE_SHARED:
-		WARN_ON(!chan);
-		used_channels[0] = chan;
-		num_different_channels++;
-		break;
-	case CHAN_MODE_EXCLUSIVE:
-		num_different_channels++;
-		break;
-	}
-
-	list_for_each_entry(wdev_iter, &rdev->wdev_list, list) {
-		if (wdev_iter == wdev)
-			continue;
-		if (wdev_iter->iftype == NL80211_IFTYPE_P2P_DEVICE) {
-			if (!wdev_iter->p2p_started)
-				continue;
-		} else if (wdev_iter->netdev) {
-			if (!netif_running(wdev_iter->netdev))
-				continue;
-		} else {
-			WARN_ON(1);
-		}
-
-		if (rdev->wiphy.software_iftypes & BIT(wdev_iter->iftype))
-			continue;
-
-		/*
-		 * We may be holding the "wdev" mutex, but now need to lock
-		 * wdev_iter. This is OK because once we get here wdev_iter
-		 * is not wdev (tested above), but we need to use the nested
-		 * locking for lockdep.
-		 */
-		mutex_lock_nested(&wdev_iter->mtx, 1);
-		__acquire(wdev_iter->mtx);
-		cfg80211_get_chan_state(wdev_iter, &ch, &chmode, &radar_detect);
-		wdev_unlock(wdev_iter);
-
-		switch (chmode) {
-		case CHAN_MODE_UNDEFINED:
-			break;
-		case CHAN_MODE_SHARED:
-			for (i = 0; i < CFG80211_MAX_NUM_DIFFERENT_CHANNELS; i++)
-				if (!used_channels[i] || used_channels[i] == ch)
-					break;
-
-			if (i == CFG80211_MAX_NUM_DIFFERENT_CHANNELS)
-				return -EBUSY;
-
-			if (used_channels[i] == NULL) {
-				used_channels[i] = ch;
-				num_different_channels++;
-			}
-			break;
-		case CHAN_MODE_EXCLUSIVE:
-			num_different_channels++;
-			break;
-		}
-
-		num[wdev_iter->iftype]++;
-		total++;
-	}
-
-	if (total == 1 && !radar_detect)
-		return 0;
-
-	return cfg80211_check_combinations(&rdev->wiphy, num_different_channels,
-					   radar_detect, num);
-}
 
 int ieee80211_get_ratemask(struct ieee80211_supported_band *sband,
 			   const u8 *rates, unsigned int n_rates,
@@ -1802,6 +1731,28 @@ int cfg80211_get_station(struct net_device *dev, const u8 *mac_addr,
 	return rdev_get_station(rdev, dev, mac_addr, sinfo);
 }
 EXPORT_SYMBOL(cfg80211_get_station);
+
+void cfg80211_free_nan_func(struct cfg80211_nan_func *f)
+{
+	int i;
+
+	if (!f)
+		return;
+
+	kfree(f->serv_spec_info);
+	kfree(f->srf_bf);
+	kfree(f->srf_macs);
+	for (i = 0; i < f->num_rx_filters; i++)
+		kfree(f->rx_filters[i].filter);
+
+	for (i = 0; i < f->num_tx_filters; i++)
+		kfree(f->tx_filters[i].filter);
+
+	kfree(f->rx_filters);
+	kfree(f->tx_filters);
+	kfree(f);
+}
+EXPORT_SYMBOL(cfg80211_free_nan_func);
 
 /* See IEEE 802.1H for LLC/SNAP encapsulation/decapsulation */
 /* Ethernet-II snap header (RFC1042 for most EtherTypes) */

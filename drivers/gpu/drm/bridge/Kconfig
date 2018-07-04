@@ -4,6 +4,14 @@ config DRM_BRIDGE
 	help
 	  Bridge registration and lookup framework.
 
+config DRM_PANEL_BRIDGE
+	def_bool y
+	depends on DRM_BRIDGE
+	depends on DRM_KMS_HELPER
+	select DRM_PANEL
+	help
+	  DRM bridge wrapper of DRM panels
+
 menu "Display Interface Bridges"
 	depends on DRM && DRM_BRIDGE
 
@@ -85,5 +93,7 @@ config DRM_ANALOGIX_ANX7688
 	  ANX7688 is a transmitter to support DisplayPort over USB-C for
 	  smartphone and tablets.
 	  This driver only supports the HDMI to DP component of the chip.
+
+source "drivers/gpu/drm/bridge/synopsys/Kconfig"
 
 endmenu

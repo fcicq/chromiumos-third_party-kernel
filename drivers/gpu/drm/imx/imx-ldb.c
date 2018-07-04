@@ -84,12 +84,6 @@ struct imx_ldb {
 	const struct bus_mux *lvds_mux;
 };
 
-static enum drm_connector_status imx_ldb_connector_detect(
-		struct drm_connector *connector, bool force)
-{
-	return connector_status_connected;
-}
-
 static int imx_ldb_connector_get_modes(struct drm_connector *connector)
 {
 	struct imx_ldb_channel *imx_ldb_ch = con_to_imx_ldb_ch(connector);
@@ -361,7 +355,6 @@ static void imx_ldb_encoder_disable(struct drm_encoder *encoder)
 static struct drm_connector_funcs imx_ldb_connector_funcs = {
 	.dpms = drm_helper_connector_dpms,
 	.fill_modes = drm_helper_probe_single_connector_modes,
-	.detect = imx_ldb_connector_detect,
 	.destroy = imx_drm_connector_destroy,
 };
 
