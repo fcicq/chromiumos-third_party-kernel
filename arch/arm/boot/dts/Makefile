@@ -273,6 +273,7 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += \
 	rk3288-minnie-rev0.dtb \
 	rk3288-nicky-rev0.dtb\
 	rk3288-rialto-rev0.dtb \
+	rk3288-rialto-rev3.dtb \
 	rk3288-speedy.dtb \
 	rk3288-speedy-rev1.dtb \
 	rk3288-thea-rev0.dtb \
