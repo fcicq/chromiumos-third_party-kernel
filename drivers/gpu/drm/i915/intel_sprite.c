@@ -84,7 +84,6 @@ int intel_usecs_to_scanlines(const struct drm_display_mode *adjusted_mode,
 void intel_pipe_update_start(const struct intel_crtc_state *new_crtc_state)
 {
 	struct intel_crtc *crtc = to_intel_crtc(new_crtc_state->base.crtc);
-	struct drm_i915_private *dev_priv = to_i915(crtc->base.dev);
 	const struct drm_display_mode *adjusted_mode = &new_crtc_state->base.adjusted_mode;
 	long timeout = msecs_to_jiffies_timeout(1);
 	int scanline, min, max, vblank_start;
@@ -111,7 +110,7 @@ void intel_pipe_update_start(const struct intel_crtc_state *new_crtc_state)
 	 * VBL interrupts will start the PSR exit and prevent a PSR
 	 * re-entry as well.
 	 */
-	if (CAN_PSR(dev_priv) && intel_psr_wait_for_idle(dev_priv))
+	if (intel_psr_wait_for_idle(new_crtc_state))
 		DRM_ERROR("PSR idle timed out, atomic update may fail\n");
 
 	local_irq_disable();
