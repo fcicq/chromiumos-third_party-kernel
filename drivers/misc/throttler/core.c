@@ -196,7 +196,7 @@ static int thr_init_freq_table(struct throttler *thr, struct device *opp_dev,
 			thr_dbg(thr,
 				"OPP %s (%llu MHz) is used for throttling\n",
 				np_opp->full_name,
-				rate / 1000000);
+				div_u64(rate, 1000000));
 		} else {
 			thr_err(thr, "opp-hz not found: %s\n",
 				np_opp->full_name);
