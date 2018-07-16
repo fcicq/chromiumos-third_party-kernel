@@ -114,6 +114,7 @@
 			enable-method = "psci";
 			efficiency = <1024>;
 			next-level-cache = <&L2_0>;
+			qcom,freq-domain = <&freq_domain_table0>;
 
 			L2_0: l2-cache {
 				compatible = "cache";
@@ -142,6 +143,7 @@
 			enable-method = "psci";
 			efficiency = <1024>;
 			next-level-cache = <&L2_100>;
+			qcom,freq-domain = <&freq_domain_table0>;
 
 			L2_100: l2-cache {
 				compatible = "cache";
@@ -166,6 +168,7 @@
 			enable-method = "psci";
 			efficiency = <1024>;
 			next-level-cache = <&L2_200>;
+			qcom,freq-domain = <&freq_domain_table0>;
 
 			L2_200: l2-cache {
 				compatible = "cache";
@@ -190,6 +193,7 @@
 			enable-method = "psci";
 			efficiency = <1024>;
 			next-level-cache = <&L2_300>;
+			qcom,freq-domain = <&freq_domain_table0>;
 
 			L2_300: l2-cache {
 				compatible = "cache";
@@ -213,6 +217,7 @@
 			enable-method = "psci";
 			efficiency = <1740>;
 			next-level-cache = <&L2_400>;
+			qcom,freq-domain = <&freq_domain_table1>;
 
 			L2_400: l2-cache {
 				compatible = "cache";
@@ -237,6 +242,7 @@
 			enable-method = "psci";
 			efficiency = <1740>;
 			next-level-cache = <&L2_500>;
+			qcom,freq-domain = <&freq_domain_table1>;
 
 			L2_500: l2-cache {
 				compatible = "cache";
@@ -261,6 +267,7 @@
 			enable-method = "psci";
 			efficiency = <1740>;
 			next-level-cache = <&L2_600>;
+			qcom,freq-domain = <&freq_domain_table1>;
 
 			L2_600: l2-cache {
 				compatible = "cache";
@@ -285,6 +292,7 @@
 			enable-method = "psci";
 			efficiency = <1740>;
 			next-level-cache = <&L2_700>;
+			qcom,freq-domain = <&freq_domain_table1>;
 
 			L2_700: l2-cache {
 				compatible = "cache";
@@ -306,6 +314,24 @@
 	pmu {
 		compatible = "arm,armv8-pmuv3";
 		interrupts = <GIC_PPI 5 IRQ_TYPE_LEVEL_HIGH>;
+	};
+
+	qcom,cpufreq-hw {
+		compatible = "qcom,cpufreq-hw";
+
+		clocks = <&rpmhcc RPMH_CXO_CLK>;
+		clock-names = "xo";
+
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+		freq_domain_table0: freq_table0 {
+			reg = <0 0x17d43000 0 0x1400>;
+		};
+
+		freq_domain_table1: freq_table1 {
+			reg = <0 0x17d45800 0 0x1400>;
+		};
 	};
 
 	timer {
