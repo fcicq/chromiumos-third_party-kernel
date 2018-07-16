@@ -177,8 +177,8 @@ static int thr_init_freq_table(struct throttler *thr, struct device *opp_dev,
 					  i);
 		if (!np_opp) {
 			thr_err(thr,
-				"failed to parse phandle %d: %s\n", i,
-				np_opp->full_name);
+				"failed to parse 'throttler-opps' phandle %d\n",
+				i);
 			continue;
 		}
 
@@ -638,7 +638,7 @@ struct throttler *throttler_setup(struct device *dev)
 	thr->debugfs.attr_level = debugfs_create_file("level", 0644,
 						      thr->debugfs.dir, thr,
 						      &level_debugfs_ops);
-	if (IS_ERR(thr->debugfs.dir)) {
+	if (IS_ERR(thr->debugfs.attr_level)) {
 		thr_warn(thr, "failed to create debugfs attribute: %ld\n",
 			 PTR_ERR(thr->debugfs.attr_level));
 		debugfs_remove(thr->debugfs.dir);
