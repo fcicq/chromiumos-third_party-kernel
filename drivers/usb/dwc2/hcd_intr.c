@@ -982,6 +982,8 @@ static void dwc2_hc_xfercomp_intr(struct dwc2_hsotg *hsotg,
 	int pipe_type;
 	int urb_xfer_done;
 
+	qtd->num_naks = 0;
+
 	if (dbg_hc(chan))
 		dev_vdbg(hsotg->dev,
 			 "--Host Channel %d Interrupt: Transfer Complete--\n",
