@@ -138,6 +138,22 @@
 	};
 };
 
+&qspi {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&qspi_clk &qspi_cs0 &qspi_data01>;
+
+	spiflash@0 {
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		/* TODO: Should support up to 104 MHz */
+		spi-max-frequency = <25000000>;
+		spi-tx-bus-width = <2>;
+		spi-rx-bus-width = <2>;
+	};
+};
+
+
 &apps_rsc {
 	pm8998-rpmh-regulators {
 		compatible = "qcom,pm8998-rpmh-regulators";
@@ -746,6 +762,31 @@ ap_ts_i2c: &i2c14 {
 };
 
 /* PINCTRL - additions to nodes defined in sdm845.dtsi */
+
+&qspi_cs0 {
+	pinconf {
+		pins = "gpio90";
+		bias-disable;
+	};
+};
+
+&qspi_clk {
+	pinconf {
+		pins = "gpio95";
+		bias-disable;
+	};
+};
+
+&qspi_data01 {
+	pinconf-mosi {
+		pins = "gpio91";
+		bias-disable;
+	};
+	pinconf-miso {
+		pins = "gpio92";
+		bias-pull-down;
+	};
+};
 
 &qup_i2c3_default {
 	pinconf {
