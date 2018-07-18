@@ -317,7 +317,7 @@ static int qcom_qspi_exec_mem_op(struct spi_mem *mem,
 
 	if (dev->max_speed_hz) {
 		ret = clk_set_rate(ctrl->clks[QSPI_CLK_CORE].clk,
-				   dev->max_speed_hz);
+				   dev->max_speed_hz * 4);
 		if (ret) {
 			dev_err(ctrl->dev, "Failed to set core clk %d\n", ret);
 			goto exit;
