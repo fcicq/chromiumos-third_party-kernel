@@ -118,6 +118,18 @@
  */
 
 /*
+ * HACK: The quad spi actually works fine on -rev0, but let's still
+ * disable it.  The problem is that a bunch of people have their
+ * -rev0 boards reworked to only boot via SD card.  That means they
+ * have erased SPI flash.  ...and crbug.com/865731 causes too many
+ * problems in that case.  Let's just prevent access to the SPI flash
+ * to avoid headaches.
+ */
+&qspi {
+	status = "disabled";
+};
+
+/*
  * L19 and L28 technically go to 3.3V, but most boards have old AOP firmware
  * that limits them to 3.0, and trying to run at 3.3V with that old firmware
  * prevents the system from booting.
