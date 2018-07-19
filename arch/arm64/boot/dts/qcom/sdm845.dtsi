@@ -1655,6 +1655,11 @@
 				#power-domain-cells = <1>;
 				operating-points-v2 = <&rpmhpd_opp_table>;
 			};
+
+			qnoc: qnoc{
+				compatible = "qcom,sdm845-rsc-hlos";
+				#interconnect-cells = <1>;
+			};
 		};
 
 		intc: interrupt-controller@17a00000 {
