@@ -1457,7 +1457,6 @@ static struct i2c_driver sx932x_driver = {
 		.name	= SX932X_DRIVER_NAME,
 		.acpi_match_table = ACPI_PTR(sx932x_acpi_match),
 		.of_match_table = of_match_ptr(sx932x_of_match),
-		.owner = THIS_MODULE,
 		.pm = &sx932x_pm_ops,
 	},
 	.probe		= sx932x_probe,
