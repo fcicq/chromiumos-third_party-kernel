@@ -53,7 +53,7 @@ struct task_struct;
 typedef asmlinkage long (*ti_sys_call_ptr_t)(unsigned long, unsigned long,
 					     unsigned long, unsigned long,
 					     unsigned long, unsigned long);
-#include <asm/processor.h>
+#include <asm/cpufeature.h>
 #include <linux/atomic.h>
 
 struct thread_info {
