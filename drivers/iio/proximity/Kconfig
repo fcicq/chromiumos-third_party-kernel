@@ -38,6 +38,7 @@ config SX932X
 	select IIO_TRIGGERED_BUFFER
 	select REGMAP_I2C
 	depends on I2C
+	depends on ACPI
 	help
 	  Say Y here to build a driver for Semtech's sx932x capacitive
 	  proximity/button sensor.
