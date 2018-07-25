@@ -4980,35 +4980,6 @@ static int ath10k_mac_set_txbf_conf(struct ath10k_vif *arvif)
 					 ar->wmi.vdev_param->txbf, value);
 }
 
-static int ath10k_mac_set_vdev_mcast_rate_params(struct ath10k_vif *arvif)
-{
-	struct ath10k *ar = arvif->ar;
-	u32 vdev_param;
-	int ret;
-
-	/* TODO: Make the rate configurable and accepts mcast_rate from
-	 * mac80211.
-	 */
-	u32  mcast_rate = ATH10K_HW_RATE_OFDM_24M; /* Format defined in wmi.h */
-
-	vdev_param = ar->wmi.vdev_param->mcast_data_rate;
-	ret = ath10k_wmi_vdev_set_param(ar, arvif->vdev_id, vdev_param,
-					mcast_rate);
-	if (ret) {
-		ath10k_warn(ar, "%s 0x%02x: %d\n", __func__, mcast_rate, ret);
-		return ret;
-	}
-
-	vdev_param = ar->wmi.vdev_param->bcast_data_rate;
-	ret = ath10k_wmi_vdev_set_param(ar, arvif->vdev_id, vdev_param,
-					mcast_rate);
-	if (ret) {
-		ath10k_warn(ar, "%s 0x%02x: %d\n", __func__, mcast_rate, ret);
-		return ret;
-	}
-	return ret;
-}
-
 /*
  * TODO:
  * Figure out how to handle WMI_VDEV_SUBTYPE_P2P_DEVICE,
@@ -5707,9 +5678,6 @@ static void ath10k_bss_info_changed(struct ieee80211_hw *hw,
 			ath10k_warn(ar, "failed to setup ps on vdev %i: %d\n",
 				    arvif->vdev_id, ret);
 	}
-
-	if (ieee80211_vif_is_mesh(arvif->vif))
-		ath10k_mac_set_vdev_mcast_rate_params(arvif);
 
 	mutex_unlock(&ar->conf_mutex);
 }

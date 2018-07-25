@@ -27,11 +27,11 @@ static inline void low_mem_threshold_notify(void) { }
 /*
  * Compute available memory used by files that can be reclaimed quickly.
  */
-static inline unsigned long get_available_file_mem(int lru_base)
+static inline unsigned long get_available_file_mem(void)
 {
 	unsigned long file_mem =
-			global_page_state(lru_base + LRU_ACTIVE_FILE) +
-			global_page_state(lru_base + LRU_INACTIVE_FILE);
+			global_page_state(NR_ACTIVE_FILE) +
+			global_page_state(NR_INACTIVE_FILE);
 	unsigned long dirty_mem = global_page_state(NR_FILE_DIRTY);
 	unsigned long min_file_mem = min_filelist_kbytes >> (PAGE_SHIFT - 10);
 	unsigned long clean_file_mem = file_mem - dirty_mem;
@@ -45,7 +45,7 @@ static inline unsigned long get_available_file_mem(int lru_base)
  * Compute "available" memory, that is either free memory or memory that can be
  * reclaimed quickly, adjusted for the presence of swap.
  */
-static inline unsigned long get_available_mem_adj(int lru_base)
+static inline unsigned long get_available_mem_adj(void)
 {
 	/* min_free_kbytes is reserved for emergency allocation like when
 	 * PF_MEMALLOC is set. In general it's not usable in normal page
@@ -59,27 +59,23 @@ static inline unsigned long get_available_mem_adj(int lru_base)
 	unsigned long free_mem =
 			global_page_state(NR_FREE_PAGES) - min_free_pages;
 	unsigned long available_mem = free_mem +
-	    get_available_file_mem(lru_base);
+	    get_available_file_mem();
 	long _nr_swap_pages = get_nr_swap_pages();
 	/*
 	 * The contribution of swap is reduced by a factor of
 	 * low_mem_ram_vs_swap_weight.
 	 */
-	unsigned long swap_adj = _nr_swap_pages;
-
-	do_div(swap_adj, low_mem_ram_vs_swap_weight);
-	return available_mem + swap_adj;
+	return available_mem + _nr_swap_pages / low_mem_ram_vs_swap_weight;
 }
 
 #ifdef CONFIG_LOW_MEM_NOTIFY
 static inline bool low_mem_check(void)
 {
-	const int lru_base = NR_LRU_BASE - LRU_BASE;
 	static bool was_low_mem;	/* = false, as per style guide */
 	/* We declare a low-memory condition when a combination of RAM and swap
 	 * space is low.
 	 */
-	unsigned long available_mem = get_available_mem_adj(lru_base);
+	unsigned long available_mem = get_available_mem_adj();
 	/*
 	 * For backwards compatibility with the older margin interface, we will trigger
 	 * the /dev/chromeos-low_mem device when we are below the lowest threshold
@@ -93,8 +89,8 @@ static inline bool low_mem_check(void)
 
 	if (unlikely(is_low_mem && !was_low_mem)) {
 		unsigned long anon_mem =
-			global_page_state(lru_base + LRU_ACTIVE_ANON) +
-			global_page_state(lru_base + LRU_INACTIVE_ANON);
+			global_page_state(NR_ACTIVE_ANON) +
+			global_page_state(NR_INACTIVE_ANON);
 		if (unlikely(anon_mem < low_mem_lowest_seen_anon_mem)) {
 			printk(KERN_INFO "entering low_mem "
 			       "(avail RAM = %lu kB, avail swap %lu kB, "
@@ -102,7 +98,7 @@ static inline bool low_mem_check(void)
 			       "with lowest seen anon mem: %lu kB\n",
 			       available_mem * PAGE_SIZE / 1024,
 			       get_nr_swap_pages() * PAGE_SIZE / 1024,
-			       get_available_file_mem(lru_base) * PAGE_SIZE /
+			       get_available_file_mem() * PAGE_SIZE /
 				  1024,
 			       anon_mem * PAGE_SIZE / 1024);
 			low_mem_lowest_seen_anon_mem = anon_mem -
