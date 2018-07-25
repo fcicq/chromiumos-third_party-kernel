@@ -25,6 +25,8 @@
  * GNU General Public License for more details.
  */
 
+#define DEBUG 1
+
 #ifdef pr_fmt
 #undef pr_fmt
 #endif

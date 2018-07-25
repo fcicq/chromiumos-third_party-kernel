@@ -10,6 +10,8 @@
  * GNU General Public License for more details.
  */
 
+#define DEBUG 1
+
 #include <linux/slab.h>
 #include <linux/diagchar.h>
 #include <linux/kmemleak.h>
