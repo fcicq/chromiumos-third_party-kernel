@@ -486,7 +486,7 @@ static ssize_t phys_switch_id_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(phys_switch_id);
 
-static struct attribute *net_class_attrs[] = {
+static struct attribute *net_class_attrs[] __ro_after_init = {
 	&dev_attr_netdev_group.attr,
 	&dev_attr_type.attr,
 	&dev_attr_dev_id.attr,
@@ -574,7 +574,7 @@ NETSTAT_ENTRY(tx_window_errors);
 NETSTAT_ENTRY(rx_compressed);
 NETSTAT_ENTRY(tx_compressed);
 
-static struct attribute *netstat_attrs[] = {
+static struct attribute *netstat_attrs[] __ro_after_init = {
 	&dev_attr_rx_packets.attr,
 	&dev_attr_tx_packets.attr,
 	&dev_attr_rx_bytes.attr,
@@ -1112,9 +1112,9 @@ static ssize_t bql_set_hold_time(struct netdev_queue *queue,
 	return len;
 }
 
-static struct netdev_queue_attribute bql_hold_time_attribute =
-	__ATTR(hold_time, S_IRUGO | S_IWUSR, bql_show_hold_time,
-	    bql_set_hold_time);
+static struct netdev_queue_attribute bql_hold_time_attribute __ro_after_init
+	= __ATTR(hold_time, S_IRUGO | S_IWUSR,
+		 bql_show_hold_time, bql_set_hold_time);
 
 static ssize_t bql_show_inflight(struct netdev_queue *queue,
 				 struct netdev_queue_attribute *attr,
@@ -1125,7 +1125,7 @@ static ssize_t bql_show_inflight(struct netdev_queue *queue,
 	return sprintf(buf, "%u\n", dql->num_queued - dql->num_completed);
 }
 
-static struct netdev_queue_attribute bql_inflight_attribute =
+static struct netdev_queue_attribute bql_inflight_attribute __ro_after_init =
 	__ATTR(inflight, S_IRUGO, bql_show_inflight, NULL);
 
 #define BQL_ATTR(NAME, FIELD)						\
@@ -1143,15 +1143,15 @@ static ssize_t bql_set_ ## NAME(struct netdev_queue *queue,		\
 	return bql_set(buf, len, &queue->dql.FIELD);			\
 }									\
 									\
-static struct netdev_queue_attribute bql_ ## NAME ## _attribute =	\
-	__ATTR(NAME, S_IRUGO | S_IWUSR, bql_show_ ## NAME,		\
-	    bql_set_ ## NAME);
+static struct netdev_queue_attribute bql_ ## NAME ## _attribute __ro_after_init \
+	= __ATTR(NAME, S_IRUGO | S_IWUSR,				\
+		 bql_show_ ## NAME, bql_set_ ## NAME)
 
-BQL_ATTR(limit, limit)
-BQL_ATTR(limit_max, max_limit)
-BQL_ATTR(limit_min, min_limit)
+BQL_ATTR(limit, limit);
+BQL_ATTR(limit_max, max_limit);
+BQL_ATTR(limit_min, min_limit);
 
-static struct attribute *dql_attrs[] = {
+static struct attribute *dql_attrs[] __ro_after_init = {
 	&bql_limit_attribute.attr,
 	&bql_limit_max_attribute.attr,
 	&bql_limit_min_attribute.attr,
@@ -1457,7 +1457,7 @@ static const void *net_namespace(struct device *d)
 	return dev_net(dev);
 }
 
-static struct class net_class = {
+static struct class net_class __ro_after_init = {
 	.name = "net",
 	.dev_release = netdev_release,
 	.dev_groups = net_class_groups,

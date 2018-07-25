@@ -654,6 +654,22 @@ static void cros_ec_cec_register(struct cros_ec_dev *ec)
 		dev_err(ec->dev, "failed to add cros-ec-cec device: %d\n", ret);
 }
 
+static const struct mfd_cell ec_throttler_cells[] = {
+	{ .name = "cros-ec-throttler" }
+};
+
+static void cros_ec_throttler_register(struct cros_ec_dev *ec)
+{
+	int ret;
+
+	ret = mfd_add_devices(ec->dev, 0, ec_throttler_cells,
+			      ARRAY_SIZE(ec_throttler_cells),
+			      NULL, 0, NULL);
+	if (ret)
+		dev_err(ec->dev,
+			"failed to add cros-ec-throttler device: %d\n", ret);
+}
+
 static int ec_device_probe(struct platform_device *pdev)
 {
 	int retval = -ENOMEM;
@@ -741,6 +757,9 @@ static int ec_device_probe(struct platform_device *pdev)
 	/* check whether this EC instance has CEC command support */
 	if (cros_ec_check_features(ec, EC_FEATURE_CEC))
 		cros_ec_cec_register(ec);
+
+	if (IS_ENABLED(CONFIG_CROS_EC_THROTTLER))
+		cros_ec_throttler_register(ec);
 
 	/* Take control of the lightbar from the EC. */
 	lb_manual_suspend_ctrl(ec, 1);

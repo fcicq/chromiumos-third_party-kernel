@@ -4290,7 +4290,7 @@ static void svm_sched_in(struct kvm_vcpu *vcpu, int cpu)
 {
 }
 
-static struct kvm_x86_ops svm_x86_ops = {
+static struct kvm_x86_ops svm_x86_ops __ro_after_init = {
 	.cpu_has_kvm_support = has_svm,
 	.disabled_by_bios = is_disabled,
 	.hardware_setup = svm_hardware_setup,
