@@ -73,6 +73,7 @@ struct spi_geni_master {
 	u32 tx_fifo_depth;
 	u32 fifo_width_bits;
 	u32 tx_wm;
+	bool setting_cs;
 	unsigned int cur_speed_hz;
 	unsigned int cur_bits_per_word;
 	unsigned int tx_rem_bytes;
@@ -379,11 +380,42 @@ static void handle_fifo_timeout(struct spi_master *spi,
 	}
 }
 
+static void spi_geni_set_cs(struct spi_device *spi, bool set_flag)
+{
+	struct spi_geni_master *mas = spi_master_get_devdata(spi->master);
+	struct geni_se *se = &mas->se;
+	unsigned long timeout;
+
+	pm_runtime_get_sync(mas->dev);
+
+	if (!(spi->mode & SPI_CS_HIGH))
+		set_flag = !set_flag;
+
+	mas->setting_cs = true;
+	if (set_flag)
+		geni_se_setup_m_cmd(se, SPI_CS_ASSERT, 0);
+	else
+		geni_se_setup_m_cmd(se, SPI_CS_DEASSERT, 0);
+
+	timeout = wait_for_completion_timeout(&mas->xfer_done, HZ);
+	mas->setting_cs = false;
+
+	if (!timeout)
+		handle_fifo_timeout(spi->master, NULL);
+
+	pm_runtime_put(mas->dev);
+}
+
 static int spi_geni_transfer_one(struct spi_master *spi,
 				struct spi_device *slv,
 				struct spi_transfer *xfer)
 {
 	struct spi_geni_master *mas = spi_master_get_devdata(spi);
+
+	if (!xfer->len) {
+		dev_err(mas->dev, "Invalid xfer len is 0\n");
+		return -EINVAL;
+	}
 
 	setup_fifo_xfer(xfer, mas, slv->mode, spi);
 	return 1;
@@ -501,7 +533,10 @@ static irqreturn_t geni_spi_isr(int irq, void *data)
 		ret = geni_spi_handle_tx(mas);
 
 	if (m_irq & M_CMD_DONE_EN) {
-		spi_finalize_current_transfer(spi);
+		if (mas->setting_cs)
+			complete(&mas->xfer_done);
+		else
+			spi_finalize_current_transfer(spi);
 		/*
 		 * If this happens, then a CMD_DONE came before all the Tx
 		 * buffer bytes were sent out. This is unusual, log this
@@ -584,6 +619,7 @@ static int spi_geni_probe(struct platform_device *pdev)
 	spi->max_speed_hz = 50000000;
 	spi->prepare_message = spi_geni_prepare_message;
 	spi->transfer_one = spi_geni_transfer_one;
+	spi->set_cs = spi_geni_set_cs;
 	spi->auto_runtime_pm = true;
 	spi->handle_err = handle_fifo_timeout;
 	init_completion(&spi_geni->xfer_done);
