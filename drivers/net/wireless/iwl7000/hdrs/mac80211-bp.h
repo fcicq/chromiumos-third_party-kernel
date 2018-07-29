@@ -1316,7 +1316,7 @@ cfg80211_inform_bss_frame_data(struct wiphy *wiphy,
 }
 #endif /* CFG80211_VERSION < KERNEL_VERSION(4,4,0) */
 
-#if CFG80211_VERSION < KERNEL_VERSION(4,99,0)
+#if CFG80211_VERSION < KERNEL_VERSION(99,0,0)
 /* not really on the way upstream yet */
 #define WIPHY_FLAG_HAS_FTM_RESPONDER 0
 
@@ -1505,7 +1505,7 @@ struct cfg80211_msrment_request {
 		struct cfg80211_ftm_request ftm;
 	} u;
 };
-#endif /* CFG80211_VERSION < KERNEL_VERSION(4,99,0) */
+#endif /* CFG80211_VERSION < KERNEL_VERSION(99,0,0) */
 
 #if CFG80211_VERSION < KERNEL_VERSION(4,12,0)
 #define mon_opts_flags(p)	flags
@@ -1545,11 +1545,6 @@ static inline bool ieee80211_viftype_nan(unsigned int iftype)
 static inline bool ieee80211_has_nan_iftype(unsigned int iftype)
 {
 	return false;
-}
-#else
-static inline bool ieee80211_viftype_nan(unsigned int iftype)
-{
-	return iftype == NL80211_IFTYPE_NAN;
 }
 
 #if CFG80211_VERSION < KERNEL_VERSION(4,4,0)
@@ -1634,6 +1629,11 @@ enum nl80211_nan_publish_type {
 	NL80211_NAN_UNSOLICITED_PUBLISH = 1 << 1,
 };
 #endif /* CFG80211_VERSION < KERNEL_VERSION(4,4,0) */
+#else
+static inline bool ieee80211_viftype_nan(unsigned int iftype)
+{
+	return iftype == NL80211_IFTYPE_NAN;
+}
 
 static inline
 bool ieee80211_has_nan_iftype(unsigned int iftype)
@@ -1642,7 +1642,7 @@ bool ieee80211_has_nan_iftype(unsigned int iftype)
 }
 #endif /* CFG80211_VERSION < KERNEL_VERSION(4,9,0) */
 
-#if CFG80211_VERSION < KERNEL_VERSION(4,99,0)
+#if CFG80211_VERSION < KERNEL_VERSION(99,0,0)
 #define nan_conf_cdw_2g(conf) 1
 #define nan_conf_cdw_5g(conf) 1
 #else
@@ -2290,7 +2290,9 @@ static inline void __percpu *__alloc_gfp_warn(void)
 #define NL80211_SCAN_FLAG_OCE_PROBE_REQ_DEFERRAL_SUPPRESSION BIT(7)
 #endif
 
-#if CFG80211_VERSION < KERNEL_VERSION(4,4,0)
+#if CFG80211_VERSION < KERNEL_VERSION(4,4,0) ||		\
+	(CFG80211_VERSION >= KERNEL_VERSION(4,5,0) &&	\
+	 CFG80211_VERSION < KERNEL_VERSION(4,17,0))
 struct ieee80211_wmm_ac {
 	u16 cw_min;
 	u16 cw_max;
@@ -2307,12 +2309,13 @@ static inline int
 reg_query_regdb_wmm(char *alpha2, int freq, u32 *ptr,
 		    struct ieee80211_wmm_rule *rule)
 {
-	pr_debug_once("iwl7000: ETSI WMM data not implemented yet!\n");
+	pr_debug_once(KERN_DEBUG
+		      "iwl7000: ETSI WMM data not implemented yet!\n");
 	return -ENODATA;
 }
-#endif
+#endif /* < 4.4.0 || (>= 4.5.0 && < 4.17.0) */
 
-#if CFG80211_VERSION < KERNEL_VERSION(4,99,0)
+#if CFG80211_VERSION < KERNEL_VERSION(99,0,0)
 /* not yet upstream */
 static inline bool ieee80211_viftype_nan_data(unsigned int iftype)
 {
@@ -2325,7 +2328,7 @@ static inline bool ieee80211_has_nan_data_iftype(unsigned int iftype)
 }
 #endif
 
-#if CFG80211_VERSION < KERNEL_VERSION(4,99,0)
+#if CFG80211_VERSION < KERNEL_VERSION(99,0,0)
 /* not yet upstream */
 static inline int
 cfg80211_crypto_n_ciphers_group(struct cfg80211_crypto_settings *crypto)
