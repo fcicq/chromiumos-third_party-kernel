@@ -1130,7 +1130,6 @@ MODULE_DEVICE_TABLE(i2c, sx9310_id);
 static struct i2c_driver sx9310_driver = {
 	.driver = {
 		.name	= SX9310_DRIVER_NAME,
-		.owner = THIS_MODULE,
 		.acpi_match_table = ACPI_PTR(sx9310_acpi_match),
 		.of_match_table = of_match_ptr(sx9310_of_match),
 		.pm = &sx9310_pm_ops,
