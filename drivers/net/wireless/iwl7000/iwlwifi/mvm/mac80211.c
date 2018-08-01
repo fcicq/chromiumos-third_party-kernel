@@ -97,10 +97,17 @@
 #include "tof.h"
 #include "fw/api/nan.h"
 
-/* CONFIG_EVE_ETSI_WORKAROUND governs whether hardcoded wmm limits are applied.
+/* The ETSI patches were introduced in 4.17 and backported to
+ * chromeos-4.4, we need our limits on any version outside that
  */
-#ifdef CONFIG_EVE_ETSI_WORKAROUND
-static const struct ieee80211_wmm_rule wmm_rules = {
+#if (CFG80211_VERSION < KERNEL_VERSION(4,17,0) &&	\
+	!(CFG80211_VERSION >= KERNEL_VERSION(4,4,0) && \
+	  CFG80211_VERSION < KERNEL_VERSION(4,5,0)))
+#define IWL7000_NEED_ETSI_WMM_LIMITS
+#endif
+
+#ifdef IWL7000_NEED_ETSI_WMM_LIMITS
+const static struct ieee80211_wmm_rule wmm_rules = {
 	.client = {
 		{.cw_min = 3, .cw_max = 7, .aifsn = 2, .cot = 2000},
 		{.cw_min = 7, .cw_max = 15, .aifsn = 2, .cot = 4000},
@@ -115,7 +122,7 @@ static const struct ieee80211_wmm_rule wmm_rules = {
 	}
 };
 
-static const char * const wmm_cc_list[] = {
+const static char *wmm_cc_list[] = {
 	"AT", "BE", "BA", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE",
 	"GR", "HU", "IS", "IE", "IT", "LV", "LI", "LT", "LU", "MK", "MT", "ME",
 	"NL", "NO", "PL", "PT", "RO", "SK", "SI", "ES", "SE", "CH", "GB", "GF",
@@ -619,7 +626,7 @@ int iwl_mvm_mac_setup_register(struct iwl_mvm *mvm)
 		hw->wiphy->n_cipher_suites++;
 	}
 
-#if CFG80211_VERSION >= KERNEL_VERSION(4,99,0)
+#if CFG80211_VERSION >= KERNEL_VERSION(99,0,0)
 	/* Basic support of FTM is limited to driver/FW, so this flag should be
 	 * set (depending on capbilities specified in TLV).
 	 */
@@ -2466,6 +2473,9 @@ static void iwl_mvm_stop_ap_ibss(struct ieee80211_hw *hw,
 
 	iwl_mvm_mac_ctxt_remove(mvm, vif);
 
+	kfree(mvmvif->ap_wep_key);
+	mvmvif->ap_wep_key = NULL;
+
 	mutex_unlock(&mvm->mutex);
 }
 
@@ -2962,7 +2972,13 @@ static int iwl_mvm_mac_sta_state(struct ieee80211_hw *hw,
 		iwl_mvm_rs_rate_init(mvm, sta, mvmvif->phy_ctxt->channel->band,
 				     true);
 
-		ret = 0;
+		/* if wep is used, need to set the key for the station now */
+		if (vif->type == NL80211_IFTYPE_AP && mvmvif->ap_wep_key)
+			ret = iwl_mvm_set_sta_key(mvm, vif, sta,
+						  mvmvif->ap_wep_key,
+						  STA_KEY_IDX_INVALID);
+		else
+			ret = 0;
 	} else if (old_state == IEEE80211_STA_AUTHORIZED &&
 		   new_state == IEEE80211_STA_ASSOC) {
 		/* disable beacon filtering */
@@ -3024,7 +3040,7 @@ static void iwl_mvm_sta_rc_update(struct ieee80211_hw *hw,
 		iwl_mvm_sf_update(mvm, vif, false);
 }
 
-#ifdef CONFIG_EVE_ETSI_WORKAROUND
+#ifdef IWL7000_NEED_ETSI_WMM_LIMITS
 static void iwl_mvm_limit_wmm_ac(struct iwl_mvm *mvm,
 				 struct ieee80211_vif *vif,
 				 struct ieee80211_tx_queue_params *params,
@@ -3087,7 +3103,7 @@ static int iwl_mvm_mac_conf_tx(struct ieee80211_hw *hw,
 
 	mvmvif->queue_params[ac] = *params;
 
-#ifdef CONFIG_EVE_ETSI_WORKAROUND
+#ifdef IWL7000_NEED_ETSI_WMM_LIMITS
 	iwl_mvm_limit_wmm_ac(mvm, vif, &mvmvif->queue_params[ac], ac);
 #endif
 
@@ -3219,13 +3235,17 @@ static int iwl_mvm_mac_set_key(struct ieee80211_hw *hw,
 		break;
 	case WLAN_CIPHER_SUITE_WEP40:
 	case WLAN_CIPHER_SUITE_WEP104:
-		/* For non-client mode, only use WEP keys for TX as we probably
-		 * don't have a station yet anyway and would then have to keep
-		 * track of the keys, linking them to each of the clients/peers
-		 * as they appear. For now, don't do that, for performance WEP
-		 * offload doesn't really matter much, but we need it for some
-		 * other offload features in client mode.
-		 */
+		if (vif->type == NL80211_IFTYPE_AP) {
+			struct iwl_mvm_vif *mvmvif =
+				iwl_mvm_vif_from_mac80211(vif);
+
+			mvmvif->ap_wep_key = kmemdup(key,
+						     sizeof(*key) + key->keylen,
+						     GFP_KERNEL);
+			if (!mvmvif->ap_wep_key)
+				return -ENOMEM;
+		}
+
 		if (vif->type != NL80211_IFTYPE_STATION)
 			return 0;
 		break;
@@ -4773,7 +4793,7 @@ iwl_mvm_mac_start_ftm_responder(struct ieee80211_hw *hw,
 	return ret;
 }
 
-#if CFG80211_VERSION >= KERNEL_VERSION(4,99,0)
+#if CFG80211_VERSION >= KERNEL_VERSION(99,0,0)
 static int
 iwl_mvm_mac_get_ftm_responder_stats(struct ieee80211_hw *hw,
 				    struct ieee80211_vif *vif,
@@ -4882,7 +4902,7 @@ const struct ieee80211_ops iwl_mvm_hw_ops = {
 	.perform_ftm = iwl_mvm_perform_ftm,
 	.abort_ftm = iwl_mvm_abort_ftm,
 	.start_ftm_responder = iwl_mvm_mac_start_ftm_responder,
-#if CFG80211_VERSION >= KERNEL_VERSION(4,99,0)
+#if CFG80211_VERSION >= KERNEL_VERSION(99,0,0)
 	.get_ftm_responder_stats = iwl_mvm_mac_get_ftm_responder_stats,
 #endif
 
