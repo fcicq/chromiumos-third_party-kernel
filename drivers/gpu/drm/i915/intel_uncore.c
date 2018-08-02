@@ -1642,7 +1642,7 @@ int __intel_wait_for_register(struct drm_i915_private *dev_priv,
 
 	ret = __intel_wait_for_register_fw(dev_priv,
 					   reg, mask, value,
-					   2, 0, NULL);
+					   2, 0, &reg_value);
 
 	intel_uncore_forcewake_put__locked(dev_priv, fw);
 	spin_unlock_irq(&dev_priv->uncore.lock);
