@@ -92,11 +92,13 @@ void *ipu3_css_fw_pipeline_params(struct ipu3_css *css,
 
 void ipu3_css_fw_cleanup(struct ipu3_css *css)
 {
+	struct imgu_device *imgu = dev_get_drvdata(css->dev);
+
 	if (css->binary) {
 		unsigned int i;
 
 		for (i = 0; i < css->fwp->file_header.binary_nr; i++)
-			ipu3_dmamap_free(css->dev, &css->binary[i]);
+			ipu3_dmamap_free(imgu, &css->binary[i]);
 		kfree(css->binary);
 	}
 	if (css->fw)
@@ -109,6 +111,7 @@ void ipu3_css_fw_cleanup(struct ipu3_css *css)
 int ipu3_css_fw_init(struct ipu3_css *css)
 {
 	static const u32 BLOCK_MAX = 65536;
+	struct imgu_device *imgu = dev_get_drvdata(css->dev);
 	struct device *dev = css->dev;
 	unsigned int i, j, binary_nr;
 	int r;
@@ -242,7 +245,7 @@ int ipu3_css_fw_init(struct ipu3_css *css)
 		void *blob = (void *)css->fwp + bi->blob.offset;
 		size_t size = bi->blob.size;
 
-		if (!ipu3_dmamap_alloc(css->dev, &css->binary[i], size)) {
+		if (!ipu3_dmamap_alloc(imgu, &css->binary[i], size)) {
 			r = -ENOMEM;
 			goto error_out;
 		}

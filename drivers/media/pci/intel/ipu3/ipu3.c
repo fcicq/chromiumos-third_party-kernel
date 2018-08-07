@@ -76,7 +76,7 @@ static void imgu_dummybufs_cleanup(struct imgu_device *imgu)
 	unsigned int i;
 
 	for (i = 0; i < IPU3_CSS_QUEUES; i++)
-		ipu3_dmamap_free(&imgu->pci_dev->dev, &imgu->queues[i].dmap);
+		ipu3_dmamap_free(imgu, &imgu->queues[i].dmap);
 }
 
 static int imgu_dummybufs_preallocate(struct imgu_device *imgu)
@@ -94,8 +94,7 @@ static int imgu_dummybufs_preallocate(struct imgu_device *imgu)
 		if (i == IMGU_QUEUE_MASTER || size == 0)
 			continue;
 
-		if (!ipu3_dmamap_alloc(&imgu->pci_dev->dev,
-				       &imgu->queues[i].dmap, size)) {
+		if (!ipu3_dmamap_alloc(imgu, &imgu->queues[i].dmap, size)) {
 			imgu_dummybufs_cleanup(imgu);
 			return -ENOMEM;
 		}
@@ -134,8 +133,8 @@ static int imgu_dummybufs_init(struct imgu_device *imgu)
 		else
 			size = mpix->plane_fmt[0].sizeimage;
 
-		if (ipu3_css_dma_buffer_resize(&imgu->pci_dev->dev,
-					       &imgu->queues[i].dmap, size)) {
+		if (ipu3_css_dma_buffer_resize(imgu, &imgu->queues[i].dmap,
+					       size)) {
 			imgu_dummybufs_cleanup(imgu);
 			return -ENOMEM;
 		}
@@ -212,8 +211,7 @@ static struct ipu3_css_buffer *imgu_queue_getbuf(struct imgu_device *imgu,
 	}
 
 	/* There were no free buffers, try to return a dummy buffer */
-
-	return imgu_dummybufs_get(imgu,  imgu_node_map[node].css_queue);
+	return imgu_dummybufs_get(imgu, imgu_node_map[node].css_queue);
 }
 
 /*
@@ -681,7 +679,7 @@ static int imgu_pci_probe(struct pci_dev *pci_dev,
 		goto out_css_powerdown;
 	}
 
-	r = ipu3_dmamap_init(&pci_dev->dev);
+	r = ipu3_dmamap_init(imgu);
 	if (r) {
 		dev_err(&pci_dev->dev,
 			"failed to initialize DMA mapping (%d)\n", r);
@@ -721,7 +719,7 @@ out_video_exit:
 out_css_cleanup:
 	ipu3_css_cleanup(&imgu->css);
 out_dmamap_exit:
-	ipu3_dmamap_exit(&pci_dev->dev);
+	ipu3_dmamap_exit(imgu);
 out_mmu_exit:
 	ipu3_mmu_exit(imgu->mmu);
 out_css_powerdown:
@@ -742,7 +740,7 @@ static void imgu_pci_remove(struct pci_dev *pci_dev)
 	imgu_video_nodes_exit(imgu);
 	ipu3_css_cleanup(&imgu->css);
 	ipu3_css_set_powerdown(&pci_dev->dev, imgu->base);
-	ipu3_dmamap_exit(&pci_dev->dev);
+	ipu3_dmamap_exit(imgu);
 	ipu3_mmu_exit(imgu->mmu);
 	mutex_destroy(&imgu->lock);
 }

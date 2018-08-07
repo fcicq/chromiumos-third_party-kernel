@@ -5,6 +5,7 @@
 #define __IPU3_UTIL_H
 
 struct device;
+struct imgu_device;
 
 #define IPU3_CSS_POOL_SIZE		4
 
@@ -23,10 +24,11 @@ struct ipu3_css_pool {
 	unsigned int last; /* Latest entry */
 };
 
-int ipu3_css_dma_buffer_resize(struct device *dev, struct ipu3_css_map *map,
-			       size_t size);
-void ipu3_css_pool_cleanup(struct device *dev, struct ipu3_css_pool *pool);
-int ipu3_css_pool_init(struct device *dev, struct ipu3_css_pool *pool,
+int ipu3_css_dma_buffer_resize(struct imgu_device *imgu,
+			       struct ipu3_css_map *map, size_t size);
+void ipu3_css_pool_cleanup(struct imgu_device *imgu,
+			   struct ipu3_css_pool *pool);
+int ipu3_css_pool_init(struct imgu_device *imgu, struct ipu3_css_pool *pool,
 		       size_t size);
 int ipu3_css_pool_get(struct ipu3_css_pool *pool, long framenum);
 void ipu3_css_pool_put(struct ipu3_css_pool *pool);

@@ -3,33 +3,34 @@
 
 #include <linux/device.h>
 
+#include "ipu3.h"
 #include "ipu3-css-pool.h"
 #include "ipu3-dmamap.h"
 
-int ipu3_css_dma_buffer_resize(struct device *dev, struct ipu3_css_map *map,
-			       size_t size)
+int ipu3_css_dma_buffer_resize(struct imgu_device *imgu,
+			       struct ipu3_css_map *map, size_t size)
 {
 	if (map->size < size && map->vaddr) {
-		dev_warn(dev, "dma buffer is resized from %zu to %zu",
+		dev_warn(&imgu->pci_dev->dev, "dma buf resized from %zu to %zu",
 			 map->size, size);
 
-		ipu3_dmamap_free(dev, map);
-		if (!ipu3_dmamap_alloc(dev, map, size))
+		ipu3_dmamap_free(imgu, map);
+		if (!ipu3_dmamap_alloc(imgu, map, size))
 			return -ENOMEM;
 	}
 
 	return 0;
 }
 
-void ipu3_css_pool_cleanup(struct device *dev, struct ipu3_css_pool *pool)
+void ipu3_css_pool_cleanup(struct imgu_device *imgu, struct ipu3_css_pool *pool)
 {
 	unsigned int i;
 
 	for (i = 0; i < IPU3_CSS_POOL_SIZE; i++)
-		ipu3_dmamap_free(dev, &pool->entry[i].param);
+		ipu3_dmamap_free(imgu, &pool->entry[i].param);
 }
 
-int ipu3_css_pool_init(struct device *dev, struct ipu3_css_pool *pool,
+int ipu3_css_pool_init(struct imgu_device *imgu, struct ipu3_css_pool *pool,
 		       size_t size)
 {
 	unsigned int i;
@@ -46,7 +47,7 @@ int ipu3_css_pool_init(struct device *dev, struct ipu3_css_pool *pool,
 			continue;
 		}
 
-		if (!ipu3_dmamap_alloc(dev, &pool->entry[i].param, size))
+		if (!ipu3_dmamap_alloc(imgu, &pool->entry[i].param, size))
 			goto fail;
 	}
 
@@ -55,7 +56,7 @@ int ipu3_css_pool_init(struct device *dev, struct ipu3_css_pool *pool,
 	return 0;
 
 fail:
-	ipu3_css_pool_cleanup(dev, pool);
+	ipu3_css_pool_cleanup(imgu, pool);
 	return -ENOMEM;
 }
 

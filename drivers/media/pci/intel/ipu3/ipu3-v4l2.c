@@ -192,8 +192,7 @@ static int ipu3_vb2_buf_init(struct vb2_buffer *vb)
 	if (queue == IPU3_CSS_QUEUE_PARAMS)
 		return 0;
 
-	return ipu3_dmamap_map_sg(&imgu->pci_dev->dev, sg->sgl, sg->nents,
-				  &buf->map);
+	return ipu3_dmamap_map_sg(imgu, sg->sgl, sg->nents, &buf->map);
 }
 
 /* Called when each buffer is freed */
@@ -209,7 +208,7 @@ static void ipu3_vb2_buf_cleanup(struct vb2_buffer *vb)
 	if (queue == IPU3_CSS_QUEUE_PARAMS)
 		return;
 
-	ipu3_dmamap_unmap(&imgu->pci_dev->dev, &buf->map);
+	ipu3_dmamap_unmap(imgu, &buf->map);
 }
 
 /* Transfer buffer ownership to me */
@@ -515,9 +514,9 @@ static int imgu_fmt(struct imgu_device *imgu, int node,
 			continue;
 
 		/* imgu_map_node defauls to PV if VF not enabled */
-		if (inode == IMGU_NODE_PV && node == IMGU_NODE_VF)
-			if (imgu->css.vf_output_en == IPU3_NODE_VF_DISABLED)
-				inode = node;
+		if (inode == IMGU_NODE_PV && node == IMGU_NODE_VF &&
+		    imgu->css.vf_output_en == IPU3_NODE_VF_DISABLED)
+			inode = node;
 
 		if (try) {
 			try_fmts[i] = imgu->nodes[inode].vdev_fmt.fmt.pix_mp;

@@ -661,14 +661,16 @@ static void ipu3_css_hw_cleanup(struct ipu3_css *css)
 
 static void ipu3_css_pipeline_cleanup(struct ipu3_css *css)
 {
+	struct imgu_device *imgu = dev_get_drvdata(css->dev);
 	unsigned int i;
 
-	ipu3_css_pool_cleanup(css->dev, &css->pool.parameter_set_info);
-	ipu3_css_pool_cleanup(css->dev, &css->pool.acc);
-	ipu3_css_pool_cleanup(css->dev, &css->pool.gdc);
-	ipu3_css_pool_cleanup(css->dev, &css->pool.obgrid);
+	ipu3_css_pool_cleanup(imgu, &css->pool.parameter_set_info);
+	ipu3_css_pool_cleanup(imgu, &css->pool.acc);
+	ipu3_css_pool_cleanup(imgu, &css->pool.gdc);
+	ipu3_css_pool_cleanup(imgu, &css->pool.obgrid);
+
 	for (i = 0; i < IMGU_ABI_NUM_MEMORIES; i++)
-		ipu3_css_pool_cleanup(css->dev, &css->pool.binary_params_p[i]);
+		ipu3_css_pool_cleanup(imgu, &css->pool.binary_params_p[i]);
 }
 
 /*
@@ -714,6 +716,8 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 	const enum imgu_abi_memories m0 = IMGU_ABI_MEM_ISP_DMEM0;
 	enum imgu_abi_param_class cfg = IMGU_ABI_PARAM_CLASS_CONFIG;
 	void *vaddr = css->binary_params_cs[cfg - 1][m0].vaddr;
+
+	struct imgu_device *imgu = dev_get_drvdata(css->dev);
 
 	/* Configure iterator */
 
@@ -1060,21 +1064,21 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css)
 
 	/* Initialize parameter pools */
 
-	if (ipu3_css_pool_init(css->dev, &css->pool.parameter_set_info,
+	if (ipu3_css_pool_init(imgu, &css->pool.parameter_set_info,
 			       sizeof(struct imgu_abi_parameter_set_info)) ||
-	    ipu3_css_pool_init(css->dev, &css->pool.acc,
+	    ipu3_css_pool_init(imgu, &css->pool.acc,
 			       sizeof(struct imgu_abi_acc_param)) ||
-	    ipu3_css_pool_init(css->dev, &css->pool.gdc,
+	    ipu3_css_pool_init(imgu, &css->pool.gdc,
 			       sizeof(struct imgu_abi_gdc_warp_param) *
 			       3 * cfg_dvs->num_horizontal_blocks / 2 *
 			       cfg_dvs->num_vertical_blocks) ||
-	    ipu3_css_pool_init(css->dev, &css->pool.obgrid,
+	    ipu3_css_pool_init(imgu, &css->pool.obgrid,
 			       ipu3_css_fw_obgrid_size(
 			       &css->fwp->binary_header[css->current_binary])))
 		goto out_of_memory;
 
 	for (i = 0; i < IMGU_ABI_NUM_MEMORIES; i++)
-		if (ipu3_css_pool_init(css->dev, &css->pool.binary_params_p[i],
+		if (ipu3_css_pool_init(imgu, &css->pool.binary_params_p[i],
 				       bi->info.isp.sp.mem_initializers.params
 				       [IMGU_ABI_PARAM_CLASS_PARAM][i].size))
 			goto out_of_memory;
@@ -1191,44 +1195,46 @@ static int ipu3_css_dequeue_data(struct ipu3_css *css, int queue, u32 *data)
 /* Free binary-specific resources */
 static void ipu3_css_binary_cleanup(struct ipu3_css *css)
 {
+	struct imgu_device *imgu = dev_get_drvdata(css->dev);
 	unsigned int i, j;
 
 	for (j = 0; j < IMGU_ABI_PARAM_CLASS_NUM - 1; j++)
 		for (i = 0; i < IMGU_ABI_NUM_MEMORIES; i++)
-			ipu3_dmamap_free(css->dev,
-					 &css->binary_params_cs[j][i]);
+			ipu3_dmamap_free(imgu, &css->binary_params_cs[j][i]);
 
 	j = IPU3_CSS_AUX_FRAME_REF;
 	for (i = 0; i < IPU3_CSS_AUX_FRAMES; i++)
-		ipu3_dmamap_free(css->dev, &css->aux_frames[j].mem[i]);
+		ipu3_dmamap_free(imgu, &css->aux_frames[j].mem[i]);
 
 	j = IPU3_CSS_AUX_FRAME_TNR;
 	for (i = 0; i < IPU3_CSS_AUX_FRAMES; i++)
-		ipu3_dmamap_free(css->dev, &css->aux_frames[j].mem[i]);
+		ipu3_dmamap_free(imgu, &css->aux_frames[j].mem[i]);
 }
 
 static int ipu3_css_binary_preallocate(struct ipu3_css *css)
 {
+	struct imgu_device *imgu = dev_get_drvdata(css->dev);
 	unsigned int i, j;
 
-	for (j = IMGU_ABI_PARAM_CLASS_CONFIG; j < IMGU_ABI_PARAM_CLASS_NUM; j++)
+	for (j = IMGU_ABI_PARAM_CLASS_CONFIG;
+	     j < IMGU_ABI_PARAM_CLASS_NUM; j++)
 		for (i = 0; i < IMGU_ABI_NUM_MEMORIES; i++) {
-			if (!ipu3_dmamap_alloc(css->dev,
-					       &css->binary_params_cs[j - 1][i],
-					       CSS_ABI_SIZE))
+			if (!ipu3_dmamap_alloc(imgu,
+				&css->binary_params_cs[j - 1][i],
+				CSS_ABI_SIZE))
 				goto out_of_memory;
 		}
 
-	j = IPU3_CSS_AUX_FRAME_REF;
 	for (i = 0; i < IPU3_CSS_AUX_FRAMES; i++)
-		if (!ipu3_dmamap_alloc(css->dev, &css->aux_frames[j].mem[i],
-				       CSS_BDS_SIZE))
+		if (!ipu3_dmamap_alloc(imgu,
+			&css->aux_frames[IPU3_CSS_AUX_FRAME_REF].mem[i],
+			CSS_BDS_SIZE))
 			goto out_of_memory;
 
-	j = IPU3_CSS_AUX_FRAME_TNR;
 	for (i = 0; i < IPU3_CSS_AUX_FRAMES; i++)
-		if (!ipu3_dmamap_alloc(css->dev, &css->aux_frames[j].mem[i],
-				       CSS_GDC_SIZE))
+		if (!ipu3_dmamap_alloc(imgu,
+			&css->aux_frames[IPU3_CSS_AUX_FRAME_TNR].mem[i],
+			CSS_GDC_SIZE))
 			goto out_of_memory;
 
 	return 0;
@@ -1244,6 +1250,7 @@ static int ipu3_css_binary_setup(struct ipu3_css *css)
 	const struct imgu_abi_binary_info *sp =
 		&css->fwp->binary_header[css->current_binary].info.isp.sp;
 	static const int BYPC = 2;	/* Bytes per component */
+	struct imgu_device *imgu = dev_get_drvdata(css->dev);
 	unsigned int w, h, size, i, j;
 
 	/* Allocate parameter memory blocks for this binary */
@@ -1251,7 +1258,7 @@ static int ipu3_css_binary_setup(struct ipu3_css *css)
 	for (j = IMGU_ABI_PARAM_CLASS_CONFIG; j < IMGU_ABI_PARAM_CLASS_NUM; j++)
 		for (i = 0; i < IMGU_ABI_NUM_MEMORIES; i++) {
 			if (ipu3_css_dma_buffer_resize(
-				css->dev, &css->binary_params_cs[j - 1][i],
+				imgu, &css->binary_params_cs[j - 1][i],
 				sp->mem_initializers.params[j][i].size))
 				goto out_of_memory;
 		}
@@ -1271,7 +1278,7 @@ static int ipu3_css_binary_setup(struct ipu3_css *css)
 	css->aux_frames[j].bytesperline = css->aux_frames[j].bytesperpixel * w;
 	size = w * h * BYPC + (w / 2) * (h / 2) * BYPC * 2;
 	for (i = 0; i < IPU3_CSS_AUX_FRAMES; i++)
-		if (ipu3_css_dma_buffer_resize(css->dev,
+		if (ipu3_css_dma_buffer_resize(imgu,
 					       &css->aux_frames[j].mem[i],
 					       size))
 			goto out_of_memory;
@@ -1292,7 +1299,7 @@ static int ipu3_css_binary_setup(struct ipu3_css *css)
 	size = w * ALIGN(h * 3 / 2 + 3, 2);	/* +3 for vf_pp prefetch */
 	for (i = 0; i < IPU3_CSS_AUX_FRAMES; i++)
 		if (ipu3_css_dma_buffer_resize(
-			css->dev,
+			imgu,
 			&css->aux_frames[IPU3_CSS_AUX_FRAME_TNR].mem[i], size))
 			goto out_of_memory;
 
@@ -1414,6 +1421,7 @@ bool ipu3_css_is_streaming(struct ipu3_css *css)
 
 void ipu3_css_cleanup(struct ipu3_css *css)
 {
+	struct imgu_device *imgu = dev_get_drvdata(css->dev);
 	unsigned int p, q, i;
 
 	ipu3_css_stop_streaming(css);
@@ -1421,18 +1429,16 @@ void ipu3_css_cleanup(struct ipu3_css *css)
 
 	for (q = 0; q < IPU3_CSS_QUEUES; q++)
 		for (i = 0; i < ARRAY_SIZE(css->abi_buffers[q]); i++)
-			ipu3_dmamap_free(css->dev, &css->abi_buffers[q][i]);
+			ipu3_dmamap_free(imgu, &css->abi_buffers[q][i]);
 
 	for (p = 0; p < IPU3_CSS_PIPE_ID_NUM; p++)
 		for (i = 0; i < IMGU_ABI_MAX_STAGES; i++) {
-			ipu3_dmamap_free(css->dev,
-					 &css->xmem_sp_stage_ptrs[p][i]);
-			ipu3_dmamap_free(css->dev,
-					 &css->xmem_isp_stage_ptrs[p][i]);
+			ipu3_dmamap_free(imgu, &css->xmem_sp_stage_ptrs[p][i]);
+			ipu3_dmamap_free(imgu, &css->xmem_isp_stage_ptrs[p][i]);
 		}
 
-	ipu3_dmamap_free(css->dev, &css->sp_ddr_ptrs);
-	ipu3_dmamap_free(css->dev, &css->xmem_sp_group_ptrs);
+	ipu3_dmamap_free(imgu, &css->sp_ddr_ptrs);
+	ipu3_dmamap_free(imgu, &css->xmem_sp_group_ptrs);
 
 	ipu3_css_fw_cleanup(css);
 }
@@ -1440,6 +1446,7 @@ void ipu3_css_cleanup(struct ipu3_css *css)
 int ipu3_css_init(struct device *dev, struct ipu3_css *css,
 		  void __iomem *base, int length)
 {
+	struct imgu_device *imgu = dev_get_drvdata(dev);
 	int r, p, q, i;
 
 	/* Initialize main data structure */
@@ -1465,28 +1472,28 @@ int ipu3_css_init(struct device *dev, struct ipu3_css *css,
 
 	for (p = 0; p < IPU3_CSS_PIPE_ID_NUM; p++)
 		for (i = 0; i < IMGU_ABI_MAX_STAGES; i++) {
-			if (!ipu3_dmamap_alloc(dev,
-				       &css->xmem_sp_stage_ptrs[p][i],
-				       sizeof(struct imgu_abi_sp_stage)))
+			if (!ipu3_dmamap_alloc(imgu,
+					&css->xmem_sp_stage_ptrs[p][i],
+					sizeof(struct imgu_abi_sp_stage)))
 				goto error_no_memory;
-			if (!ipu3_dmamap_alloc(dev,
-				       &css->xmem_isp_stage_ptrs[p][i],
-				       sizeof(struct imgu_abi_isp_stage)))
+			if (!ipu3_dmamap_alloc(imgu,
+					&css->xmem_isp_stage_ptrs[p][i],
+					sizeof(struct imgu_abi_isp_stage)))
 				goto error_no_memory;
 		}
 
-	if (!ipu3_dmamap_alloc(dev, &css->sp_ddr_ptrs,
+	if (!ipu3_dmamap_alloc(imgu, &css->sp_ddr_ptrs,
 			       ALIGN(sizeof(struct imgu_abi_ddr_address_map),
 				     IMGU_ABI_ISP_DDR_WORD_BYTES)))
 		goto error_no_memory;
 
-	if (!ipu3_dmamap_alloc(dev, &css->xmem_sp_group_ptrs,
+	if (!ipu3_dmamap_alloc(imgu, &css->xmem_sp_group_ptrs,
 			       sizeof(struct imgu_abi_sp_group)))
 		goto error_no_memory;
 
 	for (q = 0; q < IPU3_CSS_QUEUES; q++)
 		for (i = 0; i < ARRAY_SIZE(css->abi_buffers[q]); i++)
-			if (!ipu3_dmamap_alloc(dev, &css->abi_buffers[q][i],
+			if (!ipu3_dmamap_alloc(imgu, &css->abi_buffers[q][i],
 					       sizeof(struct imgu_abi_buffer)))
 				goto error_no_memory;
 
