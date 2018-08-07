@@ -1493,10 +1493,11 @@ static void uvc_uninit_video(struct uvc_streaming *stream, int free_buffers)
 		uvc_urb->urb = NULL;
 	}
 
-	if (free_buffers)
+	if (free_buffers) {
 		uvc_free_urb_buffers(stream);
-
-	destroy_workqueue(stream->async_wq);
+		destroy_workqueue(stream->async_wq);
+		stream->async_wq = NULL;
+	}
 }
 
 /*
@@ -1648,10 +1649,12 @@ static int uvc_init_video(struct uvc_streaming *stream, gfp_t gfp_flags)
 
 	uvc_video_stats_start(stream);
 
-	stream->async_wq = alloc_workqueue("uvcvideo", WQ_UNBOUND | WQ_HIGHPRI,
-			0);
-	if (!stream->async_wq)
-		return -ENOMEM;
+	if (!stream->async_wq) {
+		stream->async_wq = alloc_workqueue("uvcvideo",
+						   WQ_UNBOUND | WQ_HIGHPRI, 0);
+		if (!stream->async_wq)
+			return -ENOMEM;
+	}
 
 	if (intf->num_altsetting > 1) {
 		struct usb_host_endpoint *best_ep = NULL;
