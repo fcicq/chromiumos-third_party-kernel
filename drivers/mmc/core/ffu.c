@@ -369,7 +369,7 @@ int mmc_ffu_invoke(struct mmc_card *card, const struct mmc_ffu_args *args)
 	if (hack == NULL) {
 		arg = card->ext_csd.ffu_arg;
 	} else {
-		arg = cpu_to_le32(hack->value);
+		arg = cpu_to_le32((u32)hack->value);
 	}
 
 	/* set device to FFU mode */
