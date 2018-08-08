@@ -388,32 +388,17 @@ static void hsw_activate_psr1(struct intel_dp *intel_dp)
 	 * with the 5 or 6 idle patterns.
 	 */
 	uint32_t idle_frames = max(6, dev_priv->vbt.psr.idle_frames);
-	uint32_t val = I915_READ(EDP_PSR_CTL);
+	uint32_t val = EDP_PSR_ENABLE;
 
-	val |= EDP_PSR_ENABLE;
-
-	val &= ~EDP_PSR_MAX_SLEEP_TIME_MASK;
 	val |= max_sleep_time << EDP_PSR_MAX_SLEEP_TIME_SHIFT;
-
-	val &= ~EDP_PSR_IDLE_FRAME_MASK;
 	val |= idle_frames << EDP_PSR_IDLE_FRAME_SHIFT;
 
-	val &= ~EDP_PSR_MIN_LINK_ENTRY_TIME_MASK;
 	if (IS_HASWELL(dev_priv))
 		val |= EDP_PSR_MIN_LINK_ENTRY_TIME_8_LINES;
 
-	if (dev_priv->psr.link_standby) {
+	if (dev_priv->psr.link_standby)
 		val |= EDP_PSR_LINK_STANDBY;
 
-		/* SFU should only be enabled with link standby, but for
-		 * now we do not support it. */
-		val &= ~BDW_PSR_SINGLE_FRAME;
-	} else {
-		val &= ~EDP_PSR_LINK_STANDBY;
-		val &= ~BDW_PSR_SINGLE_FRAME;
-	}
-
-	val &= ~EDP_PSR_TP1_TIME_MASK;
 	if (dev_priv->vbt.psr.tp1_wakeup_time_us == 0)
 		val |=  EDP_PSR_TP1_TIME_0us;
 	else if (dev_priv->vbt.psr.tp1_wakeup_time_us <= 100)
@@ -423,7 +408,6 @@ static void hsw_activate_psr1(struct intel_dp *intel_dp)
 	else
 		val |= EDP_PSR_TP1_TIME_2500us;
 
-	val &= ~EDP_PSR_TP2_TP3_TIME_MASK;
 	if (dev_priv->vbt.psr.tp2_tp3_wakeup_time_us == 0)
 		val |=  EDP_PSR_TP2_TP3_TIME_0us;
 	else if (dev_priv->vbt.psr.tp2_tp3_wakeup_time_us <= 100)
@@ -433,7 +417,6 @@ static void hsw_activate_psr1(struct intel_dp *intel_dp)
 	else
 		val |= EDP_PSR_TP2_TP3_TIME_2500us;
 
-	val &= ~EDP_PSR_TP1_TP3_SEL;
 	if (intel_dp_source_supports_hbr2(intel_dp) &&
 	    drm_dp_tps3_supported(intel_dp->dpcd))
 		val |= EDP_PSR_TP1_TP3_SEL;
