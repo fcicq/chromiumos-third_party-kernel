@@ -16,6 +16,7 @@
 
 / {
 	aliases {
+		hsuart0 = &uart6;
 		serial0 = &uart9;
 	};
 
@@ -645,6 +646,14 @@ ap_ts_i2c: &i2c14 {
 #include <arm/cros-ec-keyboard.dtsi>
 #include <arm/cros-ec-sbs.dtsi>
 
+&uart6 {
+	status = "okay";
+
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&qup_uart6_default>;
+	pinctrl-1 = <&qup_uart6_sleep>;
+};
+
 &uart9 {
 	status = "okay";
 };
@@ -856,6 +865,21 @@ ap_ts_i2c: &i2c14 {
 	};
 };
 
+&qup_uart6_default {
+	pinmux {
+		pins = "gpio45", "gpio46",
+		       "gpio47", "gpio48";
+	};
+
+	pinconf {
+		pins = "gpio45", "gpio46",
+		       "gpio47", "gpio48";
+		drive-strength = <2>;
+		// TODO: does nothing?
+		// bias-no-pull;
+	};
+};
+
 &qup_uart9_default {
 	pinconf-tx {
 		pins = "gpio4";
@@ -1046,6 +1070,21 @@ ap_ts_i2c: &i2c14 {
 			 * remove "output-high" here.
 			 */
 			output-high;
+		};
+	};
+
+	qup_uart6_sleep: qup-uart6-sleep {
+		pinmux {
+		        function = "gpio";
+		        pins = "gpio45", "gpio46",
+			       "gpio47", "gpio48";
+		};
+
+		pinconf {
+			pins = "gpio45", "gpio46",
+			       "gpio47", "gpio48";
+			// TODO: does nothing?
+			// bias-no-pull;
 		};
 	};
 
