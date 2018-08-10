@@ -129,6 +129,17 @@ enum uic_link_state {
 #define ufshcd_set_link_hibern8(hba) ((hba)->uic_link_state = \
 				    UIC_LINK_HIBERN8_STATE)
 
+/* Values for the bCurrentPowerMode attribute */
+enum ufs_pwr_mode {
+	UFS_PWR_IDLE = 0x0,
+	UFS_PWR_PRE_ACTIVE = 0x1,
+	UFS_PWR_ACTIVE = 0x11,
+	UFS_PWR_PRE_SLEEP = 0x20,
+	UFS_PWR_SLEEP = 0x22,
+	UFS_PWR_PRE_PWR_DOWN = 0x30,
+	UFS_PWR_DOWN = 0x33,
+};
+
 /*
  * UFS Power management levels.
  * Each level is in increasing order of power savings.
