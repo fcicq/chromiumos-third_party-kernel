@@ -793,6 +793,12 @@ ap_ts_i2c: &i2c14 {
 	vdda-pll-supply = <&vdda_usb2_ss_core>;
 };
 
+&wifi {
+	status = "okay";
+
+	mac-address-lookup = "google-vpd:wifi_mac0";
+};
+
 /* PINCTRL - additions to nodes defined in sdm845.dtsi */
 
 &qspi_cs0 {
