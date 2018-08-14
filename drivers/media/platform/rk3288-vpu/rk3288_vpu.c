@@ -221,6 +221,28 @@ void rk3288_vpu_try_context(struct rk3288_vpu_dev *dev,
 	vpu_debug_enter();
 }
 
+void rk3288_vpu_update_planes(struct rk3288_vpu_fmt *fmt,
+			      struct v4l2_pix_format_mplane *pix_fmt_mp)
+{
+	size_t sizeimage_total = 0;
+	int i;
+
+	for (i = 0; i < fmt->num_cplanes; ++i) {
+		pix_fmt_mp->plane_fmt[i].bytesperline =
+			(pix_fmt_mp->width / fmt->h_subsampling[i])
+			* fmt->depth[i] / 8;
+
+		pix_fmt_mp->plane_fmt[i].sizeimage =
+			pix_fmt_mp->plane_fmt[i].bytesperline
+			* pix_fmt_mp->height / fmt->v_subsampling[i];
+
+		sizeimage_total += pix_fmt_mp->plane_fmt[i].sizeimage;
+	}
+
+	if (fmt->num_mplanes == 1)
+		pix_fmt_mp->plane_fmt[0].sizeimage = sizeimage_total;
+}
+
 /*
  * Control registration.
  */

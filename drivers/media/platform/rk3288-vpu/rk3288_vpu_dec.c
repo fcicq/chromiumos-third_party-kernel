@@ -50,20 +50,23 @@ static struct rk3288_vpu_fmt formats[] = {
 		.name = "4:2:0 1 plane Y/CbCr",
 		.fourcc = V4L2_PIX_FMT_NV12,
 		.codec_mode = RK_VPU_CODEC_NONE,
-		.num_planes = 1,
-		.depth = { 12 },
+		.num_mplanes = 1,
+		.num_cplanes = 2,
+		.depth = { 8, 16 },
+		.h_subsampling = { 1, 2 },
+		.v_subsampling = { 1, 2 },
 	},
 	{
 		.name = "Slices of H264 Encoded Stream",
 		.fourcc = V4L2_PIX_FMT_H264_SLICE,
 		.codec_mode = RK_VPU_CODEC_H264D,
-		.num_planes = 1,
+		.num_mplanes = 1,
 	},
 	{
 		.name = "Frames of VP8 Encoded Stream",
 		.fourcc = V4L2_PIX_FMT_VP8_FRAME,
 		.codec_mode = RK_VPU_CODEC_VP8D,
-		.num_planes = 1,
+		.num_mplanes = 1,
 	},
 };
 
@@ -284,50 +287,12 @@ static int vidioc_g_fmt(struct file *file, void *priv, struct v4l2_format *f)
 	return 0;
 }
 
-static void adjust_dst_sizes(struct v4l2_pix_format_mplane *pix_fmt_mp,
-			     const struct rk3288_vpu_fmt *fmt)
-{
-	unsigned int mb_width, mb_height;
-	int i;
-
-	/* Limit to hardware min/max. */
-	pix_fmt_mp->width = clamp(pix_fmt_mp->width,
-			RK3288_DEC_MIN_WIDTH, RK3288_DEC_MAX_WIDTH);
-	pix_fmt_mp->height = clamp(pix_fmt_mp->height,
-			RK3288_DEC_MIN_HEIGHT, RK3288_DEC_MAX_HEIGHT);
-
-	/* Round up to macroblocks. */
-	pix_fmt_mp->width = round_up(pix_fmt_mp->width, MB_DIM);
-	pix_fmt_mp->height = round_up(pix_fmt_mp->height, MB_DIM);
-
-	mb_width = MB_WIDTH(pix_fmt_mp->width);
-	mb_height = MB_HEIGHT(pix_fmt_mp->height);
-
-	vpu_debug(0, "CAPTURE codec mode: %d\n", fmt->codec_mode);
-	vpu_debug(0, "fmt - w: %d, h: %d, mb - w: %d, h: %d\n",
-		  pix_fmt_mp->width, pix_fmt_mp->height,
-		  mb_width, mb_height);
-
-	for (i = 0; i < fmt->num_planes; ++i) {
-		pix_fmt_mp->plane_fmt[i].bytesperline =
-			mb_width * MB_DIM * fmt->depth[i] / 8;
-		pix_fmt_mp->plane_fmt[i].sizeimage =
-			pix_fmt_mp->plane_fmt[i].bytesperline
-			* mb_height * MB_DIM;
-		/*
-		 * All of multiplanar formats we support have chroma
-		 * planes subsampled by 2.
-		 */
-		if (i != 0)
-			pix_fmt_mp->plane_fmt[i].sizeimage /= 2;
-	}
-}
-
 static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 {
 	struct rk3288_vpu_ctx *ctx = fh_to_ctx(priv);
 	struct rk3288_vpu_fmt *fmt;
 	struct v4l2_pix_format_mplane *pix_fmt_mp = &f->fmt.pix_mp;
+	unsigned int mb_width, mb_height;
 	char str[5];
 
 	vpu_debug_enter();
@@ -363,9 +328,27 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 			pix_fmt_mp->pixelformat = fmt->fourcc;
 		}
 
-		pix_fmt_mp->num_planes = fmt->num_planes;
+		pix_fmt_mp->num_planes = fmt->num_mplanes;
 
-		adjust_dst_sizes(pix_fmt_mp, fmt);
+		/* Limit to hardware min/max. */
+		pix_fmt_mp->width = clamp(pix_fmt_mp->width,
+				RK3288_DEC_MIN_WIDTH, RK3288_DEC_MAX_WIDTH);
+		pix_fmt_mp->height = clamp(pix_fmt_mp->height,
+				RK3288_DEC_MIN_HEIGHT, RK3288_DEC_MAX_HEIGHT);
+
+		/* Round up to macroblocks. */
+		pix_fmt_mp->width = round_up(pix_fmt_mp->width, MB_DIM);
+		pix_fmt_mp->height = round_up(pix_fmt_mp->height, MB_DIM);
+
+		mb_width = MB_WIDTH(pix_fmt_mp->width);
+		mb_height = MB_HEIGHT(pix_fmt_mp->height);
+
+		vpu_debug(0, "CAPTURE codec mode: %d\n", fmt->codec_mode);
+		vpu_debug(0, "fmt - w: %d, h: %d, mb - w: %d, h: %d\n",
+			  pix_fmt_mp->width, pix_fmt_mp->height,
+			  mb_width, mb_height);
+
+		rk3288_vpu_update_planes(fmt, pix_fmt_mp);
 		break;
 
 	default:
@@ -383,6 +366,7 @@ static int vidioc_s_fmt(struct file *file, void *priv, struct v4l2_format *f)
 	struct v4l2_pix_format_mplane *pix_fmt_mp = &f->fmt.pix_mp;
 	struct rk3288_vpu_ctx *ctx = fh_to_ctx(priv);
 	struct rk3288_vpu_fmt *fmt;
+	struct v4l2_format dst_f;
 	int ret = 0;
 
 	vpu_debug_enter();
@@ -416,9 +400,12 @@ static int vidioc_s_fmt(struct file *file, void *priv, struct v4l2_format *f)
 		 * Setting resolution on the OUTPUT queue affects the CAPTURE
 		 * queue as well.
 		 */
-		ctx->dst_fmt.width = pix_fmt_mp->width;
-		ctx->dst_fmt.height = pix_fmt_mp->height;
-		adjust_dst_sizes(&ctx->dst_fmt, ctx->vpu_dst_fmt);
+		memset(&dst_f, 0, sizeof(dst_f));
+		dst_f.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+		dst_f.fmt.pix_mp = ctx->dst_fmt;
+		dst_f.fmt.pix_mp.width = pix_fmt_mp->width;
+		dst_f.fmt.pix_mp.height = pix_fmt_mp->height;
+		vidioc_s_fmt(file, priv, &dst_f);
 		break;
 
 	case V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE:
@@ -845,7 +832,7 @@ static int rk3288_vpu_queue_setup(struct vb2_queue *vq,
 
 	switch (vq->type) {
 	case V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE:
-		*plane_count = ctx->vpu_src_fmt->num_planes;
+		*plane_count = ctx->vpu_src_fmt->num_mplanes;
 
 		if (*buf_count < 1)
 			*buf_count = 1;
@@ -859,7 +846,7 @@ static int rk3288_vpu_queue_setup(struct vb2_queue *vq,
 		break;
 
 	case V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE:
-		*plane_count = ctx->vpu_dst_fmt->num_planes;
+		*plane_count = ctx->vpu_dst_fmt->num_mplanes;
 
 		if (*buf_count < 1)
 			*buf_count = 1;
@@ -939,7 +926,7 @@ static int rk3288_vpu_buf_prepare(struct vb2_buffer *vb)
 		break;
 
 	case V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE:
-		for (i = 0; i < ctx->vpu_dst_fmt->num_planes; ++i) {
+		for (i = 0; i < ctx->vpu_dst_fmt->num_mplanes; ++i) {
 			vpu_debug(4, "plane %d size: %ld, sizeimage: %u\n", i,
 					vb2_plane_size(vb, i),
 					ctx->dst_fmt.plane_fmt[i].sizeimage);
@@ -952,7 +939,7 @@ static int rk3288_vpu_buf_prepare(struct vb2_buffer *vb)
 			}
 		}
 
-		if (i != ctx->vpu_dst_fmt->num_planes)
+		if (i != ctx->vpu_dst_fmt->num_mplanes)
 			ret = -EINVAL;
 		break;
 

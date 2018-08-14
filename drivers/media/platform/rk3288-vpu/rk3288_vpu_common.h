@@ -329,20 +329,26 @@ struct rk3288_vpu_ctx {
 
 /**
  * struct rk3288_vpu_fmt - information about supported video formats.
- * @name:	Human readable name of the format.
- * @fourcc:	FourCC code of the format. See V4L2_PIX_FMT_*.
- * @codec_mode:	Codec mode related to this format. See
- *		enum rk3288_vpu_codec_mode.
- * @num_planes:	Number of planes used by this format.
- * @depth:	Depth of each plane in bits per pixel.
- * @enc_fmt:	Format identifier for encoder registers.
+ * @name:		Human readable name of the format.
+ * @fourcc:		FourCC code of the format. See V4L2_PIX_FMT_*.
+ * @codec_mode:		Codec mode related to this format. See
+ *			enum rk3288_vpu_codec_mode.
+ * @num_cplanes:	Number of planes color planes (for raw formats).
+ * @num_mplanes:	Number of memory planes (buffers).
+ * @depth:		Depth of each plane in bits per pixel.
+ * @h_subsampling:	Horizontal subsampling factor
+ * @v_subsampling:	Vertical subsampling factor
+ * @enc_fmt:		Format identifier for encoder registers.
  */
 struct rk3288_vpu_fmt {
 	char *name;
 	u32 fourcc;
 	enum rk3288_vpu_codec_mode codec_mode;
-	int num_planes;
+	int num_mplanes;
+	int num_cplanes;
 	u8 depth[VIDEO_MAX_PLANES];
+	u8 h_subsampling[VIDEO_MAX_PLANES];
+	u8 v_subsampling[VIDEO_MAX_PLANES];
 	enum rk3288_vpu_enc_fmt enc_fmt;
 };
 
@@ -455,6 +461,8 @@ static inline bool rk3288_vpu_ctx_is_dummy_encode(struct rk3288_vpu_ctx *ctx)
 	return ctx == dev->dummy_encode_ctx;
 }
 
+void rk3288_vpu_update_planes(struct rk3288_vpu_fmt *fmt,
+			      struct v4l2_pix_format_mplane *pix_fmt_mp);
 int rk3288_vpu_ctrls_setup(struct rk3288_vpu_ctx *ctx,
 			   const struct v4l2_ctrl_ops *ctrl_ops,
 			   struct rk3288_vpu_control *controls,
