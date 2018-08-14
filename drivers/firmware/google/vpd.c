@@ -16,6 +16,7 @@
  */
 
 #include <linux/ctype.h>
+#include <linux/if_ether.h>
 #include <linux/init.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
@@ -24,6 +25,7 @@
 #include <linux/module.h>
 #include <linux/of_address.h>
 #include <linux/platform_device.h>
+#include <linux/property.h>
 #include <linux/slab.h>
 #include <linux/sysfs.h>
 
@@ -173,6 +175,36 @@ static ssize_t vpd_section_read(struct file *filp, struct kobject *kobp,
 				       sec->bin_attr.size);
 }
 
+static const char *__vpd_get_entry(struct vpd_section *sec, const char *key)
+{
+	struct vpd_attrib_info *info;
+
+	list_for_each_entry(info, &sec->attribs, list)
+		if (!strcmp(info->key, key))
+			return info->value;
+
+	return NULL;
+}
+
+static const char *vpd_get_entry(const char *key)
+{
+	const char *value;
+
+	if (rw_vpd.enabled) {
+		value = __vpd_get_entry(&rw_vpd, key);
+		if (value)
+			return value;
+	}
+
+	if (ro_vpd.enabled) {
+		value = __vpd_get_entry(&ro_vpd, key);
+		if (value)
+			return value;
+	}
+
+	return NULL;
+}
+
 static int vpd_section_create_attribs(struct vpd_section *sec)
 {
 	s32 consumed;
@@ -286,6 +318,37 @@ static int vpd_sections_init(phys_addr_t physaddr)
 	return 0;
 }
 
+/*
+ * 'key' is typically something like 'wifi_mac0' or 'ether_mac1'. Values are 12
+ * character strings of MAC address digits, in hex.
+ */
+static int vpd_lookup_mac_address(const char *key, u8 *mac)
+{
+	const char *entry;
+	int ret;
+
+	if (!key)
+		return -EINVAL;
+
+	entry = vpd_get_entry(key);
+	if (!entry)
+		return -ENOENT;
+
+	if (strlen(entry) != ETH_ALEN * 2)
+		return -EINVAL;
+
+	ret = hex2bin(mac, entry, ETH_ALEN);
+	if (ret)
+		return ret;
+
+	return 0;
+}
+
+static struct device_mac_addr_provider vpd_mac_addr_provider = {
+	.prefix		= "google-vpd",
+	.lookup		= &vpd_lookup_mac_address,
+};
+
 static int vpd_probe(struct coreboot_device *dev)
 {
 	int ret;
@@ -300,11 +363,15 @@ static int vpd_probe(struct coreboot_device *dev)
 		return ret;
 	}
 
+	device_register_mac_addr_provider(&vpd_mac_addr_provider);
+
 	return 0;
 }
 
 static int vpd_remove(struct coreboot_device *dev)
 {
+	device_unregister_mac_addr_provider(&vpd_mac_addr_provider);
+
 	vpd_section_destroy(&ro_vpd);
 	vpd_section_destroy(&rw_vpd);
 
