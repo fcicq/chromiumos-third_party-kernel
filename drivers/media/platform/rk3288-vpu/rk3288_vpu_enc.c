@@ -520,6 +520,8 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 		/* Round up to macroblocks. */
 		pix_fmt_mp->width = round_up(pix_fmt_mp->width, MB_DIM);
 		pix_fmt_mp->height = round_up(pix_fmt_mp->height, MB_DIM);
+
+		rk3288_vpu_update_planes(fmt, pix_fmt_mp);
 		break;
 
 	default:
@@ -593,8 +595,6 @@ static int vidioc_s_fmt(struct file *file, void *priv, struct v4l2_format *f)
 		vpu_debug(0, "fmt - w: %d, h: %d, mb - w: %d, h: %d\n",
 			  pix_fmt_mp->width, pix_fmt_mp->height,
 			  mb_width, mb_height);
-
-		rk3288_vpu_update_planes(fmt, pix_fmt_mp);
 
 		/* Reset crop rectangle. */
 		ctx->src_crop.width = pix_fmt_mp->width;
