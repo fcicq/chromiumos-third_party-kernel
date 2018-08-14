@@ -257,6 +257,28 @@ void write_header(u32 value, u32 *buffer, u32 offset, u32 len)
 	}
 }
 
+void rockchip_vpu_update_planes(const struct rockchip_vpu_fmt *fmt,
+				struct v4l2_pix_format_mplane *pix_fmt_mp)
+{
+	size_t sizeimage_total = 0;
+	int i;
+
+	for (i = 0; i < fmt->num_cplanes; ++i) {
+		pix_fmt_mp->plane_fmt[i].bytesperline =
+			(pix_fmt_mp->width / fmt->h_subsampling[i])
+			* fmt->depth[i] / 8;
+
+		pix_fmt_mp->plane_fmt[i].sizeimage =
+			pix_fmt_mp->plane_fmt[i].bytesperline
+			* pix_fmt_mp->height / fmt->v_subsampling[i];
+
+		sizeimage_total += pix_fmt_mp->plane_fmt[i].sizeimage;
+	}
+
+	if (fmt->num_mplanes == 1)
+		pix_fmt_mp->plane_fmt[0].sizeimage = sizeimage_total;
+}
+
 /*
  * Control registration.
  */

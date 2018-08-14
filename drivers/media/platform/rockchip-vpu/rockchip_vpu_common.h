@@ -398,8 +398,12 @@ struct rockchip_vpu_ctx {
  * @fourcc:	FourCC code of the format. See V4L2_PIX_FMT_*.
  * @codec_mode:	Codec mode related to this format. See
  *		enum rockchip_vpu_codec_mode.
- * @num_planes:	Number of planes used by this format.
+ * @num_mplanes:	Number of memory planes (buffers).
+ * @num_cplanes:	Number of color planes used by this format
+ *			(for raw formats).
  * @depth:	Depth of each plane in bits per pixel.
+ * @v_subsampling:	Vertical subsampling factor
+ * @h_subsampling:	Horizontal subsampling factor
  * @enc_fmt:	Format identifier for encoder registers.
  * @frmsize:	Supported range of frame sizes (only for bitstream formats).
  */
@@ -407,8 +411,11 @@ struct rockchip_vpu_fmt {
 	char *name;
 	u32 fourcc;
 	enum rockchip_vpu_codec_mode codec_mode;
-	int num_planes;
+	int num_mplanes;
+	int num_cplanes;
 	u8 depth[VIDEO_MAX_PLANES];
+	u8 h_subsampling[VIDEO_MAX_PLANES];
+	u8 v_subsampling[VIDEO_MAX_PLANES];
 	enum rk3288_vpu_enc_fmt enc_fmt;
 	struct v4l2_frmsize_stepwise frmsize;
 };
@@ -678,6 +685,8 @@ static inline unsigned int rockchip_vpu_rounded_luma_size(unsigned int w,
 	return round_up(w, MB_DIM) * round_up(h, MB_DIM);
 }
 
+void rockchip_vpu_update_planes(const struct rockchip_vpu_fmt *fmt,
+				struct v4l2_pix_format_mplane *pix_fmt_mp);
 int rockchip_vpu_ctrls_setup(struct rockchip_vpu_ctx *ctx,
 			   const struct v4l2_ctrl_ops *ctrl_ops,
 			   struct rockchip_vpu_control *controls,

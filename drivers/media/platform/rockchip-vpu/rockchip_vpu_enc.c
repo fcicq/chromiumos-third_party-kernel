@@ -450,26 +450,6 @@ static int vidioc_g_fmt(struct file *file, void *priv, struct v4l2_format *f)
 	return 0;
 }
 
-static void calculate_plane_sizes(const struct rockchip_vpu_fmt *fmt,
-				  struct v4l2_pix_format_mplane *pix_fmt_mp)
-{
-	unsigned int w = pix_fmt_mp->width;
-	unsigned int h = pix_fmt_mp->height;
-	int i;
-
-	for (i = 0; i < fmt->num_planes; ++i) {
-		pix_fmt_mp->plane_fmt[i].bytesperline = w * fmt->depth[i] / 8;
-		pix_fmt_mp->plane_fmt[i].sizeimage = h *
-					pix_fmt_mp->plane_fmt[i].bytesperline;
-		/*
-		 * All of multiplanar formats we support have chroma
-		 * planes subsampled by 2 vertically.
-		 */
-		if (i != 0)
-			pix_fmt_mp->plane_fmt[i].sizeimage /= 2;
-	}
-}
-
 static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 {
 	struct rockchip_vpu_dev *dev = video_drvdata(file);
@@ -510,7 +490,7 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 			pix_fmt_mp->pixelformat = fmt->fourcc;
 		}
 
-		pix_fmt_mp->num_planes = fmt->num_planes;
+		pix_fmt_mp->num_planes = fmt->num_mplanes;
 
 		/* Limit to hardware min/max. */
 		pix_fmt_mp->width = clamp(pix_fmt_mp->width,
@@ -530,7 +510,7 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 			  MB_HEIGHT(pix_fmt_mp->height));
 
 		/* Fill in remaining fields. */
-		calculate_plane_sizes(fmt, pix_fmt_mp);
+		rockchip_vpu_update_planes(fmt, pix_fmt_mp);
 
 		/* TODO(crbug.com/824662): handle sizeimage in Chromium.
 		 * Align plane size to full cache line by adjusting the height.
@@ -540,7 +520,7 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 		 */
 		dma_align = dma_get_cache_alignment();
 		need_alignment = false;
-		for (i = 0; i < fmt->num_planes; i++) {
+		for (i = 0; i < fmt->num_mplanes; i++) {
 			if (!IS_ALIGNED(pix_fmt_mp->plane_fmt[i].sizeimage,
 					dma_align)) {
 				need_alignment = true;
@@ -556,7 +536,7 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 				return -EINVAL;
 			}
 			/* Fill in remaining fields again. */
-			calculate_plane_sizes(fmt, pix_fmt_mp);
+			rockchip_vpu_update_planes(fmt, pix_fmt_mp);
 		}
 		break;
 
@@ -583,9 +563,9 @@ static void reset_src_fmt(struct rockchip_vpu_ctx *ctx)
 	src_fmt->width = vpu_dst_fmt->frmsize.min_width;
 	src_fmt->height = vpu_dst_fmt->frmsize.min_height;
 	src_fmt->pixelformat = ctx->vpu_src_fmt->fourcc;
-	src_fmt->num_planes = ctx->vpu_src_fmt->num_planes;
+	src_fmt->num_planes = ctx->vpu_src_fmt->num_mplanes;
 
-	calculate_plane_sizes(ctx->vpu_src_fmt, src_fmt);
+	rockchip_vpu_update_planes(ctx->vpu_src_fmt, src_fmt);
 }
 
 static int vidioc_s_fmt(struct file *file, void *priv, struct v4l2_format *f)
@@ -1189,7 +1169,7 @@ static int rockchip_vpu_queue_setup(struct vb2_queue *vq,
 
 	switch (vq->type) {
 	case V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE:
-		*plane_count = ctx->vpu_dst_fmt->num_planes;
+		*plane_count = ctx->vpu_dst_fmt->num_mplanes;
 
 		if (*buf_count < 1)
 			*buf_count = 1;
@@ -1204,7 +1184,7 @@ static int rockchip_vpu_queue_setup(struct vb2_queue *vq,
 		break;
 
 	case V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE:
-		*plane_count = ctx->vpu_src_fmt->num_planes;
+		*plane_count = ctx->vpu_src_fmt->num_mplanes;
 
 		if (*buf_count < 1)
 			*buf_count = 1;
@@ -1212,7 +1192,7 @@ static int rockchip_vpu_queue_setup(struct vb2_queue *vq,
 		if (*buf_count > VIDEO_MAX_FRAME)
 			*buf_count = VIDEO_MAX_FRAME;
 
-		for (i = 0; i < ctx->vpu_src_fmt->num_planes; ++i) {
+		for (i = 0; i < ctx->vpu_src_fmt->num_mplanes; ++i) {
 			psize[i] = ctx->src_fmt.plane_fmt[i].sizeimage;
 			vpu_debug(0, "output psize[%d]: %d\n", i, psize[i]);
 			allocators[i] = ctx->dev->alloc_ctx;
@@ -1252,7 +1232,7 @@ static int rockchip_vpu_buf_prepare(struct vb2_buffer *vb)
 		break;
 
 	case V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE:
-		for (i = 0; i < ctx->vpu_src_fmt->num_planes; ++i) {
+		for (i = 0; i < ctx->vpu_src_fmt->num_mplanes; ++i) {
 			vpu_debug(4, "plane %d size: %ld, sizeimage: %u\n", i,
 					vb2_plane_size(vb, i),
 					ctx->src_fmt.plane_fmt[i].sizeimage);
@@ -1265,7 +1245,7 @@ static int rockchip_vpu_buf_prepare(struct vb2_buffer *vb)
 			}
 		}
 
-		if (i != ctx->vpu_src_fmt->num_planes)
+		if (i != ctx->vpu_src_fmt->num_mplanes)
 			ret = -EINVAL;
 		break;
 
