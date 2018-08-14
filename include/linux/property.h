@@ -14,6 +14,7 @@
 #define _LINUX_PROPERTY_H_
 
 #include <linux/fwnode.h>
+#include <linux/list.h>
 #include <linux/types.h>
 
 struct device;
@@ -276,6 +277,28 @@ bool device_dma_supported(struct device *dev);
 enum dev_dma_attr device_get_dma_attr(struct device *dev);
 
 int device_get_phy_mode(struct device *dev);
+
+/**
+ * struct device_mac_addr_provider - MAC address provider
+ *
+ * Provide methods by which the rest of the kernel can retrieve MAC addresses,
+ * e.g., from a firmware table.
+ *
+ * @entry: list head, for keeping track of all providers
+ * @prefix: string which uniquely identifies the provider
+ * @lookup: Look up a MAC address by key. The provider may associate this @key
+ *	with a stored MAC address; if a match is found, the provider copies the
+ *	associated MAC address to @mac. If not found, a non-zero error code is
+ *	returned.
+ */
+struct device_mac_addr_provider {
+	struct list_head entry;
+	const char *prefix;
+	int (*lookup)(const char *key, u8 *mac);
+};
+
+void device_register_mac_addr_provider(struct device_mac_addr_provider *prov);
+void device_unregister_mac_addr_provider(struct device_mac_addr_provider *prov);
 
 void *device_get_mac_address(struct device *dev, char *addr, int alen);
 

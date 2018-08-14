@@ -13,6 +13,7 @@
 #include <linux/acpi.h>
 #include <linux/export.h>
 #include <linux/kernel.h>
+#include <linux/mutex.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/of_graph.h>
@@ -1159,6 +1160,78 @@ static void *fwnode_get_mac_addr(struct fwnode_handle *fwnode,
 	return NULL;
 }
 
+static LIST_HEAD(mac_addr_providers);
+static DEFINE_MUTEX(mac_addr_providers_mutex);
+
+void device_register_mac_addr_provider(struct device_mac_addr_provider *prov)
+{
+	mutex_lock(&mac_addr_providers_mutex);
+	list_add(&prov->entry, &mac_addr_providers);
+	mutex_unlock(&mac_addr_providers_mutex);
+}
+EXPORT_SYMBOL(device_register_mac_addr_provider);
+
+void device_unregister_mac_addr_provider(struct device_mac_addr_provider *prov)
+{
+	struct device_mac_addr_provider *p;
+
+	mutex_lock(&mac_addr_providers_mutex);
+	list_for_each_entry(p, &mac_addr_providers, entry) {
+		if (p == prov) {
+			list_del(&p->entry);
+			goto out;
+		}
+	}
+
+out:
+	mutex_unlock(&mac_addr_providers_mutex);
+}
+EXPORT_SYMBOL(device_unregister_mac_addr_provider);
+
+static void *fwnode_lookup_mac_addr(struct fwnode_handle *fwnode,
+				    char *addr, int alen)
+{
+	struct device_mac_addr_provider *prov;
+	const char *prop, *sep;
+	u8 mac[ETH_ALEN];
+	int ret;
+
+	ret = fwnode_property_read_string(fwnode, "mac-address-lookup", &prop);
+	if (ret)
+		return NULL;
+
+	sep = strchr(prop, ':');
+	if (!sep)
+		return NULL;
+
+	if (alen != ETH_ALEN)
+		return NULL;
+
+	mutex_lock(&mac_addr_providers_mutex);
+	list_for_each_entry(prov, &mac_addr_providers, entry) {
+		if (strncmp(prov->prefix, prop, strlen(prov->prefix)))
+			continue;
+
+		if (prop + strlen(prov->prefix) != sep)
+			continue;
+
+		ret = prov->lookup(sep + 1, mac);
+		if (ret)
+			continue;
+
+		if (!is_valid_ether_addr(mac))
+			continue;
+
+		ether_addr_copy(addr, mac);
+
+		mutex_unlock(&mac_addr_providers_mutex);
+		return addr;
+	}
+	mutex_unlock(&mac_addr_providers_mutex);
+
+	return NULL;
+}
+
 /**
  * fwnode_get_mac_address - Get the MAC from the firmware node
  * @fwnode:	Pointer to the firmware node
@@ -1169,7 +1242,9 @@ static void *fwnode_get_mac_addr(struct fwnode_handle *fwnode,
  * checked first, because that is supposed to contain to "most recent" MAC
  * address. If that isn't set, then 'local-mac-address' is checked next,
  * because that is the default address.  If that isn't set, then the obsolete
- * 'address' is checked, just in case we're using an old device tree.
+ * 'address' is checked, just in case we're using an old device tree.  And
+ * finally, we check for a method of indirect MAC address lookup, via
+ * 'mac-address-lookup'.
  *
  * Note that the 'address' property is supposed to contain a virtual address of
  * the register set, but some DTS files have redefined that property to be the
@@ -1194,7 +1269,11 @@ void *fwnode_get_mac_address(struct fwnode_handle *fwnode, char *addr, int alen)
 	if (res)
 		return res;
 
-	return fwnode_get_mac_addr(fwnode, "address", addr, alen);
+	res = fwnode_get_mac_addr(fwnode, "address", addr, alen);
+	if (res)
+		return res;
+
+	return fwnode_lookup_mac_addr(fwnode, addr, alen);
 }
 EXPORT_SYMBOL(fwnode_get_mac_address);
 
