@@ -464,6 +464,7 @@ static int vidioc_g_fmt(struct file *file, void *priv, struct v4l2_format *f)
 
 static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 {
+	struct rk3288_vpu_ctx *ctx = fh_to_ctx(priv);
 	struct rk3288_vpu_fmt *fmt;
 	struct v4l2_pix_format_mplane *pix_fmt_mp = &f->fmt.pix_mp;
 	char str[5];
@@ -476,8 +477,8 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 
 		fmt = find_format(pix_fmt_mp->pixelformat, true);
 		if (!fmt) {
-			vpu_err("failed to try capture format\n");
-			return -EINVAL;
+			fmt = ctx->vpu_dst_fmt;
+			pix_fmt_mp->pixelformat = fmt->fourcc;
 		}
 
 		if (pix_fmt_mp->plane_fmt[0].sizeimage == 0) {
@@ -493,14 +494,11 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 
 		fmt = find_format(pix_fmt_mp->pixelformat, false);
 		if (!fmt) {
-			vpu_err("failed to try output format\n");
-			return -EINVAL;
+			fmt = ctx->vpu_src_fmt;
+			pix_fmt_mp->pixelformat = fmt->fourcc;
 		}
 
-		if (fmt->num_planes != pix_fmt_mp->num_planes) {
-			vpu_err("plane number mismatches on output format\n");
-			return -EINVAL;
-		}
+		pix_fmt_mp->num_planes = fmt->num_planes;
 
 		/* Limit to hardware min/max. */
 		pix_fmt_mp->width = clamp(pix_fmt_mp->width,
