@@ -4,6 +4,18 @@ NOTE: All 'phy*' properties documented below are Ethernet specific. For the
 generic PHY 'phys' property, see
 Documentation/devicetree/bindings/phy/phy-bindings.txt.
 
+- mac-address-lookup: string, indicating a method by which a MAC address may be
+  discovered for this device. Methods may be parameterized by some value, such
+  that the method can determine the device's MAC address using that parameter.
+  For example, a firmware might store MAC addresses in a table, keyed by some
+  predetermined string, and baked in read-only flash. A lookup method "foo"
+  with a parameter "bar" should be written "foo:bar".
+  Supported values for method:
+    "google-vpd" - Google's Vital Product Data (VPD), as used in the Coreboot
+      project. Documentation for VPD can be found at:
+        https://chromium.googlesource.com/chromiumos/platform/vpd/+/master/README.md
+  Example:
+    mac-address-lookup = "google-vpd:ethernet_mac0"
 - local-mac-address: array of 6 bytes, specifies the MAC address that was
   assigned to the network device;
 - mac-address: array of 6 bytes, specifies the MAC address that was last used by
