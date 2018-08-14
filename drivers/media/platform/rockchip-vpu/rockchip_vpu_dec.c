@@ -378,8 +378,8 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 
 		fmt = find_format(dev, pix_fmt_mp->pixelformat, true);
 		if (!fmt) {
-			vpu_err("failed to try output format\n");
-			return -EINVAL;
+			fmt = ctx->vpu_src_fmt;
+			pix_fmt_mp->pixelformat = fmt->fourcc;
 		}
 
 		if (pix_fmt_mp->plane_fmt[0].sizeimage == 0) {
@@ -395,14 +395,11 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 
 		fmt = find_format(dev, pix_fmt_mp->pixelformat, false);
 		if (!fmt) {
-			vpu_err("failed to try capture format\n");
-			return -EINVAL;
+			fmt = ctx->vpu_dst_fmt;
+			pix_fmt_mp->pixelformat = fmt->fourcc;
 		}
 
-		if (fmt->num_planes != pix_fmt_mp->num_planes) {
-			vpu_err("plane number mismatches on capture format\n");
-			return -EINVAL;
-		}
+		pix_fmt_mp->num_planes = fmt->num_planes;
 
 		adjust_dst_sizes(ctx, pix_fmt_mp);
 		/* Fill in remaining fields. */
