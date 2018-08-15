@@ -3226,17 +3226,15 @@ static unsigned int binder_poll(struct file *filp,
 	binder_lock(__func__);
 
 	thread = binder_get_thread(proc, true);
-	if (thread) {
-		thread->looper &= ~BINDER_LOOPER_STATE_NEED_RETURN;
-		wait_for_proc_work = thread->transaction_stack == NULL &&
-				     list_empty(&thread->todo) &&
-				     thread->return_error == BR_OK;
+	if (!thread) {
+		binder_unlock(__func__);
+		return POLLERR;
 	}
 
-	binder_unlock(__func__);
+	wait_for_proc_work = thread->transaction_stack == NULL &&
+		list_empty(&thread->todo) && thread->return_error == BR_OK;
 
-	if (!thread)
-		return POLLERR;
+	binder_unlock(__func__);
 
 	if (wait_for_proc_work) {
 		if (binder_has_proc_work(proc, thread))
