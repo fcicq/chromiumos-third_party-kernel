@@ -81,6 +81,10 @@
 #define IMX208_TEST_PATTERN_FIX_5	0x104
 #define IMX208_TEST_PATTERN_FIX_6	0x105
 
+/* OTP Access */
+#define IMX208_OTP_BASE			0x3500
+#define IMX208_OTP_SIZE			40
+
 struct imx208_reg {
 	u16 address;
 	u8 val;
@@ -297,6 +301,10 @@ struct imx208 {
 
 	/* Streaming on/off */
 	bool streaming;
+
+	/* OTP data */
+	bool otp_read;
+	char otp_data[IMX208_OTP_SIZE];
 };
 
 static inline struct imx208 *to_imx208(struct v4l2_subdev *_sd)
@@ -783,6 +791,68 @@ static const struct v4l2_subdev_internal_ops imx208_internal_ops = {
 	.open = imx208_open,
 };
 
+static int imx208_read_otp(struct imx208 *imx208)
+{
+	struct i2c_client *client = v4l2_get_subdevdata(&imx208->sd);
+	struct i2c_msg msgs[2];
+	u8 addr_buf[2] = { IMX208_OTP_BASE >> 8, IMX208_OTP_BASE & 0xff };
+	int ret = 0;
+
+	mutex_lock(&imx208->imx208_mx);
+
+	if (imx208->otp_read)
+		goto out_unlock;
+
+	ret = pm_runtime_get_sync(&client->dev);
+	if (ret < 0) {
+		pm_runtime_put_noidle(&client->dev);
+		goto out_unlock;
+	}
+
+	/* Write register address */
+	msgs[0].addr = client->addr;
+	msgs[0].flags = 0;
+	msgs[0].len = ARRAY_SIZE(addr_buf);
+	msgs[0].buf = addr_buf;
+
+	/* Read data from registers */
+	msgs[1].addr = client->addr;
+	msgs[1].flags = I2C_M_RD;
+	msgs[1].len = sizeof(imx208->otp_data);
+	msgs[1].buf = imx208->otp_data;
+
+	ret = i2c_transfer(client->adapter, msgs, ARRAY_SIZE(msgs));
+	if (ret == ARRAY_SIZE(msgs)) {
+		imx208->otp_read = true;
+		ret = 0;
+	}
+
+	pm_runtime_put(&client->dev);
+
+out_unlock:
+	mutex_unlock(&imx208->imx208_mx);
+
+	return ret;
+}
+
+static ssize_t otp_read(struct file *filp, struct kobject *kobj,
+			struct bin_attribute *bin_attr,
+			char *buf, loff_t off, size_t count)
+{
+	struct i2c_client *client = to_i2c_client(kobj_to_dev(kobj));
+	struct v4l2_subdev *sd = i2c_get_clientdata(client);
+	struct imx208 *imx208 = to_imx208(sd);
+	int ret;
+
+	ret = imx208_read_otp(imx208);
+	if (ret)
+		return ret;
+
+	memcpy(buf, &imx208->otp_data[off], count);
+	return count;
+}
+static const BIN_ATTR_RO(otp, IMX208_OTP_SIZE);
+
 /* Initialize control handlers */
 static int imx208_init_controls(struct imx208 *imx208)
 {
@@ -939,11 +1009,20 @@ static int imx208_probe(struct i2c_client *client)
 	if (ret < 0)
 		goto error_media_entity;
 
+	ret = device_create_bin_file(&client->dev, &bin_attr_otp);
+	if (ret) {
+		dev_err(&client->dev, "sysfs otp creation failed\n");
+		goto error_async_subdev;
+	}
+
 	pm_runtime_set_active(&client->dev);
 	pm_runtime_enable(&client->dev);
 	pm_runtime_idle(&client->dev);
 
 	return 0;
+
+error_async_subdev:
+	v4l2_async_unregister_subdev(&imx208->sd);
 
 error_media_entity:
 	media_entity_cleanup(&imx208->sd.entity);
@@ -962,6 +1041,7 @@ static int imx208_remove(struct i2c_client *client)
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 	struct imx208 *imx208 = to_imx208(sd);
 
+	device_remove_bin_file(&client->dev, &bin_attr_otp);
 	v4l2_async_unregister_subdev(sd);
 	media_entity_cleanup(&sd->entity);
 	imx208_free_controls(imx208);
