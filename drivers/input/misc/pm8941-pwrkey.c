@@ -273,6 +273,7 @@ static int pm8941_pwrkey_remove(struct platform_device *pdev)
 
 static const struct of_device_id pm8941_pwr_key_id_table[] = {
 	{ .compatible = "qcom,pm8941-pwrkey" },
+	{ .compatible = "qcom,pms405-pwrkey" },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, pm8941_pwr_key_id_table);
