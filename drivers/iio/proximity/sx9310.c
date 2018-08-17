@@ -1085,10 +1085,12 @@ static int __maybe_unused sx9310_suspend(struct device *dev)
 	struct sx9310_data *data = iio_priv(indio_dev);
 	int ret;
 
+	disable_irq_nosync(data->client->irq);
+
 	mutex_lock(&data->mutex);
 	ret = regmap_write(data->regmap, SX9310_REG_PAUSE, 0);
-
 	mutex_unlock(&data->mutex);
+
 	return ret;
 }
 
@@ -1101,6 +1103,8 @@ static int __maybe_unused sx9310_resume(struct device *dev)
 	mutex_lock(&data->mutex);
 	ret = regmap_write(data->regmap, SX9310_REG_PAUSE, 1);
 	mutex_unlock(&data->mutex);
+
+	enable_irq(data->client->irq);
 
 	return ret;
 }
