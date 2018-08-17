@@ -632,7 +632,7 @@ static int qcom_icc_aggregate(struct icc_node *node, u32 avg_bw,
 	qn = node->data;
 
 	*agg_avg += avg_bw;
-	*agg_peak = max_t(u64, agg_peak, peak_bw);
+	*agg_peak = max_t(u32, *agg_peak, peak_bw);
 
 	qn->sum_avg = *agg_avg;
 	qn->max_peak = *agg_peak;
@@ -643,8 +643,7 @@ static int qcom_icc_aggregate(struct icc_node *node, u32 avg_bw,
 	return 0;
 }
 
-static int qcom_icc_set(struct icc_node *src, struct icc_node *dst,
-			u32 avg, u32 peak)
+static int qcom_icc_set(struct icc_node *src, struct icc_node *dst)
 {
 	struct qcom_icc_provider *qp;
 	struct qcom_icc_node *qn;
