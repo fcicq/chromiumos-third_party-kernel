@@ -196,9 +196,9 @@ static u32 smcb(u32 cmd_addr)
 {
 	int context_id;
 
-	register u32 r0 asm("r0") = 1;
-	register u32 r1 asm("r1") = (uintptr_t)&context_id;
-	register u32 r2 asm("r2") = cmd_addr;
+	register unsigned long r0 asm("r0") = 1;
+	register unsigned long r1 asm("r1") = (uintptr_t)&context_id;
+	register unsigned long r2 asm("r2") = cmd_addr;
 	do {
 		asm volatile(
 			__asmeq("%0", R0_STR)
@@ -405,13 +405,13 @@ static int __scm_call_armv8_64(u64 x0, u64 x1, u64 x2, u64 x3, u64 x4, u64 x5,
 static int __scm_call_armv8_32(u32 w0, u32 w1, u32 w2, u32 w3, u32 w4, u32 w5,
 				u64 *ret1, u64 *ret2, u64 *ret3)
 {
-	register u32 r0 asm("r0") = w0;
-	register u32 r1 asm("r1") = w1;
-	register u32 r2 asm("r2") = w2;
-	register u32 r3 asm("r3") = w3;
-	register u32 r4 asm("r4") = w4;
-	register u32 r5 asm("r5") = w5;
-	register u32 r6 asm("r6") = 0;
+	register unsigned long r0 asm("r0") = w0;
+	register unsigned long r1 asm("r1") = w1;
+	register unsigned long r2 asm("r2") = w2;
+	register unsigned long r3 asm("r3") = w3;
+	register unsigned long r4 asm("r4") = w4;
+	register unsigned long r5 asm("r5") = w5;
+	register unsigned long r6 asm("r6") = 0;
 
 	do {
 		asm volatile(
@@ -797,9 +797,9 @@ s32 scm_call_atomic1(u32 svc, u32 cmd, u32 arg1)
 {
 	int context_id;
 
-	register u32 r0 asm("r0") = SCM_ATOMIC(svc, cmd, 1);
-	register u32 r1 asm("r1") = (uintptr_t)&context_id;
-	register u32 r2 asm("r2") = arg1;
+	register unsigned long r0 asm("r0") = SCM_ATOMIC(svc, cmd, 1);
+	register unsigned long r1 asm("r1") = (uintptr_t)&context_id;
+	register unsigned long r2 asm("r2") = arg1;
 
 	asm volatile(
 		__asmeq("%0", R0_STR)
@@ -831,10 +831,10 @@ s32 scm_call_atomic2(u32 svc, u32 cmd, u32 arg1, u32 arg2)
 {
 	int context_id;
 
-	register u32 r0 asm("r0") = SCM_ATOMIC(svc, cmd, 2);
-	register u32 r1 asm("r1") = (uintptr_t)&context_id;
-	register u32 r2 asm("r2") = arg1;
-	register u32 r3 asm("r3") = arg2;
+	register unsigned long r0 asm("r0") = SCM_ATOMIC(svc, cmd, 2);
+	register unsigned long r1 asm("r1") = (uintptr_t)&context_id;
+	register unsigned long r2 asm("r2") = arg1;
+	register unsigned long r3 asm("r3") = arg2;
 
 	asm volatile(
 		__asmeq("%0", R0_STR)
