@@ -250,6 +250,8 @@ static int __init evdi_init(void)
 	int i;
 
 	EVDI_INFO("Initialising logging on level %u\n", evdi_loglevel);
+	EVDI_INFO("Atomic driver:%s",
+		(driver.driver_features & DRIVER_ATOMIC) ? "yes" : "no");
 	evdi_context.root_dev = root_device_register("evdi");
 	if (!PTR_RET(evdi_context.root_dev))
 		for (i = 0; i < ARRAY_SIZE(evdi_device_attributes); i++) {
@@ -279,3 +281,9 @@ static void __exit evdi_exit(void)
 
 module_init(evdi_init);
 module_exit(evdi_exit);
+
+bool evdi_enable_cursor_blending __read_mostly = true;
+module_param_named(enable_cursor_blending,
+		   evdi_enable_cursor_blending, bool, 0644);
+MODULE_PARM_DESC(enable_cursor_blending, "Enables cursor compositing on user supplied framebuffer via EVDI_GRABPIX ioctl. (default: true)");
+
