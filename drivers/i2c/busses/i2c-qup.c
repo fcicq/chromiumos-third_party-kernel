@@ -343,9 +343,12 @@ static int qup_i2c_write_one(struct qup_i2c_dev *qup, struct i2c_msg *msg)
 		}
 
 		if (qup->bus_err || qup->qup_err) {
-			if (qup->bus_err & QUP_I2C_NACK_FLAG)
+			if (qup->bus_err & QUP_I2C_NACK_FLAG) {
 				dev_err(qup->dev, "NACK from %x\n", msg->addr);
-			ret = -EIO;
+				ret = -EAGAIN;
+			} else {
+				ret = -EIO;
+			}
 			goto err;
 		}
 	} while (qup->pos < msg->len);
@@ -482,9 +485,12 @@ static int qup_i2c_read_one(struct qup_i2c_dev *qup, struct i2c_msg *msg)
 		}
 
 		if (qup->bus_err || qup->qup_err) {
-			if (qup->bus_err & QUP_I2C_NACK_FLAG)
+			if (qup->bus_err & QUP_I2C_NACK_FLAG) {
 				dev_err(qup->dev, "NACK from %x\n", msg->addr);
-			ret = -EIO;
+				ret = -EAGAIN;
+			} else {
+				ret = -EIO;
+			}
 			goto err;
 		}
 
@@ -700,6 +706,7 @@ static int qup_i2c_probe(struct platform_device *pdev)
 	dev_dbg(qup->dev, "IN:block:%d, fifo:%d, OUT:block:%d, fifo:%d\n",
 		qup->in_blk_sz, qup->in_fifo_sz,
 		qup->out_blk_sz, qup->out_fifo_sz);
+	qup->adap.retries = 3;
 
 	pm_runtime_set_autosuspend_delay(qup->dev, MSEC_PER_SEC);
 	pm_runtime_use_autosuspend(qup->dev);
