@@ -423,6 +423,35 @@ static ssize_t ieee80211_if_parse_uapsd_max_sp_len(
 }
 IEEE80211_IF_FILE_RW(uapsd_max_sp_len);
 
+static ssize_t ieee80211_if_fmt_meshlink_rssi_threshold(
+	const struct ieee80211_sub_if_data *sdata, char *buf, int buflen)
+{
+	const struct ieee80211_if_mesh *ifmsch = &sdata->u.mesh;
+
+	return snprintf(buf, buflen, "%d\n",
+			ifmsch->mshcfg.meshlink_rssi_threshold);
+}
+
+static ssize_t ieee80211_if_parse_meshlink_rssi_threshold(
+	struct ieee80211_sub_if_data *sdata, const char *buf, int buflen)
+{
+	struct ieee80211_if_mesh *ifmsch = &sdata->u.mesh;
+	long val;
+	int ret;
+
+	ret = kstrtol(buf, 0, &val);
+	if (ret)
+		return -EINVAL;
+
+	if (val < -255 || val >  0)
+		return -ERANGE;
+
+	ifmsch->mshcfg.meshlink_rssi_threshold = (int)val;
+	return buflen;
+}
+
+IEEE80211_IF_FILE_RW(meshlink_rssi_threshold);
+
 /* AP attributes */
 IEEE80211_IF_FILE(num_mcast_sta, u.ap.num_mcast_sta, ATOMIC);
 IEEE80211_IF_FILE(num_sta_ps, u.ap.ps.num_sta_ps, ATOMIC);
@@ -683,6 +712,7 @@ static void add_mesh_config(struct ieee80211_sub_if_data *sdata)
 	MESHPARAMS_ADD(dot11MeshForwarding);
 	MESHPARAMS_ADD(dot11MeshGateAnnouncementProtocol);
 	MESHPARAMS_ADD(rssi_threshold);
+	MESHPARAMS_ADD(meshlink_rssi_threshold);
 	MESHPARAMS_ADD(ht_opmode);
 	MESHPARAMS_ADD(dot11MeshHWMPactivePathToRootTimeout);
 	MESHPARAMS_ADD(dot11MeshHWMProotInterval);
