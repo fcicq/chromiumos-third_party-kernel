@@ -2502,6 +2502,49 @@ static int i915_guc_log_dump(struct seq_file *m, void *data)
 	return 0;
 }
 
+static const char *psr2_live_status(u32 val)
+{
+	static const char * const live_status[] = {
+		"IDLE",
+		"CAPTURE",
+		"CAPTURE_FS",
+		"SLEEP",
+		"BUFON_FW",
+		"ML_UP",
+		"SU_STANDBY",
+		"FAST_SLEEP",
+		"DEEP_SLEEP",
+		"BUF_ON",
+		"TG_ON"
+	};
+
+	val = (val & EDP_PSR2_STATUS_STATE_MASK) >> EDP_PSR2_STATUS_STATE_SHIFT;
+	if (val < ARRAY_SIZE(live_status))
+		return live_status[val];
+
+	return "unknown";
+}
+
+static const char *psr_sink_status(u8 val)
+{
+	static const char * const sink_status[] = {
+		"inactive",
+		"transition to active, capture and display",
+		"active, display from RFB",
+		"active, capture and display on sink device timings",
+		"transition to inactive, capture and display, timing re-sync",
+		"reserved",
+		"reserved",
+		"sink internal error"
+	};
+
+	val &= DP_PSR_SINK_STATE_MASK;
+	if (val < ARRAY_SIZE(sink_status))
+		return sink_status[val];
+
+	return "unknown";
+}
+
 static int i915_edp_psr_status(struct seq_file *m, void *data)
 {
 	struct drm_i915_private *dev_priv = node_to_i915(m->private);
@@ -2509,26 +2552,29 @@ static int i915_edp_psr_status(struct seq_file *m, void *data)
 	u32 stat[3];
 	enum pipe pipe;
 	bool enabled = false;
+	bool sink_support;
 
 	if (!HAS_PSR(dev_priv)) {
 		seq_puts(m, "PSR not supported\n");
 		return 0;
 	}
 
+	sink_support = dev_priv->psr.sink_support;
+	seq_printf(m, "Sink_Support: %s\n", yesno(sink_support));
+	if (!sink_support)
+		return 0;
+
 	intel_runtime_pm_get(dev_priv);
 
 	mutex_lock(&dev_priv->psr.lock);
-	seq_printf(m, "Sink_Support: %s\n", yesno(dev_priv->psr.sink_support));
-	seq_printf(m, "Source_OK: %s\n", yesno(dev_priv->psr.source_ok));
 	seq_printf(m, "Enabled: %s\n", yesno((bool)dev_priv->psr.enabled));
-	seq_printf(m, "Active: %s\n", yesno(dev_priv->psr.active));
 	seq_printf(m, "Busy frontbuffer bits: 0x%03x\n",
 		   dev_priv->psr.busy_frontbuffer_bits);
 	seq_printf(m, "Re-enable work scheduled: %s\n",
 		   yesno(work_busy(&dev_priv->psr.work.work)));
 
 	if (HAS_DDI(dev_priv)) {
-		if (dev_priv->psr.psr2_support)
+		if (dev_priv->psr.psr2_enabled)
 			enabled = I915_READ(EDP_PSR2_CTL) & EDP_PSR2_ENABLE;
 		else
 			enabled = I915_READ(EDP_PSR_CTL) & EDP_PSR_ENABLE;
@@ -2576,29 +2622,20 @@ static int i915_edp_psr_status(struct seq_file *m, void *data)
 
 		seq_printf(m, "Performance_Counter: %u\n", psrperf);
 	}
-	if (dev_priv->psr.psr2_support) {
-		static const char * const live_status[] = {
-							"IDLE",
-							"CAPTURE",
-							"CAPTURE_FS",
-							"SLEEP",
-							"BUFON_FW",
-							"ML_UP",
-							"SU_STANDBY",
-							"FAST_SLEEP",
-							"DEEP_SLEEP",
-							"BUF_ON",
-							"TG_ON" };
-		u8 pos = (I915_READ(EDP_PSR2_STATUS_CTL) &
-			EDP_PSR2_STATUS_STATE_MASK) >>
-			EDP_PSR2_STATUS_STATE_SHIFT;
+	if (dev_priv->psr.psr2_enabled) {
+		u32 psr2 = I915_READ(EDP_PSR2_STATUS);
 
-		seq_printf(m, "PSR2_STATUS_EDP: %x\n",
-			I915_READ(EDP_PSR2_STATUS_CTL));
+		seq_printf(m, "EDP_PSR2_STATUS: %x [%s]\n",
+			   psr2, psr2_live_status(psr2));
+	}
 
-		if (pos < ARRAY_SIZE(live_status))
-		seq_printf(m, "PSR2 live state %s\n",
-			live_status[pos]);
+	if (dev_priv->psr.enabled) {
+		struct drm_dp_aux *aux = &dev_priv->psr.enabled->aux;
+		u8 val;
+
+		if (drm_dp_dpcd_readb(aux, DP_PSR_STATUS, &val) == 1)
+			seq_printf(m, "Sink PSR status: 0x%x [%s]\n", val,
+				   psr_sink_status(val));
 	}
 	mutex_unlock(&dev_priv->psr.lock);
 

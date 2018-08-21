@@ -321,7 +321,7 @@ static struct bpf_verifier_ops kprobe_prog_ops = {
 	.is_valid_access = kprobe_prog_is_valid_access,
 };
 
-static struct bpf_prog_type_list kprobe_tl = {
+static struct bpf_prog_type_list kprobe_tl __ro_after_init = {
 	.ops	= &kprobe_prog_ops,
 	.type	= BPF_PROG_TYPE_KPROBE,
 };

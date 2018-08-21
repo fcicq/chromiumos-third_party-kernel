@@ -347,6 +347,28 @@ enum port {
 };
 #define port_name(p) ((p) + 'A')
 
+/*
+ * Ports identifier referenced from other drivers.
+ * Expected to remain stable over time
+ */
+static inline const char *port_identifier(enum port port)
+{
+	switch (port) {
+	case PORT_A:
+		return "Port A";
+	case PORT_B:
+		return "Port B";
+	case PORT_C:
+		return "Port C";
+	case PORT_D:
+		return "Port D";
+	case PORT_E:
+		return "Port E";
+	default:
+		return "<invalid>";
+	}
+}
+
 #define I915_NUM_PHYS_VLV 2
 
 enum dpio_channel {
@@ -683,11 +705,6 @@ struct drm_i915_display_funcs {
 	void (*audio_codec_disable)(struct intel_encoder *encoder);
 	void (*fdi_link_train)(struct drm_crtc *crtc);
 	void (*init_clock_gating)(struct drm_i915_private *dev_priv);
-	int (*queue_flip)(struct drm_device *dev, struct drm_crtc *crtc,
-			  struct drm_framebuffer *fb,
-			  struct drm_i915_gem_object *obj,
-			  struct drm_i915_gem_request *req,
-			  uint32_t flags);
 	void (*hpd_irq_setup)(struct drm_i915_private *dev_priv);
 	/* clock updates for mode set */
 	/* cursor updates */
@@ -837,7 +854,8 @@ struct intel_csr {
 	func(cursor_needs_physical); \
 	func(hws_needs_physical); \
 	func(overlay_needs_physical); \
-	func(supports_tv)
+	func(supports_tv); \
+	func(has_ipc);
 
 /* Keep in gen based order, and chronological order within a gen */
 enum intel_platform {
@@ -1168,18 +1186,25 @@ struct i915_drrs {
 struct i915_psr {
 	struct mutex lock;
 	bool sink_support;
-	bool source_ok;
 	struct intel_dp *enabled;
 	bool active;
 	struct delayed_work work;
 	unsigned busy_frontbuffer_bits;
-	bool psr2_support;
-	bool aux_frame_sync;
+	bool sink_psr2_support;
 	bool link_standby;
-	bool y_cord_support;
 	bool colorimetry_support;
 	bool alpm;
 	bool has_hw_tracking;
+	bool psr2_enabled;
+	u8 sink_sync_latency;
+
+	void (*enable_source)(struct intel_dp *,
+			      const struct intel_crtc_state *);
+	void (*disable_source)(struct intel_dp *,
+			       const struct intel_crtc_state *);
+	void (*enable_sink)(struct intel_dp *);
+	void (*activate)(struct intel_dp *);
+	void (*setup_vsc)(struct intel_dp *, const struct intel_crtc_state *);
 };
 
 enum intel_pch {
@@ -2871,6 +2896,8 @@ intel_info(const struct drm_i915_private *dev_priv)
 #define HAS_RUNTIME_PM(dev_priv) ((dev_priv)->info.has_runtime_pm)
 #define HAS_64BIT_RELOC(dev_priv) ((dev_priv)->info.has_64bit_reloc)
 
+#define HAS_IPC(dev_priv)		 ((dev_priv)->info.has_ipc)
+
 /*
  * For now, anything with a GuC requires uCode loading, and then supports
  * command submission once loaded. But these are logically independent
@@ -3047,11 +3074,23 @@ int intel_wait_for_register(struct drm_i915_private *dev_priv,
 	return __intel_wait_for_register(dev_priv, reg, mask, value, timeout_ms,
 					 NULL);
 }
+int __intel_wait_for_register_fw(struct drm_i915_private *dev_priv,
+				 i915_reg_t reg,
+				 u32 mask,
+				 u32 value,
+				 unsigned int fast_timeout_us,
+				 unsigned int slow_timeout_ms,
+				 u32 *out_value);
+static inline
 int intel_wait_for_register_fw(struct drm_i915_private *dev_priv,
 			       i915_reg_t reg,
-			       const u32 mask,
-			       const u32 value,
-			       const unsigned long timeout_ms);
+			       u32 mask,
+			       u32 value,
+			       unsigned int timeout_ms)
+{
+	return __intel_wait_for_register_fw(dev_priv, reg, mask, value,
+					    2, timeout_ms, NULL);
+}
 
 static inline bool intel_vgpu_active(struct drm_i915_private *dev_priv)
 {

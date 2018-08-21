@@ -52,6 +52,11 @@ void foo(void)
 	DEFINE(TSS_sysenter_sp0, offsetof(struct tss_struct, x86_tss.sp0) -
 	       offsetofend(struct tss_struct, SYSENTER_stack));
 
+#ifdef CONFIG_CC_STACKPROTECTOR
+	BLANK();
+	OFFSET(stack_canary_offset, stack_canary, canary);
+#endif
+
 #if defined(CONFIG_LGUEST) || defined(CONFIG_LGUEST_GUEST) || defined(CONFIG_LGUEST_MODULE)
 	BLANK();
 	OFFSET(LGUEST_DATA_irq_enabled, lguest_data, irq_enabled);

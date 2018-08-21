@@ -36,7 +36,7 @@ static int esdfs_name_match(struct dir_context *ctx, const char *name, int namel
 }
 
 int esdfs_lookup_nocase(struct path *parent,
-		struct qstr *name,
+		const struct qstr *name,
 		struct path *path) {
 	int err = 0;
 	/* Use vfs_path_lookup to check if the dentry exists or not */
@@ -179,6 +179,7 @@ struct inode *esdfs_iget(struct super_block *sb, struct inode *lower_inode,
 	info->tree = ESDFS_TREE_NONE;
 	info->userid = 0;
 	info->appid = 0;
+	info->under_obb = false;
 
 	inode->i_ino = lower_inode->i_ino;
 	esdfs_set_lower_inode(inode, lower_inode);
@@ -295,7 +296,7 @@ int esdfs_interpose(struct dentry *dentry, struct super_block *sb,
 static struct dentry *__esdfs_lookup(struct dentry *dentry,
 				     unsigned int flags,
 				     struct path *lower_parent_path,
-				     uint32_t id)
+				     uint32_t id, bool use_dl)
 {
 	int err = 0;
 	struct vfsmount *lower_dir_mnt;
@@ -312,14 +313,28 @@ static struct dentry *__esdfs_lookup(struct dentry *dentry,
 	if (IS_ROOT(dentry))
 		goto out;
 
-	name = dentry->d_name.name;
+	if (use_dl)
+		name = ESDFS_SB(dentry->d_sb)->dl_name.name;
+	else
+		name = dentry->d_name.name;
+
+	dname.name = name;
+	dname.len = strlen(name);
 
 	/* now start the actual lookup procedure */
 	lower_dir_dentry = lower_parent_path->dentry;
 	lower_dir_mnt = lower_parent_path->mnt;
 
-	err = esdfs_lookup_nocase(lower_parent_path,
-			&dentry->d_name, &lower_path);
+	/* if the access is to the Download directory, redirect
+	 * to lower path.
+	 */
+	if (use_dl) {
+		pathcpy(&lower_path, &ESDFS_SB(dentry->d_sb)->dl_path);
+		path_get(&ESDFS_SB(dentry->d_sb)->dl_path);
+	} else {
+		err = esdfs_lookup_nocase(lower_parent_path, &dname,
+					  &lower_path);
+	}
 
 	/* no error: handle positive dentries */
 	if (!err) {
@@ -343,9 +358,6 @@ static struct dentry *__esdfs_lookup(struct dentry *dentry,
 		goto out;
 
 	/* instatiate a new negative dentry */
-	dname.name = name;
-	dname.len = strlen(name);
-
 	/* See if the low-level filesystem might want
 	 * to use its own hash */
 	lower_dentry = d_hash_and_lookup(lower_dir_dentry, &dname);
@@ -385,11 +397,9 @@ struct dentry *esdfs_lookup(struct inode *dir, struct dentry *dentry,
 	int err;
 	struct dentry *ret, *real_parent, *parent;
 	struct path lower_parent_path, old_lower_parent_path;
-	const struct cred *creds =
-			esdfs_override_creds(ESDFS_SB(dir->i_sb),
-					ESDFS_I(dir), NULL);
-	if (!creds)
-		return NULL;
+	const struct cred *creds;
+	struct esdfs_sb_info *sbi = ESDFS_SB(dir->i_sb);
+	int use_dl;
 
 	parent = real_parent = dget_parent(dentry);
 
@@ -400,7 +410,7 @@ struct dentry *esdfs_lookup(struct inode *dir, struct dentry *dentry,
 		goto out;
 	}
 
-	if (ESDFS_DERIVE_PERMS(ESDFS_SB(dir->i_sb))) {
+	if (ESDFS_DERIVE_PERMS(sbi)) {
 		err = esdfs_derived_lookup(dentry, &parent);
 		if (err) {
 			ret = ERR_PTR(err);
@@ -410,10 +420,21 @@ struct dentry *esdfs_lookup(struct inode *dir, struct dentry *dentry,
 
 	esdfs_get_lower_path(parent, &lower_parent_path);
 
-	ret = __esdfs_lookup(dentry, flags, &lower_parent_path,
-					ESDFS_I(dir)->userid);
-	if (IS_ERR(ret))
+	creds =	esdfs_override_creds(ESDFS_SB(dir->i_sb),
+			ESDFS_I(d_inode(parent)), NULL);
+	if (!creds) {
+		ret = ERR_PTR(-EINVAL);
 		goto out_put;
+	}
+
+	/* Check if the lookup corresponds to the Download directory */
+	use_dl = esdfs_is_dl_lookup(dentry, parent);
+
+	ret = __esdfs_lookup(dentry, flags, &lower_parent_path,
+					ESDFS_I(dir)->userid,
+					use_dl);
+	if (IS_ERR(ret))
+		goto out_cred;
 	if (ret)
 		dentry = ret;
 	if (dentry->d_inode) {
@@ -435,13 +456,13 @@ struct dentry *esdfs_lookup(struct inode *dir, struct dentry *dentry,
 		esdfs_put_lower_path(real_parent, &old_lower_parent_path);
 		esdfs_derive_mkdir_contents(dentry);
 	}
+out_cred:
+	esdfs_revert_creds(creds, NULL);
 out_put:
 	esdfs_put_lower_path(parent, &lower_parent_path);
 out:
 	dput(parent);
 	if (parent != real_parent)
 		dput(real_parent);
-
-	esdfs_revert_creds(creds, NULL);
 	return ret;
 }

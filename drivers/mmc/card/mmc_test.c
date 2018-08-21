@@ -185,84 +185,6 @@ static int mmc_test_set_blksize(struct mmc_test_card *test, unsigned size)
 }
 
 /*
- * Fill in the mmc_request structure given a set of transfer parameters.
- */
-static void mmc_test_prepare_mrq(struct mmc_test_card *test,
-	struct mmc_request *mrq, struct scatterlist *sg, unsigned sg_len,
-	unsigned dev_addr, unsigned blocks, unsigned blksz, int write)
-{
-	BUG_ON(!mrq || !mrq->cmd || !mrq->data || !mrq->stop);
-
-	if (blocks > 1) {
-		mrq->cmd->opcode = write ?
-			MMC_WRITE_MULTIPLE_BLOCK : MMC_READ_MULTIPLE_BLOCK;
-	} else {
-		mrq->cmd->opcode = write ?
-			MMC_WRITE_BLOCK : MMC_READ_SINGLE_BLOCK;
-	}
-
-	mrq->cmd->arg = dev_addr;
-	if (!mmc_card_blockaddr(test->card))
-		mrq->cmd->arg <<= 9;
-
-	mrq->cmd->flags = MMC_RSP_R1 | MMC_CMD_ADTC;
-
-	if (blocks == 1)
-		mrq->stop = NULL;
-	else {
-		mrq->stop->opcode = MMC_STOP_TRANSMISSION;
-		mrq->stop->arg = 0;
-		mrq->stop->flags = MMC_RSP_R1B | MMC_CMD_AC;
-	}
-
-	mrq->data->blksz = blksz;
-	mrq->data->blocks = blocks;
-	mrq->data->flags = write ? MMC_DATA_WRITE : MMC_DATA_READ;
-	mrq->data->sg = sg;
-	mrq->data->sg_len = sg_len;
-
-	mmc_set_data_timeout(mrq->data, test->card);
-}
-
-static int mmc_test_busy(struct mmc_command *cmd)
-{
-	return !(cmd->resp[0] & R1_READY_FOR_DATA) ||
-		(R1_CURRENT_STATE(cmd->resp[0]) == R1_STATE_PRG);
-}
-
-/*
- * Wait for the card to finish the busy state
- */
-static int mmc_test_wait_busy(struct mmc_test_card *test)
-{
-	int ret, busy;
-	struct mmc_command cmd = {0};
-
-	busy = 0;
-	do {
-		memset(&cmd, 0, sizeof(struct mmc_command));
-
-		cmd.opcode = MMC_SEND_STATUS;
-		cmd.arg = test->card->rca << 16;
-		cmd.flags = MMC_RSP_R1 | MMC_CMD_AC;
-
-		ret = mmc_wait_for_cmd(test->card->host, &cmd, 0);
-		if (ret)
-			break;
-
-		if (!busy && mmc_test_busy(&cmd)) {
-			busy = 1;
-			if (test->card->host->caps & MMC_CAP_WAIT_WHILE_BUSY)
-				pr_info("%s: Warning: Host did not "
-					"wait for busy state to end.\n",
-					mmc_hostname(test->card->host));
-		}
-	} while (mmc_test_busy(&cmd));
-
-	return ret;
-}
-
-/*
  * Transfer a single sector of kernel addressable data
  */
 static int mmc_test_buffer_transfer(struct mmc_test_card *test,
@@ -281,7 +203,7 @@ static int mmc_test_buffer_transfer(struct mmc_test_card *test,
 
 	sg_init_one(&sg, buffer, blksz);
 
-	mmc_test_prepare_mrq(test, &mrq, &sg, 1, addr, 1, blksz, write);
+	mmc_prepare_mrq(test->card, &mrq, &sg, 1, addr, 1, blksz, write);
 
 	mmc_wait_for_req(test->card->host, &mrq);
 
@@ -290,7 +212,7 @@ static int mmc_test_buffer_transfer(struct mmc_test_card *test,
 	if (data.error)
 		return data.error;
 
-	return mmc_test_wait_busy(test);
+	return mmc_wait_busy(test->card);
 }
 
 static void mmc_test_free_mem(struct mmc_test_mem *mem)
@@ -681,6 +603,17 @@ static void mmc_test_prepare_broken_mrq(struct mmc_test_card *test,
 	}
 }
 
+/* Convert error from mmc stack in test error. */
+static int mmc_test_check_err(int ret)
+{
+	if (ret == -EPERM)
+		return RESULT_FAIL;
+	if (ret == -EINVAL)
+		return RESULT_UNSUP_HOST;
+
+	return ret;
+}
+
 /*
  * Checks that a normal transfer didn't have any errors
  */
@@ -689,24 +622,8 @@ static int mmc_test_check_result(struct mmc_test_card *test,
 {
 	int ret;
 
-	BUG_ON(!mrq || !mrq->cmd || !mrq->data);
-
-	ret = 0;
-
-	if (!ret && mrq->cmd->error)
-		ret = mrq->cmd->error;
-	if (!ret && mrq->data->error)
-		ret = mrq->data->error;
-	if (!ret && mrq->stop && mrq->stop->error)
-		ret = mrq->stop->error;
-	if (!ret && mrq->data->bytes_xfered !=
-		mrq->data->blocks * mrq->data->blksz)
-		ret = RESULT_FAIL;
-
-	if (ret == -EINVAL)
-		ret = RESULT_UNSUP_HOST;
-
-	return ret;
+	ret = mmc_check_result(mrq);
+	return mmc_test_check_err(ret);
 }
 
 static int mmc_test_check_result_async(struct mmc_card *card,
@@ -715,7 +632,7 @@ static int mmc_test_check_result_async(struct mmc_card *card,
 	struct mmc_test_async_req *test_async =
 		container_of(areq, struct mmc_test_async_req, areq);
 
-	mmc_test_wait_busy(test_async->test);
+	mmc_wait_busy(test_async->test->card);
 
 	return mmc_test_check_result(test_async->test, areq->mrq);
 }
@@ -748,10 +665,7 @@ static int mmc_test_check_broken_result(struct mmc_test_card *test,
 			ret = RESULT_FAIL;
 	}
 
-	if (ret == -EINVAL)
-		ret = RESULT_UNSUP_HOST;
-
-	return ret;
+	return mmc_test_check_err(ret);
 }
 
 /*
@@ -805,7 +719,7 @@ static int mmc_test_nonblock_transfer(struct mmc_test_card *test,
 	other_areq->err_check = mmc_test_check_result_async;
 
 	for (i = 0; i < count; i++) {
-		mmc_test_prepare_mrq(test, cur_areq->mrq, sg, sg_len, dev_addr,
+		mmc_prepare_mrq(test->card, cur_areq->mrq, sg, sg_len, dev_addr,
 				     blocks, blksz, write);
 		done_areq = mmc_start_req(test->card->host, cur_areq, &ret);
 
@@ -838,23 +752,11 @@ static int mmc_test_simple_transfer(struct mmc_test_card *test,
 	struct scatterlist *sg, unsigned sg_len, unsigned dev_addr,
 	unsigned blocks, unsigned blksz, int write)
 {
-	struct mmc_request mrq = {0};
-	struct mmc_command cmd = {0};
-	struct mmc_command stop = {0};
-	struct mmc_data data = {0};
+	int ret;
 
-	mrq.cmd = &cmd;
-	mrq.data = &data;
-	mrq.stop = &stop;
-
-	mmc_test_prepare_mrq(test, &mrq, sg, sg_len, dev_addr,
-		blocks, blksz, write);
-
-	mmc_wait_for_req(test->card->host, &mrq);
-
-	mmc_test_wait_busy(test);
-
-	return mmc_test_check_result(test, &mrq);
+	ret = mmc_simple_transfer(test->card, sg, sg_len, dev_addr,
+				  blocks, blksz, write);
+	return mmc_test_check_err(ret);
 }
 
 /*
@@ -876,12 +778,12 @@ static int mmc_test_broken_transfer(struct mmc_test_card *test,
 
 	sg_init_one(&sg, test->buffer, blocks * blksz);
 
-	mmc_test_prepare_mrq(test, &mrq, &sg, 1, 0, blocks, blksz, write);
+	mmc_prepare_mrq(test->card, &mrq, &sg, 1, 0, blocks, blksz, write);
 	mmc_test_prepare_broken_mrq(test, &mrq, write);
 
 	mmc_wait_for_req(test->card->host, &mrq);
 
-	mmc_test_wait_busy(test);
+	mmc_wait_busy(test->card);
 
 	return mmc_test_check_broken_result(test, &mrq);
 }
