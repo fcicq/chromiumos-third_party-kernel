@@ -158,6 +158,8 @@ static void dpu_mdss_destroy(struct drm_device *dev)
 	struct dpu_mdss *dpu_mdss = to_dpu_mdss(priv->mdss);
 	struct dss_module_power *mp = &dpu_mdss->mp;
 
+	devm_free_irq(&pdev->dev, platform_get_irq(pdev, 0), dpu_mdss);
+
 	_dpu_mdss_irq_domain_fini(dpu_mdss);
 
 	msm_dss_put_clk(mp->clk_config, mp->num_clk);
