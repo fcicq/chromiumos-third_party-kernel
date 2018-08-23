@@ -7500,13 +7500,6 @@ int ath10k_mac_register(struct ath10k *ar)
 	ar->hw->wiphy->cipher_suites = cipher_suites;
 	ar->hw->wiphy->n_cipher_suites = ARRAY_SIZE(cipher_suites);
 
-	/* ChromiumOS wpa_supplicant sends the background scan req. with
-	 * NL80211_SCAN_FLAG_LOW_PRIORITY enabled. ath10k scans using hw_scan
-	 * (firmware scan implementation. Advertise the firmware can handle the
-	 * scan requests and perform the scan w/o influencing the latencies.
-	 */
-	ar->hw->wiphy->features |= NL80211_FEATURE_LOW_PRIORITY_SCAN;
-
 	ret = ieee80211_register_hw(ar->hw);
 	if (ret) {
 		ath10k_err(ar, "failed to register ieee80211: %d\n", ret);
