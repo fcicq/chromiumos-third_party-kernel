@@ -935,6 +935,13 @@ static void qcom_qmp_phy_configure(void __iomem *base,
 	}
 }
 
+		regulator_bulk_disable(num, qmp->vregs);
+		return ret;
+	}
+
+	return 0;
+}
+
 static int qcom_qmp_phy_com_init(struct qcom_qmp *qmp)
 {
 	const struct qmp_phy_cfg *cfg = qmp->cfg;
@@ -1169,6 +1176,8 @@ static int qcom_qmp_phy_exit(struct phy *phy)
 	struct qmp_phy *qphy = phy_get_drvdata(phy);
 	struct qcom_qmp *qmp = qphy->qmp;
 	const struct qmp_phy_cfg *cfg = qmp->cfg;
+
+	clk_disable_unprepare(qphy->pipe_clk);
 
 	clk_disable_unprepare(qphy->pipe_clk);
 
