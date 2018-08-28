@@ -1462,20 +1462,11 @@ static int arm_smmu_add_device(struct device *dev)
 
 	iommu_device_link(&smmu->iommu, dev);
 
-	if (pm_runtime_enabled(smmu->dev) &&
-	    !device_link_add(dev, smmu->dev,
-			     DL_FLAG_PM_RUNTIME | DL_FLAG_AUTOREMOVE)) {
-		dev_err(smmu->dev, "Unable to add link to the consumer %s\n",
-			dev_name(dev));
-		ret = -ENODEV;
-		goto out_unlink;
-	}
+	device_link_add(dev, smmu->dev,
+			DL_FLAG_PM_RUNTIME | DL_FLAG_AUTOREMOVE_SUPPLIER);
 
 	return 0;
 
-out_unlink:
-	iommu_device_unlink(&smmu->iommu, dev);
-	arm_smmu_master_free_smes(fwspec);
 out_cfg_free:
 	kfree(cfg);
 out_free:
@@ -2204,27 +2195,12 @@ static int arm_smmu_device_probe(struct platform_device *pdev)
 		smmu->irqs[i] = irq;
 	}
 
-	platform_set_drvdata(pdev, smmu);
-
 	err = devm_clk_bulk_get(smmu->dev, smmu->num_clks, smmu->clks);
 	if (err)
 		return err;
 
-	err = clk_bulk_prepare(smmu->num_clks, smmu->clks);
+	err = clk_bulk_prepare_enable(smmu->num_clks, smmu->clks);
 	if (err)
-		return err;
-
-	/*
-	 * We want to avoid touching dev->power.lock in fastpaths unless
-	 * it's really going to do something useful - pm_runtime_enabled()
-	 * can serve as an ideal proxy for that decision. So, conditionally
-	 * enable pm_runtime.
-	 */
-	if (dev->pm_domain)
-		pm_runtime_enable(dev);
-
-	err = arm_smmu_rpm_get(smmu);
-	if (err < 0)
 		return err;
 
 	err = arm_smmu_device_cfg_probe(smmu);
@@ -2272,10 +2248,21 @@ static int arm_smmu_device_probe(struct platform_device *pdev)
 		return err;
 	}
 
+	platform_set_drvdata(pdev, smmu);
 	arm_smmu_device_reset(smmu);
 	arm_smmu_test_smr_masks(smmu);
 
-	arm_smmu_rpm_put(smmu);
+	/*
+	 * We want to avoid touching dev->power.lock in fastpaths unless
+	 * it's really going to do something useful - pm_runtime_enabled()
+	 * can serve as an ideal proxy for that decision. So, conditionally
+	 * enable pm_runtime.
+	 */
+	if (dev->pm_domain) {
+		pm_runtime_set_active(dev);
+		pm_runtime_enable(dev);
+	}
+
 
 	/*
 	 * For ACPI and generic DT bindings, an SMMU will be probed before
@@ -2318,7 +2305,9 @@ static int arm_smmu_device_remove(struct platform_device *pdev)
 	arm_smmu_rpm_put(smmu);
 
 	if (pm_runtime_enabled(smmu->dev))
-		pm_runtime_disable(smmu->dev);
+		pm_runtime_force_suspend(smmu->dev);
+	else
+		clk_bulk_disable(smmu->num_clks, smmu->clks);
 
 	clk_bulk_unprepare(smmu->num_clks, smmu->clks);
 
@@ -2330,19 +2319,18 @@ static void arm_smmu_device_shutdown(struct platform_device *pdev)
 	arm_smmu_device_remove(pdev);
 }
 
-static int __maybe_unused arm_smmu_pm_resume(struct device *dev)
-{
-	struct arm_smmu_device *smmu = dev_get_drvdata(dev);
-
-	arm_smmu_device_reset(smmu);
-	return 0;
-}
-
 static int __maybe_unused arm_smmu_runtime_resume(struct device *dev)
 {
 	struct arm_smmu_device *smmu = dev_get_drvdata(dev);
+	int ret;
 
-	return clk_bulk_enable(smmu->num_clks, smmu->clks);
+	ret = clk_bulk_enable(smmu->num_clks, smmu->clks);
+	if (ret)
+		return ret;
+
+	arm_smmu_device_reset(smmu);
+
+	return 0;
 }
 
 static int __maybe_unused arm_smmu_runtime_suspend(struct device *dev)
@@ -2354,8 +2342,24 @@ static int __maybe_unused arm_smmu_runtime_suspend(struct device *dev)
 	return 0;
 }
 
+static int __maybe_unused arm_smmu_pm_resume(struct device *dev)
+{
+	if (pm_runtime_suspended(dev))
+		return 0;
+
+	return arm_smmu_runtime_resume(dev);
+}
+
+static int __maybe_unused arm_smmu_pm_suspend(struct device *dev)
+{
+	if (pm_runtime_suspended(dev))
+		return 0;
+
+	return arm_smmu_runtime_suspend(dev);
+}
+
 static const struct dev_pm_ops arm_smmu_pm_ops = {
-	SET_SYSTEM_SLEEP_PM_OPS(NULL, arm_smmu_pm_resume)
+	SET_SYSTEM_SLEEP_PM_OPS(arm_smmu_pm_suspend, arm_smmu_pm_resume)
 	SET_RUNTIME_PM_OPS(arm_smmu_runtime_suspend,
 			   arm_smmu_runtime_resume, NULL)
 };
