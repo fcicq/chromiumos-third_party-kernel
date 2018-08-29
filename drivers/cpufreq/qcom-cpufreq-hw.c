@@ -3,6 +3,7 @@
  * Copyright (c) 2018, The Linux Foundation. All rights reserved.
  */
 
+#include <linux/cpu_cooling.h>
 #include <linux/cpufreq.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
@@ -30,6 +31,7 @@ struct cpufreq_qcom {
 	cpumask_t related_cpus;
 	unsigned int max_cores;
 	unsigned long xo_rate;
+	struct thermal_cooling_device *cdev;
 };
 
 static const u16 cpufreq_qcom_std_offsets[REG_ARRAY_SIZE] = {
@@ -104,6 +106,37 @@ static int qcom_cpufreq_hw_cpu_init(struct cpufreq_policy *policy)
 	return 0;
 }
 
+static void qcom_cpufreq_hw_ready(struct cpufreq_policy *policy)
+{
+	int cpu = policy->cpu;
+	struct cpufreq_qcom *c;
+	struct device_node *np;
+	u32 power_coefficient = 0;	// TODO: make this something?????
+
+	c = qcom_freq_domain_map[cpu];
+	if (!c) {
+		pr_err("No scaling support for CPU%d\n", cpu);
+		return;
+	}
+
+	np = of_cpu_device_node_get(cpu);
+	if (WARN_ON(!np))
+		return;
+
+	if (!of_find_property(np, "#cooling-cells", NULL))
+		return;
+
+	c->cdev = of_cpufreq_power_cooling_register(np,
+				    policy, power_coefficient, NULL);
+	if (IS_ERR(c->cdev)) {
+		pr_err("running cpufreq without cooling device for CPU%d: %ld\n",
+		       cpu, PTR_ERR(c->cdev));
+		c->cdev = NULL;
+	}
+
+	of_node_put(np);
+}
+
 static struct freq_attr *qcom_cpufreq_hw_attr[] = {
 	&cpufreq_freq_attr_scaling_available_freqs,
 	&cpufreq_freq_attr_scaling_boost_freqs,
@@ -118,6 +151,7 @@ static struct cpufreq_driver cpufreq_qcom_hw_driver = {
 	.get		= qcom_cpufreq_hw_get,
 	.init		= qcom_cpufreq_hw_cpu_init,
 	.fast_switch    = qcom_cpufreq_hw_fast_switch,
+	.ready		= qcom_cpufreq_hw_ready,
 	.name		= "qcom-cpufreq-hw",
 	.attr		= qcom_cpufreq_hw_attr,
 	.boost_enabled	= true,
@@ -240,6 +274,7 @@ static int qcom_cpu_resources_init(struct platform_device *pdev,
 	if (ret) {
 		dev_err(dev, "%s failed to get related CPUs\n", np->name);
 		return ret;
+
 	}
 
 	c->max_cores = cpumask_weight(&c->related_cpus);
@@ -343,6 +378,6 @@ static int __init qcom_cpufreq_hw_init(void)
 {
 	return platform_driver_register(&qcom_cpufreq_hw_driver);
 }
-subsys_initcall(qcom_cpufreq_hw_init);
+device_initcall(qcom_cpufreq_hw_init);
 
 MODULE_DESCRIPTION("QCOM firmware-based CPU Frequency driver");
