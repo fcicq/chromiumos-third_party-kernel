@@ -89,6 +89,8 @@
 #define SX9310_REG_I2CADDR		0x40
 #define SX9310_REG_PAUSE		0x41
 #define SX9310_REG_WHOAMI		0x42
+/* Expected content of the WHOAMI register. */
+#define SX9310_WHOAMI_VALUE		0x01
 
 #define SX9310_REG_RESET		0x7f
 /* Write this to REG_RESET to do a soft reset. */
@@ -997,6 +999,7 @@ static int sx9310_probe(struct i2c_client *client,
 	int ret;
 	struct iio_dev *indio_dev;
 	struct sx9310_data *data;
+	unsigned int whoami;
 
 	indio_dev = devm_iio_device_alloc(&client->dev, sizeof(*data));
 	if (indio_dev == NULL)
@@ -1011,6 +1014,17 @@ static int sx9310_probe(struct i2c_client *client,
 	data->regmap = devm_regmap_init_i2c(client, &sx9310_regmap_config);
 	if (IS_ERR(data->regmap))
 		return PTR_ERR(data->regmap);
+
+	ret = regmap_read(data->regmap, SX9310_REG_WHOAMI, &whoami);
+	if (ret < 0) {
+		dev_err(&client->dev,
+				"error in reading WHOAMI register: %d", ret);
+		return -ENODEV;
+	}
+	if (whoami != SX9310_WHOAMI_VALUE) {
+		dev_err(&client->dev, "unexpected WHOAMI response: %u", whoami);
+		return -ENODEV;
+	}
 
 	ACPI_COMPANION_SET(&indio_dev->dev, ACPI_COMPANION(&client->dev));
 	indio_dev->dev.parent = &client->dev;
