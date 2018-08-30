@@ -69,11 +69,11 @@ struct spi_geni_master {
 	struct device *dev;
 	u32 rx_fifo_depth;
 	u32 tx_fifo_depth;
-	u32 tx_fifo_width;
+	u32 fifo_width_bits;
 	u32 tx_wm;
 	bool setup;
 	unsigned int cur_speed_hz;
-	unsigned int cur_word_len;
+	unsigned int cur_bits_per_word;
 	unsigned int tx_rem_bytes;
 	unsigned int rx_rem_bytes;
 	struct spi_transfer *cur_xfer;
@@ -125,8 +125,8 @@ static void spi_setup_word_len(struct spi_geni_master *mas, u16 mode,
 	 * If bits_per_word isn't a byte aligned value, set the packing to be
 	 * 1 SPI word per FIFO word.
 	 */
-	if (!(mas->tx_fifo_width % bits_per_word))
-		pack_words = mas->tx_fifo_width / bits_per_word;
+	if (!(mas->fifo_width_bits % bits_per_word))
+		pack_words = mas->fifo_width_bits / bits_per_word;
 	else
 		pack_words = 1;
 	word_len &= ~WORD_LEN_MSK;
@@ -167,7 +167,7 @@ static int setup_fifo_params(struct spi_device *spi_slv,
 
 	demux_sel = spi_slv->chip_select;
 	mas->cur_speed_hz = spi_slv->max_speed_hz;
-	mas->cur_word_len = spi_slv->bits_per_word;
+	mas->cur_bits_per_word = spi_slv->bits_per_word;
 
 	ret = get_spi_clk_cfg(mas->cur_speed_hz, mas, &idx, &div);
 	if (ret) {
@@ -221,7 +221,9 @@ static int spi_geni_prepare_transfer_hardware(struct spi_master *spi)
 		}
 		mas->tx_fifo_depth = geni_se_get_tx_fifo_depth(se);
 		mas->rx_fifo_depth = geni_se_get_rx_fifo_depth(se);
-		mas->tx_fifo_width = geni_se_get_tx_fifo_width(se);
+
+		/* It is assumed that TX and RX fifo width is the same */
+		mas->fifo_width_bits = geni_se_get_tx_fifo_width(se);
 
 		/*
 		 * Hardware programming guide suggests to configure
@@ -252,9 +254,9 @@ static void setup_fifo_xfer(struct spi_transfer *xfer,
 	u32 spi_tx_cfg = readl(se->base + SE_SPI_TRANS_CFG);
 	u32 trans_len;
 
-	if (xfer->bits_per_word != mas->cur_word_len) {
+	if (xfer->bits_per_word != mas->cur_bits_per_word) {
 		spi_setup_word_len(mas, mode, xfer->bits_per_word);
-		mas->cur_word_len = xfer->bits_per_word;
+		mas->cur_bits_per_word = xfer->bits_per_word;
 	}
 
 	/* Speed and bits per word can be overridden per transfer */
@@ -294,12 +296,12 @@ static void setup_fifo_xfer(struct spi_transfer *xfer,
 		m_cmd = SPI_RX_ONLY;
 
 	spi_tx_cfg &= ~CS_TOGGLE;
-	if (!(mas->cur_word_len % MIN_WORD_LEN)) {
+	if (!(mas->cur_bits_per_word % MIN_WORD_LEN)) {
 		trans_len = (xfer->len * BITS_PER_BYTE /
-			     mas->cur_word_len) & TRANS_LEN_MSK;
+			     mas->cur_bits_per_word) & TRANS_LEN_MSK;
 	} else {
 		unsigned int bytes_per_word =
-			mas->cur_word_len / BITS_PER_BYTE + 1;
+			mas->cur_bits_per_word / BITS_PER_BYTE + 1;
 
 		trans_len = (xfer->len / bytes_per_word) & TRANS_LEN_MSK;
 	}
@@ -375,7 +377,7 @@ static int spi_geni_transfer_one(struct spi_master *spi,
 static irqreturn_t geni_spi_handle_tx(struct spi_geni_master *mas)
 {
 	unsigned int i = 0;
-	unsigned int tx_fifo_width = mas->tx_fifo_width / BITS_PER_BYTE;
+	unsigned int fifo_width_bytes = mas->fifo_width_bits / BITS_PER_BYTE;
 	unsigned int max_bytes;
 	const u8 *tx_buf;
 	struct geni_se *se = &mas->se;
@@ -393,10 +395,10 @@ static irqreturn_t geni_spi_handle_tx(struct spi_geni_master *mas)
 	 * max byte that can be sent per IRQ accordingly.
 	 */
 	max_bytes = mas->tx_fifo_depth - mas->tx_wm;
-	if (mas->tx_fifo_width % mas->cur_word_len)
-		max_bytes *= mas->cur_word_len / BITS_PER_BYTE + 1;
+	if (mas->fifo_width_bits % mas->cur_bits_per_word)
+		max_bytes *= mas->cur_bits_per_word / BITS_PER_BYTE + 1;
 	else
-		max_bytes *= tx_fifo_width;
+		max_bytes *= fifo_width_bytes;
 	tx_buf = mas->cur_xfer->tx_buf;
 	tx_buf += mas->cur_xfer->len - mas->tx_rem_bytes;
 	if (mas->tx_rem_bytes < max_bytes)
@@ -405,11 +407,12 @@ static irqreturn_t geni_spi_handle_tx(struct spi_geni_master *mas)
 		unsigned int j;
 		u32 fifo_word = 0;
 		u8 *fifo_byte;
-		unsigned int bytes_per_fifo = tx_fifo_width;
+		unsigned int bytes_per_fifo = fifo_width_bytes;
 		unsigned int bytes_to_write;
 
-		if (mas->tx_fifo_width % mas->cur_word_len)
-			bytes_per_fifo = mas->cur_word_len / BITS_PER_BYTE + 1;
+		if (mas->fifo_width_bits % mas->cur_bits_per_word)
+			bytes_per_fifo =
+				mas->cur_bits_per_word / BITS_PER_BYTE + 1;
 
 		if (bytes_per_fifo < (max_bytes - i))
 			bytes_to_write = bytes_per_fifo;
@@ -431,7 +434,7 @@ static irqreturn_t geni_spi_handle_rx(struct spi_geni_master *mas)
 {
 	unsigned int i = 0;
 	struct geni_se *se = &mas->se;
-	unsigned int fifo_width = mas->tx_fifo_width / BITS_PER_BYTE;
+	unsigned int fifo_width_bytes = mas->fifo_width_bits / BITS_PER_BYTE;
 	u32 rx_fifo_status;
 	unsigned int rx_bytes = 0;
 	unsigned int rx_wc;
@@ -460,22 +463,24 @@ static irqreturn_t geni_spi_handle_rx(struct spi_geni_master *mas)
 	 * ceil (bits_per_word / bits_per_byte)
 	 * and the next SPI word starts at the next byte.
 	 */
-	if (!(mas->tx_fifo_width % mas->cur_word_len))
-		rx_bytes += rx_wc * fifo_width;
+	if (!(mas->fifo_width_bits % mas->cur_bits_per_word))
+		rx_bytes += rx_wc * fifo_width_bytes;
 	else
-		rx_bytes += rx_wc * (mas->cur_word_len / BITS_PER_BYTE + 1);
+		rx_bytes += rx_wc * (mas->cur_bits_per_word /
+				     BITS_PER_BYTE + 1);
 	if (mas->rx_rem_bytes < rx_bytes)
 		rx_bytes = mas->rx_rem_bytes;
 	rx_buf += mas->cur_xfer->len - mas->rx_rem_bytes;
 	while (i < rx_bytes) {
 		u32 fifo_word = 0;
 		u8 *fifo_byte;
-		unsigned int bytes_per_fifo = fifo_width;
+		unsigned int bytes_per_fifo = fifo_width_bytes;
 		unsigned int read_bytes;
 		unsigned int j;
 
-		if (mas->tx_fifo_width % mas->cur_word_len)
-			bytes_per_fifo = mas->cur_word_len / BITS_PER_BYTE + 1;
+		if (mas->fifo_width_bits % mas->cur_bits_per_word)
+			bytes_per_fifo =
+				mas->cur_bits_per_word / BITS_PER_BYTE + 1;
 		if (bytes_per_fifo < (rx_bytes - i))
 			read_bytes = bytes_per_fifo;
 		else
@@ -525,12 +530,12 @@ static irqreturn_t geni_spi_isr(int irq, void *data)
 			writel(0, se->base + SE_GENI_TX_WATERMARK_REG);
 			dev_err(mas->dev,
 				"Premature Done.tx_rem%d bpw%d\n",
-				mas->tx_rem_bytes, mas->cur_word_len);
+				mas->tx_rem_bytes, mas->cur_bits_per_word);
 		}
 		if (mas->rx_rem_bytes)
 			dev_err(mas->dev,
 				"Premature Done.rx_rem%d bpw%d\n",
-				mas->rx_rem_bytes, mas->cur_word_len);
+				mas->rx_rem_bytes, mas->cur_bits_per_word);
 	}
 
 	if ((m_irq & M_CMD_CANCEL_EN) || (m_irq & M_CMD_ABORT_EN))
