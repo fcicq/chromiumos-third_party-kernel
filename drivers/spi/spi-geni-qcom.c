@@ -119,7 +119,7 @@ static void spi_setup_word_len(struct spi_geni_master *mas, u16 mode,
 	struct geni_se *se = &mas->se;
 	u32 word_len;
 
-	word_len = readl_relaxed(se->base + SE_SPI_WORD_LEN);
+	word_len = readl(se->base + SE_SPI_WORD_LEN);
 
 	/*
 	 * If bits_per_word isn't a byte aligned value, set the packing to be
@@ -133,7 +133,7 @@ static void spi_setup_word_len(struct spi_geni_master *mas, u16 mode,
 	word_len |= ((bits_per_word - MIN_WORD_LEN) & WORD_LEN_MSK);
 	geni_se_config_packing(&mas->se, bits_per_word, pack_words, msb_first,
 								true, true);
-	writel_relaxed(word_len, se->base + SE_SPI_WORD_LEN);
+	writel(word_len, se->base + SE_SPI_WORD_LEN);
 }
 
 static int setup_fifo_params(struct spi_device *spi_slv,
@@ -142,9 +142,9 @@ static int setup_fifo_params(struct spi_device *spi_slv,
 	struct spi_geni_master *mas = spi_master_get_devdata(spi);
 	struct geni_se *se = &mas->se;
 	unsigned int mode = spi_slv->mode;
-	u32 loopback_cfg = readl_relaxed(se->base + SE_SPI_LOOPBACK);
-	u32 cpol = readl_relaxed(se->base + SE_SPI_CPOL);
-	u32 cpha = readl_relaxed(se->base + SE_SPI_CPHA);
+	u32 loopback_cfg = readl(se->base + SE_SPI_LOOPBACK);
+	u32 cpol = readl(se->base + SE_SPI_CPOL);
+	u32 cpha = readl(se->base + SE_SPI_CPHA);
 	u32 demux_sel, clk_sel, m_clk_cfg, idx, div;
 	int ret = 0;
 	u32 demux_output_inv = 0;
@@ -179,13 +179,13 @@ static int setup_fifo_params(struct spi_device *spi_slv,
 	clk_sel = (idx & CLK_SEL_MSK);
 	m_clk_cfg = ((div << CLK_DIV_SHFT) | SER_CLK_EN);
 	spi_setup_word_len(mas, spi_slv->mode, spi_slv->bits_per_word);
-	writel_relaxed(loopback_cfg, se->base + SE_SPI_LOOPBACK);
-	writel_relaxed(demux_sel, se->base + SE_SPI_DEMUX_SEL);
-	writel_relaxed(cpha, se->base + SE_SPI_CPHA);
-	writel_relaxed(cpol, se->base + SE_SPI_CPOL);
-	writel_relaxed(demux_output_inv, se->base + SE_SPI_DEMUX_OUTPUT_INV);
-	writel_relaxed(clk_sel, se->base + SE_GENI_CLK_SEL);
-	writel_relaxed(m_clk_cfg, se->base + GENI_SER_M_CLK_CFG);
+	writel(loopback_cfg, se->base + SE_SPI_LOOPBACK);
+	writel(demux_sel, se->base + SE_SPI_DEMUX_SEL);
+	writel(cpha, se->base + SE_SPI_CPHA);
+	writel(cpol, se->base + SE_SPI_CPOL);
+	writel(demux_output_inv, se->base + SE_SPI_DEMUX_OUTPUT_INV);
+	writel(clk_sel, se->base + SE_GENI_CLK_SEL);
+	writel(m_clk_cfg, se->base + GENI_SER_M_CLK_CFG);
 	return 0;
 }
 
@@ -250,7 +250,7 @@ static void setup_fifo_xfer(struct spi_transfer *xfer,
 	u32 m_cmd = 0;
 	u32 m_param = 0;
 	struct geni_se *se = &mas->se;
-	u32 spi_tx_cfg = readl_relaxed(se->base + SE_SPI_TRANS_CFG);
+	u32 spi_tx_cfg = readl(se->base + SE_SPI_TRANS_CFG);
 	u32 trans_len = 0;
 
 	if (xfer->bits_per_word != mas->cur_word_len) {
@@ -281,8 +281,8 @@ static void setup_fifo_xfer(struct spi_transfer *xfer,
 		mas->cur_speed_hz = xfer->speed_hz;
 		clk_sel |= (idx & CLK_SEL_MSK);
 		m_clk_cfg |= ((div << CLK_DIV_SHFT) | SER_CLK_EN);
-		writel_relaxed(clk_sel, se->base + SE_GENI_CLK_SEL);
-		writel_relaxed(m_clk_cfg, se->base + GENI_SER_M_CLK_CFG);
+		writel(clk_sel, se->base + SE_GENI_CLK_SEL);
+		writel(m_clk_cfg, se->base + GENI_SER_M_CLK_CFG);
 	}
 
 	mas->tx_rem_bytes = 0;
@@ -325,17 +325,17 @@ static void setup_fifo_xfer(struct spi_transfer *xfer,
 	mas->cur_xfer = xfer;
 	if (m_cmd & SPI_TX_ONLY) {
 		mas->tx_rem_bytes = xfer->len;
-		writel_relaxed(trans_len, se->base + SE_SPI_TX_TRANS_LEN);
+		writel(trans_len, se->base + SE_SPI_TX_TRANS_LEN);
 	}
 
 	if (m_cmd & SPI_RX_ONLY) {
-		writel_relaxed(trans_len, se->base + SE_SPI_RX_TRANS_LEN);
+		writel(trans_len, se->base + SE_SPI_RX_TRANS_LEN);
 		mas->rx_rem_bytes = xfer->len;
 	}
-	writel_relaxed(spi_tx_cfg, se->base + SE_SPI_TRANS_CFG);
+	writel(spi_tx_cfg, se->base + SE_SPI_TRANS_CFG);
 	geni_se_setup_m_cmd(se, m_cmd, m_param);
 	if (m_cmd & SPI_TX_ONLY)
-		writel_relaxed(mas->tx_wm, se->base + SE_GENI_TX_WATERMARK_REG);
+		writel(mas->tx_wm, se->base + SE_GENI_TX_WATERMARK_REG);
 }
 
 static void handle_fifo_timeout(struct spi_master *spi,
@@ -347,7 +347,7 @@ static void handle_fifo_timeout(struct spi_master *spi,
 
 	reinit_completion(&mas->xfer_done);
 	geni_se_cancel_m_cmd(se);
-	writel_relaxed(0, se->base + SE_GENI_TX_WATERMARK_REG);
+	writel(0, se->base + SE_GENI_TX_WATERMARK_REG);
 	timeout = wait_for_completion_timeout(&mas->xfer_done, HZ);
 	if (!timeout) {
 		reinit_completion(&mas->xfer_done);
@@ -422,7 +422,7 @@ static irqreturn_t geni_spi_handle_tx(struct spi_geni_master *mas)
 	}
 	mas->tx_rem_bytes -= max_bytes;
 	if (!mas->tx_rem_bytes)
-		writel_relaxed(0, se->base + SE_GENI_TX_WATERMARK_REG);
+		writel(0, se->base + SE_GENI_TX_WATERMARK_REG);
 	return IRQ_HANDLED;
 }
 
@@ -439,7 +439,7 @@ static irqreturn_t geni_spi_handle_rx(struct spi_geni_master *mas)
 	if (!mas->cur_xfer)
 		return IRQ_NONE;
 
-	rx_fifo_status = readl_relaxed(se->base + SE_GENI_RX_FIFO_STATUS);
+	rx_fifo_status = readl(se->base + SE_GENI_RX_FIFO_STATUS);
 	rx_buf = mas->cur_xfer->rx_buf;
 	rx_wc = rx_fifo_status & RX_FIFO_WC_MSK;
 	if (rx_fifo_status & RX_LAST) {
@@ -502,7 +502,7 @@ static irqreturn_t geni_spi_isr(int irq, void *data)
 		ret = IRQ_NONE;
 		goto exit_geni_spi_irq;
 	}
-	m_irq = readl_relaxed(se->base + SE_GENI_M_IRQ_STATUS);
+	m_irq = readl(se->base + SE_GENI_M_IRQ_STATUS);
 	if ((m_irq & M_RX_FIFO_WATERMARK_EN) || (m_irq & M_RX_FIFO_LAST_EN))
 		ret = geni_spi_handle_rx(mas);
 
@@ -523,7 +523,7 @@ static irqreturn_t geni_spi_isr(int irq, void *data)
 		 * weren't written correctly.
 		 */
 		if (mas->tx_rem_bytes) {
-			writel_relaxed(0, se->base + SE_GENI_TX_WATERMARK_REG);
+			writel(0, se->base + SE_GENI_TX_WATERMARK_REG);
 			dev_err(mas->dev,
 				"Premature Done.tx_rem%d bpw%d\n",
 				mas->tx_rem_bytes, mas->cur_word_len);
@@ -537,7 +537,7 @@ static irqreturn_t geni_spi_isr(int irq, void *data)
 	if ((m_irq & M_CMD_CANCEL_EN) || (m_irq & M_CMD_ABORT_EN))
 		complete(&mas->xfer_done);
 exit_geni_spi_irq:
-	writel_relaxed(m_irq, se->base + SE_GENI_M_IRQ_CLEAR);
+	writel(m_irq, se->base + SE_GENI_M_IRQ_CLEAR);
 	return ret;
 }
 
