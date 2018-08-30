@@ -4,6 +4,7 @@
 #include <linux/clk.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
+#include <linux/log2.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
@@ -374,52 +375,43 @@ static int spi_geni_transfer_one(struct spi_master *spi,
 	return 1;
 }
 
+static unsigned int geni_byte_per_fifo_word(struct spi_geni_master *mas)
+{
+	/*
+	 * Calculate how many bytes we'll put in each FIFO word.  If the
+	 * transfer words don't pack cleanly into a FIFO word we'll just put
+	 * one transfer word in each FIFO word.  If they do pack we'll pack 'em.
+	 */
+	if (mas->fifo_width_bits % mas->cur_bits_per_word)
+		return roundup_pow_of_two(DIV_ROUND_UP(mas->cur_bits_per_word,
+						       BITS_PER_BYTE));
+	else
+		return mas->fifo_width_bits / BITS_PER_BYTE;
+}
+
 static irqreturn_t geni_spi_handle_tx(struct spi_geni_master *mas)
 {
-	unsigned int i = 0;
-	unsigned int fifo_width_bytes = mas->fifo_width_bits / BITS_PER_BYTE;
+	struct geni_se *se = &mas->se;
 	unsigned int max_bytes;
 	const u8 *tx_buf;
-	struct geni_se *se = &mas->se;
+	unsigned int bytes_per_fifo_word = geni_byte_per_fifo_word(mas);
+	unsigned int i = 0;
 
 	if (!mas->cur_xfer)
 		return IRQ_NONE;
 
-	/*
-	 * For non-byte aligned bits-per-word values(e.g 9)
-	 * the FIFO packing is set to 1 SPI word per FIFO word.
-	 * Assumption is that each SPI word will be accomodated in
-	 * ceil (bits_per_word / bits_per_byte)
-	 * and the next SPI word starts at the next byte.
-	 * In such cases, we can fit 1 SPI word per FIFO word so adjust the
-	 * max byte that can be sent per IRQ accordingly.
-	 */
-	max_bytes = mas->tx_fifo_depth - mas->tx_wm;
-	if (mas->fifo_width_bits % mas->cur_bits_per_word)
-		max_bytes *= mas->cur_bits_per_word / BITS_PER_BYTE + 1;
-	else
-		max_bytes *= fifo_width_bytes;
-	tx_buf = mas->cur_xfer->tx_buf;
-	tx_buf += mas->cur_xfer->len - mas->tx_rem_bytes;
+	max_bytes = (mas->tx_fifo_depth - mas->tx_wm) * bytes_per_fifo_word;
 	if (mas->tx_rem_bytes < max_bytes)
 		max_bytes = mas->tx_rem_bytes;
+
+	tx_buf = mas->cur_xfer->tx_buf + mas->cur_xfer->len - mas->tx_rem_bytes;
 	while (i < max_bytes) {
 		unsigned int j;
-		u32 fifo_word = 0;
-		u8 *fifo_byte;
-		unsigned int bytes_per_fifo = fifo_width_bytes;
 		unsigned int bytes_to_write;
+		u32 fifo_word = 0;
+		u8 *fifo_byte = (u8 *)&fifo_word;
 
-		if (mas->fifo_width_bits % mas->cur_bits_per_word)
-			bytes_per_fifo =
-				mas->cur_bits_per_word / BITS_PER_BYTE + 1;
-
-		if (bytes_per_fifo < (max_bytes - i))
-			bytes_to_write = bytes_per_fifo;
-		else
-			bytes_to_write = max_bytes - i;
-
-		fifo_byte = (u8 *)&fifo_word;
+		bytes_to_write = min(bytes_per_fifo_word, max_bytes - i);
 		for (j = 0; j < bytes_to_write; j++)
 			fifo_byte[j] = tx_buf[i++];
 		iowrite32_rep(se->base + SE_GENI_TX_FIFOn, &fifo_word, 1);
@@ -427,70 +419,48 @@ static irqreturn_t geni_spi_handle_tx(struct spi_geni_master *mas)
 	mas->tx_rem_bytes -= max_bytes;
 	if (!mas->tx_rem_bytes)
 		writel(0, se->base + SE_GENI_TX_WATERMARK_REG);
+
 	return IRQ_HANDLED;
 }
 
 static irqreturn_t geni_spi_handle_rx(struct spi_geni_master *mas)
 {
-	unsigned int i = 0;
 	struct geni_se *se = &mas->se;
-	unsigned int fifo_width_bytes = mas->fifo_width_bits / BITS_PER_BYTE;
 	u32 rx_fifo_status;
-	unsigned int rx_bytes = 0;
-	unsigned int rx_wc;
+	unsigned int rx_bytes;
 	u8 *rx_buf;
+	unsigned int bytes_per_fifo_word = geni_byte_per_fifo_word(mas);
+	unsigned int i = 0;
 
 	if (!mas->cur_xfer)
 		return IRQ_NONE;
 
 	rx_fifo_status = readl(se->base + SE_GENI_RX_FIFO_STATUS);
-	rx_buf = mas->cur_xfer->rx_buf;
-	rx_wc = rx_fifo_status & RX_FIFO_WC_MSK;
+	rx_bytes = (rx_fifo_status & RX_FIFO_WC_MSK) * bytes_per_fifo_word;
 	if (rx_fifo_status & RX_LAST) {
 		unsigned int rx_last_byte_valid =
 			(rx_fifo_status & RX_LAST_BYTE_VALID_MSK)
 					>> RX_LAST_BYTE_VALID_SHFT;
-		if (rx_last_byte_valid && (rx_last_byte_valid < 4)) {
-			rx_wc -= 1;
-			rx_bytes += rx_last_byte_valid;
-		}
+		if (rx_last_byte_valid && (rx_last_byte_valid < 4))
+			rx_bytes -= bytes_per_fifo_word - rx_last_byte_valid;
 	}
-
-	/*
-	 * For non-byte aligned bits-per-word values. (e.g 9)
-	 * the FIFO packing is set to 1 SPI word per FIFO word.
-	 * Assumption is that each SPI word will be accomodated in
-	 * ceil (bits_per_word / bits_per_byte)
-	 * and the next SPI word starts at the next byte.
-	 */
-	if (!(mas->fifo_width_bits % mas->cur_bits_per_word))
-		rx_bytes += rx_wc * fifo_width_bytes;
-	else
-		rx_bytes += rx_wc * (mas->cur_bits_per_word /
-				     BITS_PER_BYTE + 1);
 	if (mas->rx_rem_bytes < rx_bytes)
 		rx_bytes = mas->rx_rem_bytes;
-	rx_buf += mas->cur_xfer->len - mas->rx_rem_bytes;
+
+	rx_buf = mas->cur_xfer->rx_buf + mas->cur_xfer->len - mas->rx_rem_bytes;
 	while (i < rx_bytes) {
 		u32 fifo_word = 0;
-		u8 *fifo_byte;
-		unsigned int bytes_per_fifo = fifo_width_bytes;
-		unsigned int read_bytes;
+		u8 *fifo_byte = (u8 *)&fifo_word;
+		unsigned int bytes_to_read;
 		unsigned int j;
 
-		if (mas->fifo_width_bits % mas->cur_bits_per_word)
-			bytes_per_fifo =
-				mas->cur_bits_per_word / BITS_PER_BYTE + 1;
-		if (bytes_per_fifo < (rx_bytes - i))
-			read_bytes = bytes_per_fifo;
-		else
-			read_bytes = rx_bytes - i;
+		bytes_to_read = min(bytes_per_fifo_word, rx_bytes - i);
 		ioread32_rep(se->base + SE_GENI_RX_FIFOn, &fifo_word, 1);
-		fifo_byte = (u8 *)&fifo_word;
-		for (j = 0; j < read_bytes; j++)
+		for (j = 0; j < bytes_to_read; j++)
 			rx_buf[i++] = fifo_byte[j];
 	}
 	mas->rx_rem_bytes -= rx_bytes;
+
 	return IRQ_HANDLED;
 }
 
