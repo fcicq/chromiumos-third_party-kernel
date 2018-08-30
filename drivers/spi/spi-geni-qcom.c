@@ -305,20 +305,16 @@ static void setup_fifo_xfer(struct spi_transfer *xfer,
 	}
 
 	/*
-	 * If CS change flag is set, then toggle the CS line in between
-	 * transfers and keep CS asserted after the last transfer.
-	 * Else if keep CS flag asserted in between transfers and de-assert
-	 * CS after the last message.
+	 * Keep the CS asserted in either of the two cases:
+	 * - It's not the last transfer (and cs_change is not set)
+	 * - It is the last transfer (and cs_change is set)
+	 *
+	 * ...AKA keep it asserted whenever the "last transfer" and cs_change
+	 * booleans agree.
 	 */
-	if (xfer->cs_change) {
-		if (list_is_last(&xfer->transfer_list,
-				&spi->cur_msg->transfers))
-			m_param |= FRAGMENTATION;
-	} else {
-		if (!list_is_last(&xfer->transfer_list,
-				&spi->cur_msg->transfers))
-			m_param |= FRAGMENTATION;
-	}
+	if (!!xfer->cs_change ==
+	    !!list_is_last(&xfer->transfer_list, &spi->cur_msg->transfers))
+		m_param |= FRAGMENTATION;
 
 	mas->cur_xfer = xfer;
 	if (m_cmd & SPI_TX_ONLY) {
