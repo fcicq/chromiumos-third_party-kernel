@@ -72,7 +72,6 @@ struct spi_geni_master {
 	u32 tx_fifo_depth;
 	u32 fifo_width_bits;
 	u32 tx_wm;
-	bool setup;
 	unsigned int cur_speed_hz;
 	unsigned int cur_bits_per_word;
 	unsigned int tx_rem_bytes;
@@ -207,42 +206,48 @@ static int spi_geni_prepare_message(struct spi_master *spi,
 	return ret;
 }
 
-static int spi_geni_prepare_transfer_hardware(struct spi_master *spi)
+static int spi_geni_setup(struct spi_geni_master *mas)
 {
-	struct spi_geni_master *mas = spi_master_get_devdata(spi);
 	struct geni_se *se = &mas->se;
+	unsigned int proto;
+	unsigned int major, minor, ver;
+	int ret = 0;
 
-	if (!mas->setup) {
-		unsigned int proto = geni_se_read_proto(se);
-		unsigned int major, minor, ver;
+	pm_runtime_get_sync(mas->dev);
 
-		if (proto != GENI_SE_SPI) {
-			dev_err(mas->dev, "Invalid proto %d\n", proto);
-			return -ENXIO;
-		}
-		mas->tx_fifo_depth = geni_se_get_tx_fifo_depth(se);
-		mas->rx_fifo_depth = geni_se_get_rx_fifo_depth(se);
-
-		/* It is assumed that TX and RX fifo width is the same */
-		mas->fifo_width_bits = geni_se_get_tx_fifo_width(se);
-
-		/*
-		 * Hardware programming guide suggests to configure
-		 * RX FIFO RFR level to fifo_depth-2.
-		 */
-		geni_se_init(se, 0x0, mas->tx_fifo_depth - 2);
-		mas->oversampling = 1;
-		/* Transmit an entire FIFO worth of data per IRQ */
-		mas->tx_wm = 1;
-		ver = geni_se_get_qup_hw_version(se);
-		major = GENI_SE_VERSION_MAJOR(ver);
-		minor = GENI_SE_VERSION_MINOR(ver);
-
-		if (major == 1 && minor == 0)
-			mas->oversampling = 2;
-		mas->setup = 1;
+	proto = geni_se_read_proto(se);
+	if (proto != GENI_SE_SPI) {
+		dev_err(mas->dev, "Invalid proto %d\n", proto);
+		ret = -ENXIO;
+		goto exit;
 	}
-	return 0;
+
+	mas->tx_fifo_depth = geni_se_get_tx_fifo_depth(se);
+	mas->rx_fifo_depth = geni_se_get_rx_fifo_depth(se);
+
+	/* It is assumed that TX and RX fifo width is the same */
+	mas->fifo_width_bits = geni_se_get_tx_fifo_width(se);
+
+	/*
+	 * Hardware programming guide suggests to configure
+	 * RX FIFO RFR level to fifo_depth-2.
+	 */
+	geni_se_init(se, 0x0, mas->tx_fifo_depth - 2);
+
+	/* Transmit an entire FIFO worth of data per IRQ */
+	mas->tx_wm = 1;
+	ver = geni_se_get_qup_hw_version(se);
+	major = GENI_SE_VERSION_MAJOR(ver);
+	minor = GENI_SE_VERSION_MINOR(ver);
+
+	if (major == 1 && minor == 0)
+		mas->oversampling = 2;
+	else
+		mas->oversampling = 1;
+
+exit:
+	pm_runtime_put(mas->dev);
+	return ret;
 }
 
 static void setup_fifo_xfer(struct spi_transfer *xfer,
@@ -564,14 +569,18 @@ static int spi_geni_probe(struct platform_device *pdev)
 	spi->bits_per_word_mask = SPI_BPW_RANGE_MASK(4, 32);
 	spi->num_chipselect = 4;
 	spi->max_speed_hz = 50000000;
-	spi->prepare_transfer_hardware = spi_geni_prepare_transfer_hardware;
 	spi->prepare_message = spi_geni_prepare_message;
 	spi->transfer_one = spi_geni_transfer_one;
 	spi->auto_runtime_pm = true;
 	spi->handle_err = handle_fifo_timeout;
-
 	init_completion(&spi_geni->xfer_done);
+
 	pm_runtime_enable(&pdev->dev);
+
+	ret = spi_geni_setup(spi_geni);
+	if (ret)
+		goto spi_geni_probe_runtime_disable;
+
 	ret = spi_register_master(spi);
 	if (ret)
 		goto spi_geni_probe_runtime_disable;
