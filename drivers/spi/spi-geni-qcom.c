@@ -328,6 +328,14 @@ static void setup_fifo_xfer(struct spi_transfer *xfer,
 	}
 	writel(spi_tx_cfg, se->base + SE_SPI_TRANS_CFG);
 	geni_se_setup_m_cmd(se, m_cmd, m_param);
+
+	/*
+	 * NOTE: we have to write the SE_GENI_TX_WATERMARK_REG _after_ the
+	 * write to SE_SPI_TRANS_CFG and the call to geni_se_setup_m_cmd()
+	 * because these two things perform a special incantation to summon a
+	 * dark wizard and we're not allowed to set the watermark until the
+	 * dark wizard arrives.
+	 */
 	if (m_cmd & SPI_TX_ONLY)
 		writel(mas->tx_wm, se->base + SE_GENI_TX_WATERMARK_REG);
 }
