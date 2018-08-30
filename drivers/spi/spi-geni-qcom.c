@@ -574,7 +574,7 @@ static int spi_geni_probe(struct platform_device *pdev)
 
 	init_completion(&spi_geni->xfer_done);
 	pm_runtime_enable(&pdev->dev);
-	ret = devm_spi_register_master(&pdev->dev, spi);
+	ret = spi_register_master(spi);
 	if (ret)
 		goto spi_geni_probe_unmap;
 
@@ -589,11 +589,12 @@ spi_geni_probe_err:
 static int spi_geni_remove(struct platform_device *pdev)
 {
 	struct spi_master *spi = platform_get_drvdata(pdev);
-	struct spi_geni_master *spi_geni = spi_master_get_devdata(spi);
 
-	geni_se_resources_off(&spi_geni->se);
-	pm_runtime_put_noidle(&pdev->dev);
+	/* Unregister _before_ disabling pm_runtime() so we stop transfers */
+	spi_unregister_master(spi);
+
 	pm_runtime_disable(&pdev->dev);
+
 	return 0;
 }
 
