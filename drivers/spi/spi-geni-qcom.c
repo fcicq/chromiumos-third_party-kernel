@@ -176,8 +176,8 @@ static int setup_fifo_params(struct spi_device *spi_slv,
 		return ret;
 	}
 
-	clk_sel = (idx & CLK_SEL_MSK);
-	m_clk_cfg = ((div << CLK_DIV_SHFT) | SER_CLK_EN);
+	clk_sel = idx & CLK_SEL_MSK;
+	m_clk_cfg = (div << CLK_DIV_SHFT) | SER_CLK_EN;
 	spi_setup_word_len(mas, spi_slv->mode, spi_slv->bits_per_word);
 	writel(loopback_cfg, se->base + SE_SPI_LOOPBACK);
 	writel(demux_sel, se->base + SE_SPI_DEMUX_SEL);
@@ -278,8 +278,8 @@ static void setup_fifo_xfer(struct spi_transfer *xfer,
 		 * of calling clk_get_rate() API.
 		 */
 		mas->cur_speed_hz = xfer->speed_hz;
-		clk_sel = (idx & CLK_SEL_MSK);
-		m_clk_cfg = ((div << CLK_DIV_SHFT) | SER_CLK_EN);
+		clk_sel = idx & CLK_SEL_MSK;
+		m_clk_cfg = (div << CLK_DIV_SHFT) | SER_CLK_EN;
 		writel(clk_sel, se->base + SE_GENI_CLK_SEL);
 		writel(m_clk_cfg, se->base + GENI_SER_M_CLK_CFG);
 	}
@@ -295,12 +295,11 @@ static void setup_fifo_xfer(struct spi_transfer *xfer,
 
 	spi_tx_cfg &= ~CS_TOGGLE;
 	if (!(mas->cur_word_len % MIN_WORD_LEN)) {
-		trans_len =
-			((xfer->len * BITS_PER_BYTE) /
-					mas->cur_word_len) & TRANS_LEN_MSK;
+		trans_len = (xfer->len * BITS_PER_BYTE /
+			     mas->cur_word_len) & TRANS_LEN_MSK;
 	} else {
 		unsigned int bytes_per_word =
-			(mas->cur_word_len / BITS_PER_BYTE) + 1;
+			mas->cur_word_len / BITS_PER_BYTE + 1;
 
 		trans_len = (xfer->len / bytes_per_word) & TRANS_LEN_MSK;
 	}
@@ -389,9 +388,9 @@ static irqreturn_t geni_spi_handle_tx(struct spi_geni_master *mas)
 	 * In such cases, we can fit 1 SPI word per FIFO word so adjust the
 	 * max byte that can be sent per IRQ accordingly.
 	 */
-	max_bytes = (mas->tx_fifo_depth - mas->tx_wm);
+	max_bytes = mas->tx_fifo_depth - mas->tx_wm;
 	if (mas->tx_fifo_width % mas->cur_word_len)
-		max_bytes *= ((mas->cur_word_len / BITS_PER_BYTE) + 1);
+		max_bytes *= mas->cur_word_len / BITS_PER_BYTE + 1;
 	else
 		max_bytes *= tx_fifo_width;
 	tx_buf = mas->cur_xfer->tx_buf;
@@ -406,8 +405,7 @@ static irqreturn_t geni_spi_handle_tx(struct spi_geni_master *mas)
 		unsigned int bytes_to_write;
 
 		if (mas->tx_fifo_width % mas->cur_word_len)
-			bytes_per_fifo =
-				(mas->cur_word_len / BITS_PER_BYTE) + 1;
+			bytes_per_fifo = mas->cur_word_len / BITS_PER_BYTE + 1;
 
 		if (bytes_per_fifo < (max_bytes - i))
 			bytes_to_write = bytes_per_fifo;
@@ -461,8 +459,7 @@ static irqreturn_t geni_spi_handle_rx(struct spi_geni_master *mas)
 	if (!(mas->tx_fifo_width % mas->cur_word_len))
 		rx_bytes += rx_wc * fifo_width;
 	else
-		rx_bytes += rx_wc *
-			((mas->cur_word_len / BITS_PER_BYTE) + 1);
+		rx_bytes += rx_wc * (mas->cur_word_len / BITS_PER_BYTE + 1);
 	if (mas->rx_rem_bytes < rx_bytes)
 		rx_bytes = mas->rx_rem_bytes;
 	rx_buf += mas->cur_xfer->len - mas->rx_rem_bytes;
@@ -474,8 +471,7 @@ static irqreturn_t geni_spi_handle_rx(struct spi_geni_master *mas)
 		unsigned int j;
 
 		if (mas->tx_fifo_width % mas->cur_word_len)
-			bytes_per_fifo =
-				(mas->cur_word_len / BITS_PER_BYTE) + 1;
+			bytes_per_fifo = mas->cur_word_len / BITS_PER_BYTE + 1;
 		if (bytes_per_fifo < (rx_bytes - i))
 			read_bytes = bytes_per_fifo;
 		else
@@ -505,7 +501,7 @@ static irqreturn_t geni_spi_isr(int irq, void *data)
 	if ((m_irq & M_RX_FIFO_WATERMARK_EN) || (m_irq & M_RX_FIFO_LAST_EN))
 		ret = geni_spi_handle_rx(mas);
 
-	if ((m_irq & M_TX_FIFO_WATERMARK_EN))
+	if (m_irq & M_TX_FIFO_WATERMARK_EN)
 		ret = geni_spi_handle_tx(mas);
 
 	if (m_irq & M_CMD_DONE_EN) {
