@@ -625,6 +625,8 @@ static int __maybe_unused spi_geni_runtime_resume(struct device *dev)
 
 static int __maybe_unused spi_geni_suspend(struct device *dev)
 {
+	// TODO: This seems strange.
+	// See http://lkml.kernel.org/r/153567657639.93865.10810620274753191329@swboyd.mtv.corp.google.com
 	if (!pm_runtime_status_suspended(dev))
 		return -EBUSY;
 	return 0;
