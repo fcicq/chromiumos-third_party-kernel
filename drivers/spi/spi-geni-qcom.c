@@ -66,7 +66,6 @@ static irqreturn_t geni_spi_isr(int irq, void *data);
 
 struct spi_geni_master {
 	struct geni_se se;
-	unsigned int irq;
 	struct device *dev;
 	unsigned int rx_fifo_depth;
 	unsigned int tx_fifo_depth;
@@ -579,14 +578,13 @@ static int spi_geni_probe(struct platform_device *pdev)
 		goto spi_geni_probe_err;
 	}
 
-	spi_geni->irq = platform_get_irq(pdev, 0);
-	if (spi_geni->irq < 0) {
-		dev_err(&pdev->dev, "Err getting IRQ\n");
-		ret = spi_geni->irq;
+	ret = platform_get_irq(pdev, 0);
+	if (ret < 0) {
+		dev_err(&pdev->dev, "Err getting IRQ: %d\n", ret);
 		goto spi_geni_probe_unmap;
 	}
-	ret = devm_request_irq(&pdev->dev, spi_geni->irq, geni_spi_isr,
-				IRQF_TRIGGER_HIGH, "spi_geni", spi);
+	ret = devm_request_irq(&pdev->dev, ret, geni_spi_isr,
+			       IRQF_TRIGGER_HIGH, "spi_geni", spi);
 	if (ret)
 		goto spi_geni_probe_unmap;
 
