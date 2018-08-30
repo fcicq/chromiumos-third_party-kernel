@@ -524,10 +524,8 @@ static int spi_geni_probe(struct platform_device *pdev)
 	struct geni_se *se;
 
 	spi = spi_alloc_master(&pdev->dev, sizeof(struct spi_geni_master));
-	if (!spi) {
-		ret = -ENOMEM;
-		goto spi_geni_probe_err;
-	}
+	if (!spi)
+		return -ENOMEM;
 
 	platform_set_drvdata(pdev, spi);
 	spi_geni = spi_master_get_devdata(spi);
@@ -555,12 +553,12 @@ static int spi_geni_probe(struct platform_device *pdev)
 	ret = platform_get_irq(pdev, 0);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "Err getting IRQ: %d\n", ret);
-		goto spi_geni_probe_unmap;
+		goto spi_geni_probe_err;
 	}
 	ret = devm_request_irq(&pdev->dev, ret, geni_spi_isr,
 			       IRQF_TRIGGER_HIGH, "spi_geni", spi);
 	if (ret)
-		goto spi_geni_probe_unmap;
+		goto spi_geni_probe_err;
 
 	spi->mode_bits = SPI_CPOL | SPI_CPHA | SPI_LOOP | SPI_CS_HIGH;
 	spi->bits_per_word_mask = SPI_BPW_RANGE_MASK(4, 32);
@@ -576,13 +574,15 @@ static int spi_geni_probe(struct platform_device *pdev)
 	pm_runtime_enable(&pdev->dev);
 	ret = spi_register_master(spi);
 	if (ret)
-		goto spi_geni_probe_unmap;
+		goto spi_geni_probe_runtime_disable;
 
 	return ret;
-spi_geni_probe_unmap:
-	devm_iounmap(&pdev->dev, se->base);
+
+spi_geni_probe_runtime_disable:
+	pm_runtime_disable(&pdev->dev);
 spi_geni_probe_err:
 	spi_master_put(spi);
+
 	return ret;
 }
 
