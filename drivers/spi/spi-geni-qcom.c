@@ -11,6 +11,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/qcom-geni-se.h>
 #include <linux/spi/spi.h>
+#include <linux/spinlock.h>
 
 /* SPI SE specific registers and respective register fields */
 #define SE_SPI_CPHA		0x224
@@ -76,6 +77,7 @@ struct spi_geni_master {
 	unsigned int cur_bits_per_word;
 	unsigned int tx_rem_bytes;
 	unsigned int rx_rem_bytes;
+	spinlock_t lock;
 	struct spi_transfer *cur_xfer;
 	struct completion xfer_done;
 	unsigned int oversampling;
@@ -354,14 +356,21 @@ static void handle_fifo_timeout(struct spi_master *spi,
 	struct spi_geni_master *mas = spi_master_get_devdata(spi);
 	unsigned long timeout;
 	struct geni_se *se = &mas->se;
+	unsigned long flags;
 
+	spin_lock_irqsave(&mas->lock, flags);
 	reinit_completion(&mas->xfer_done);
 	geni_se_cancel_m_cmd(se);
 	writel(0, se->base + SE_GENI_TX_WATERMARK_REG);
+	spin_unlock_irqrestore(&mas->lock, flags);
+
 	timeout = wait_for_completion_timeout(&mas->xfer_done, HZ);
 	if (!timeout) {
+		spin_lock_irqsave(&mas->lock, flags);
 		reinit_completion(&mas->xfer_done);
 		geni_se_abort_m_cmd(se);
+		spin_unlock_irqrestore(&mas->lock, flags);
+
 		timeout = wait_for_completion_timeout(&mas->xfer_done,
 								HZ);
 		if (!timeout)
@@ -476,6 +485,9 @@ static irqreturn_t geni_spi_isr(int irq, void *data)
 	struct geni_se *se = &mas->se;
 	u32 m_irq;
 	irqreturn_t ret = IRQ_HANDLED;
+	unsigned long flags;
+
+	spin_lock_irqsave(&mas->lock, flags);
 
 	if (pm_runtime_status_suspended(mas->dev)) {
 		ret = IRQ_NONE;
@@ -517,6 +529,7 @@ static irqreturn_t geni_spi_isr(int irq, void *data)
 		complete(&mas->xfer_done);
 exit_geni_spi_irq:
 	writel(m_irq, se->base + SE_GENI_M_IRQ_CLEAR);
+	spin_unlock_irqrestore(&mas->lock, flags);
 	return ret;
 }
 
@@ -574,6 +587,7 @@ static int spi_geni_probe(struct platform_device *pdev)
 	spi->auto_runtime_pm = true;
 	spi->handle_err = handle_fifo_timeout;
 	init_completion(&spi_geni->xfer_done);
+	spin_lock_init(&spi_geni->lock);
 
 	pm_runtime_enable(&pdev->dev);
 
