@@ -213,7 +213,7 @@ static int spi_geni_prepare_transfer_hardware(struct spi_master *spi)
 
 	if (!mas->setup) {
 		unsigned int proto = geni_se_read_proto(se);
-		unsigned int major, minor, step, ver;
+		unsigned int major, minor, ver;
 
 		if (proto != GENI_SE_SPI) {
 			dev_err(mas->dev, "Invalid proto %d\n", proto);
@@ -234,7 +234,6 @@ static int spi_geni_prepare_transfer_hardware(struct spi_master *spi)
 		ver = geni_se_get_qup_hw_version(se);
 		major = GENI_SE_VERSION_MAJOR(ver);
 		minor = GENI_SE_VERSION_MINOR(ver);
-		step = GENI_SE_VERSION_STEP(ver);
 
 		if (major == 1 && minor == 0)
 			mas->oversampling = 2;
