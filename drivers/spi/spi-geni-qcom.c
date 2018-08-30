@@ -95,19 +95,19 @@ static int get_spi_clk_cfg(unsigned int speed_hz,
 				speed_hz * mas->oversampling, clk_idx,
 				&sclk_freq, false);
 	if (ret) {
-		dev_err(mas->dev, "%s: Failed(%d) to find src clk for %dHz\n",
-						__func__, ret, speed_hz);
+		dev_err(mas->dev, "Failed(%d) to find src clk for %dHz\n",
+			ret, speed_hz);
 		return ret;
 	}
 	*clk_div = DIV_ROUND_UP(sclk_freq, mas->oversampling * speed_hz);
 	actual_hz = sclk_freq / (mas->oversampling * *clk_div);
 
-	dev_dbg(mas->dev, "%s: clk %u=>%u sclk %lu, idx %d, div %d\n",
-		__func__, speed_hz, actual_hz, sclk_freq, *clk_idx, *clk_div);
+	dev_dbg(mas->dev, "clk %u=>%u sclk %lu, idx %d, div %d\n",
+		speed_hz, actual_hz, sclk_freq, *clk_idx, *clk_div);
 	ret = clk_set_rate(se->clk, sclk_freq);
 	if (ret)
-		dev_err(mas->dev, "%s: clk_set_rate failed %d\n",
-							__func__, ret);
+		dev_err(mas->dev, "clk_set_rate failed %d\n", ret);
+
 	return ret;
 }
 
@@ -200,7 +200,7 @@ static int spi_geni_prepare_message(struct spi_master *spi,
 	reinit_completion(&mas->xfer_done);
 	ret = setup_fifo_params(spi_msg->spi, spi);
 	if (ret) {
-		dev_err(mas->dev, "%s: Couldn't select mode %d", __func__, ret);
+		dev_err(mas->dev, "Couldn't select mode %d", ret);
 		ret = -EINVAL;
 	}
 	return ret;
@@ -268,8 +268,7 @@ static void setup_fifo_xfer(struct spi_transfer *xfer,
 
 		ret = get_spi_clk_cfg(xfer->speed_hz, mas, &idx, &div);
 		if (ret) {
-			dev_err(mas->dev, "%s:Err setting clks:%d\n",
-								__func__, ret);
+			dev_err(mas->dev, "Err setting clks:%d\n", ret);
 			return;
 		}
 		/*
@@ -526,13 +525,13 @@ static irqreturn_t geni_spi_isr(int irq, void *data)
 		if (mas->tx_rem_bytes) {
 			writel_relaxed(0, se->base + SE_GENI_TX_WATERMARK_REG);
 			dev_err(mas->dev,
-				"%s:Premature Done.tx_rem%d bpw%d\n",
-				__func__, mas->tx_rem_bytes, mas->cur_word_len);
+				"Premature Done.tx_rem%d bpw%d\n",
+				mas->tx_rem_bytes, mas->cur_word_len);
 		}
 		if (mas->rx_rem_bytes)
 			dev_err(mas->dev,
-				"%s:Premature Done.rx_rem%d bpw%d\n",
-				__func__, mas->rx_rem_bytes, mas->cur_word_len);
+				"Premature Done.rx_rem%d bpw%d\n",
+				mas->rx_rem_bytes, mas->cur_word_len);
 	}
 
 	if ((m_irq & M_CMD_CANCEL_EN) || (m_irq & M_CMD_ABORT_EN))
