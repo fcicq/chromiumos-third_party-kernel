@@ -146,7 +146,7 @@ static int setup_fifo_params(struct spi_device *spi_slv,
 	u32 cpol = readl(se->base + SE_SPI_CPOL);
 	u32 cpha = readl(se->base + SE_SPI_CPHA);
 	u32 demux_sel, clk_sel, m_clk_cfg, idx, div;
-	int ret = 0;
+	int ret;
 	u32 demux_output_inv = 0;
 
 	loopback_cfg &= ~LOOPBACK_MSK;
@@ -192,9 +192,9 @@ static int setup_fifo_params(struct spi_device *spi_slv,
 static int spi_geni_prepare_message(struct spi_master *spi,
 					struct spi_message *spi_msg)
 {
-	int ret = 0;
 	struct spi_geni_master *mas = spi_master_get_devdata(spi);
 	struct geni_se *se = &mas->se;
+	int ret;
 
 	geni_se_select_mode(se, GENI_SE_FIFO);
 	reinit_completion(&mas->xfer_done);
@@ -250,7 +250,7 @@ static void setup_fifo_xfer(struct spi_transfer *xfer,
 	u32 m_param = 0;
 	struct geni_se *se = &mas->se;
 	u32 spi_tx_cfg = readl(se->base + SE_SPI_TRANS_CFG);
-	u32 trans_len = 0;
+	u32 trans_len;
 
 	if (xfer->bits_per_word != mas->cur_word_len) {
 		spi_setup_word_len(mas, mode, xfer->bits_per_word);
@@ -259,11 +259,11 @@ static void setup_fifo_xfer(struct spi_transfer *xfer,
 
 	/* Speed and bits per word can be overridden per transfer */
 	if (xfer->speed_hz != mas->cur_speed_hz) {
-		int ret = 0;
-		u32 clk_sel = 0;
-		u32 m_clk_cfg = 0;
-		unsigned int idx = 0;
-		unsigned int div = 0;
+		int ret;
+		u32 clk_sel;
+		u32 m_clk_cfg;
+		unsigned int idx;
+		unsigned int div;
 
 		ret = get_spi_clk_cfg(xfer->speed_hz, mas, &idx, &div);
 		if (ret) {
@@ -278,8 +278,8 @@ static void setup_fifo_xfer(struct spi_transfer *xfer,
 		 * of calling clk_get_rate() API.
 		 */
 		mas->cur_speed_hz = xfer->speed_hz;
-		clk_sel |= (idx & CLK_SEL_MSK);
-		m_clk_cfg |= ((div << CLK_DIV_SHFT) | SER_CLK_EN);
+		clk_sel = (idx & CLK_SEL_MSK);
+		m_clk_cfg = ((div << CLK_DIV_SHFT) | SER_CLK_EN);
 		writel(clk_sel, se->base + SE_GENI_CLK_SEL);
 		writel(m_clk_cfg, se->base + GENI_SER_M_CLK_CFG);
 	}
@@ -403,7 +403,7 @@ static irqreturn_t geni_spi_handle_tx(struct spi_geni_master *mas)
 		u32 fifo_word = 0;
 		u8 *fifo_byte;
 		unsigned int bytes_per_fifo = tx_fifo_width;
-		unsigned int bytes_to_write = 0;
+		unsigned int bytes_to_write;
 
 		if (mas->tx_fifo_width % mas->cur_word_len)
 			bytes_per_fifo =
@@ -432,7 +432,7 @@ static irqreturn_t geni_spi_handle_rx(struct spi_geni_master *mas)
 	unsigned int fifo_width = mas->tx_fifo_width / BITS_PER_BYTE;
 	u32 rx_fifo_status;
 	unsigned int rx_bytes = 0;
-	unsigned int rx_wc = 0;
+	unsigned int rx_wc;
 	u8 *rx_buf;
 
 	if (!mas->cur_xfer)
@@ -470,7 +470,7 @@ static irqreturn_t geni_spi_handle_rx(struct spi_geni_master *mas)
 		u32 fifo_word = 0;
 		u8 *fifo_byte;
 		unsigned int bytes_per_fifo = fifo_width;
-		unsigned int read_bytes = 0;
+		unsigned int read_bytes;
 		unsigned int j;
 
 		if (mas->tx_fifo_width % mas->cur_word_len)
@@ -494,7 +494,7 @@ static irqreturn_t geni_spi_isr(int irq, void *data)
 	struct spi_master *spi = data;
 	struct spi_geni_master *mas = spi_master_get_devdata(spi);
 	struct geni_se *se = &mas->se;
-	u32 m_irq = 0;
+	u32 m_irq;
 	irqreturn_t ret = IRQ_HANDLED;
 
 	if (pm_runtime_status_suspended(mas->dev)) {
