@@ -384,8 +384,8 @@ static irqreturn_t geni_spi_handle_tx(struct spi_geni_master *mas)
 		return IRQ_NONE;
 
 	/*
-	 * For non-byte aligned bits-per-word values(e.g 9).
-	 * The FIFO packing is set to 1 SPI word per FIFO word.
+	 * For non-byte aligned bits-per-word values(e.g 9)
+	 * the FIFO packing is set to 1 SPI word per FIFO word.
 	 * Assumption is that each SPI word will be accomodated in
 	 * ceil (bits_per_word / bits_per_byte)
 	 * and the next SPI word starts at the next byte.
@@ -455,7 +455,7 @@ static irqreturn_t geni_spi_handle_rx(struct spi_geni_master *mas)
 
 	/*
 	 * For non-byte aligned bits-per-word values. (e.g 9)
-	 * The FIFO packing is set to 1 SPI word per FIFO word.
+	 * the FIFO packing is set to 1 SPI word per FIFO word.
 	 * Assumption is that each SPI word will be accomodated in
 	 * ceil (bits_per_word / bits_per_byte)
 	 * and the next SPI word starts at the next byte.
