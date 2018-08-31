@@ -36,6 +36,7 @@
 #include <asm/smap.h>
 #include <asm/pgtable_types.h>
 #include <asm/kaiser.h>
+#include <asm/nospec-branch.h>
 #include <linux/err.h>
 
 /* Avoid __ASSEMBLER__'ifying <linux/audit.h> just for this.  */
@@ -180,28 +181,38 @@ entry_SYSCALL_64_fastpath:
 # ifdef CONFIG_ALT_SYSCALL
 	movl	ASM_THREAD_INFO(TI_nr_syscalls, %rsp, SIZEOF_PTREGS), %r11d
 	cmpq	%r11, %rax
-	jae	1f				/* return -ENOSYS (already in pt_regs->ax) */
 # else
-	cmpq	$__NR_syscall_max, %rax
-	ja	1f
+	cmpq	$NR_syscalls, %rax
 # endif /* CONFIG_ALT_SYSCALL */
 #else
 	andl	$__SYSCALL_MASK, %eax
 # ifdef CONFIG_ALT_SYSCALL
 	cmpl	ASM_THREAD_INFO(TI_nr_syscalls, %rsp, SIZEOF_PTREGS), %eax
-	jae	1f				/* return -ENOSYS (already in pt_regs->ax) */
 # else
-	cmpl	$__NR_syscall_max, %eax
-	ja	1f				/* return -ENOSYS (already in pt_regs->ax) */
+	cmpl	$NR_syscalls, %eax
 # endif /* CONFIG_ALT_SYSCALL */
 #endif
+	jae	1f				/* return -ENOSYS (already in pt_regs->ax) */
+	sbb	%rcx, %rcx			/* array_index_mask_nospec() */
+	and	%rcx, %rax
 	movq	%r10, %rcx
 #ifdef CONFIG_ALT_SYSCALL
 	movq	ASM_THREAD_INFO(TI_sys_call_table, %rsp, SIZEOF_PTREGS), %r11
+# ifdef CONFIG_RETPOLINE
+	movq    0(%r11, %rax, 8), %rax
+	call    __x86_indirect_thunk_rax
+# else
 	call	*(%r11, %rax, 8)
+# endif
 #else
+# ifdef CONFIG_RETPOLINE
+	movq	sys_call_table(, %rax, 8), %rax
+	call	__x86_indirect_thunk_rax
+# else
 	call	*sys_call_table(, %rax, 8)
+# endif
 #endif
+
 	movq	%rax, RAX(%rsp)
 1:
 /*
@@ -289,27 +300,36 @@ tracesys_phase2:
 # ifdef CONFIG_ALT_SYSCALL
 	movl	ASM_THREAD_INFO(TI_nr_syscalls, %rsp, SIZEOF_PTREGS), %r11d
 	cmpq	%r11, %rax
-	jae	1f				/* return -ENOSYS (already in pt_regs->ax) */
 # else
-	cmpq	$__NR_syscall_max, %rax
-	ja	1f
+	cmpq	$NR_syscalls, %rax
 # endif /* CONFIG_ALT_SYSCALL */
 #else
 	andl	$__SYSCALL_MASK, %eax
 # ifdef CONFIG_ALT_SYSCALL
 	cmpl	ASM_THREAD_INFO(TI_nr_syscalls, %rsp, SIZEOF_PTREGS), %eax
-	jae	1f				/* return -ENOSYS (already in pt_regs->ax) */
 # else
-	cmpl	$__NR_syscall_max, %eax
-	ja	1f				/* return -ENOSYS (already in pt_regs->ax) */
+	cmpl	$NR_syscalls, %eax
 # endif /* CONFIG_ALT_SYSCALL */
 #endif
+	jae	1f				/* return -ENOSYS (already in pt_regs->ax) */
+	sbb	%rcx, %rcx			/* array_index_mask_nospec() */
+	and	%rcx, %rax
 	movq	%r10, %rcx			/* fixup for C */
 #ifdef CONFIG_ALT_SYSCALL
 	movq	ASM_THREAD_INFO(TI_sys_call_table, %rsp, SIZEOF_PTREGS), %r11
+# ifdef CONFIG_RETPOLINE
+	movq    0(%r11, %rax, 8), %rax
+	call    __x86_indirect_thunk_rax
+# else
 	call	*(%r11, %rax, 8)
+# endif
 #else
+# ifdef CONFIG_RETPOLINE
+	movq	sys_call_table(, %rax, 8), %rax
+	call	__x86_indirect_thunk_rax
+# else
 	call	*sys_call_table(, %rax, 8)
+# endif
 #endif
 	movq	%rax, RAX(%rsp)
 1:
@@ -525,7 +545,7 @@ ENTRY(ret_from_fork)
 	 * nb: we depend on RESTORE_EXTRA_REGS above
 	 */
 	movq	%rbp, %rdi
-	call	*%rbx
+	CALL_NOSPEC %rbx
 	movl	$0, RAX(%rsp)
 	RESTORE_EXTRA_REGS
 	jmp	int_ret_from_sys_call
@@ -1053,7 +1073,7 @@ idtentry async_page_fault	do_async_page_fault	has_error_code=1
 #endif
 
 #ifdef CONFIG_X86_MCE
-idtentry machine_check					has_error_code=0	paranoid=1 do_sym=*machine_check_vector(%rip)
+idtentry machine_check		do_mce			has_error_code=0	paranoid=1
 #endif
 
 /*
