@@ -45,6 +45,7 @@ config MALI_GATOR_SUPPORT
 config MALI_MIDGARD_DVFS
 	bool "Enable legacy DVFS"
 	depends on MALI_MIDGARD && !MALI_DEVFREQ
+	depends on BROKEN
 	default n
 	help
 	  Choose this option to enable legacy DVFS in the Mali Midgard DDK.
@@ -52,6 +53,7 @@ config MALI_MIDGARD_DVFS
 config MALI_MIDGARD_ENABLE_TRACE
 	bool "Enable kbase tracing"
 	depends on MALI_MIDGARD
+	depends on BROKEN
 	default n
 	help
 	  Enables tracing in kbase.  Trace log available through
@@ -113,6 +115,7 @@ config MALI_CORESTACK
 config MALI_DEBUG
 	bool "Debug build"
 	depends on MALI_MIDGARD && MALI_EXPERT
+	depends on BROKEN
 	default n
 	help
 	  Select this option for increased checking and reporting of errors.
@@ -157,6 +160,7 @@ config MALI_ERROR_INJECT
 config MALI_SYSTEM_TRACE
 	bool "Enable system event tracing support"
 	depends on MALI_MIDGARD && MALI_EXPERT
+	depends on BROKEN
 	default n
 	help
 	  Choose this option to enable system trace events for each
@@ -178,6 +182,7 @@ config MALI_2MB_ALLOC
 config MALI_PWRSOFT_765
 	bool "PWRSOFT-765 ticket"
 	depends on MALI_MIDGARD && MALI_EXPERT
+	depends on BROKEN
 	default n
 	help
 	  PWRSOFT-765 fixes devfreq cooling devices issues. The fix was merged
