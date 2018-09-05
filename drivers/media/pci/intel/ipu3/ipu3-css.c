@@ -694,7 +694,7 @@ static int ipu3_css_pipeline_init(struct ipu3_css *css, unsigned int pipe)
 	struct imgu_abi_isp_ref_dmem_state *cfg_ref_state;
 	struct imgu_abi_isp_tnr3_dmem_state *cfg_tnr_state;
 
-	const stage = 0;
+	const int stage = 0;
 	unsigned int i, j;
 
 	struct ipu3_css_pipe *css_pipe = &css->pipes[pipe];
