@@ -3134,7 +3134,7 @@ static int nvme_dev_add(struct nvme_dev *dev)
 	dev->hmpre = le32_to_cpu(ctrl->hmpre);
 	dev->hmmin = le32_to_cpu(ctrl->hmmin);
 	dev->hmminds = le32_to_cpu(ctrl->hmminds);
-	dev->hmmaxd = le32_to_cpu(ctrl->hmmaxd);
+	dev->hmmaxd = le16_to_cpu(ctrl->hmmaxd);
 
 	kfree(ctrl);
 
