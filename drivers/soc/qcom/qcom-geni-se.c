@@ -513,7 +513,7 @@ EXPORT_SYMBOL(geni_se_resources_on);
  */
 int geni_se_clk_tbl_get(struct geni_se *se, unsigned long **tbl)
 {
-	long freq;
+	long freq = 0;
 	int i;
 
 	if (se->clk_perf_tbl) {
