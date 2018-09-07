@@ -512,7 +512,7 @@ static void ti_sn_bridge_enable(struct drm_bridge *bridge)
 	 * delay of this magnitude in the timing requirements. So for now, add
 	 * the mystery delay until someone figures out a better fix.
 	 */
-	msleep(70);
+	msleep(100);
 
 	/* DSI_A lane config */
 	val = CHA_DSI_LANES(4 - pdata->dsi->lanes);
