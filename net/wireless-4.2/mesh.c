@@ -31,7 +31,6 @@
 #define MESH_DIAM_TRAVERSAL_TIME 50
 
 #define MESH_RSSI_THRESHOLD	0
-#define MESHLINK_RSSI_THRESHOLD	0
 
 /*
  * A path will be refreshed if it is used PATH_REFRESH_TIME milliseconds
@@ -73,7 +72,6 @@ const struct mesh_config default_mesh_config = {
 	.dot11MeshGateAnnouncementProtocol = false,
 	.dot11MeshForwarding = true,
 	.rssi_threshold = MESH_RSSI_THRESHOLD,
-	.meshlink_rssi_threshold = MESHLINK_RSSI_THRESHOLD,
 	.ht_opmode = IEEE80211_HT_OP_MODE_PROTECTION_NONHT_MIXED,
 	.dot11MeshHWMPactivePathToRootTimeout = MESH_PATH_TO_ROOT_TIMEOUT,
 	.dot11MeshHWMProotInterval = MESH_ROOT_INTERVAL,
