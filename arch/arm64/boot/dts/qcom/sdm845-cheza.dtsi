@@ -91,6 +91,19 @@
 		vin-supply = <&ppvar_sys>;
 	};
 
+	pp3300_dx_edp: pp3300-dx-edp-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "pp3300_dx_edp";
+
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+
+		gpio = <&tlmm 43 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		pinctrl-names = "default";
+		pinctrl-0 = <&en_pp3300_dx_edp>;
+	};
+
 	/*
 	 * Apparently RPMh does not provide support for PM8998 S4 because it
 	 * is always-on; model it as a fixed regulator.
@@ -359,7 +372,6 @@
 		 * NOTE: this rail should have been called
 		 * src_pp3300_l19a in the schematic
 		 */
-		pp3300_dx_edp:
 		src_pp3000_l19a: ldo19 {
 			regulator-min-microvolt = <3304000>;
 			regulator-max-microvolt = <3304000>;
