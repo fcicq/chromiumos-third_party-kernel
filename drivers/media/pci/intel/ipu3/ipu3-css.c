@@ -1787,9 +1787,8 @@ int ipu3_css_fmt_try(struct ipu3_css *css,
 
 	/* Always require one input and vf only if out is also enabled */
 	if (!ipu3_css_queue_enabled(&q[IPU3_CSS_QUEUE_IN]) ||
-	    (ipu3_css_queue_enabled(&q[IPU3_CSS_QUEUE_VF]) &&
-	    !ipu3_css_queue_enabled(&q[IPU3_CSS_QUEUE_OUT]))) {
-		dev_dbg(css->dev, "required queues are disabled\n");
+	    !ipu3_css_queue_enabled(&q[IPU3_CSS_QUEUE_OUT])) {
+		dev_warn(css->dev, "required queues are disabled\n");
 		return -EINVAL;
 	}
 
