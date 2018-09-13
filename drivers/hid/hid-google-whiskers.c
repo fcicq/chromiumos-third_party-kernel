@@ -344,6 +344,28 @@ static int whiskers_event(struct hid_device *hid, struct hid_field *field,
 	return 0;
 }
 
+static int whiskers_probe(struct hid_device *hdev,
+			  const struct hid_device_id *id)
+{
+	struct usb_interface *intf = to_usb_interface(hdev->dev.parent);
+	int ret;
+
+	/*
+	 * We always want to poll for, and handle tablet mode events, even when
+	 * nobody has opened the input device. This also prevents the hid core
+	 * from dropping early tablet mode events from the device.
+	 */
+	if (intf->cur_altsetting->desc.bInterfaceProtocol ==
+			USB_INTERFACE_PROTOCOL_KEYBOARD)
+		hdev->quirks |= HID_QUIRK_ALWAYS_POLL;
+
+	ret = hid_parse(hdev);
+	if (!ret)
+		ret = hid_hw_start(hdev, HID_CONNECT_DEFAULT);
+
+	return ret;
+}
+
 static const struct hid_device_id whiskers_hid_devices[] = {
 	{ HID_DEVICE(BUS_USB, HID_GROUP_GENERIC_OVERRIDE,
 		     USB_VENDOR_ID_GOOGLE, USB_DEVICE_ID_GOOGLE_WHISKERS) },
@@ -354,6 +376,7 @@ MODULE_DEVICE_TABLE(hid, whiskers_hid_devices);
 static struct hid_driver whiskers_hid_driver = {
 	.name			= "whiskers",
 	.id_table		= whiskers_hid_devices,
+	.probe			= whiskers_probe,
 	.input_configured	= hammer_input_configured,
 	.input_mapping		= whiskers_input_mapping,
 	.event			= whiskers_event,
