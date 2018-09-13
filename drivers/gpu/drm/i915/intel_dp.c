@@ -1652,7 +1652,6 @@ intel_dp_compute_config(struct intel_encoder *encoder,
 			bpp = dev_priv->vbt.edp.bpp;
 		}
 
-#if 0 /* https://buganizer.corp.google.com/issues/111328783#comment123 */
 		/*
 		 * Use the maximum clock and number of lanes the eDP panel
 		 * advertizes being capable of. The panels are generally
@@ -1662,7 +1661,6 @@ intel_dp_compute_config(struct intel_encoder *encoder,
 		 */
 		min_lane_count = max_lane_count;
 		min_clock = max_clock;
-#endif
 	}
 
 	for (; bpp >= 6*3; bpp -= 2*3) {
