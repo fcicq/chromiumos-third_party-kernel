@@ -331,8 +331,8 @@ static const struct intel_padgroup icllp_community5_gpps[] = {
 static const struct intel_community icllp_communities[] = {
 	ICL_COMMUNITY(0, 0, 58, icllp_community0_gpps),
 	ICL_COMMUNITY(1, 59, 152, icllp_community1_gpps),
-	ICL_COMMUNITY(2, 153, 215, icllp_community4_gpps),
-	ICL_COMMUNITY(3, 216, 240, icllp_community5_gpps),
+	ICL_COMMUNITY(3, 153, 215, icllp_community4_gpps),
+	ICL_COMMUNITY(4, 216, 240, icllp_community5_gpps),
 };
 
 static const unsigned int icllp_spi0_pins[] = { 22, 23, 24, 25, 26 };
