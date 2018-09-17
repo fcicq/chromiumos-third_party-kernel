@@ -1037,7 +1037,6 @@ struct ipu3_uapi_anr_transform_config {
 	__u16 sqrt_lut[IPU3_UAPI_ANR_LUT_SIZE];	/* 11 bits per element */
 
 	__s16 xreset:13;
-#define IPU3_UAPI_ANR_MAX_XRESET		((1 << 12) - 1)
 	__u16 __reserved3:3;
 	__s16 yreset:13;
 	__u16 __reserved4:3;
