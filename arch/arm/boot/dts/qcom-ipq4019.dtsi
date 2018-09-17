@@ -659,6 +659,7 @@
 
                 qcom,restart_reason {
                         compatible = "qca,scm_restart_reason";
+			dload_status = <1>;
                 };
 
 		adcc: clock-controller@7700038 {
