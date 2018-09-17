@@ -7,9 +7,11 @@
 #include "ipu3-css-fw.h"
 #include "ipu3-tables.h"
 
-#define sqr(x)				((x) * (x))
 #define DIV_ROUND_CLOSEST_DOWN(a, b)	(((a) + ((b) / 2) - 1) / (b))
 #define roundclosest_down(a, b)		(DIV_ROUND_CLOSEST_DOWN(a, b) * (b))
+
+#define IPU3_UAPI_ANR_MAX_RESET		((1 << 12) - 1)
+#define IPU3_UAPI_ANR_MIN_RESET		(((-1) << 12) + 1)
 
 struct ipu3_css_scaler_info {
 	unsigned int phase_step;	/* Same for luma/chroma */
@@ -1953,7 +1955,7 @@ int ipu3_css_cfg_acc(struct ipu3_css *css, unsigned int pipe,
 	const struct ipu3_css_bds_config *cfg_bds;
 	struct imgu_abi_input_feeder_data *feeder_data;
 
-	unsigned int bds_ds, ofs_x, ofs_y, i, width;
+	unsigned int bds_ds, ofs_x, ofs_y, i, width, height;
 	u8 b_w_log2; /* Block width log2 */
 
 	/* Update stripe using chroma and luma */
@@ -2015,8 +2017,6 @@ int ipu3_css_cfg_acc(struct ipu3_css *css, unsigned int pipe,
 	}
 
 	acc->bnr.column_size = tnr_frame_width;
-	acc->bnr.opt_center_sqr.x_sqr_reset = sqr(acc->bnr.opt_center.x_reset);
-	acc->bnr.opt_center_sqr.y_sqr_reset = sqr(acc->bnr.opt_center.y_reset);
 
 	/* acc_param: bnr_static_config_green_disparity */
 
@@ -2347,8 +2347,17 @@ int ipu3_css_cfg_acc(struct ipu3_css *css, unsigned int pipe,
 	acc->anr.stitch.frame_height = acc->anr.tile2strm.frame_height;
 
 	width = ALIGN(css_pipe->rect[IPU3_CSS_RECT_BDS].width, IMGU_ISP_VMEM_ALIGN);
-	if (acc->anr.transform.xreset > IPU3_UAPI_ANR_MAX_XRESET - width)
-		acc->anr.transform.xreset = IPU3_UAPI_ANR_MAX_XRESET - width;
+	height = css_pipe->rect[IPU3_CSS_RECT_BDS].height;
+
+	if (acc->anr.transform.xreset + width > IPU3_UAPI_ANR_MAX_RESET)
+		acc->anr.transform.xreset = IPU3_UAPI_ANR_MAX_RESET - width;
+	if (acc->anr.transform.xreset < IPU3_UAPI_ANR_MIN_RESET)
+		acc->anr.transform.xreset = IPU3_UAPI_ANR_MIN_RESET;
+
+	if (acc->anr.transform.yreset + height > IPU3_UAPI_ANR_MAX_RESET)
+		acc->anr.transform.yreset = IPU3_UAPI_ANR_MAX_RESET - height;
+	if (acc->anr.transform.yreset < IPU3_UAPI_ANR_MIN_RESET)
+		acc->anr.transform.yreset = IPU3_UAPI_ANR_MIN_RESET;
 
 	/* acc_param: awb_fr_config */
 
