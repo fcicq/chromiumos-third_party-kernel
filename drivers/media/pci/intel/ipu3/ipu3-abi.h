@@ -60,7 +60,7 @@ typedef u32 imgu_addr_t;
 #define IMGU_SYSTEM_REQ_FREQ_DIVIDER		25
 #define IMGU_REG_INT_STATUS			0x30
 #define IMGU_REG_INT_ENABLE			0x34
-#define IMGU_REG_INT_CSS_IRQ			(1 << 31)
+#define IMGU_REG_INT_CSS_IRQ			BIT(31)
 /* STATE_0_5_0_IMGHMMADR */
 #define IMGU_REG_STATE				0x130
 #define IMGU_STATE_HALT_STS			BIT(0)
@@ -237,6 +237,9 @@ typedef u32 imgu_addr_t;
 #define IMGU_ABI_DVS_STAT_MAX_PROCESS_LINES	52
 #define IMGU_ABI_DVS_STAT_MAX_TRANSFERS		52
 
+#define IMGU_ABI_BDS_SAMPLE_PATTERN_ARRAY_SIZE	8
+#define IMGU_ABI_BDS_PHASE_COEFFS_ARRAY_SIZE	32
+
 #define IMGU_ABI_AWB_FR_MAX_TRANSFERS		30
 #define IMGU_ABI_AWB_FR_MAX_PROCESS_LINES	30
 #define IMGU_ABI_AWB_FR_MAX_OPERATIONS \
@@ -304,7 +307,7 @@ enum imgu_abi_frame_format {
 						  * line; UYVY interleaved
 						  * even line
 						  */
-	IMGU_ABI_FRAME_FORMAT_YCgCo444_16, /* Internal format for ISP2.7,
+	IMGU_ABI_FRAME_FORMAT_YCGCO444_16, /* Internal format for ISP2.7,
 					    * 16 bits per plane YUV 444,
 					    * Y, U, V plane
 					    */
@@ -410,9 +413,9 @@ struct imgu_abi_shd_intra_frame_operations_data {
 } __packed;
 
 struct imgu_abi_shd_config {
-	struct ipu3_uapi_shd_config_static shd IMGU_ABI_PAD;
-	struct imgu_abi_shd_intra_frame_operations_data shd_ops IMGU_ABI_PAD;
-	struct ipu3_uapi_shd_lut shd_lut IMGU_ABI_PAD;
+	struct ipu3_uapi_shd_config_static shd IPU3_ALIGN;
+	struct imgu_abi_shd_intra_frame_operations_data shd_ops IPU3_ALIGN;
+	struct ipu3_uapi_shd_lut shd_lut IPU3_ALIGN;
 } __packed;
 
 struct imgu_abi_stripe_input_frame_resolution {
@@ -519,9 +522,9 @@ struct imgu_abi_stripe_data {
 /* Input feeder related structs */
 
 struct imgu_abi_input_feeder_data {
-	u32 row_stride;				/* row stride */
-	u32 start_row_address;			/* start row address */
-	u32 start_pixel;				/* start pixel */
+	u32 row_stride;			/* row stride */
+	u32 start_row_address;		/* start row address */
+	u32 start_pixel;		/* start pixel */
 } __packed;
 
 struct imgu_abi_input_feeder_data_aligned {
@@ -544,14 +547,14 @@ struct imgu_abi_input_feeder_config {
 #define IMGU_ABI_DVS_STAT_LEVELS		3
 
 struct imgu_abi_dvs_stat_grd_config {
-	u8 grid_width;				/* 5 bits */
+	u8 grid_width;
 	u8 grid_height;
-	u8 block_width;				/* 8 bits */
+	u8 block_width;
 	u8 block_height;
-	u16 x_start;					/* 12 bits */
+	u16 x_start;
 	u16 y_start;
 	u16 enable;
-	u16 x_end;					/* 12 bits */
+	u16 x_end;
 	u16 y_end;
 } __packed;
 
@@ -585,6 +588,7 @@ struct imgu_abi_dvs_stat_config {
 
 /* Y-tone Mapping */
 #define IMGU_ABI_YUVP2_YTM_LUT_ENTRIES			256
+
 struct imgu_abi_yuvp2_y_tm_lut_static_config {
 	u16 entries[IMGU_ABI_YUVP2_YTM_LUT_ENTRIES];
 	u32 enable;
@@ -625,6 +629,12 @@ struct imgu_abi_osys_formatter_params {
 struct imgu_abi_osys_formatter {
 	struct imgu_abi_osys_formatter_params param IPU3_ALIGN;
 } __packed;
+
+enum imgu_abi_osys_procmode {
+	IMGU_ABI_OSYS_PROCMODE_BYPASS,
+	IMGU_ABI_OSYS_PROCMODE_UPSCALE,
+	IMGU_ABI_OSYS_PROCMODE_DOWNSCALE,
+};
 
 struct imgu_abi_osys_scaler_params {
 	u32 inp_buf_y_st_addr;
@@ -679,10 +689,7 @@ struct imgu_abi_osys_scaler_params {
 	u32 input_image_uv_top_pad;
 	u32 input_image_y_bottom_pad;
 	u32 input_image_uv_bottom_pad;
-	u32 processing_mode;
-#define IMGU_ABI_OSYS_PROCMODE_BYPASS		0
-#define IMGU_ABI_OSYS_PROCMODE_UPSCALE		1
-#define IMGU_ABI_OSYS_PROCMODE_DOWNSCALE	2
+	u32 processing_mode;	/* enum imgu_abi_osys_procmode */
 	u32 scaling_ratio;
 	u32 y_left_phase_init;
 	u32 uv_left_phase_init;
@@ -744,16 +751,7 @@ struct imgu_abi_osys_config {
 	s8 scaler_coeffs_luma[128];
 } __packed;
 
-/* Defect pixel correction */
-
-struct imgu_abi_dpc_config {
-	u8 __reserved[240832];
-} __packed;
-
 /* BDS */
-
-#define IMGU_ABI_BDS_SAMPLE_PATTERN_ARRAY_SIZE		8
-#define IMGU_ABI_BDS_PHASE_COEFFS_ARRAY_SIZE		32
 
 struct imgu_abi_bds_hor_ctrl0 {
 	u32 sample_patrn_length:9;
@@ -984,7 +982,8 @@ struct imgu_abi_acc_param {
 	struct ipu3_uapi_yuvp2_y_tm_lut_static_config ytm IPU3_ALIGN;
 	struct ipu3_uapi_yuvp1_yds_config yds2 IPU3_ALIGN;
 	struct ipu3_uapi_yuvp2_tcc_static_config tcc IPU3_ALIGN;
-	struct imgu_abi_dpc_config dpc IPU3_ALIGN;
+	/* reserved for defect pixel correction */
+	u8 dpc[240832] IPU3_ALIGN;
 	struct imgu_abi_bds_config bds;
 	struct imgu_abi_anr_config anr;
 	struct imgu_abi_awb_fr_config awb_fr;
@@ -1014,7 +1013,7 @@ struct imgu_abi_gdc_warp_param {
 	u32 p3_y;
 	u32 in_block_width_a;
 	u32 in_block_width_b;
-	u32 padding;			/* struct size multiple of DDR word */
+	u32 padding;		/* struct size multiple of DDR word */
 } __packed;
 
 /******************* Firmware ABI definitions *******************/
@@ -1056,6 +1055,12 @@ enum imgu_abi_buffer_type {
 	IMGU_ABI_NUM_BUFFER_TYPE
 };
 
+enum imgu_abi_raw_type {
+	IMGU_ABI_RAW_TYPE_BAYER,
+	IMGU_ABI_RAW_TYPE_IR_ON_GR,
+	IMGU_ABI_RAW_TYPE_IR_ON_GB
+};
+
 struct imgu_abi_crop_pos {
 	u16 x;
 	u16 y;
@@ -1088,9 +1093,6 @@ struct imgu_abi_frame_sp_info {
 				 * IronGr case - IMGU_ABI_RAW_TYPE_IR_ON_GR
 				 * IronGb case - IMGU_ABI_RAW_TYPE_IR_ON_GB
 				 */
-#define IMGU_ABI_RAW_TYPE_BAYER		0
-#define IMGU_ABI_RAW_TYPE_IR_ON_GR	1
-#define IMGU_ABI_RAW_TYPE_IR_ON_GB	2
 	u8 padding[2];			/* Extend to 32 bit multiple */
 } __packed;
 
@@ -1176,10 +1178,29 @@ struct imgu_abi_uds_info {
 	u16 yc;
 } __packed;
 
+/* The type of pipe stage */
+enum imgu_abi_stage_type {
+	IMGU_ABI_STAGE_TYPE_SP,
+	IMGU_ABI_STAGE_TYPE_ISP,
+};
+
+enum imgu_abi_sp_swstate {
+	IMGU_ABI_SP_SWSTATE_TERMINATED,
+	IMGU_ABI_SP_SWSTATE_INITIALIZED,
+	IMGU_ABI_SP_SWSTATE_CONNECTED,
+	IMGU_ABI_SP_SWSTATE_RUNNING,
+};
+
+enum imgu_abi_bl_swstate {
+	IMGU_ABI_BL_SWSTATE_OK = 0x100,
+	IMGU_ABI_BL_SWSTATE_BUSY,
+	IMGU_ABI_BL_SWSTATE_ERR,
+};
+
 /* Information for a single pipeline stage */
 struct imgu_abi_sp_stage {
 	/* Multiple boolean flags can be stored in an integer */
-	u8 num;				/* Stage number */
+	u8 num;			/* Stage number */
 	u8 isp_online;
 	u8 isp_copy_vf;
 	u8 isp_copy_output;
@@ -1194,13 +1215,7 @@ struct imgu_abi_sp_stage {
 	 */
 	u8 program_input_circuit;
 	u8 func;
-#define IMGU_ABI_STAGE_FUNC_RAW_COPY	0
-#define IMGU_ABI_STAGE_FUNC_BIN_COPY	1
-#define IMGU_ABI_STAGE_FUNC_ISYS_COPY	2
-#define IMGU_ABI_STAGE_FUNC_NO_FUNC	3
-	u8 stage_type;			/* The type of the pipe-stage */
-#define IMGU_ABI_STAGE_TYPE_SP		0
-#define IMGU_ABI_STAGE_TYPE_ISP		1
+	u8 stage_type;		/* enum imgu_abi_stage_type */
 	u8 num_stripes;
 	u8 isp_pipe_version;
 	struct {
@@ -1287,9 +1302,9 @@ struct imgu_abi_blob_info {
 	u32 bss_size;			/* Size of bss section
 					 * Dynamic data filled by loader
 					 */
-	const void *code __aligned(8);	/* Code section absolute pointer */
+	u64 code __aligned(8);	/* Code section absolute pointer */
 					/* within fw, code = icache + text */
-	const void *data __aligned(8);	/* Data section absolute pointer */
+	u64 data __aligned(8);	/* Data section absolute pointer */
 					/* within fw, data = data + bss */
 } __packed;
 
@@ -1303,15 +1318,18 @@ struct imgu_abi_binary_pipeline_info {
 	u32 variable_resolution;
 } __packed;
 
+enum imgu_abi_bin_input_src {
+	IMGU_ABI_BINARY_INPUT_SOURCE_SENSOR,
+	IMGU_ABI_BINARY_INPUT_SOURCE_MEMORY,
+	IMGU_ABI_BINARY_INPUT_SOURCE_VARIABLE,
+};
+
 struct imgu_abi_binary_input_info {
 	u32 min_width;
 	u32 min_height;
 	u32 max_width;
 	u32 max_height;
-	u32 source;			/* memory, sensor, variable */
-#define IMGU_ABI_BINARY_INPUT_SOURCE_SENSOR	0
-#define IMGU_ABI_BINARY_INPUT_SOURCE_MEMORY	1
-#define IMGU_ABI_BINARY_INPUT_SOURCE_VARIABLE	2
+	u32 source;	/* enum imgu_abi_bin_input_src */
 } __packed;
 
 struct imgu_abi_binary_output_info {
@@ -1444,11 +1462,11 @@ struct imgu_abi_binary_info {
 		u8 rgb2yuv;
 		u8 high_quality;
 		u8 kerneltest;
-		u8 routing_shd_to_bnr;		/* connect SHD with BNR ACCs*/
-		u8 routing_bnr_to_anr;		/* connect BNR with ANR ACCs*/
+		u8 routing_shd_to_bnr;		/* connect SHD with BNR ACCs */
+		u8 routing_bnr_to_anr;		/* connect BNR with ANR ACCs */
 		u8 routing_anr_to_de;		/* connect ANR with DE ACCs */
-		u8 routing_rgb_to_yuvp1;	/* connect RGB with YUVP1 ACCs*/
-		u8 routing_yuvp1_to_yuvp2;    /* connect YUVP1 with YUVP2 ACCs*/
+		u8 routing_rgb_to_yuvp1;	/* connect RGB with YUVP1 */
+		u8 routing_yuvp1_to_yuvp2;	/* connect YUVP1 with YUVP2 */
 		u8 luma_only;
 		u8 input_yuv;
 		u8 input_raw;
@@ -1483,8 +1501,6 @@ struct imgu_abi_binary_info {
 		u8 rgbir;
 	} enable;
 	struct {
-		/* DMA channel ID: [0,...,IMGU_NUM_DMA_CHANNELS> */
-#define IMGU_NUM_DMA_CHANNELS		19
 		u8 ref_y_channel;
 		u8 ref_c_channel;
 		u8 tnr_channel;
@@ -1544,24 +1560,22 @@ struct imgu_abi_sp_config {
 	u8 padding[3];
 } __packed;
 
+#define IMGU_ABI_PIPE_CONFIG_ACQUIRE_ISP		BIT(31)
+
+#define IMGU_ABI_PORT_CONFIG_TYPE_INPUT_HOST		BIT(0)
+#define IMGU_ABI_PORT_CONFIG_TYPE_OUTPUT_HOST		BIT(4)
+
 /* Information for a pipeline */
 struct imgu_abi_sp_pipeline {
 	u32 pipe_id;			/* the pipe ID */
 	u32 pipe_num;			/* the dynamic pipe number */
 	u32 thread_id;			/* the sp thread ID */
 	u32 pipe_config;		/* the pipe config */
-#define IMGU_ABI_PIPE_CONFIG_ACQUIRE_ISP	(1 << 31)
 	u32 pipe_qos_config;		/* Bitmap of multiple QOS extension fw
 					 * state, 0xffffffff indicates non
 					 * QOS pipe.
 					 */
 	u32 inout_port_config;
-#define IMGU_ABI_PORT_CONFIG_TYPE_INPUT_HOST		(1 << 0)
-#define IMGU_ABI_PORT_CONFIG_TYPE_INPUT_COPYSINK	(1 << 1)
-#define IMGU_ABI_PORT_CONFIG_TYPE_INPUT_TAGGERSINK	(1 << 2)
-#define IMGU_ABI_PORT_CONFIG_TYPE_OUTPUT_HOST		(1 << 4)
-#define IMGU_ABI_PORT_CONFIG_TYPE_OUTPUT_COPYSINK	(1 << 5)
-#define IMGU_ABI_PORT_CONFIG_TYPE_OUTPUT_TAGGERSINK	(1 << 6)
 	u32 required_bds_factor;
 	u32 dvs_frame_delay;
 	u32 num_stages;		/* the pipe config */
@@ -1609,7 +1623,7 @@ struct imgu_abi_sp_debug_command {
 	u32 dma_sw_reg;
 } __packed;
 
-#define IMGU_ABI_MAX_SP_THREADS	4
+#define IMGU_ABI_MAX_SP_THREADS		4
 
 /*
  * Group all host initialized SP variables into this struct.
@@ -1853,14 +1867,16 @@ struct imgu_abi_buffer {
 #define IMGU_ABI_SP_COMM_COMMAND_TERMINATE	4	/* Terminate */
 
 /* n = 0..IPU3_CSS_PIPE_ID_NUM-1 */
-#define IMGU_ABI_SP_COMM_EVENT_IRQ_MASK(n)	((n) * 4 + 0x60)
+#define IMGU_ABI_SP_COMM_EVENT_IRQ_MASK(n)		((n) * 4 + 0x60)
 #define IMGU_ABI_SP_COMM_EVENT_IRQ_MASK_OR_SHIFT	0
+#define IMGU_ABI_SP_COMM_EVENT_IRQ_MASK_AND_SHIFT	16
+
+#define IMGU_ABI_BL_DMACMD_TYPE_SP_PMEM	1	/* sp_pmem */
 
 struct imgu_abi_bl_dma_cmd_entry {
 	u32 src_addr;			/* virtual DDR address */
 	u32 size;			/* number of bytes to transferred */
 	u32 dst_type;
-#define IMGU_ABI_BL_DMACMD_TYPE_SP_PMEM	1	/* sp_pmem */
 	u32 dst_addr;			/* hmm address of xMEM or MMIO */
 } __packed;
 
