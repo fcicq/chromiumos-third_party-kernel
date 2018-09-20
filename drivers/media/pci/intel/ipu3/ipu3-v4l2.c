@@ -390,16 +390,25 @@ static int ipu3_vb2_queue_setup(struct vb2_queue *vq, const void *parg,
 	struct imgu_video_device *node =
 		container_of(vq, struct imgu_video_device, vbq);
 	const struct v4l2_format *fmt = &node->vdev_fmt;
+	unsigned int size;
 
-	*num_planes = 1;
 	*num_buffers = clamp_val(*num_buffers, 1, VB2_MAX_FRAME);
 	alloc_ctxs[0] = imgu->vb2_alloc_ctx;
 
 	if (vq->type == V4L2_BUF_TYPE_META_CAPTURE ||
 	    vq->type == V4L2_BUF_TYPE_META_OUTPUT)
-		sizes[0] = fmt->fmt.meta.buffersize;
+		size = fmt->fmt.meta.buffersize;
 	else
-		sizes[0] = fmt->fmt.pix_mp.plane_fmt[0].sizeimage;
+		size = fmt->fmt.pix_mp.plane_fmt[0].sizeimage;
+
+	if (*num_planes) {
+		if (sizes[0] < size)
+			return -EINVAL;
+		size = sizes[0];
+	}
+
+	*num_planes = 1;
+	sizes[0] = size;
 
 	/* Initialize buffer queue */
 	INIT_LIST_HEAD(&node->buffers);
