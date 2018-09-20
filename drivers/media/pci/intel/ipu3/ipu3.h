@@ -152,6 +152,8 @@ struct imgu_device {
 	atomic_t qbuf_barrier;
 	/* Indicate if system suspend take place while imgu is streaming. */
 	bool suspend_in_stream;
+	/* Used to wait for FW buffer queue drain. */
+	wait_queue_head_t buf_drain_wq;
 };
 
 unsigned int imgu_node_to_queue(unsigned int node);

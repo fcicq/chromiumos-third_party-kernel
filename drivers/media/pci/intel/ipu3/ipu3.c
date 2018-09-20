@@ -542,6 +542,10 @@ static irqreturn_t imgu_isr_threaded(int irq, void *imgu_ptr)
 						    IPU3_CSS_BUFFER_DONE ?
 						    VB2_BUF_STATE_DONE :
 						    VB2_BUF_STATE_ERROR);
+		mutex_lock(&imgu->lock);
+		if (ipu3_css_queue_empty(&imgu->css))
+			wake_up_all(&imgu->buf_drain_wq);
+		mutex_unlock(&imgu->lock);
 	} while (1);
 
 	/*
@@ -644,6 +648,7 @@ static int imgu_pci_probe(struct pci_dev *pci_dev,
 
 	mutex_init(&imgu->lock);
 	atomic_set(&imgu->qbuf_barrier, 0);
+	init_waitqueue_head(&imgu->buf_drain_wq);
 
 	r = ipu3_css_set_powerup(&pci_dev->dev, imgu->base);
 	if (r) {
@@ -729,7 +734,6 @@ static int __maybe_unused imgu_suspend(struct device *dev)
 {
 	struct pci_dev *pci_dev = to_pci_dev(dev);
 	struct imgu_device *imgu = pci_get_drvdata(pci_dev);
-	unsigned long expire;
 
 	dev_dbg(dev, "enter %s\n", __func__);
 	imgu->suspend_in_stream = ipu3_css_is_streaming(&imgu->css);
@@ -743,13 +747,10 @@ static int __maybe_unused imgu_suspend(struct device *dev)
 	 */
 	synchronize_irq(pci_dev->irq);
 	/* Wait until all buffers in CSS are done. */
-	expire = jiffies + msecs_to_jiffies(1000);
-	while (!ipu3_css_queue_empty(&imgu->css)) {
-		if (time_is_before_jiffies(expire)) {
-			dev_err(dev, "wait buffer drain timeout.\n");
-			break;
-		}
-	}
+	if (!wait_event_timeout(imgu->buf_drain_wq,
+	    ipu3_css_queue_empty(&imgu->css), msecs_to_jiffies(1000)))
+		dev_err(dev, "wait buffer drain timeout.\n");
+
 	ipu3_css_stop_streaming(&imgu->css);
 	atomic_set(&imgu->qbuf_barrier, 0);
 	imgu_powerdown(imgu);
