@@ -1109,7 +1109,7 @@ static int imx355_write_reg(struct imx355 *imx355, u16 reg, u32 len, u32 val)
 
 /* Write a list of registers */
 static int imx355_write_regs(struct imx355 *imx355,
-			      const struct imx355_reg *regs, u32 len)
+			     const struct imx355_reg *regs, u32 len)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&imx355->sd);
 	int ret;
@@ -1232,8 +1232,8 @@ static const struct v4l2_ctrl_ops imx355_ctrl_ops = {
 };
 
 static int imx355_enum_mbus_code(struct v4l2_subdev *sd,
-				  struct v4l2_subdev_pad_config *cfg,
-				  struct v4l2_subdev_mbus_code_enum *code)
+				 struct v4l2_subdev_pad_config *cfg,
+				 struct v4l2_subdev_mbus_code_enum *code)
 {
 	struct imx355 *imx355 = to_imx355(sd);
 
@@ -1246,8 +1246,8 @@ static int imx355_enum_mbus_code(struct v4l2_subdev *sd,
 }
 
 static int imx355_enum_frame_size(struct v4l2_subdev *sd,
-				   struct v4l2_subdev_pad_config *cfg,
-				   struct v4l2_subdev_frame_size_enum *fse)
+				  struct v4l2_subdev_pad_config *cfg,
+				  struct v4l2_subdev_frame_size_enum *fse)
 {
 	struct imx355 *imx355 = to_imx355(sd);
 
@@ -1276,8 +1276,8 @@ static void imx355_update_pad_format(struct imx355 *imx355,
 }
 
 static int imx355_do_get_pad_format(struct imx355 *imx355,
-				     struct v4l2_subdev_pad_config *cfg,
-				     struct v4l2_subdev_format *fmt)
+				    struct v4l2_subdev_pad_config *cfg,
+				    struct v4l2_subdev_format *fmt)
 {
 	struct v4l2_mbus_framefmt *framefmt;
 	struct v4l2_subdev *sd = &imx355->sd;
@@ -1293,8 +1293,8 @@ static int imx355_do_get_pad_format(struct imx355 *imx355,
 }
 
 static int imx355_get_pad_format(struct v4l2_subdev *sd,
-				  struct v4l2_subdev_pad_config *cfg,
-				  struct v4l2_subdev_format *fmt)
+				 struct v4l2_subdev_pad_config *cfg,
+				 struct v4l2_subdev_format *fmt)
 {
 	struct imx355 *imx355 = to_imx355(sd);
 	int ret;
@@ -1308,8 +1308,8 @@ static int imx355_get_pad_format(struct v4l2_subdev *sd,
 
 static int
 imx355_set_pad_format(struct v4l2_subdev *sd,
-		       struct v4l2_subdev_pad_config *cfg,
-		       struct v4l2_subdev_format *fmt)
+		      struct v4l2_subdev_pad_config *cfg,
+		      struct v4l2_subdev_format *fmt)
 {
 	struct imx355 *imx355 = to_imx355(sd);
 	const struct imx355_mode *mode;
@@ -1329,9 +1329,9 @@ imx355_set_pad_format(struct v4l2_subdev *sd,
 	fmt->format.code = imx355_get_format_code(imx355);
 
 	mode = v4l2_find_nearest_size(supported_modes,
-				      ARRAY_SIZE(supported_modes),
-				      width, height,
-				      fmt->format.width, fmt->format.height);
+				      ARRAY_SIZE(supported_modes), width,
+				      height, fmt->format.width,
+				      fmt->format.height);
 	imx355_update_pad_format(imx355, mode, fmt);
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
 		framefmt = v4l2_subdev_get_try_format(sd, cfg, fmt->pad);
@@ -1563,7 +1563,7 @@ static int imx355_init_controls(struct imx355 *imx355)
 					       V4L2_CID_PIXEL_RATE, pixel_rate,
 					       pixel_rate, 1, pixel_rate);
 
-	/* Initialze vblank/hblank/exposure parameters based on current mode */
+	/* Initialize vblank/hblank/exposure parameters based on current mode */
 	mode = imx355->cur_mode;
 	vblank_def = mode->fll_def - mode->height;
 	vblank_min = mode->fll_min - mode->height;
