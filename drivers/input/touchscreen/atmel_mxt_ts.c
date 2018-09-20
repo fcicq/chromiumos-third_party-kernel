@@ -1878,8 +1878,10 @@ static int mxt_get_object_table(struct mxt_data *data)
 			data->T6_reportid = min_id;
 			break;
 		case MXT_TOUCH_MULTI_T9:
+			/* Only handle messages from first T9 instance */
 			data->T9_reportid_min = min_id;
-			data->T9_reportid_max = max_id;
+			data->T9_reportid_max = min_id +
+						object->num_report_ids - 1;
 			data->num_touchids = object->num_report_ids;
 			data->has_T9 = true;
 			break;
