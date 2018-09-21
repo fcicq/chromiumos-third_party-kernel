@@ -1141,7 +1141,7 @@ static int imx355_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 	/* Initialize try_fmt */
 	try_fmt->width = imx355->cur_mode->width;
 	try_fmt->height = imx355->cur_mode->height;
-	try_fmt->code = MEDIA_BUS_FMT_SRGGB10_1X10;
+	try_fmt->code = imx355_get_format_code(imx355);
 	try_fmt->field = V4L2_FIELD_NONE;
 
 	mutex_unlock(&imx355->mutex);
