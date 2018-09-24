@@ -238,12 +238,9 @@ int imgu_queue_buffers(struct imgu_device *imgu, bool initial, unsigned int pipe
 	mutex_lock(&imgu->lock);
 
 	/* Buffer set is queued to FW only when input buffer is ready */
-	if (!imgu_queue_getbuf(imgu, IMGU_NODE_IN, pipe)) {
-		mutex_unlock(&imgu->lock);
-		return 0;
-	}
-
-	for (node = IMGU_NODE_IN + 1; 1; node = (node + 1) % IMGU_NODE_NUM) {
+	for (node = IMGU_NODE_IN;
+	     node != IMGU_NODE_IN || imgu_queue_getbuf(imgu, node, pipe);
+	     node = (node + 1) % IMGU_NODE_NUM) {
 		if (node == IMGU_NODE_VF &&
 		    !imgu_pipe->nodes[IMGU_NODE_VF].enabled) {
 			dev_warn(&imgu->pci_dev->dev,
@@ -271,9 +268,6 @@ int imgu_queue_buffers(struct imgu_device *imgu, bool initial, unsigned int pipe
 				dummy ? 0 : ibuf->vid_buf.vbb.vb2_buf.index,
 				(u32)buf->daddr);
 		}
-		if (node == IMGU_NODE_IN &&
-		    !imgu_queue_getbuf(imgu, IMGU_NODE_IN, pipe))
-			break;
 	}
 	mutex_unlock(&imgu->lock);
 
