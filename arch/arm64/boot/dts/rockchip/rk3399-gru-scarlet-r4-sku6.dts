@@ -61,16 +61,6 @@
 		     "google,scarlet-rev5-sku6",  "google,scarlet-rev5",
 		     "google,scarlet-rev4-sku6",  "google,scarlet-rev4",
 		     "google,scarlet", "google,gru", "rockchip,rk3399";
-
-	firmware {
-		coreboot {
-			/*
-			 * HACK: put this here until firmware with this
-			 * property rolls out.
-			 */
-			sku-id = <6>;
-		};
-	};
 };
 
 &mipi_panel {
