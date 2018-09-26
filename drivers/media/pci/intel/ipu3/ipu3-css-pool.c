@@ -113,9 +113,14 @@ void ipu3_css_pool_put(struct ipu3_css_pool *pool)
 	pool->last = (pool->last + IPU3_CSS_POOL_SIZE - 1) % IPU3_CSS_POOL_SIZE;
 }
 
-/*
- * Return the nth entry from last, if that entry has no frame stored,
- * return a null map instead to indicate frame not available for the entry.
+/**
+ * ipu3_css_pool_last - Retrieve the nth pool entry from last
+ *
+ * @pool: a pointer to &struct ipu3_css_pool.
+ * @n: the distance to the last index.
+ *
+ * Returns:
+ *  The nth entry from last or null map to indicate no frame stored.
  */
 const struct ipu3_css_map *
 ipu3_css_pool_last(struct ipu3_css_pool *pool, unsigned int n)

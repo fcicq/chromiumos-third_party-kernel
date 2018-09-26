@@ -9,6 +9,15 @@ struct imgu_device;
 
 #define IPU3_CSS_POOL_SIZE		4
 
+/**
+ * ipu3_css_map - store DMA mapping info for buffer
+ *
+ * @size:		size of the buffer in bytes.
+ * @vaddr:		kernel virtual address.
+ * @daddr:		iova dma address to access IPU3.
+ * @vma:		private, a pointer to &struct vm_struct,
+ * 			used for ipu3_dmamap_free.
+ */
 struct ipu3_css_map {
 	size_t size;
 	void *vaddr;
@@ -16,12 +25,21 @@ struct ipu3_css_map {
 	struct vm_struct *vma;
 };
 
+/**
+ * ipu3_css_pool - circular buffer pool definition
+ *
+ * @entry:		array with IPU3_CSS_POOL_SIZE elements.
+ * @entry.param:	a &struct ipu3_css_map for storing the mem mapping.
+ * @entry.framenum:	the css frame number, used to determine if the entry
+ *			is old enough to be recycled.
+ * @last:		write pointer, initialized to IPU3_CSS_POOL_SIZE.
+ */
 struct ipu3_css_pool {
 	struct {
 		struct ipu3_css_map param;
 		long framenum;
 	} entry[IPU3_CSS_POOL_SIZE];
-	unsigned int last; /* Latest entry */
+	unsigned int last;
 };
 
 int ipu3_css_dma_buffer_resize(struct imgu_device *imgu,
