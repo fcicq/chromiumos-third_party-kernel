@@ -108,6 +108,7 @@ static void reset_context(void *info)
 	flush_context();
 	set_mm_context(mm, asid);
 
+	arm64_apply_bp_hardening();
 	/* set the new ASID */
 	cpu_switch_mm(mm->pgd, mm);
 }
@@ -129,8 +130,6 @@ asmlinkage void post_ttbr_update_workaround(void)
 			"ic iallu; dsb nsh; isb",
 			ARM64_WORKAROUND_CAVIUM_27456,
 			CONFIG_CAVIUM_ERRATUM_27456));
-
-	arm64_apply_bp_hardening();
 }
 
 void __new_context(struct mm_struct *mm)
