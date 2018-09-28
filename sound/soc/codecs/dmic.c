@@ -29,10 +29,35 @@
 #include <sound/pcm.h>
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
+#include <linux/acpi.h>
 
 struct dmic {
 	struct gpio_desc *gpio_en;
+	/* Delay after dmic enable */
 	int wakeup_delay;
+	/* Delay after DMIC mode switch */
+	int modeswitch_delay_ms;
+};
+
+int dmic_daiops_trigger(struct snd_pcm_substream *substream,
+		int cmd, struct snd_soc_dai *dai)
+{
+	struct snd_soc_codec *codec = dai->codec;
+	struct dmic *dmic = snd_soc_codec_get_drvdata(codec);
+
+	switch (cmd) {
+	case SNDRV_PCM_TRIGGER_STOP:
+		if (dmic->modeswitch_delay_ms)
+			mdelay(dmic->modeswitch_delay_ms);
+
+		break;
+	}
+
+	return 0;
+}
+
+static const struct snd_soc_dai_ops dmic_dai_ops = {
+	.trigger	= dmic_daiops_trigger,
 };
 
 static int dmic_aif_event(struct snd_soc_dapm_widget *w,
@@ -68,6 +93,7 @@ static struct snd_soc_dai_driver dmic_dai = {
 			| SNDRV_PCM_FMTBIT_S24_LE
 			| SNDRV_PCM_FMTBIT_S16_LE,
 	},
+	.ops    = &dmic_dai_ops,
 };
 
 static int dmic_codec_probe(struct snd_soc_codec *codec)
@@ -85,6 +111,8 @@ static int dmic_codec_probe(struct snd_soc_codec *codec)
 
 	device_property_read_u32(codec->dev, "wakeup-delay-ms",
 				 &dmic->wakeup_delay);
+	device_property_read_u32(codec->dev, "modeswitch_delay_ms",
+				 &dmic->modeswitch_delay_ms);
 
 	snd_soc_codec_set_drvdata(codec, dmic);
 
@@ -134,6 +162,8 @@ static int dmic_dev_probe(struct platform_device *pdev)
 		}
 	}
 
+
+
 	return snd_soc_register_codec(&pdev->dev,
 			&soc_dmic, dai_drv, 1);
 }
@@ -146,15 +176,26 @@ static int dmic_dev_remove(struct platform_device *pdev)
 
 MODULE_ALIAS("platform:dmic-codec");
 
+#ifdef CONFIG_OF
 static const struct of_device_id dmic_dev_match[] = {
 	{.compatible = "dmic-codec"},
 	{}
 };
+#endif
+
+#ifdef CONFIG_ACPI
+static const struct acpi_device_id dmic_acpi_match[] = {
+	{ "DMIC", 0 },
+	{},
+};
+MODULE_DEVICE_TABLE(acpi, dmic_acpi_match);
+#endif
 
 static struct platform_driver dmic_driver = {
 	.driver = {
 		.name = "dmic-codec",
 		.of_match_table = dmic_dev_match,
+		.acpi_match_table = ACPI_PTR(dmic_acpi_match),
 	},
 	.probe = dmic_dev_probe,
 	.remove = dmic_dev_remove,
