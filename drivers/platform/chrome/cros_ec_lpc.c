@@ -25,7 +25,6 @@
 #include <linux/dmi.h>
 #include <linux/delay.h>
 #include <linux/io.h>
-#include <linux/interrupt.h>
 #include <linux/mfd/cros_ec.h>
 #include <linux/mfd/cros_ec_commands.h>
 #include <linux/mfd/cros_ec_lpc_reg.h>
@@ -291,7 +290,6 @@ static int cros_ec_lpc_probe(struct platform_device *pdev)
 	ec_dev->din_size = sizeof(struct ec_host_response) +
 			   sizeof(struct ec_response_get_protocol_info);
 	ec_dev->dout_size = sizeof(struct ec_host_request);
-	ec_dev->irq = platform_get_irq(pdev, 0);
 
 	ret = cros_ec_register(ec_dev);
 	if (ret) {
@@ -300,10 +298,10 @@ static int cros_ec_lpc_probe(struct platform_device *pdev)
 	}
 
 	/*
-	 * If we have a companion ACPI device and no dedicated IRQ
-	 * connect a notify handler to process MKBP messages.
+	 * If we have a companion ACPI device connect a notify handler to
+	 * process MKBP messages.
 	 */
-	if (adev && ec_dev->irq <= 0) {
+	if (adev) {
 		status = acpi_install_notify_handler(adev->handle,
 				ACPI_ALL_NOTIFY,
 				cros_ec_lpc_acpi_notify, ec_dev);
