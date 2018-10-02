@@ -395,7 +395,7 @@ static void __remove(struct device *dev)
 	kfree(ec);
 }
 
-static int cros_ec_check_features(struct cros_ec_dev *ec, int feature)
+int cros_ec_check_features(struct cros_ec_dev *ec, int feature)
 {
 	if (ec->features[0] == -1U && ec->features[1] == -1U) {
 		/* features bitmap not read yet */
@@ -424,6 +424,7 @@ static int cros_ec_check_features(struct cros_ec_dev *ec, int feature)
 
 	return ec->features[feature / 32] & EC_FEATURE_MASK_0(feature);
 }
+EXPORT_SYMBOL_GPL(cros_ec_check_features);
 
 static const struct mfd_cell cros_usb_pd_charger_devs[] = {
 	{
