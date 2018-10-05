@@ -1869,6 +1869,7 @@ void sta_set_sinfo(struct sta_info *sta, struct station_info *sinfo)
 			 BIT(NL80211_STA_INFO_RX_DROP_MISC) |
 			 BIT(NL80211_STA_INFO_BEACON_LOSS);
 
+	ewma_init(&sta->ave_data_rssi, 1024, 8);
 	ktime_get_ts(&uptime);
 	sinfo->connected_time = uptime.tv_sec - sta->last_connected;
 	sinfo->inactive_time = jiffies_to_msecs(jiffies - sta->last_rx);
@@ -2069,5 +2070,14 @@ void sta_set_sinfo(struct sta_info *sta, struct station_info *sinfo)
 	if (thr != 0) {
 		sinfo->filled |= BIT(NL80211_STA_INFO_EXPECTED_THROUGHPUT);
 		sinfo->expected_throughput = thr;
+	}
+	if (ieee80211_hw_check(&sta->local->hw, REPORTS_TX_ACK_STATUS)) {
+		if (!(sinfo->filled &
+			BIT_ULL(NL80211_STA_INFO_DATA_ACK_SIGNAL_AVG))) {
+			sinfo->avg_ack_rssi =
+			(s8) -ewma_read(&sta->ave_data_rssi);
+			sinfo->filled |=
+			BIT_ULL(NL80211_STA_INFO_DATA_ACK_SIGNAL_AVG);
+		}
 	}
 }

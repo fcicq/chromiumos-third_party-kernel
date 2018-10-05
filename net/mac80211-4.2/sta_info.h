@@ -567,6 +567,7 @@ struct sta_info {
 
 	struct cfg80211_chan_def tdls_chandef;
 
+	struct ewma ave_data_rssi;
 	/* keep last! */
 	struct ieee80211_sta sta;
 };
