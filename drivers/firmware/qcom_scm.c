@@ -615,6 +615,7 @@ static const struct of_device_id qcom_scm_dt_match[] = {
 							     SCM_HAS_BUS_CLK)
 	},
 	{ .compatible = "qcom,scm-msm8996" },
+	{ .compatible = "qcom,scm-qcs404" },
 	{ .compatible = "qcom,scm" },
 	{}
 };
