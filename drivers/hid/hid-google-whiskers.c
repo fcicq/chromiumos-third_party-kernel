@@ -26,6 +26,7 @@ struct whiskers_ec {
 	struct device *dev;	/* The platform device (EC) */
 	struct input_dev *input;
 	bool base_present;
+	bool base_folded;	/* false: not folded or unknown */
 	struct notifier_block notifier;
 };
 
@@ -203,7 +204,15 @@ static int __whiskers_ec_probe(struct platform_device *pdev)
 		return error;
 	}
 
-	input_report_switch(input, SW_TABLET_MODE, !whiskers_ec.base_present);
+	if (!whiskers_ec.base_present)
+		whiskers_ec.base_folded = false;
+
+	dev_dbg(&pdev->dev, "%s: base: %d, folded: %d\n", __func__,
+		whiskers_ec.base_present, whiskers_ec.base_folded);
+
+	input_report_switch(input, SW_TABLET_MODE,
+			    !whiskers_ec.base_present ||
+			    whiskers_ec.base_folded);
 
 	whiskers_ec_set_input(input);
 
@@ -269,20 +278,6 @@ static struct platform_driver whiskers_ec_driver = {
 	},
 };
 
-static int whiskers_ec_open(struct input_dev *input)
-{
-	struct hid_device *hdev = input_get_drvdata(input);
-
-	return hid_hw_open(hdev);
-}
-
-static void whiskers_ec_close(struct input_dev *input)
-{
-	struct hid_device *hdev = input_get_drvdata(input);
-
-	hid_hw_close(hdev);
-}
-
 static int whiskers_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 				  struct hid_field *field,
 				  struct hid_usage *usage,
@@ -304,8 +299,8 @@ static int whiskers_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 		 * method, but since we reusing hammer's implementation we
 		 * do it here instead.
 		 */
-		hi->input->open = whiskers_ec_open;
-		hi->input->close = whiskers_ec_close;
+		hi->input->open = NULL;
+		hi->input->close = NULL;
 		hi->input->inhibit = NULL;
 		hi->input->uninhibit = NULL;
 
@@ -323,8 +318,9 @@ static int whiskers_event(struct hid_device *hid, struct hid_field *field,
 	if (usage->hid == WHISKERS_KBD_FOLDED) {
 		spin_lock_irqsave(&whiskers_ec_lock, flags);
 
+		whiskers_ec.base_folded = value;
 		hid_dbg(hid, "%s: base: %d, folded: %d\n", __func__,
-			whiskers_ec.base_present, value);
+			whiskers_ec.base_present, whiskers_ec.base_folded);
 
 		/*
 		 * We should not get event if base is detached, but in case
@@ -348,7 +344,15 @@ static int whiskers_probe(struct hid_device *hdev,
 			  const struct hid_device_id *id)
 {
 	struct usb_interface *intf = to_usb_interface(hdev->dev.parent);
-	int ret;
+	int error;
+
+	error = hid_parse(hdev);
+	if (error)
+		return error;
+
+	error = hid_hw_start(hdev, HID_CONNECT_DEFAULT);
+	if (error)
+		return error;
 
 	/*
 	 * We always want to poll for, and handle tablet mode events, even when
@@ -356,14 +360,23 @@ static int whiskers_probe(struct hid_device *hdev,
 	 * from dropping early tablet mode events from the device.
 	 */
 	if (intf->cur_altsetting->desc.bInterfaceProtocol ==
-			USB_INTERFACE_PROTOCOL_KEYBOARD)
+			USB_INTERFACE_PROTOCOL_KEYBOARD) {
 		hdev->quirks |= HID_QUIRK_ALWAYS_POLL;
+		error = hid_hw_open(hdev);
+		if (error)
+			return error;
+	}
 
-	ret = hid_parse(hdev);
-	if (!ret)
-		ret = hid_hw_start(hdev, HID_CONNECT_DEFAULT);
+	return 0;
+}
 
-	return ret;
+static void whiskers_remove(struct hid_device *hdev)
+{
+	struct usb_interface *intf = to_usb_interface(hdev->dev.parent);
+
+	if (intf->cur_altsetting->desc.bInterfaceProtocol ==
+			USB_INTERFACE_PROTOCOL_KEYBOARD)
+		hid_hw_close(hdev);
 }
 
 static const struct hid_device_id whiskers_hid_devices[] = {
@@ -377,6 +390,7 @@ static struct hid_driver whiskers_hid_driver = {
 	.name			= "whiskers",
 	.id_table		= whiskers_hid_devices,
 	.probe			= whiskers_probe,
+	.remove			= whiskers_remove,
 	.input_configured	= hammer_input_configured,
 	.input_mapping		= whiskers_input_mapping,
 	.event			= whiskers_event,
