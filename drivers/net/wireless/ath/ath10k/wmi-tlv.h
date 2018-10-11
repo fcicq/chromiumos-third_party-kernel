@@ -1633,6 +1633,8 @@ struct wmi_tlv_mgmt_tx_compl_ev {
 	__le32 desc_id;
 	__le32 status;
 	__le32 pdev_id;
+	__le32 ppdu_id;
+	__le32 ack_rssi;
 };
 
 #define WMI_TLV_MGMT_RX_NUM_RSSI 4

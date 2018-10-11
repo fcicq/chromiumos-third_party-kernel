@@ -2345,8 +2345,8 @@ static bool ath10k_wmi_rx_is_decrypted(struct ath10k *ar,
 	return true;
 }
 
-static int wmi_process_mgmt_tx_comp(struct ath10k *ar, u32 desc_id,
-				    u32 status)
+static int
+wmi_process_mgmt_tx_comp(struct ath10k *ar, struct mgmt_tx_compl_params *param)
 {
 	struct ath10k_mgmt_tx_pkt_addr *pkt_addr;
 	struct ath10k_wmi *wmi = &ar->wmi;
@@ -2356,10 +2356,10 @@ static int wmi_process_mgmt_tx_comp(struct ath10k *ar, u32 desc_id,
 
 	spin_lock_bh(&ar->data_lock);
 
-	pkt_addr = idr_find(&wmi->mgmt_pending_tx, desc_id);
+	pkt_addr = idr_find(&wmi->mgmt_pending_tx, param->desc_id);
 	if (!pkt_addr) {
 		ath10k_warn(ar, "received mgmt tx completion for invalid msdu_id: %d\n",
-			    desc_id);
+			    param->desc_id);
 		ret = -ENOENT;
 		goto out;
 	}
@@ -2369,7 +2369,7 @@ static int wmi_process_mgmt_tx_comp(struct ath10k *ar, u32 desc_id,
 			 msdu->len, DMA_FROM_DEVICE);
 	info = IEEE80211_SKB_CB(msdu);
 
-	if (status)
+	if (param->status)
 		info->flags &= ~IEEE80211_TX_STAT_ACK;
 	else
 		info->flags |= IEEE80211_TX_STAT_ACK;
@@ -2379,7 +2379,7 @@ static int wmi_process_mgmt_tx_comp(struct ath10k *ar, u32 desc_id,
 	ret = 0;
 
 out:
-	idr_remove(&wmi->mgmt_pending_tx, desc_id);
+	idr_remove(&wmi->mgmt_pending_tx, param->desc_id);
 	spin_unlock_bh(&ar->data_lock);
 	return ret;
 }
@@ -2387,6 +2387,7 @@ out:
 int ath10k_wmi_event_mgmt_tx_compl(struct ath10k *ar, struct sk_buff *skb)
 {
 	struct wmi_tlv_mgmt_tx_compl_ev_arg arg;
+	struct mgmt_tx_compl_params param;
 	int ret;
 
 	ret = ath10k_wmi_pull_mgmt_tx_compl(ar, skb, &arg);
@@ -2395,8 +2396,12 @@ int ath10k_wmi_event_mgmt_tx_compl(struct ath10k *ar, struct sk_buff *skb)
 		return ret;
 	}
 
-	wmi_process_mgmt_tx_comp(ar, __le32_to_cpu(arg.desc_id),
-				 __le32_to_cpu(arg.status));
+	memset(&param, 0, sizeof(struct mgmt_tx_compl_params));
+	param.desc_id = __le32_to_cpu(arg.desc_id);
+	param.status = __le32_to_cpu(arg.status);
+	param.ack_rssi = __le32_to_cpu(arg.ack_rssi);
+
+	wmi_process_mgmt_tx_comp(ar, &param);
 
 	ath10k_dbg(ar, ATH10K_DBG_WMI, "wmi tlv evnt mgmt tx completion\n");
 
@@ -2406,7 +2411,8 @@ int ath10k_wmi_event_mgmt_tx_compl(struct ath10k *ar, struct sk_buff *skb)
 int ath10k_wmi_event_mgmt_tx_bundle_compl(struct ath10k *ar, struct sk_buff *skb)
 {
 	struct wmi_tlv_mgmt_tx_bundle_compl_ev_arg arg;
-	u32 *desc_ids, *status;
+	struct mgmt_tx_compl_params param;
+	u32 *desc_ids, *status, *ack_rssi;
 	u32 num_reports;
 	int i, ret;
 
@@ -2419,10 +2425,17 @@ int ath10k_wmi_event_mgmt_tx_bundle_compl(struct ath10k *ar, struct sk_buff *skb
 	num_reports = __le32_to_cpu(arg.num_reports);
 	desc_ids = (u32 *)arg.desc_ids;
 	status = (u32 *)arg.status;
+	ack_rssi = (u32 *)arg.ack_rssi;
 
-	for (i = 0; i < num_reports; i++)
-		wmi_process_mgmt_tx_comp(ar, __le32_to_cpu(desc_ids[i]),
-					 __le32_to_cpu(status[i]));
+	for (i = 0; i < num_reports; i++) {
+		memset(&param, 0, sizeof(struct mgmt_tx_compl_params));
+		param.desc_id = __le32_to_cpu(desc_ids[i]);
+		param.status = __le32_to_cpu(status[i]);
+
+		if (test_bit(WMI_SERVICE_TX_DATA_ACK_RSSI, ar->wmi.svc_map))
+			param.ack_rssi = __le32_to_cpu(ack_rssi[i]);
+		wmi_process_mgmt_tx_comp(ar, &param);
+	}
 
 	ath10k_dbg(ar, ATH10K_DBG_WMI, "wmi tlv event bundle mgmt tx completion\n");
 

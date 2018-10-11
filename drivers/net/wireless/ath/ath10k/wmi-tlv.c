@@ -623,6 +623,10 @@ ath10k_wmi_tlv_op_pull_mgmt_tx_compl_ev(struct ath10k *ar, struct sk_buff *skb,
 	arg->desc_id = ev->desc_id;
 	arg->status = ev->status;
 	arg->pdev_id = ev->pdev_id;
+	arg->ppdu_id = ev->ppdu_id;
+
+	if (test_bit(WMI_SERVICE_TX_DATA_ACK_RSSI, ar->wmi.svc_map))
+		arg->ack_rssi = ev->ack_rssi;
 
 	kfree(tb);
 	return 0;
@@ -632,8 +636,12 @@ struct wmi_tlv_tx_bundle_compl_parse {
 	const __le32 *num_reports;
 	const __le32 *desc_ids;
 	const __le32 *status;
+	const __le32 *ppdu_ids;
+	const __le32 *ack_rssi;
 	bool desc_ids_done;
 	bool status_done;
+	bool ppdu_ids_done;
+	bool ack_rssi_done;
 };
 
 static int
@@ -653,6 +661,12 @@ ath10k_wmi_tlv_mgmt_tx_bundle_compl_parse(struct ath10k *ar, u16 tag, u16 len,
 		} else if (!bundle_tx_compl->status_done) {
 			bundle_tx_compl->status_done = true;
 			bundle_tx_compl->status = ptr;
+		} else if (!bundle_tx_compl->ppdu_ids_done) {
+			bundle_tx_compl->ppdu_ids_done = true;
+			bundle_tx_compl->ppdu_ids = ptr;
+		} else if (!bundle_tx_compl->ack_rssi_done) {
+			bundle_tx_compl->ack_rssi_done = true;
+			bundle_tx_compl->ack_rssi = ptr;
 		}
 		break;
 	default:
@@ -683,6 +697,10 @@ static int ath10k_wmi_tlv_op_pull_mgmt_tx_bundle_compl_ev(
 	arg->num_reports = __le32_to_cpu(*bundle_tx_compl.num_reports);
 	arg->desc_ids = (__le32 *)bundle_tx_compl.desc_ids;
 	arg->status = (__le32 *)bundle_tx_compl.status;
+	arg->ppdu_ids = (__le32 *)bundle_tx_compl.ppdu_ids;
+
+	if (test_bit(WMI_SERVICE_TX_DATA_ACK_RSSI, ar->wmi.svc_map))
+		arg->ack_rssi = (__le32 *)bundle_tx_compl.ack_rssi;
 
 	return 0;
 }
