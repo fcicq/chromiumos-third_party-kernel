@@ -1972,9 +1972,6 @@ static int file_is_low(struct lruvec *lruvec)
 	struct zone *zone = lruvec_zone(lruvec);
 	u64 pages_min = min_filelist_kbytes >> (PAGE_SHIFT - 10);
 
-	if (!mem_cgroup_disabled())
-		return false;
-
 	pages_min *= zone->managed_pages;
 	do_div(pages_min, totalram_pages);
 
@@ -2050,9 +2047,10 @@ static void get_scan_count(struct lruvec *lruvec, int swappiness,
 
 	/*
 	 * Do not scan file pages when swap is allowed by __GFP_IO and
-	 * file page count is low.
+	 * it's global reclaim and file page count is low.
 	 */
-	if ((sc->gfp_mask & __GFP_IO) && file_is_low(lruvec)) {
+	if ((sc->gfp_mask & __GFP_IO) && global_reclaim(sc) &&
+	    file_is_low(lruvec)) {
 		scan_balance = SCAN_ANON;
 		goto out;
 	}
