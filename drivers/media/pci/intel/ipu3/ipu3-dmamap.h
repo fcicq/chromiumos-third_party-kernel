@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /* Copyright (C) 2018 Intel Corporation */
-/* Copyright (C) 2018 Google, Inc. */
+/* Copyright 2018 Google LLC. */
 
 #ifndef __IPU3_DMAMAP_H
 #define __IPU3_DMAMAP_H

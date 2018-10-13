@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 2018 Intel Corporation
- * Copyright (C) 2018 Google, Inc.
+ * Copyright 2018 Google LLC.
  *
  * Author: Tomasz Figa <tfiga@chromium.org>
  * Author: Yong Zhi <yong.zhi@intel.com>
