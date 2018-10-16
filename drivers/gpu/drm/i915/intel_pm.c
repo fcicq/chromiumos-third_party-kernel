@@ -2868,6 +2868,10 @@ skl_ddb_get_pipe_allocation_limits(struct drm_device *dev,
 	else
 		*num_active = hweight32(dev_priv->active_crtcs);
 
+	if (*num_active == 0)
+		return;
+
+
 	if (IS_BROXTON(dev))
 		ddb_size = BXT_DDB_SIZE;
 	else
@@ -3066,6 +3070,9 @@ skl_allocate_pipe_ddb(struct intel_crtc_state *cstate,
 	}
 
 	skl_ddb_get_pipe_allocation_limits(dev, cstate, alloc, &num_active);
+	if (!num_active)
+		return -ENODEV;
+
 	alloc_size = skl_ddb_entry_size(alloc);
 	if (alloc_size == 0) {
 		memset(ddb->plane[pipe], 0, sizeof(ddb->plane[pipe]));
