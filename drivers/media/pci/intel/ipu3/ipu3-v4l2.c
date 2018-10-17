@@ -1412,10 +1412,10 @@ EXPORT_SYMBOL_GPL(ipu3_v4l2_register);
 
 int ipu3_v4l2_unregister(struct imgu_device *imgu)
 {
+	media_device_unregister(&imgu->media_dev);
 	ipu3_v4l2_nodes_cleanup(imgu, IMGU_MAX_PIPE_NUM);
 	ipu3_v4l2_subdevs_cleanup(imgu, IMGU_MAX_PIPE_NUM);
 	v4l2_device_unregister(&imgu->v4l2_dev);
-	media_device_unregister(&imgu->media_dev);
 
 	return 0;
 }
