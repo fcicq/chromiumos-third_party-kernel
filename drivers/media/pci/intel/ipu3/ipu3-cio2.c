@@ -1035,12 +1035,13 @@ static void cio2_vb2_stop_streaming(struct vb2_queue *vq)
 	struct cio2_queue *q = vb2q_to_cio2_queue(vq);
 	struct cio2_device *cio2 = vb2_get_drv_priv(vq);
 
+	cio2_hw_exit(cio2, q);
+	synchronize_irq(cio2->pci_dev->irq);
+
 	if (v4l2_subdev_call(q->sensor, video, s_stream, 0))
 		dev_err(&cio2->pci_dev->dev,
 			"failed to stop sensor streaming\n");
 
-	cio2_hw_exit(cio2, q);
-	synchronize_irq(cio2->pci_dev->irq);
 	cio2_vb2_return_all_buffers(q, VB2_BUF_STATE_ERROR);
 	media_entity_pipeline_stop(&q->vdev.entity);
 	pm_runtime_put(&cio2->pci_dev->dev);
