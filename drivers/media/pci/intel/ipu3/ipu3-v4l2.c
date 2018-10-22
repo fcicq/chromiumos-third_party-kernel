@@ -4,6 +4,7 @@
 #include <linux/module.h>
 #include <linux/pm_runtime.h>
 
+#include <media/v4l2-event.h>
 #include <media/v4l2-ioctl.h>
 
 #include "ipu3.h"
@@ -883,6 +884,11 @@ static struct v4l2_subdev_internal_ops ipu3_subdev_internal_ops = {
 	.open = ipu3_subdev_open,
 };
 
+static const struct v4l2_subdev_core_ops ipu3_subdev_core_ops = {
+	.subscribe_event = v4l2_ctrl_subdev_subscribe_event,
+	.unsubscribe_event = v4l2_event_subdev_unsubscribe,
+};
+
 static const struct v4l2_subdev_video_ops ipu3_subdev_video_ops = {
 	.s_stream = ipu3_subdev_s_stream,
 };
@@ -896,6 +902,7 @@ static const struct v4l2_subdev_pad_ops ipu3_subdev_pad_ops = {
 };
 
 static const struct v4l2_subdev_ops ipu3_subdev_ops = {
+	.core = &ipu3_subdev_core_ops,
 	.video = &ipu3_subdev_video_ops,
 	.pad = &ipu3_subdev_pad_ops,
 };
@@ -1093,7 +1100,8 @@ static int ipu3_v4l2_subdev_register(struct imgu_device *imgu,
 	/* Initialize subdev */
 	v4l2_subdev_init(&imgu_sd->subdev, &ipu3_subdev_ops);
 	imgu_sd->subdev.internal_ops = &ipu3_subdev_internal_ops;
-	imgu_sd->subdev.flags = V4L2_SUBDEV_FL_HAS_DEVNODE;
+	imgu_sd->subdev.flags = V4L2_SUBDEV_FL_HAS_DEVNODE |
+				V4L2_SUBDEV_FL_HAS_EVENTS;
 	snprintf(imgu_sd->subdev.name, sizeof(imgu_sd->subdev.name),
 		 "%s %d", IMGU_NAME, pipe);
 	v4l2_set_subdevdata(&imgu_sd->subdev, imgu);
