@@ -179,7 +179,7 @@
 /* below n = 0..3 */
 #define CIO2_PBM_FOPN_ABORT(n)				(0x1 << 8 * (n))
 #define CIO2_PBM_FOPN_FORCE_ABORT(n)			(0x2 << 8 * (n))
-#define CIO2_PBM_FOPN_FRAMEOPEN(n)			(0x8 << 8 * (n))
+#define CIO2_PBM_FOPN_FRAMEOPEN(n)			(0x10 << 8 * (n))
 #define CIO2_REG_LTRCTRL				0x1480
 #define CIO2_LTRCTRL_LTRDYNEN				BIT(16)
 #define CIO2_LTRCTRL_LTRSTABLETIME_SHIFT		8
