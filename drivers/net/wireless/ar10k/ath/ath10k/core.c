@@ -78,6 +78,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 			.board_ext_size = QCA988X_BOARD_EXT_DATA_SZ,
 		},
 		.hw_ops = &qca988x_ops,
+		.fw_diag_ce_download = false,
 	},
 	{
 		.id = QCA6174_HW_2_1_VERSION,
@@ -97,6 +98,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 			.board_ext_size = QCA6174_BOARD_EXT_DATA_SZ,
 		},
 		.hw_ops = &qca988x_ops,
+		.fw_diag_ce_download = false,
 	},
 	{
 		.id = QCA6174_HW_2_1_VERSION,
@@ -117,6 +119,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 			.board_ext_size = QCA6174_BOARD_EXT_DATA_SZ,
 		},
 		.hw_ops = &qca988x_ops,
+		.fw_diag_ce_download = false,
 	},
 	{
 		.id = QCA6174_HW_3_0_VERSION,
@@ -137,6 +140,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 			.board_ext_size = QCA6174_BOARD_EXT_DATA_SZ,
 		},
 		.hw_ops = &qca988x_ops,
+		.fw_diag_ce_download = false,
 	},
 	{
 		.id = QCA6174_HW_3_2_VERSION,
@@ -160,6 +164,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 		.hw_ops = &qca6174_ops,
 		.hw_clk = qca6174_clk,
 		.target_cpu_freq = 176000000,
+		.fw_diag_ce_download = true,
 	},
 	{
 		.id = QCA99X0_HW_2_0_DEV_VERSION,
@@ -185,6 +190,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 			.board_size = QCA99X0_BOARD_DATA_SZ,
 			.board_ext_size = QCA99X0_BOARD_EXT_DATA_SZ,
 		},
+		.fw_diag_ce_download = false,
 	},
 	{
 		.id = QCA9377_HW_1_0_DEV_VERSION,
@@ -204,6 +210,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 			.board_ext_size = QCA9377_BOARD_EXT_DATA_SZ,
 		},
 		.hw_ops = &qca988x_ops,
+		.fw_diag_ce_download = false,
 	},
 	{
 		.id = QCA9377_HW_1_1_DEV_VERSION,
@@ -223,6 +230,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 			.board_ext_size = QCA9377_BOARD_EXT_DATA_SZ,
 		},
 		.hw_ops = &qca988x_ops,
+		.fw_diag_ce_download = true,
 	},
 	{
 		.id = QCA4019_HW_1_0_DEV_VERSION,
@@ -248,6 +256,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 			.board_size = QCA4019_BOARD_DATA_SZ,
 			.board_ext_size = QCA4019_BOARD_EXT_DATA_SZ,
 		},
+		.fw_diag_ce_download = false,
 	},
 };
 
@@ -699,14 +708,24 @@ static int ath10k_download_fw(struct ath10k *ar, enum ath10k_firmware_mode mode)
 		   "boot uploading firmware image %p len %d mode %s\n",
 		   data, data_len, mode_name);
 
-	ret = ath10k_bmi_fast_download(ar, address, data, data_len);
-	if (ret) {
-		ath10k_err(ar, "failed to download %s firmware: %d\n",
-			   mode_name, ret);
-		return ret;
+	/* Check if device supports to download firmware via
+	 * diag copy engine. Downloading firmware via diag CE
+	 * greatly reduces the time to download firmware.
+	 */
+	if (ar->hw_params.fw_diag_ce_download) {
+		ret = ath10k_hw_diag_fast_download(ar, address,
+						   data, data_len);
+		if (ret == 0)
+			/* firmware upload via diag ce was successful */
+			return 0;
+
+		ath10k_warn(ar,
+			    "failed to upload firmware via diag ce, trying BMI: %d",
+			    ret);
 	}
 
-	return ret;
+	return ath10k_bmi_fast_download(ar, address,
+					data, data_len);
 }
 
 static void ath10k_core_free_board_files(struct ath10k *ar)

@@ -720,6 +720,9 @@ struct ath10k {
 		/* hw specific clock control parameters */
 		const struct ath10k_hw_clk_params *hw_clk;
 		int target_cpu_freq;
+
+		/* target supporting fw download via diag ce */
+		bool fw_diag_ce_download;
 	} hw_params;
 
 	const struct firmware *board;
