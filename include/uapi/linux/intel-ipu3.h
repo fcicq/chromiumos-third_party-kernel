@@ -4,7 +4,6 @@
 #ifndef __IPU3_UAPI_H
 #define __IPU3_UAPI_H
 
-#include <linux/bitmap.h>
 #include <linux/types.h>
 
 /********************* Key Acronyms *************************/
@@ -29,18 +28,22 @@
  * YTM - Y-tone mapping
  */
 
+/*
+ * IPU3 DMA operations require buffers to be aligned at
+ * 32 byte boundaries
+ */
 
 /******************* ipu3_uapi_stats_3a *******************/
 
 #define IPU3_UAPI_MAX_STRIPES				2
 #define IPU3_UAPI_MAX_BUBBLE_SIZE			10
 
-#define IPU3_UAPI_GRID_START_MASK			(BIT(12) - 1)
-#define IPU3_UAPI_GRID_Y_START_EN			BIT(15)
+#define IPU3_UAPI_GRID_START_MASK			((1 << 12) - 1)
+#define IPU3_UAPI_GRID_Y_START_EN			(1 << 15)
 
 /* controls generation of meta_data (like FF enable/disable) */
-#define IPU3_UAPI_AWB_RGBS_THR_B_EN			BIT(14)
-#define IPU3_UAPI_AWB_RGBS_THR_B_INCL_SAT		BIT(15)
+#define IPU3_UAPI_AWB_RGBS_THR_B_EN			(1 << 14)
+#define IPU3_UAPI_AWB_RGBS_THR_B_INCL_SAT		(1 << 15)
 
 /**
  * struct ipu3_uapi_grid_config - Grid plane config
@@ -78,7 +81,8 @@ struct ipu3_uapi_grid_config {
  * refers to ipu3_uapi_grid_config width * height_per_slice.
  */
 #define IPU3_UAPI_AWB_MAX_SETS				60
-#define IPU3_UAPI_AWB_SET_SIZE				0x500
+/* Based on grid size 80 * 60 and cell size 16 x 16 */
+#define IPU3_UAPI_AWB_SET_SIZE				1280
 #define IPU3_UAPI_AWB_MD_ITEM_SIZE			8
 #define IPU3_UAPI_AWB_SPARE_FOR_BUBBLES \
 	(IPU3_UAPI_MAX_BUBBLE_SIZE * IPU3_UAPI_MAX_STRIPES * \
@@ -113,7 +117,7 @@ struct ipu3_uapi_awb_raw_buffer {
  * @rgbs_thr_b: Blue threshold value.
  * @grid: &ipu3_uapi_grid_config, the default grid resolution is 16x16 cells.
  *
- * The threshold is a saturation measure range [0..8191], 8191 is default.
+ * The threshold is a saturation measure range [0, 8191], 8191 is default.
  * Values over threshold may be optionally rejected for averaging.
  */
 struct ipu3_uapi_awb_config_s {
@@ -161,8 +165,8 @@ struct ipu3_uapi_ae_raw_buffer_aligned {
 /**
  * struct ipu3_uapi_ae_grid_config - AE weight grid
  *
- * @width: Grid horizontal dimensions. Value: [16,32], default 16.
- * @height: Grid vertical dimensions. Value: [16,24], default 16.
+ * @width: Grid horizontal dimensions. Value: [16, 32], default 16.
+ * @height: Grid vertical dimensions. Value: [16, 24], default 16.
  * @block_width_log2: Log2 of the width of the grid cell, 2^3 = 16.
  * @block_height_log2: Log2 of the height of the grid cell, 2^3 = 16.
  * @__reserved0: reserved
@@ -206,6 +210,7 @@ struct ipu3_uapi_ae_grid_config {
  * @cell7: weighted histogram grid value.
  *
  * Use weighted grid value to give a different contribution factor to each cell.
+ * Precision u4, range [0, 15].
  */
 struct ipu3_uapi_ae_weight_elem {
 	__u32 cell0:4;
@@ -271,41 +276,41 @@ struct ipu3_uapi_ae_config {
  *		anti-symmetry type. A12 is center, A1-A11 are neighbours.
  *		for analyzing low frequency content, used to calculate sum
  *		of gradients in x direction.
- * @y1_coeff_0.a1:	filter1 coefficients A1, default 0.
- * @y1_coeff_0.a2:	filter1 coefficients A2, default 0.
- * @y1_coeff_0.a3:	filter1 coefficients A3, default 0.
- * @y1_coeff_0.a4:	filter1 coefficients A4, default 0.
+ * @y1_coeff_0.a1:	filter1 coefficients A1, u8, default 0.
+ * @y1_coeff_0.a2:	filter1 coefficients A2, u8, default 0.
+ * @y1_coeff_0.a3:	filter1 coefficients A3, u8, default 0.
+ * @y1_coeff_0.a4:	filter1 coefficients A4, u8, default 0.
  * @y1_coeff_1:		Struct
- * @y1_coeff_1.a5:	filter1 coefficients A5, default 0.
- * @y1_coeff_1.a6:	filter1 coefficients A6, default 0.
- * @y1_coeff_1.a7:	filter1 coefficients A7, default 0.
- * @y1_coeff_1.a8:	filter1 coefficients A8, default 0.
+ * @y1_coeff_1.a5:	filter1 coefficients A5, u8, default 0.
+ * @y1_coeff_1.a6:	filter1 coefficients A6, u8, default 0.
+ * @y1_coeff_1.a7:	filter1 coefficients A7, u8, default 0.
+ * @y1_coeff_1.a8:	filter1 coefficients A8, u8, default 0.
  * @y1_coeff_2:		Struct
- * @y1_coeff_2.a9:	filter1 coefficients A9, default 0.
- * @y1_coeff_2.a10:	filter1 coefficients A10, default 0.
- * @y1_coeff_2.a11:	filter1 coefficients A11, default 0.
- * @y1_coeff_2.a12:	filter1 coefficients A12, default 128.
+ * @y1_coeff_2.a9:	filter1 coefficients A9, u8, default 0.
+ * @y1_coeff_2.a10:	filter1 coefficients A10, u8, default 0.
+ * @y1_coeff_2.a11:	filter1 coefficients A11, u8, default 0.
+ * @y1_coeff_2.a12:	filter1 coefficients A12, u8, default 128.
  * @y1_sign_vec:	Each bit corresponds to one coefficient sign bit,
  *			0: positive, 1: negative, default 0.
  * @y2_coeff_0:	Y2, same structure as Y1. For analyzing high frequency content.
- * @y2_coeff_0.a1:	filter2 coefficients A1, default 0.
- * @y2_coeff_0.a2:	filter2 coefficients A2, default 0.
- * @y2_coeff_0.a3:	filter2 coefficients A3, default 0.
- * @y2_coeff_0.a4:	filter2 coefficients A4, default 0.
+ * @y2_coeff_0.a1:	filter2 coefficients A1, u8, default 0.
+ * @y2_coeff_0.a2:	filter2 coefficients A2, u8, default 0.
+ * @y2_coeff_0.a3:	filter2 coefficients A3, u8, default 0.
+ * @y2_coeff_0.a4:	filter2 coefficients A4, u8, default 0.
  * @y2_coeff_1:	Struct
- * @y2_coeff_1.a5:	filter2 coefficients A5, default 0.
- * @y2_coeff_1.a6:	filter2 coefficients A6, default 0.
- * @y2_coeff_1.a7:	filter2 coefficients A7, default 0.
- * @y2_coeff_1.a8:	filter2 coefficients A8, default 0.
+ * @y2_coeff_1.a5:	filter2 coefficients A5, u8, default 0.
+ * @y2_coeff_1.a6:	filter2 coefficients A6, u8, default 0.
+ * @y2_coeff_1.a7:	filter2 coefficients A7, u8, default 0.
+ * @y2_coeff_1.a8:	filter2 coefficients A8, u8, default 0.
  * @y2_coeff_2:	Struct
- * @y2_coeff_2.a9:	filter1 coefficients A9, default 0.
- * @y2_coeff_2.a10:	filter1 coefficients A10, default 0.
- * @y2_coeff_2.a11:	filter1 coefficients A11, default 0.
- * @y2_coeff_2.a12:	filter1 coefficients A12, default 128.
+ * @y2_coeff_2.a9:	filter1 coefficients A9, u8, default 0.
+ * @y2_coeff_2.a10:	filter1 coefficients A10, u8, default 0.
+ * @y2_coeff_2.a11:	filter1 coefficients A11, u8, default 0.
+ * @y2_coeff_2.a12:	filter1 coefficients A12, u8, default 128.
  * @y2_sign_vec:	Each bit corresponds to one coefficient sign bit,
  *			0: positive, 1: negative, default 0.
  * @y_calc:	Pre-processing that converts Bayer quad to RGB+Y values to be
- *		used for building histogram. Range [0..32], default 8.
+ *		used for building histogram. Range [0, 32], default 8.
  * Rule:
  *		y_gen_rate_gr + y_gen_rate_r + y_gen_rate_b + y_gen_rate_gb = 32
  *		A single Y is calculated based on sum of Gr/R/B/Gb based on
@@ -389,7 +394,7 @@ struct ipu3_uapi_af_filter_config {
 #define IPU3_UAPI_AF_SPARE_FOR_BUBBLES \
 	(IPU3_UAPI_MAX_BUBBLE_SIZE * IPU3_UAPI_MAX_STRIPES * \
 	 IPU3_UAPI_AF_MD_ITEM_SIZE)
-#define IPU3_UAPI_AF_Y_TABLE_SET_SIZE			0x80
+#define IPU3_UAPI_AF_Y_TABLE_SET_SIZE			128
 #define IPU3_UAPI_AF_Y_TABLE_MAX_SIZE \
 	(IPU3_UAPI_AF_MAX_SETS * \
 	 (IPU3_UAPI_AF_Y_TABLE_SET_SIZE + IPU3_UAPI_AF_SPARE_FOR_BUBBLES) * \
@@ -441,7 +446,7 @@ struct ipu3_uapi_af_config {
 
 #define IPU3_UAPI_AWB_FR_MAX_SETS			24
 #define IPU3_UAPI_AWB_FR_MD_ITEM_SIZE			8
-#define IPU3_UAPI_AWB_FR_BAYER_TBL_SIZE			0x100
+#define IPU3_UAPI_AWB_FR_BAYER_TBL_SIZE			256
 #define IPU3_UAPI_AWB_FR_SPARE_FOR_BUBBLES \
 	(IPU3_UAPI_MAX_BUBBLE_SIZE * IPU3_UAPI_MAX_STRIPES * \
 	 IPU3_UAPI_AWB_FR_MD_ITEM_SIZE)
@@ -449,6 +454,7 @@ struct ipu3_uapi_af_config {
 	(IPU3_UAPI_AWB_FR_MAX_SETS * \
 	(IPU3_UAPI_AWB_FR_BAYER_TBL_SIZE + \
 	 IPU3_UAPI_AWB_FR_SPARE_FOR_BUBBLES) * IPU3_UAPI_MAX_STRIPES)
+
 /**
  * struct ipu3_uapi_awb_fr_meta_data - AWB filter response meta data
  *
@@ -480,7 +486,7 @@ struct ipu3_uapi_awb_fr_raw_buffer {
  * @bayer_nf:	normalization factor for the convolution coeffs, to make sure
  *		total memory needed is within pre-determined range.
  *		NF should be the log2 of the sum of the abs values of the
- *		filter coeffs, range [7..14], default 7.
+ *		filter coeffs, range [7, 14], default 7.
  * @__reserved2:	reserved
  */
 struct ipu3_uapi_awb_fr_config_s {
@@ -618,7 +624,7 @@ struct ipu3_uapi_stats_3a {
 #define IPU3_UAPI_SHD_MAX_CFG_SETS			28
 /* Normalization shift aka nf */
 #define IPU3_UAPI_SHD_BLGR_NF_SHIFT			13
-#define IPU3_UAPI_SHD_BLGR_NF_MASK			0x7
+#define IPU3_UAPI_SHD_BLGR_NF_MASK			7
 
 #define IPU3_UAPI_YUVP2_TCC_MACC_TABLE_ELEMENTS		16
 #define IPU3_UAPI_YUVP2_TCC_INV_Y_LUT_ELEMENTS		14
@@ -640,7 +646,7 @@ struct ipu3_uapi_stats_3a {
  * @b:	white balance gain for B channel.
  * @gb:	white balance gain for Gb channel.
  *
- * Precision u3.13, range [0,8). White balance correction is done by applying
+ * Precision u3.13, range [0, 8]. White balance correction is done by applying
  * a multiplicative gain to each color channels prior to BNR.
  */
 struct ipu3_uapi_bnr_static_config_wb_gains_config {
@@ -660,7 +666,7 @@ struct ipu3_uapi_bnr_static_config_wb_gains_config {
  *
  * Defines the threshold that specifies how different a defect pixel can be from
  * its neighbors.(used by dynamic defect pixel correction sub block)
- * Precision u4.4 range [0,8).
+ * Precision u4.4 range [0, 8].
  */
 struct ipu3_uapi_bnr_static_config_wb_gains_thr_config {
 	__u8 gr;
@@ -673,13 +679,17 @@ struct ipu3_uapi_bnr_static_config_wb_gains_thr_config {
  * struct ipu3_uapi_bnr_static_config_thr_coeffs_config - Noise model
  *				coefficients that controls noise threshold
  *
- * @cf:	Free coefficient for threshold calculation, range [0..8191], default 0.
+ * @cf:	Free coefficient for threshold calculation, range [0, 8191], default 0.
  * @__reserved0:	reserved
- * @cg:	Gain coefficient for threshold calculation, [0..31], default 8.
- * @ci:	Intensity coefficient for threshold calculation. u3.2, range [0..7.75]
+ * @cg:	Gain coefficient for threshold calculation, [0, 31], default 8.
+ * @ci:	Intensity coefficient for threshold calculation. range [0, 0x1f]
  *	default 6.
+ * 	format: u3.2 (3 most significant bits represent whole number,
+ *	2 least significant bits represent the fractional part
+ *	with each count representing 0.25)
+ *	e.g 6 in binary format is 00110, that translates to 1.5
  * @__reserved1:	reserved
- * @r_nf:	Normalization shift value for r^2 calculation, range [12 .. 20]
+ * @r_nf:	Normalization shift value for r^2 calculation, range [12, 20]
  *		where r is a radius of pixel [row, col] from centor of sensor.
  *		default 14.
  *
@@ -747,20 +757,20 @@ struct ipu3_uapi_bnr_static_config_lut_config {
  * @bp_thr_gain:	Defines the threshold that specifies how different a
  *			defect pixel can be from its neighbors. Threshold is
  *			dependent on de-noise threshold calculated by algorithm.
- *			Range [4..31], default 4.
+ *			Range [4, 31], default 4.
  * @__reserved0:	reserved
  * @defect_mode:	Mode of addressed defect pixels,
  *			0 – single defect pixel is expected,
  *			1 - 2 adjacent defect pixels are expected, default 1.
  * @bp_gain:	Defines how 2nd derivation that passes through a defect pixel
  *		is different from 2nd derivations that pass through
- *		neighbor pixels. u4.2, range [0-256), default 8.
+ *		neighbor pixels. u4.2, range [0, 256], default 8.
  * @__reserved1:	reserved
  * @w0_coeff:	Blending coefficient of defect pixel correction.
- *		Precision u4, range [0..8], default 8.
+ *		Precision u4, range [0, 8], default 8.
  * @__reserved2:	reserved
  * @w1_coeff:	Enable influence of incorrect defect pixel correction to be
- *		avoided. Precision u4, range [1..8], default 8.
+ *		avoided. Precision u4, range [1, 8], default 8.
  * @__reserved3:	reserved
  */
 struct ipu3_uapi_bnr_static_config_bp_ctrl_config {
@@ -783,11 +793,15 @@ struct ipu3_uapi_bnr_static_config_bp_ctrl_config {
  * @gamma:	Weight of diagonal elements of smoothing filter, default 4.
  *
  * beta and gamma parameter define the strength of the noise removal filter.
- * All above has precision u0.4, range [0..0xF].
+ *		All above has precision u0.4, range [0, 0xf]
+ *		format: u0.4 (no / zero bits represent whole number,
+ *		4 bits represent the fractional part
+ *		with each count representing 0.0625)
+ *		e.g 0xf translates to 0.0625x15 = 0.9375
  *
  * @__reserved0:	reserved
  * @max_inf:	Maximum increase of peripheral or diagonal element influence
- *		relative to the pre-defined value range: [0x5..0xA]
+ *		relative to the pre-defined value range: [0x5, 0xa]
  * @__reserved1:	reserved
  * @gd_enable:	Green disparity enable control, 0 - disable, 1 - enable.
  * @bpc_enable:	Bad pixel correction enable control, 0 - disable, 1 - enable.
@@ -889,7 +903,7 @@ struct ipu3_uapi_bnr_static_config {
  * threshold given a pixel's color value and its coordinates in the image.
  *
  * @__reserved5:	reserved
- * @gd_clip:	Turn green disparity clip on/off, [0,1], default 1.
+ * @gd_clip:	Turn green disparity clip on/off, [0, 1], default 1.
  * @gd_central_weight:	Central pixel weight in 9 pixels weighted sum.
  */
 struct ipu3_uapi_bnr_static_config_green_disparity {
@@ -919,35 +933,33 @@ struct ipu3_uapi_bnr_static_config_green_disparity {
  * @frame_width:	do not care
  * @gamma_sc:	Sharpening coefficient (coefficient of 2-d derivation of
  *		complementary color in Hamilton-Adams interpolation).
- *		u5, range [0-31], default 8.
+ *		u5, range [0, 31], default 8.
  * @__reserved1:	reserved
  * @lc_ctrl:	Parameter that controls weights of Chroma Homogeneity metric
  *		in calculation of final homogeneity metric.
- *		u5, range [0-31], default 7.
+ *		u5, range [0, 31], default 7.
  * @__reserved2:	reserved
  * @cr_param1:	First parameter that defines Checker artifact removal
- *		feature gain.Precision u5, range [0-31], default 8.
+ *		feature gain.Precision u5, range [0, 31], default 8.
  * @__reserved3:	reserved
  * @cr_param2:	Second parameter that defines Checker artifact removal
- *		feature gain. Precision u5, range [0-31], default 8.
+ *		feature gain. Precision u5, range [0, 31], default 8.
  * @__reserved4:	reserved
  * @coring_param:	Defines power of false color correction operation.
  *			low for preserving edge colors, high for preserving gray
- *			edge artifacts. u1.4, range [0-1.9375], default 4(0.25).
+ *			edge artifacts. u1.4, range [0, 1.9375], default 4(0.25).
  * @__reserved5:	reserved
  *
  * The demosaic fixed function block is responsible to covert Bayer(mosaiced)
  * images into color images based on demosaicing algorithm.
  */
 struct ipu3_uapi_dm_config {
-	/* DWORD0 */
 	__u32 dm_en:1;
 	__u32 ch_ar_en:1;
 	__u32 fcc_en:1;
 	__u32 __reserved0:13;
 	__u32 frame_width:16;
 
-	/* DWORD1 */
 	__u32 gamma_sc:5;
 	__u32 __reserved1:3;
 	__u32 lc_ctrl:5;
@@ -957,7 +969,6 @@ struct ipu3_uapi_dm_config {
 	__u32 cr_param2:5;
 	__u32 __reserved4:3;
 
-	/* DWORD2 */
 	__u32 coring_param:5;
 	__u32 __reserved5:27;
 } __packed;
@@ -965,18 +976,18 @@ struct ipu3_uapi_dm_config {
 /**
  * struct ipu3_uapi_ccm_mat_config - Color correction matrix
  *
- * @coeff_m11: CCM 3x3 coefficient, range -65536, 65535
- * @coeff_m12: CCM 3x3 coefficient, range -8192, 8191
- * @coeff_m13: CCM 3x3 coefficient, range -32768, 32767
- * @coeff_o_r: Bias 3x1 coefficient, range -8191, 8181
- * @coeff_m21: CCM 3x3 coefficient, range -32767, 32767
- * @coeff_m22: CCM 3x3 coefficient, range -8192, 8191
- * @coeff_m23: CCM 3x3 coefficient, range -32768, 32767
- * @coeff_o_g: Bias 3x1 coefficient, range -8191, 8181
- * @coeff_m31: CCM 3x3 coefficient, range -32768, 32767
- * @coeff_m32: CCM 3x3 coefficient, range -8192, 8191
- * @coeff_m33: CCM 3x3 coefficient, range -32768, 32767
- * @coeff_o_b: Bias 3x1 coefficient, range -8191, 8181
+ * @coeff_m11: CCM 3x3 coefficient, range [-65536, 65535]
+ * @coeff_m12: CCM 3x3 coefficient, range [-8192, 8191]
+ * @coeff_m13: CCM 3x3 coefficient, range [-32768, 32767]
+ * @coeff_o_r: Bias 3x1 coefficient, range [-8191, 8181]
+ * @coeff_m21: CCM 3x3 coefficient, range [-32767, 32767]
+ * @coeff_m22: CCM 3x3 coefficient, range [-8192, 8191]
+ * @coeff_m23: CCM 3x3 coefficient, range [-32768, 32767]
+ * @coeff_o_g: Bias 3x1 coefficient, range [-8191, 8181]
+ * @coeff_m31: CCM 3x3 coefficient, range [-32768, 32767]
+ * @coeff_m32: CCM 3x3 coefficient, range [-8192, 8191]
+ * @coeff_m33: CCM 3x3 coefficient, range [-32768, 32767]
+ * @coeff_o_b: Bias 3x1 coefficient, range [-8191, 8181]
  *
  * Transform sensor specific color space to standard sRGB by applying 3x3 matrix
  * and adding a bias vector O. The transformation is basically a rotation and
@@ -1016,7 +1027,7 @@ struct ipu3_uapi_gamma_corr_ctrl {
  * struct ipu3_uapi_gamma_corr_lut - Per-pixel tone mapping implemented as LUT.
  *
  * @lut:	256 tabulated values of the gamma function. LUT[1].. LUT[256]
- *		format u13.0, range (0, 8191).
+ *		format u13.0, range [0, 8191].
  *
  * The tone mapping operation is done by a Piece wise linear graph
  * that is implemented as a lookup table(LUT). The pixel component input
@@ -1040,18 +1051,18 @@ struct ipu3_uapi_gamma_config {
 /**
  * struct ipu3_uapi_csc_mat_config - Color space conversion matrix config
  *
- * @coeff_c11:	Conversion matrix value, format s0.14, range (-1,1), default 1.
- * @coeff_c12:	Conversion matrix value, format s0.14, range (-1,1), default 0.
- * @coeff_c13:	Conversion matrix value, format s0.14, range (-1,1), default 0.
- * @coeff_b1:	Bias 3x1 coefficients, s13,0 range [-8191, 8181], default 0.
- * @coeff_c21:	Conversion matrix value, format s0.14, range (-1,1), default 0.
- * @coeff_c22:	Conversion matrix value, format s0.14, range (-1,1), default 1.
- * @coeff_c23:	Conversion matrix value, format s0.14, range (-1,1), default 0.
- * @coeff_b2:	Bias 3x1 coefficients, s13,0 range [-8191, 8181], default 0.
- * @coeff_c31:	Conversion matrix value, format s0.14, range (-1,1), default 0.
- * @coeff_c32:	Conversion matrix value, format s0.14, range (-1,1), default 0.
- * @coeff_c33:	Conversion matrix value, format s0.14, range (-1,1), default 1.
- * @coeff_b3:	Bias 3x1 coefficients, s13,0 range [-8191, 8181], default 0.
+ * @coeff_c11:	Conversion matrix value, format s0.14, range [-1, 1], default 1.
+ * @coeff_c12:	Conversion matrix value, format s0.14, range [-1, 1], default 0.
+ * @coeff_c13:	Conversion matrix value, format s0.14, range [-1, 1], default 0.
+ * @coeff_b1:	Bias 3x1 coefficient, s13,0 range [-8191, 8181], default 0.
+ * @coeff_c21:	Conversion matrix value, format s0.14, range [-1, 1], default 0.
+ * @coeff_c22:	Conversion matrix value, format s0.14, range [-1, 1], default 1.
+ * @coeff_c23:	Conversion matrix value, format s0.14, range [-1, 1], default 0.
+ * @coeff_b2:	Bias 3x1 coefficient, s13,0 range [-8191, 8181], default 0.
+ * @coeff_c31:	Conversion matrix value, format s0.14, range [-1, 1], default 0.
+ * @coeff_c32:	Conversion matrix value, format s0.14, range [-1, 1], default 0.
+ * @coeff_c33:	Conversion matrix value, format s0.14, range [-1, 1], default 1.
+ * @coeff_b3:	Bias 3x1 coefficient, s13,0 range [-8191, 8181], default 0.
  *
  * To transform each pixel from RGB to YUV (Y - brightness/luminance,
  * UV -chroma) by applying the pixel's values by a 3x3 matrix and adding an
@@ -1075,16 +1086,16 @@ struct ipu3_uapi_csc_mat_config {
 /**
  * struct ipu3_uapi_cds_params - Chroma down-scaling
  *
- * @ds_c00:	range 0, 3
- * @ds_c01:	range 0, 3
- * @ds_c02:	range 0, 3
- * @ds_c03:	range 0, 3
- * @ds_c10:	range 0, 3
- * @ds_c11:	range 0, 3
- * @ds_c12:	range 0, 3
- * @ds_c13:	range 0, 3
+ * @ds_c00:	range [0, 3]
+ * @ds_c01:	range [0, 3]
+ * @ds_c02:	range [0, 3]
+ * @ds_c03:	range [0, 3]
+ * @ds_c10:	range [0, 3]
+ * @ds_c11:	range [0, 3]
+ * @ds_c12:	range [0, 3]
+ * @ds_c13:	range [0, 3]
  *
- * Above are 4x2 filter has the following defaults:
+ * In case user does not provide, above 4x2 filter will use following defaults:
  *	1, 3, 3, 1,
  *	1, 3, 3, 1,
  *
@@ -1125,9 +1136,9 @@ struct ipu3_uapi_cds_params {
  * @grid_height_per_slice:	SHD_MAX_CELLS_PER_SET/width.
  *				(with SHD_MAX_CELLS_PER_SET = 146).
  * @x_start:	X value of top left corner of sensor relative to ROI
- *		u12, [-4096 0]. default 0, only negative values.
+ *		u12, [-4096, 0]. default 0, only negative values.
  * @y_start:	Y value of top left corner of sensor relative to ROI
- *		u12, [-4096 0]. default 0, only negative values.
+ *		u12, [-4096, 0]. default 0, only negative values.
  */
 struct ipu3_uapi_shd_grid_config {
 	/* reg 0 */
@@ -1150,9 +1161,9 @@ struct ipu3_uapi_shd_grid_config {
  *			y_start >> block_height_log2 % grid_height_per_slice.
  * @shd_enable: shading enable.
  * @gain_factor: Gain factor. Shift calculated anti shading value. Precision u2.
- *		0x0 - gain factor [1..5), means no shift interpolated value.
- *		0x1 - gain factor [1..9), means shift interpolated by 1.
- *		0x2 - gain factor [1..17), means shift interpolated by 2.
+ *		0x0 - gain factor [1, 5], means no shift interpolated value.
+ *		0x1 - gain factor [1, 9], means shift interpolated by 1.
+ *		0x2 - gain factor [1, 17], means shift interpolated by 2.
  * @__reserved: reserved
  *
  * Correction is performed by multiplying a gain factor for each of the 4 Bayer
@@ -1161,7 +1172,6 @@ struct ipu3_uapi_shd_grid_config {
 struct ipu3_uapi_shd_general_config {
 	__u32 init_set_vrt_offst_ul:8;
 	__u32 shd_enable:1;
-	/* aka 'gf' */
 	__u32 gain_factor:2;
 	__u32 __reserved:21;
 } __packed;
@@ -1534,12 +1544,12 @@ struct ipu3_uapi_sharp_cfg {
 /**
  * struct struct ipu3_uapi_far_w - Sharpening config for far sub-group
  *
- * @dir_shrp:	Weight of wide direct sharpening, u1.6, range 0-64, default 64.
+ * @dir_shrp:	Weight of wide direct sharpening, u1.6, range [0, 64], default 64.
  * @__reserved0:	reserved
- * @dir_dns:	Weight of wide direct denoising, u1.6, range 0-64, default 0.
+ * @dir_dns:	Weight of wide direct denoising, u1.6, range [0, 64], default 0.
  * @__reserved1:	reserved
  * @ndir_dns_powr:	Power of non-direct denoising,
- *			Precision u1.6, range 0-64, default 64.
+ *			Precision u1.6, range [0, 64], default 64.
  * @__reserved2:	reserved
  */
 struct ipu3_uapi_far_w {
@@ -1555,10 +1565,10 @@ struct ipu3_uapi_far_w {
  * struct struct ipu3_uapi_unsharp_cfg - Unsharp config
  *
  * @unsharp_weight: Unsharp mask blending weight.
- *		    u1.6, range 0-64, default 16.
+ *		    u1.6, range [0, 64], default 16.
  *		    0 – disabled, 64 - use only unsharp.
  * @__reserved0: reserved
- * @unsharp_amount: Unsharp mask amount, u4.5, range 0-511, default 0.
+ * @unsharp_amount: Unsharp mask amount, u4.5, range [0, 511], default 0.
  * @__reserved1: reserved
  */
 struct ipu3_uapi_unsharp_cfg {
@@ -1587,9 +1597,9 @@ struct ipu3_uapi_yuvp1_iefd_shrp_cfg {
 /**
  * struct ipu3_uapi_unsharp_coef0 - Unsharp mask coefficients
  *
- * @c00: Coeff11, s0.8, range -255 - 255, default 1.
- * @c01: Coeff12, s0.8, range -255 - 255, default 5.
- * @c02: Coeff13, s0.8, range -255 - 255, default 9.
+ * @c00: Coeff11, s0.8, range [-255, 255], default 1.
+ * @c01: Coeff12, s0.8, range [-255, 255], default 5.
+ * @c02: Coeff13, s0.8, range [-255, 255], default 9.
  * @__reserved: reserved
  *
  * Configurable registers for common sharpening support.
@@ -1604,9 +1614,9 @@ struct ipu3_uapi_unsharp_coef0 {
 /**
  * struct ipu3_uapi_unsharp_coef1 - Unsharp mask coefficients
  *
- * @c11: Coeff22, s0.8, range -255 - 255, default 29.
- * @c12: Coeff23, s0.8, range -255 - 255, default 55.
- * @c22: Coeff33, s0.8, range -255 - 255, default 96.
+ * @c11: Coeff22, s0.8, range [-255, 255], default 29.
+ * @c12: Coeff23, s0.8, range [-255, 255], default 55.
+ * @c22: Coeff33, s0.8, range [-255, 255], default 96.
  * @__reserved: reserved
  */
 struct ipu3_uapi_unsharp_coef1 {
@@ -1630,9 +1640,9 @@ struct ipu3_uapi_yuvp1_iefd_unshrp_cfg {
 /**
  * struct ipu3_uapi_radial_reset_xy - Radial coordinate reset
  *
- * @x:	Radial reset of x coordinate. Precision s12, [-4095 .. 4095], default 0.
+ * @x:	Radial reset of x coordinate. Precision s12, [-4095, 4095], default 0.
  * @__reserved0:	reserved
- * @y:	Radial center y coordinate. Precision s12, [-4095 .. 4095], default 0.
+ * @y:	Radial center y coordinate. Precision s12, [-4095, 4095], default 0.
  * @__reserved1:	reserved
  */
 struct ipu3_uapi_radial_reset_xy {
@@ -1669,7 +1679,7 @@ struct ipu3_uapi_radial_reset_y2 {
  *
  * @rad_nf: Radial. R^2 normalization factor is scale down by 2^ - (15 + scale)
  * @__reserved0: reserved
- * @rad_inv_r2: Radial R^-2 normelized to (0.5..1), Prec' u7, range [0 .. 127].
+ * @rad_inv_r2: Radial R^-2 normelized to (0.5..1), Prec' u7, range [0, 127].
  * @__reserved1: reserved
  */
 struct ipu3_uapi_radial_cfg {
@@ -1682,11 +1692,11 @@ struct ipu3_uapi_radial_cfg {
 /**
  * struct ipu3_uapi_rad_far_w - Radial FAR sub-group
  *
- * @rad_dir_far_sharp_w: Weight of wide direct sharpening, u1.6, range 0-64,
+ * @rad_dir_far_sharp_w: Weight of wide direct sharpening, u1.6, range [0, 64],
  *			 default 64.
- * @rad_dir_far_dns_w: Weight of wide direct denoising, u1.6, range 0-64,
+ * @rad_dir_far_dns_w: Weight of wide direct denoising, u1.6, range [0, 64],
  *			 default 0.
- * @rad_ndir_far_dns_power: power of non-direct sharpening, u1.6, range 0-64,
+ * @rad_ndir_far_dns_power: power of non-direct sharpening, u1.6, range [0, 64],
  *			 default 0.
  * @__reserved: reserved
  */
@@ -1743,7 +1753,7 @@ struct ipu3_uapi_cu_cfg1 {
  * @reset_xy: reset xy value in radial calculation. &ipu3_uapi_radial_reset_xy
  * @reset_x2: reset x square value in radial calculation. See struct
  *	      &ipu3_uapi_radial_reset_x2
- * @reset_y2: reset y square value in radial calculation, see struct
+ * @reset_y2: reset y square value in radial calculation. See struct
  *	      &ipu3_uapi_radial_reset_y2
  * @cfg: radial config defined in &ipu3_uapi_radial_cfg
  * @rad_far_w: weight for wide range radial. &ipu3_uapi_rad_far_w
@@ -1765,9 +1775,9 @@ struct ipu3_uapi_yuvp1_iefd_rad_cfg {
 /**
  * struct ipu3_uapi_vss_lut_x - Vssnlm LUT x0/x1/x2
  *
- * @vs_x0: Vssnlm LUT x0, precision u8, range 0-255, default 16.
- * @vs_x1: Vssnlm LUT x1, precision u8, range 0-255, default 32.
- * @vs_x2: Vssnlm LUT x2, precision u8, range 0-255, default 64.
+ * @vs_x0: Vssnlm LUT x0, precision u8, range [0, 255], default 16.
+ * @vs_x1: Vssnlm LUT x1, precision u8, range [0, 255], default 32.
+ * @vs_x2: Vssnlm LUT x2, precision u8, range [0, 255], default 64.
  * @__reserved2: reserved
  */
 struct ipu3_uapi_vss_lut_x {
@@ -1780,11 +1790,11 @@ struct ipu3_uapi_vss_lut_x {
 /**
  * struct ipu3_uapi_vss_lut_y - Vssnlm LUT y0/y1/y2
  *
- * @vs_y1: Vssnlm LUT y1, precision u4, range 0-8, default 1.
+ * @vs_y1: Vssnlm LUT y1, precision u4, range [0, 8], default 1.
  * @__reserved0: reserved
- * @vs_y2: Vssnlm LUT y2, precision u4, range 0-8, default 3.
+ * @vs_y2: Vssnlm LUT y2, precision u4, range [0, 8], default 3.
  * @__reserved1: reserved
- * @vs_y3: Vssnlm LUT y3, precision u4, range 0-8, default 8.
+ * @vs_y3: Vssnlm LUT y3, precision u4, range [0, 8], default 8.
  * @__reserved2: reserved
  */
 struct ipu3_uapi_vss_lut_y {
@@ -1831,18 +1841,18 @@ struct ipu3_uapi_yuvp1_iefd_config {
 /**
  * struct ipu3_uapi_yuvp1_yds_config - Y Down-Sampling config
  *
- * @c00: range 0, 3, default 0x0
- * @c01: range 0, 3, default 0x1
- * @c02: range 0, 3, default 0x1
- * @c03: range 0, 3, default 0x0
- * @c10: range 0, 3, default 0x0
- * @c11: range 0, 3, default 0x1
- * @c12: range 0, 3, default 0x1
- * @c13: range 0, 3, default 0x0
+ * @c00: range [0, 3], default 0x0
+ * @c01: range [0, 3], default 0x1
+ * @c02: range [0, 3], default 0x1
+ * @c03: range [0, 3], default 0x0
+ * @c10: range [0, 3], default 0x0
+ * @c11: range [0, 3], default 0x1
+ * @c12: range [0, 3], default 0x1
+ * @c13: range [0, 3], default 0x0
  *
  * Above are 4x2 filter coefficients for chroma output downscaling.
  *
- * @norm_factor: Normalization factor, range 0, 4, default 2
+ * @norm_factor: Normalization factor, range [0, 4], default 2
  *		0 - divide by 1
  *		1 - divide by 2
  *		2 - divide by 4
@@ -1890,9 +1900,9 @@ struct ipu3_uapi_yuvp1_chnr_enable_config {
 /**
  * struct ipu3_uapi_yuvp1_chnr_coring_config - Coring thresholds for UV
  *
- * @u: U coring level, u0.13, range [0.0, 1.0), default 0.0
+ * @u: U coring level, u0.13, range [0.0, 1.0], default 0.0
  * @__reserved0: reserved
- * @v: V coring level, u0.13, range [0.0, 1.0), default 0.0
+ * @v: V coring level, u0.13, range [0.0, 1.0], default 0.0
  * @__reserved1: reserved
  */
 struct ipu3_uapi_yuvp1_chnr_coring_config {
@@ -1931,12 +1941,12 @@ struct ipu3_uapi_yuvp1_chnr_sense_gain_config {
 /**
  * struct ipu3_uapi_yuvp1_chnr_iir_fir_config - Chroma IIR/FIR filter config
  *
- * @fir_0h: Value of center tap in horizontal FIR, range [0..32], default 8.
+ * @fir_0h: Value of center tap in horizontal FIR, range [0, 32], default 8.
  * @__reserved0: reserved
- * @fir_1h: Value of distance 1 in horizontal FIR, range [0..32], default 12.
+ * @fir_1h: Value of distance 1 in horizontal FIR, range [0, 32], default 12.
  * @__reserved1: reserved
- * @fir_2h: Value of distance 2 tap in horizontal FIR, range [0..32], default 0.
- * @dalpha_clip_val: weight for previous row in IIR, range [1..256], default 0.
+ * @fir_2h: Value of distance 2 tap in horizontal FIR, range [0, 32], default 0.
+ * @dalpha_clip_val: weight for previous row in IIR, range [1, 256], default 0.
  * @__reserved2: reserved
  */
 struct ipu3_uapi_yuvp1_chnr_iir_fir_config {
@@ -2022,15 +2032,15 @@ struct ipu3_uapi_yuvp1_y_ee_nr_sense_config {
  * struct ipu3_uapi_yuvp1_y_ee_nr_gain_config - Luma(Y) edge enhancement
  *						noise reduction gain config
  *
- * @gain_pos_0: Gain for positive edge in dark area. u5.0, [0,16], default 2.
+ * @gain_pos_0: Gain for positive edge in dark area. u5.0, [0, 16], default 2.
  * @__reserved0: reserved
  * @delta_gain_posi: Difference in the gain of edges between the bright and
- *		     dark areas for positive edges. u5.0, [0,16], default 0.
+ *		     dark areas for positive edges. u5.0, [0, 16], default 0.
  * @__reserved1: reserved
- * @gain_neg_0: Gain for negative edge in dark area. u5.0, [0,16], default 8.
+ * @gain_neg_0: Gain for negative edge in dark area. u5.0, [0, 16], default 8.
  * @__reserved2: reserved
  * @delta_gain_neg: Difference in the gain of edges between the bright and
- *		    dark areas for negative edges. u5.0, [0,16], default 0.
+ *		    dark areas for negative edges. u5.0, [0, 16], default 0.
  * @__reserved3: reserved
  */
 struct ipu3_uapi_yuvp1_y_ee_nr_gain_config {
@@ -2049,14 +2059,18 @@ struct ipu3_uapi_yuvp1_y_ee_nr_gain_config {
  *					noise reduction clipping config
  *
  * @clip_pos_0: Limit of positive edge in dark area
+ *		u5, value [0, 16], default 8.
  * @__reserved0: reserved
  * @delta_clip_posi: Difference in the limit of edges between the bright
  *		     and dark areas for positive edges.
+ *		     u5, value [0, 16], default 8.
  * @__reserved1: reserved
  * @clip_neg_0: Limit of negative edge in dark area
+ *		u5, value [0, 16], default 8.
  * @__reserved2: reserved
  * @delta_clip_neg: Difference in the limit of edges between the bright
  *		    and dark areas for negative edges.
+ *		    u5, value [0, 16], default 8.
  * @__reserved3: reserved
  */
 struct ipu3_uapi_yuvp1_y_ee_nr_clip_config {
@@ -2074,15 +2088,15 @@ struct ipu3_uapi_yuvp1_y_ee_nr_clip_config {
  * struct ipu3_uapi_yuvp1_y_ee_nr_frng_config - Luma(Y) edge enhancement
  *						noise reduction fringe config
  *
- * @gain_exp: Common exponent of gains, u4, [0,8], default 2.
+ * @gain_exp: Common exponent of gains, u4, [0, 8], default 2.
  * @__reserved0: reserved
  * @min_edge: Threshold for edge and smooth stitching, u13.
  * @__reserved1: reserved
  * @lin_seg_param: Power of LinSeg, u4.
  * @__reserved2: reserved
- * @t1: Parameter for enabling/disabling the edge enhancement, u1.0, [0,1],
+ * @t1: Parameter for enabling/disabling the edge enhancement, u1.0, [0, 1],
  *	default 1.
- * @t2: Parameter for enabling/disabling the smoothing, u1.0, [0,1],
+ * @t2: Parameter for enabling/disabling the smoothing, u1.0, [0, 1],
  *	default 1.
  * @__reserved3: reserved
  */
@@ -2104,16 +2118,16 @@ struct ipu3_uapi_yuvp1_y_ee_nr_frng_config {
  *
  * @diag_disc_g: Coefficient that prioritize diagonal edge direction on
  *		 horizontal or vertical for final enhancement.
- *		 u4.0, [1,15], default 1.
+ *		 u4.0, [1, 15], default 1.
  * @__reserved0: reserved
  * @hvw_hor: Weight of horizontal/vertical edge enhancement for hv edge.
- *		u2.2, [1,15], default 4.
+ *		u2.2, [1, 15], default 4.
  * @dw_hor: Weight of diagonal edge enhancement for hv edge.
- *		u2.2, [1,15], default 1.
+ *		u2.2, [1, 15], default 1.
  * @hvw_diag: Weight of horizontal/vertical edge enhancement for diagonal edge.
- *		u2.2, [1,15], default 1.
+ *		u2.2, [1, 15], default 1.
  * @dw_diag: Weight of diagonal edge enhancement for diagonal edge.
- *		u2.2, [1,15], default 4.
+ *		u2.2, [1, 15], default 4.
  * @__reserved1: reserved
  */
 struct ipu3_uapi_yuvp1_y_ee_nr_diag_config {
@@ -2130,12 +2144,12 @@ struct ipu3_uapi_yuvp1_y_ee_nr_diag_config {
  * struct ipu3_uapi_yuvp1_y_ee_nr_fc_coring_config - Luma(Y) edge enhancement
  *		noise reduction false color correction (FCC) coring config
  *
- * @pos_0: Gain for positive edge in dark, u13.0, [0..16], default 0.
+ * @pos_0: Gain for positive edge in dark, u13.0, [0, 16], default 0.
  * @__reserved0: reserved
  * @pos_delta: Gain for positive edge in bright, value: pos_0 + pos_delta <=16
  *		u13.0, default 0.
  * @__reserved1: reserved
- * @neg_0: Gain for negative edge in dark area, u13.0, range [0..16], default 0.
+ * @neg_0: Gain for negative edge in dark area, u13.0, range [0, 16], default 0.
  * @__reserved2: reserved
  * @neg_delta: Gain for negative edge in bright area. neg_0 + neg_delta <=16
  *		u13.0, default 0.
@@ -2183,13 +2197,13 @@ struct ipu3_uapi_yuvp1_y_ee_nr_config {
  *				general control config
  *
  * @en:	0 – TCC disabled. Output = input 1 – TCC enabled.
- * @blend_shift:	blend shift, Range[3,4]
+ * @blend_shift:	blend shift, Range[3, 4], default NA.
  * @gain_according_to_y_only:	0: Gain is calculated according to YUV,
  *				1: Gain is calculated according to Y only
  * @__reserved0: reserved
- * @gamma:	Final blending coefficients.
+ * @gamma:	Final blending coefficients. Values[-16, 16], default NA.
  * @__reserved1: reserved
- * @delta:	Final blending coefficients.
+ * @delta:	Final blending coefficients. Values[-16, 16], default NA.
  * @__reserved2: reserved
  */
 struct ipu3_uapi_yuvp2_tcc_gen_control_static_config {
@@ -2342,7 +2356,7 @@ struct ipu3_uapi_anr_plain_color {
  * @adaptive_treshhold_en: On IPU3, adaptive threshold is always enabled.
  * @__reserved1: reserved
  * @__reserved2: reserved
- * @alpha: using follow defaults:
+ * @alpha: using following defaults:
  *		13, 13, 13, 13, 0, 0, 0, 0
  *		11, 11, 11, 11, 0, 0, 0, 0
  *		14,  14, 14, 14, 0, 0, 0, 0
@@ -2400,9 +2414,9 @@ struct ipu3_uapi_anr_transform_config {
 /**
  * struct ipu3_uapi_anr_stitch_pyramid - ANR stitch pyramid
  *
- * @entry0: pyramid LUT entry0, range [0x0..0x3F]
- * @entry1: pyramid LUT entry1, range [0x0..0x3F]
- * @entry2: pyramid LUT entry2, range [0x0..0x3F]
+ * @entry0: pyramid LUT entry0, range [0x0, 0x3f]
+ * @entry1: pyramid LUT entry1, range [0x0, 0x3f]
+ * @entry2: pyramid LUT entry2, range [0x0, 0x3f]
  * @__reserved: reserved
  */
 struct ipu3_uapi_anr_stitch_pyramid {
@@ -2436,11 +2450,9 @@ struct ipu3_uapi_anr_stitch_config {
 /**
  * struct ipu3_uapi_anr_config - ANR config
  *
- * @__reserved1: reserved
  * @transform:	advanced noise reduction transform config as specified by
  *		&ipu3_uapi_anr_transform_config
  * @stitch: create 4x4 patch from 4 surrounding 8x8 patches.
- * @__reserved2: reserved
  */
 struct ipu3_uapi_anr_config {
 	struct ipu3_uapi_anr_transform_config transform __attribute__((aligned(32)));
@@ -2724,7 +2736,7 @@ struct ipu3_uapi_obgrid_param {
 struct ipu3_uapi_flags {
 	__u32 gdc:1;
 	__u32 obgrid:1;
-	__u32 __reserved1:32;
+	__u32 __reserved1:30;
 
 	__u32 acc_bnr:1;
 	__u32 acc_green_disparity:1;
@@ -2812,5 +2824,4 @@ enum ipu3_running_mode {
 	IPU3_RUNNING_MODE_VIDEO = 0,
 	IPU3_RUNNING_MODE_STILL = 1,
 };
-
 #endif
