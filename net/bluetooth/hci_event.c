@@ -2413,7 +2413,10 @@ static void hci_disconn_complete_evt(struct hci_dev *hdev, struct sk_buff *skb)
 	 * is timed out due to Directed Advertising."
 	 */
 	if (type == LE_LINK)
-		hci_req_reenable_advertising(hdev);
+	{
+        hdev->le_adv_param_changed = true;
+        hci_req_reenable_advertising(hdev);
+    }
 
 unlock:
 	hci_dev_unlock(hdev);
