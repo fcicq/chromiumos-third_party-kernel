@@ -29,9 +29,6 @@
  * YTM - Y-tone mapping
  */
 
-#define IPU3_UAPI_ISP_WORD_BYTES			32
-#define IMGU_ABI_PAD	__aligned(IPU3_UAPI_ISP_WORD_BYTES)
-#define IPU3_ALIGN	__attribute__((aligned(IPU3_UAPI_ISP_WORD_BYTES)))
 
 /******************* ipu3_uapi_stats_3a *******************/
 
@@ -125,7 +122,7 @@ struct ipu3_uapi_awb_config_s {
 	__u16 rgbs_thr_gb;
 	__u16 rgbs_thr_b;
 	struct ipu3_uapi_grid_config grid;
-} IPU3_ALIGN __packed;
+} __attribute__((aligned(32))) __packed;
 
 /**
  * struct ipu3_uapi_awb_config - AWB config wrapper
@@ -133,7 +130,7 @@ struct ipu3_uapi_awb_config_s {
  * @config: config for auto white balance as defined by &ipu3_uapi_awb_config_s
  */
 struct ipu3_uapi_awb_config {
-	IPU3_ALIGN struct ipu3_uapi_awb_config_s config;
+	struct ipu3_uapi_awb_config_s config __attribute__((aligned(32)));
 } __packed;
 
 #define IPU3_UAPI_AE_COLORS				4	/* R, G, B, Y */
@@ -158,7 +155,7 @@ struct ipu3_uapi_ae_raw_buffer {
  * @buff: &ipu3_uapi_ae_raw_buffer to hold full frame meta data.
  */
 struct ipu3_uapi_ae_raw_buffer_aligned {
-	IPU3_ALIGN struct ipu3_uapi_ae_raw_buffer buff;
+	struct ipu3_uapi_ae_raw_buffer buff __attribute__((aligned(32)));
 } __packed;
 
 /**
@@ -261,10 +258,10 @@ struct ipu3_uapi_ae_ccm {
  * Calculate AE grid from image resolution, resample ae weights.
  */
 struct ipu3_uapi_ae_config {
-	IPU3_ALIGN struct ipu3_uapi_ae_grid_config grid_cfg;
-	IPU3_ALIGN struct ipu3_uapi_ae_weight_elem weights[
-						IPU3_UAPI_AE_WEIGHTS];
-	IPU3_ALIGN struct ipu3_uapi_ae_ccm ae_ccm;
+	struct ipu3_uapi_ae_grid_config grid_cfg __attribute__((aligned(32)));
+	struct ipu3_uapi_ae_weight_elem weights[
+						IPU3_UAPI_AE_WEIGHTS] __attribute__((aligned(32)));
+	struct ipu3_uapi_ae_ccm ae_ccm __attribute__((aligned(32)));
 } __packed;
 
 /**
@@ -406,7 +403,7 @@ struct ipu3_uapi_af_filter_config {
  *		each cell.
  */
 struct ipu3_uapi_af_meta_data {
-	__u8 y_table[IPU3_UAPI_AF_Y_TABLE_MAX_SIZE] IPU3_ALIGN;
+	__u8 y_table[IPU3_UAPI_AF_Y_TABLE_MAX_SIZE] __attribute__((aligned(32)));
 } __packed;
 
 /**
@@ -415,7 +412,7 @@ struct ipu3_uapi_af_meta_data {
  * @meta_data: raw buffer &ipu3_uapi_af_meta_data for auto focus meta data.
  */
 struct ipu3_uapi_af_raw_buffer {
-	IPU3_ALIGN struct ipu3_uapi_af_meta_data meta_data;
+	struct ipu3_uapi_af_meta_data meta_data __attribute__((aligned(32)));
 } __packed;
 
 /**
@@ -428,9 +425,9 @@ struct ipu3_uapi_af_raw_buffer {
  *	      grid size for large image and vice versa.
  */
 struct ipu3_uapi_af_config_s {
-	IPU3_ALIGN struct ipu3_uapi_af_filter_config filter_config;
+	struct ipu3_uapi_af_filter_config filter_config __attribute__((aligned(32)));
 	__u8 padding[4];
-	IPU3_ALIGN struct ipu3_uapi_grid_config grid_cfg;
+	struct ipu3_uapi_grid_config grid_cfg __attribute__((aligned(32)));
 } __packed;
 
 /**
@@ -458,7 +455,7 @@ struct ipu3_uapi_af_config {
  * @bayer_table: Statistics output on the grid after convolving with 1D filter.
  */
 struct ipu3_uapi_awb_fr_meta_data {
-	IPU3_ALIGN __u8 bayer_table[IPU3_UAPI_AWB_FR_BAYER_TABLE_MAX_SIZE];
+	__u8 bayer_table[IPU3_UAPI_AWB_FR_BAYER_TABLE_MAX_SIZE] __attribute__((aligned(32)));
 } __packed;
 
 /**
@@ -493,7 +490,7 @@ struct ipu3_uapi_awb_fr_config_s {
 	__u32 bayer_sign;
 	__u8 bayer_nf;
 	__u8 __reserved2[3];
-} IPU3_ALIGN __packed;
+} __attribute__((aligned(32))) __packed;
 
 /**
  * struct ipu3_uapi_awb_fr_config - AWB filter response config wrapper
@@ -514,7 +511,7 @@ struct ipu3_uapi_awb_fr_config {
  * @awb_fr_config: &ipu3_uapi_awb_fr_config_s, default resolution 16x16
  */
 struct ipu3_uapi_4a_config {
-	IPU3_ALIGN struct ipu3_uapi_awb_config_s awb_config;
+	struct ipu3_uapi_awb_config_s awb_config __attribute__((aligned(32)));
 	struct ipu3_uapi_ae_grid_config ae_grd_config;
 	__u8 padding[20];
 	struct ipu3_uapi_af_config_s af_config;
@@ -537,7 +534,7 @@ struct ipu3_uapi_4a_config {
  * @padding3: padding bytes.
  */
 struct ipu3_uapi_bubble_info {
-	IPU3_ALIGN __u32 num_of_stripes;
+	__u32 num_of_stripes __attribute__((aligned(32)));
 	__u8 padding[28];
 	__u32 num_sets;
 	__u8 padding1[28];
@@ -569,7 +566,7 @@ struct ipu3_uapi_stats_3a_bubble_info_per_stripe {
  * @padding3: padding config
  */
 struct ipu3_uapi_ff_status {
-	IPU3_ALIGN __u32 awb_en;
+	__u32 awb_en __attribute__((aligned(32)));
 	__u8 padding[28];
 	__u32 ae_en;
 	__u8 padding1[28];
@@ -593,7 +590,7 @@ struct ipu3_uapi_ff_status {
  * @stats_3a_status: 3a statistics status set in &ipu3_uapi_ff_status
  */
 struct ipu3_uapi_stats_3a {
-	IPU3_ALIGN struct ipu3_uapi_awb_raw_buffer awb_raw_buffer;
+	struct ipu3_uapi_awb_raw_buffer awb_raw_buffer __attribute__((aligned(32)));
 	struct ipu3_uapi_ae_raw_buffer_aligned
 			ae_raw_buffer[IPU3_UAPI_MAX_STRIPES];
 	struct ipu3_uapi_af_raw_buffer af_raw_buffer;
@@ -1036,8 +1033,8 @@ struct ipu3_uapi_gamma_corr_lut {
  * @gc_lut: lookup table of gamma correction &ipu3_uapi_gamma_corr_lut
  */
 struct ipu3_uapi_gamma_config {
-	IPU3_ALIGN struct ipu3_uapi_gamma_corr_ctrl gc_ctrl;
-	IPU3_ALIGN struct ipu3_uapi_gamma_corr_lut gc_lut;
+	struct ipu3_uapi_gamma_corr_ctrl gc_ctrl __attribute__((aligned(32)));
+	struct ipu3_uapi_gamma_corr_lut gc_lut __attribute__((aligned(32)));
 } __packed;
 
 /**
@@ -1235,8 +1232,8 @@ struct ipu3_uapi_shd_lut {
  * @shd_lut:	shading lookup table &ipu3_uapi_shd_lut
  */
 struct ipu3_uapi_shd_config {
-	IPU3_ALIGN struct ipu3_uapi_shd_config_static shd;
-	IPU3_ALIGN struct ipu3_uapi_shd_lut shd_lut;
+	struct ipu3_uapi_shd_config_static shd __attribute__((aligned(32)));
+	struct ipu3_uapi_shd_lut shd_lut __attribute__((aligned(32)));
 } __packed;
 
 /* Image Enhancement Filter directed */
@@ -2446,8 +2443,8 @@ struct ipu3_uapi_anr_stitch_config {
  * @__reserved2: reserved
  */
 struct ipu3_uapi_anr_config {
-	IPU3_ALIGN struct ipu3_uapi_anr_transform_config transform;
-	IPU3_ALIGN struct ipu3_uapi_anr_stitch_config stitch;
+	struct ipu3_uapi_anr_transform_config transform __attribute__((aligned(32)));
+	struct ipu3_uapi_anr_stitch_config stitch __attribute__((aligned(32)));
 } __packed;
 
 /**
@@ -2487,22 +2484,22 @@ struct ipu3_uapi_anr_config {
  */
 struct ipu3_uapi_acc_param {
 	struct ipu3_uapi_bnr_static_config bnr;
-	IPU3_ALIGN struct ipu3_uapi_bnr_static_config_green_disparity
-				green_disparity;
-	IPU3_ALIGN struct ipu3_uapi_dm_config dm;
-	IPU3_ALIGN struct ipu3_uapi_ccm_mat_config ccm;
-	IPU3_ALIGN struct ipu3_uapi_gamma_config gamma;
-	IPU3_ALIGN struct ipu3_uapi_csc_mat_config csc;
-	IPU3_ALIGN struct ipu3_uapi_cds_params cds;
-	IPU3_ALIGN struct ipu3_uapi_shd_config shd;
-	IPU3_ALIGN struct ipu3_uapi_yuvp1_iefd_config iefd;
-	IPU3_ALIGN struct ipu3_uapi_yuvp1_yds_config yds_c0;
-	IPU3_ALIGN struct ipu3_uapi_yuvp1_chnr_config chnr_c0;
-	IPU3_ALIGN struct ipu3_uapi_yuvp1_y_ee_nr_config y_ee_nr;
-	IPU3_ALIGN struct ipu3_uapi_yuvp1_yds_config yds;
-	IPU3_ALIGN struct ipu3_uapi_yuvp1_chnr_config chnr;
-	IPU3_ALIGN struct ipu3_uapi_yuvp1_yds_config yds2;
-	IPU3_ALIGN struct ipu3_uapi_yuvp2_tcc_static_config tcc;
+	struct ipu3_uapi_bnr_static_config_green_disparity
+				green_disparity __attribute__((aligned(32)));
+	struct ipu3_uapi_dm_config dm __attribute__((aligned(32)));
+	struct ipu3_uapi_ccm_mat_config ccm __attribute__((aligned(32)));
+	struct ipu3_uapi_gamma_config gamma __attribute__((aligned(32)));
+	struct ipu3_uapi_csc_mat_config csc __attribute__((aligned(32)));
+	struct ipu3_uapi_cds_params cds __attribute__((aligned(32)));
+	struct ipu3_uapi_shd_config shd __attribute__((aligned(32)));
+	struct ipu3_uapi_yuvp1_iefd_config iefd __attribute__((aligned(32)));
+	struct ipu3_uapi_yuvp1_yds_config yds_c0 __attribute__((aligned(32)));
+	struct ipu3_uapi_yuvp1_chnr_config chnr_c0 __attribute__((aligned(32)));
+	struct ipu3_uapi_yuvp1_y_ee_nr_config y_ee_nr __attribute__((aligned(32)));
+	struct ipu3_uapi_yuvp1_yds_config yds __attribute__((aligned(32)));
+	struct ipu3_uapi_yuvp1_chnr_config chnr __attribute__((aligned(32)));
+	struct ipu3_uapi_yuvp1_yds_config yds2 __attribute__((aligned(32)));
+	struct ipu3_uapi_yuvp2_tcc_static_config tcc __attribute__((aligned(32)));
 	struct ipu3_uapi_anr_config anr;
 	struct ipu3_uapi_awb_fr_config awb_fr;
 	struct ipu3_uapi_ae_config ae;
@@ -2790,7 +2787,7 @@ struct ipu3_uapi_flags {
  */
 struct ipu3_uapi_params {
 	/* Flags which of the settings below are to be applied */
-	IPU3_ALIGN struct ipu3_uapi_flags use;
+	struct ipu3_uapi_flags use __attribute__((aligned(32)));
 
 	/* Accelerator cluster parameters */
 	struct ipu3_uapi_acc_param acc_param;
