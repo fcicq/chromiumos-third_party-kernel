@@ -979,7 +979,7 @@ struct imgu_abi_acc_param {
 	struct ipu3_uapi_yuvp1_y_ee_nr_config y_ee_nr IPU3_ALIGN;
 	struct ipu3_uapi_yuvp1_yds_config yds IPU3_ALIGN;
 	struct ipu3_uapi_yuvp1_chnr_config chnr IPU3_ALIGN;
-	struct ipu3_uapi_yuvp2_y_tm_lut_static_config ytm IPU3_ALIGN;
+	struct imgu_abi_yuvp2_y_tm_lut_static_config ytm IPU3_ALIGN;
 	struct ipu3_uapi_yuvp1_yds_config yds2 IPU3_ALIGN;
 	struct ipu3_uapi_yuvp2_tcc_static_config tcc IPU3_ALIGN;
 	/* reserved for defect pixel correction */

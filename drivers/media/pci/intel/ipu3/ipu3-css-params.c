@@ -2216,7 +2216,7 @@ int ipu3_css_cfg_acc(struct ipu3_css *css, unsigned int pipe,
 
 	/* acc_param: yuvp2_y_tm_lut_static_config */
 
-	for (i = 0; i < IPU3_UAPI_YUVP2_YTM_LUT_ENTRIES; i++)
+	for (i = 0; i < IMGU_ABI_YUVP2_YTM_LUT_ENTRIES; i++)
 		acc->ytm.entries[i] = i * 32;
 	acc->ytm.enable = 0;	/* Always disabled on IPU3 */
 
