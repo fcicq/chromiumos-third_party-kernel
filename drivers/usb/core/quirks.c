@@ -224,6 +224,11 @@ static const struct usb_device_id usb_quirk_list[] = {
 	/* Logitech Logitech Screen Share */
 	{ USB_DEVICE(0x046d, 0x086c), .driver_info = USB_QUIRK_NO_LPM },
 
+	/* Logitech Rally Camera */
+	{ USB_DEVICE(0x046d, 0x0881), .driver_info = USB_QUIRK_NO_LPM },
+	{ USB_DEVICE(0x046d, 0x0888), .driver_info = USB_QUIRK_NO_LPM },
+	{ USB_DEVICE(0x046d, 0x0889), .driver_info = USB_QUIRK_NO_LPM },
+
 	/* Logitech Quickcam Fusion */
 	{ USB_DEVICE(0x046d, 0x08c1), .driver_info = USB_QUIRK_RESET_RESUME },
 
