@@ -59,10 +59,7 @@
 #define IMX208_REG_R_DIGITAL_GAIN	0x0210
 #define IMX208_REG_B_DIGITAL_GAIN	0x0212
 #define IMX208_REG_GB_DIGITAL_GAIN	0x0214
-#define IMX208_DGTL_GAIN_MIN		0
-#define IMX208_DGTL_GAIN_MAX		4096
-#define IMX208_DGTL_GAIN_DEFAULT	0x100
-#define IMX208_DGTL_GAIN_STEP           1
+#define IMX208_DIGITAL_GAIN_SHIFT	8
 
 /* Orientation */
 #define IMX208_REG_ORIENTATION_CONTROL	0x0101
@@ -170,6 +167,10 @@ static const struct imx208_reg mode_968_548_60fps_regs[] = {
 	{0x0202, 0x01},
 	{0x0203, 0x90},
 	{0x0205, 0x00},
+};
+
+static const s64 imx208_discrete_digital_gain[] = {
+	1, 2, 4, 8, 16,
 };
 
 static const char * const imx208_test_pattern_menu[] = {
@@ -421,6 +422,8 @@ static int imx208_update_digital_gain(struct imx208 *imx208, u32 len, u32 val)
 {
 	int ret;
 
+	val = imx208_discrete_digital_gain[val] << IMX208_DIGITAL_GAIN_SHIFT;
+
 	ret = imx208_write_reg(imx208, IMX208_REG_GR_DIGITAL_GAIN, 2, val);
 	if (ret)
 		return ret;
@@ -493,6 +496,19 @@ static int imx208_set_ctrl(struct v4l2_ctrl *ctrl)
 
 static const struct v4l2_ctrl_ops imx208_ctrl_ops = {
 	.s_ctrl = imx208_set_ctrl,
+};
+
+static const struct v4l2_ctrl_config imx208_digital_gain_control = {
+	.ops = &imx208_ctrl_ops,
+	.id = V4L2_CID_DIGITAL_GAIN,
+	.name = "Digital Gain",
+	.type = V4L2_CTRL_TYPE_INTEGER_MENU,
+	.min = 0,
+	.max = ARRAY_SIZE(imx208_discrete_digital_gain) - 1,
+	.step = 0,
+	.def = 0,
+	.menu_skip_mask = 0,
+	.qmenu_int = imx208_discrete_digital_gain,
 };
 
 static int imx208_enum_mbus_code(struct v4l2_subdev *sd,
@@ -922,10 +938,7 @@ static int imx208_init_controls(struct imx208 *imx208)
 			  IMX208_ANA_GAIN_MIN, IMX208_ANA_GAIN_MAX,
 			  IMX208_ANA_GAIN_STEP, IMX208_ANA_GAIN_DEFAULT);
 
-	v4l2_ctrl_new_std(ctrl_hdlr, &imx208_ctrl_ops, V4L2_CID_DIGITAL_GAIN,
-			  IMX208_DGTL_GAIN_MIN, IMX208_DGTL_GAIN_MAX,
-			  IMX208_DGTL_GAIN_STEP,
-			  IMX208_DGTL_GAIN_DEFAULT);
+	v4l2_ctrl_new_custom(ctrl_hdlr, &imx208_digital_gain_control, NULL);
 
 	v4l2_ctrl_new_std_menu_items(ctrl_hdlr, &imx208_ctrl_ops,
 				     V4L2_CID_TEST_PATTERN,
