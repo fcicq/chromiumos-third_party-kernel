@@ -688,6 +688,15 @@ static int ec_device_probe(struct platform_device *pdev)
 	device_initialize(&ec->class_dev);
 	cdev_init(&ec->cdev, &fops);
 
+	/*
+	 * ACPI attaches the firmware node of the parent to the platform
+	 * devices. If the parent firmware node has a valid wakeup flag, ACPI
+	 * marks this platform device also as wake capable.  But this platform
+	 * device by itself cannot wake the system up. Mark the wake capability
+	 * to false.
+	 */
+	device_set_wakeup_capable(dev, false);
+
 	/* check whether this is actually a Fingerprint MCU rather than an EC */
 	if (cros_ec_check_features(ec, EC_FEATURE_FINGERPRINT)) {
 		dev_info(dev, "Fingerprint MCU detected.\n");
