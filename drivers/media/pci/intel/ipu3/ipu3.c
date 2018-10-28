@@ -238,9 +238,9 @@ int imgu_queue_buffers(struct imgu_device *imgu, bool initial, unsigned int pipe
 	mutex_lock(&imgu->lock);
 
 	/* Buffer set is queued to FW only when input buffer is ready */
-	for (node = IMGU_NODE_IN;
-	     node != IMGU_NODE_IN || imgu_queue_getbuf(imgu, node, pipe);
-	     node = (node + 1) % IMGU_NODE_NUM) {
+	for (node = IMGU_NODE_NUM - 1;
+	     imgu_queue_getbuf(imgu, IMGU_NODE_IN, pipe);
+	     node = node ? node - 1 : IMGU_NODE_NUM - 1) {
 		if (node == IMGU_NODE_VF &&
 		    !imgu_pipe->nodes[IMGU_NODE_VF].enabled) {
 			dev_warn(&imgu->pci_dev->dev,
