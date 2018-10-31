@@ -30,7 +30,7 @@ void ipu3_css_pool_cleanup(struct imgu_device *imgu,
 			   struct ipu3_css_pool *pool);
 int ipu3_css_pool_init(struct imgu_device *imgu, struct ipu3_css_pool *pool,
 		       size_t size);
-int ipu3_css_pool_get(struct ipu3_css_pool *pool, long framenum);
+void ipu3_css_pool_get(struct ipu3_css_pool *pool, long framenum);
 void ipu3_css_pool_put(struct ipu3_css_pool *pool);
 const struct ipu3_css_map *ipu3_css_pool_last(struct ipu3_css_pool *pool,
 					      unsigned int last);

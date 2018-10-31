@@ -61,47 +61,16 @@ fail:
 }
 
 /*
- * Check that the following call to pool_get succeeds.
- * Return negative on error.
+ * Allocate a new parameter from pool at frame number `framenum'.
+ * Release the oldest entry in the pool to make space for the new entry.
  */
-static int ipu3_css_pool_check(struct ipu3_css_pool *pool, long framenum)
+void ipu3_css_pool_get(struct ipu3_css_pool *pool, long framenum)
 {
 	/* Get the oldest entry */
 	int n = (pool->last + 1) % IPU3_CSS_POOL_SIZE;
-	long diff = framenum - pool->entry[n].framenum;
-
-	/* if framenum wraps around and becomes smaller than entry n */
-	if (diff < 0)
-		diff += LONG_MAX;
-
-	/*
-	 * pool->entry[n].framenum stores the frame number where that
-	 * entry was allocated. If that was allocated more than POOL_SIZE
-	 * frames back, it is old enough that we know it is no more in
-	 * use by firmware.
-	 */
-	if (diff > IPU3_CSS_POOL_SIZE)
-		return n;
-
-	return -ENOSPC;
-}
-
-/*
- * Allocate a new parameter from pool at frame number `framenum'.
- * Release the oldest entry in the pool to make space for the new entry.
- * Return negative on error.
- */
-int ipu3_css_pool_get(struct ipu3_css_pool *pool, long framenum)
-{
-	int n = ipu3_css_pool_check(pool, framenum);
-
-	if (n < 0)
-		return n;
 
 	pool->entry[n].framenum = framenum;
 	pool->last = n;
-
-	return n;
 }
 
 /*
