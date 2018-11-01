@@ -402,9 +402,16 @@ static void rk3399_vpu_vp8e_set_buffers(struct rockchip_vpu_dev *vpu,
 				VEPU_REG_ADDR_REC_CHROMA);
 
 	/* Source buffer. */
+	/*
+	 * TODO(crbug.com/901264): The way to pass an offset within a DMA-buf
+	 * is not defined in V4L2 specification, so we abuse data_offset
+	 * for now. Fix it when we have the right interface, including
+	 * any necessary validation and potential alignment issues.
+	 */
 	for (i = 0; i < src_fmt->num_planes; ++i)
 		vepu_write_relaxed(vpu, vb2_dma_contig_plane_dma_addr(
-				   &ctx->run.src->b.vb2_buf, i),
+				   &ctx->run.src->b.vb2_buf, i) +
+				ctx->run.src->b.vb2_buf.planes[i].data_offset,
 				   src_addr_regs[i]);
 
 	/* Source parameters. */
