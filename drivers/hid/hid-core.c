@@ -1757,6 +1757,7 @@ EXPORT_SYMBOL_GPL(hid_connect);
 
 void hid_disconnect(struct hid_device *hdev)
 {
+	hid_err(hdev, "XXX %s %d\n", __func__, hdev->claimed);
 	device_remove_file(&hdev->dev, &dev_attr_country);
 	device_remove_bin_file(&hdev->dev, &dev_bin_attr_report_desc);
 	if (hdev->claimed & HID_CLAIMED_INPUT)
@@ -2268,6 +2269,8 @@ static int hid_device_remove(struct device *dev)
 	struct hid_driver *hdrv;
 	int ret = 0;
 
+	hid_err(hdev, "XXX %s\n", __func__);
+
 	if (down_interruptible(&hdev->driver_lock))
 		return -EINTR;
 	if (down_interruptible(&hdev->driver_input_lock)) {
@@ -2278,6 +2281,7 @@ static int hid_device_remove(struct device *dev)
 
 	hdrv = hdev->driver;
 	if (hdrv) {
+		hid_err(hdev, "XXX %s have hdrv\n", __func__);
 		if (hdrv->remove)
 			hdrv->remove(hdev);
 		else /* default remove */
@@ -2776,7 +2780,9 @@ EXPORT_SYMBOL_GPL(hid_allocate_device);
 
 static void hid_remove_device(struct hid_device *hdev)
 {
+	hid_err(hdev, "XXX %s\n", __func__);
 	if (hdev->status & HID_STAT_ADDED) {
+		hid_err(hdev, "XXX 2 %s\n", __func__);
 		device_del(&hdev->dev);
 		hid_debug_unregister(hdev);
 		hdev->status &= ~HID_STAT_ADDED;

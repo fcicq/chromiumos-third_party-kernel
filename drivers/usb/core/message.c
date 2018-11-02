@@ -1151,6 +1151,8 @@ void usb_disable_device(struct usb_device *dev, int skip_ep0)
 	int i;
 	struct usb_hcd *hcd = bus_to_hcd(dev->bus);
 
+	dev_err(&dev->dev, "XXX %s\n", __func__);
+
 	/* getting rid of interfaces will disconnect
 	 * any drivers bound to them (a key side effect)
 	 */
@@ -1170,7 +1172,7 @@ void usb_disable_device(struct usb_device *dev, int skip_ep0)
 			interface = dev->actconfig->interface[i];
 			if (!device_is_registered(&interface->dev))
 				continue;
-			dev_dbg(&dev->dev, "unregistering interface %s\n",
+			dev_err(&dev->dev, "XXX unregistering interface %s\n",
 				dev_name(&interface->dev));
 			remove_intf_ep_devs(interface);
 			device_del(&interface->dev);

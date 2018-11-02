@@ -1387,6 +1387,8 @@ static void usbhid_disconnect(struct usb_interface *intf)
 	struct hid_device *hid = usb_get_intfdata(intf);
 	struct usbhid_device *usbhid;
 
+	hid_err(intf, "XXX %s\n", __func__);
+
 	if (WARN_ON(!hid))
 		return;
 
