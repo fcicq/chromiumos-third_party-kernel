@@ -74,17 +74,18 @@ static int platform_clock_control(struct snd_soc_dapm_widget *w,
 		return -EIO;
 	}
 
-	if (SND_SOC_DAPM_EVENT_OFF(event)) {
-		ret = snd_soc_dai_set_sysclk(codec_dai, 0, 0, 0);
-		if (ret)
-			dev_err(card->dev, "failed to stop sysclk: %d\n", ret);
-	} else if (SND_SOC_DAPM_EVENT_ON(event)) {
+	if (SND_SOC_DAPM_EVENT_ON(event)) {
 		ret = snd_soc_dai_set_pll(codec_dai, 0, RT5682_PLL1_S_MCLK,
 					GLK_PLAT_CLK_FREQ, RT5682_PLL_FREQ);
 		if (ret < 0) {
 			dev_err(card->dev, "can't set codec pll: %d\n", ret);
 			return ret;
 		}
+
+		ret = snd_soc_dai_set_sysclk(codec_dai, RT5682_SCLK_S_PLL1,
+					RT5682_PLL_FREQ, SND_SOC_CLOCK_IN);
+		if (ret < 0)
+			dev_err(card->dev, "snd_soc_dai_set_sysclk err = %d\n", ret);
 	}
 
 	if (ret)
