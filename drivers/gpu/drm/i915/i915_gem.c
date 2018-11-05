@@ -2227,6 +2227,7 @@ i915_gem_object_put_pages_gtt(struct drm_i915_gem_object *obj,
 			mark_page_accessed(page);
 
 		page_cache_release(page);
+		cond_resched();
 	}
 	obj->mm.dirty = false;
 
@@ -2344,6 +2345,7 @@ rebuild_st:
 	sg = st->sgl;
 	st->nents = 0;
 	for (i = 0; i < page_count; i++) {
+		cond_resched();
 		page = shmem_read_mapping_page_gfp(mapping, i, gfp);
 		if (IS_ERR(page)) {
 			i915_gem_shrink(dev_priv,
