@@ -31,6 +31,7 @@
 #include <linux/mfd/cros_ec.h>
 #include <linux/mfd/cros_ec_commands.h>
 #include <linux/module.h>
+#include <linux/pm_wakeup.h>
 #include <linux/sort.h>
 #include <linux/slab.h>
 #include <linux/platform_device.h>
@@ -428,8 +429,13 @@ static bool cros_ec_ring_process_event(
 				struct ec_response_motion_sensor_data *in,
 				struct cros_ec_sensors_ring_sample *out)
 {
+	struct iio_dev *indio_dev = state->core.indio_dev;
 	int axis;
 	s64 new_timestamp;
+
+	if (device_may_wakeup(&indio_dev->dev) &&
+	    in->flags & MOTIONSENSE_SENSOR_FLAG_WAKEUP)
+		pm_wakeup_event(&indio_dev->dev, 0);
 
 	if (in->flags & MOTIONSENSE_SENSOR_FLAG_TIMESTAMP) {
 		s64 a = in->timestamp;
@@ -1015,6 +1021,9 @@ static int cros_ec_ring_probe(struct platform_device *pdev)
 	ret = devm_iio_device_register(indio_dev->dev.parent, indio_dev);
 	if (ret < 0)
 		return ret;
+
+	/* cros_ec defers sensor wakeup decisions to this device. */
+	device_init_wakeup(&indio_dev->dev, true);
 
 	/* register the notifier that will act as a top half interrupt. */
 	state->notifier.notifier_call = cros_ec_ring_event;
