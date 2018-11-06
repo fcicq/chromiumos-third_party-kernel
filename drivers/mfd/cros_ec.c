@@ -220,17 +220,34 @@ static irqreturn_t ec_irq_thread(int irq, void *data)
 {
 	struct cros_ec_device *ec_dev = data;
 	int wake_event = 1;
+	u8 event_type;
 	u32 host_event;
 	int ret;
 
 	if (ec_dev->mkbp_event_supported) {
 		ret = cros_ec_get_next_event(ec_dev);
 
-		/* Don't signal wake event for non-wake host events */
-		host_event = cros_ec_get_host_event(ec_dev);
-		if (ret > 0 && host_event &&
-		   !(host_event & ec_dev->host_event_wake_mask))
-			wake_event = 0;
+		if (ret > 0) {
+			event_type = ec_dev->event_data.event_type;
+			host_event = cros_ec_get_host_event(ec_dev);
+
+			/*
+			 * Sensor events need to be parsed by the sensor
+			 * sub-device. Defer them, and don't report the wakeup
+			 * here.
+			 */
+			if (event_type == EC_MKBP_EVENT_SENSOR_FIFO)
+				wake_event = 0;
+			/*
+			 * Masked host-events should not count as wake events.
+			 */
+			else if (host_event &&
+				 !(host_event & ec_dev->host_event_wake_mask))
+				wake_event = 0;
+			/* Consider all other events as wake events. */
+			else
+				wake_event = 1;
+		}
 	} else {
 		ret = cros_ec_get_keyboard_state_event(ec_dev);
 	}
