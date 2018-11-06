@@ -283,10 +283,19 @@ static void rk3288_vpu_vp8e_set_buffers(struct rk3288_vpu_dev *vpu,
 		vepu_write_relaxed(vpu, vpu->dummy_encode_src[PLANE_CR].dma,
 					VEPU_REG_ADDR_IN_CR);
 	} else {
+		/*
+		 * TODO(crbug.com/901264): The way to pass an offset within a
+		 * DMA-buf is not defined in V4L2 specification, so we abuse
+		 * data_offset for now. Fix it when we have the right interface,
+		 * including any necessary validation and potential alignment
+		 * issues.
+		 */
 		for (i = 0; i < src_fmt->num_planes; ++i)
-			vepu_write_relaxed(vpu, vb2_dma_contig_plane_dma_addr(
-						&ctx->run.src->b, i),
-					src_addr_regs[i]);
+			vepu_write_relaxed(
+				vpu, vb2_dma_contig_plane_dma_addr(
+					&ctx->run.src->b, i) +
+				ctx->run.src->b.v4l2_planes[i].data_offset,
+				src_addr_regs[i]);
 	}
 
 	/* Source parameters. */
