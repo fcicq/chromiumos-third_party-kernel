@@ -105,11 +105,18 @@ static void kunmap_udmabuf(struct dma_buf *buf, unsigned long page_num,
 	kunmap(vaddr);
 }
 
+static void *kmap_atomic_udmabuf(struct dma_buf *dma_buf,
+					unsigned long page_num)
+{
+	return NULL;
+}
+
 static const struct dma_buf_ops udmabuf_ops = {
 	.map_dma_buf	  = map_udmabuf,
 	.unmap_dma_buf	  = unmap_udmabuf,
 	.release	  = release_udmabuf,
 	.kmap		  = kmap_udmabuf,
+	.kmap_atomic      = kmap_atomic_udmabuf,
 	.kunmap		  = kunmap_udmabuf,
 	.mmap		  = mmap_udmabuf,
 };
