@@ -91,7 +91,7 @@ struct imgu_video_device {
 struct imgu_v4l2_subdev {
 	unsigned int pipe;
 	struct v4l2_subdev subdev;
-	struct media_pad *subdev_pads;
+	struct media_pad subdev_pads[IMGU_NODE_NUM];
 	struct {
 		struct v4l2_rect eff; /* effective resolution */
 		struct v4l2_rect bds; /* bayer-domain scaled resolution*/

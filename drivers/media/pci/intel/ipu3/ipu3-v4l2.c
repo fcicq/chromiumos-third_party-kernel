@@ -1079,17 +1079,12 @@ static int ipu3_v4l2_subdev_register(struct imgu_device *imgu,
 	struct imgu_media_pipe *imgu_pipe = &imgu->imgu_pipe[pipe];
 
 	/* Initialize subdev media entity */
-	imgu_sd->subdev_pads = kzalloc(sizeof(*imgu_sd->subdev_pads) *
-					IMGU_NODE_NUM, GFP_KERNEL);
-	if (!imgu_sd->subdev_pads)
-		return -ENOMEM;
-
 	r = media_entity_init(&imgu_sd->subdev.entity, IMGU_NODE_NUM,
 			      imgu_sd->subdev_pads, 0);
 	if (r) {
 		dev_err(&imgu->pci_dev->dev,
 			"failed initialize subdev media entity (%d)\n", r);
-		goto fail_media_entity;
+		return r;
 	}
 	imgu_sd->subdev.entity.ops = &ipu3_media_ops;
 	for (i = 0; i < IMGU_NODE_NUM; i++) {
@@ -1128,8 +1123,6 @@ static int ipu3_v4l2_subdev_register(struct imgu_device *imgu,
 fail_subdev:
 	v4l2_ctrl_handler_free(imgu_sd->subdev.ctrl_handler);
 	media_entity_cleanup(&imgu_sd->subdev.entity);
-fail_media_entity:
-	kfree(imgu_sd->subdev_pads);
 
 	return r;
 }
@@ -1327,7 +1320,6 @@ static void ipu3_v4l2_subdevs_cleanup(struct imgu_device *imgu,
 		v4l2_device_unregister_subdev(&imgu_pipe->imgu_sd.subdev);
 		v4l2_ctrl_handler_free(imgu_pipe->imgu_sd.subdev.ctrl_handler);
 		media_entity_cleanup(&imgu_pipe->imgu_sd.subdev.entity);
-		kfree(imgu_pipe->imgu_sd.subdev_pads);
 	}
 }
 
