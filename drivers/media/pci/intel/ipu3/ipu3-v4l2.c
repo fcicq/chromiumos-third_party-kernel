@@ -1263,15 +1263,6 @@ static void ipu3_v4l2_nodes_cleanup_pipe(struct imgu_device *imgu,
 	}
 }
 
-static void ipu3_v4l2_nodes_cleanup(struct imgu_device *imgu, unsigned int pipe)
-{
-	int i;
-
-	for (i = 0; i < pipe; i++) {
-		ipu3_v4l2_nodes_cleanup_pipe(imgu, i, IMGU_NODE_NUM);
-	}
-}
-
 static int ipu3_v4l2_nodes_setup_pipe(struct imgu_device *imgu, int pipe)
 {
 	int i, r;
@@ -1289,35 +1280,22 @@ cleanup:
 	return r;
 }
 
-static int ipu3_v4l2_nodes_setup(struct imgu_device *imgu)
+static void ipu3_v4l2_subdev_cleanup(struct imgu_device *imgu, unsigned int i)
 {
-	int i, r;
+	struct imgu_media_pipe *imgu_pipe = &imgu->imgu_pipe[i];
 
-	/* Create video nodes and links */
-	for (i = 0; i < IMGU_MAX_PIPE_NUM; i++) {
-		r = ipu3_v4l2_nodes_setup_pipe(imgu, i);
-		if (r)
-			goto cleanup;
-	}
-
-	return 0;
-
-cleanup:
-	ipu3_v4l2_nodes_cleanup(imgu, i);
-	return r;
+	v4l2_device_unregister_subdev(&imgu_pipe->imgu_sd.subdev);
+	v4l2_ctrl_handler_free(imgu_pipe->imgu_sd.subdev.ctrl_handler);
+	media_entity_cleanup(&imgu_pipe->imgu_sd.subdev.entity);
 }
 
-static void ipu3_v4l2_subdevs_cleanup(struct imgu_device *imgu,
-				      unsigned int pipe)
+static void ipu3_v4l2_cleanup_pipes(struct imgu_device *imgu, unsigned int pipe)
 {
 	int i;
-	struct imgu_media_pipe *imgu_pipe;
 
 	for (i = 0; i < pipe; i++) {
-		imgu_pipe = &imgu->imgu_pipe[i];
-		v4l2_device_unregister_subdev(&imgu_pipe->imgu_sd.subdev);
-		v4l2_ctrl_handler_free(imgu_pipe->imgu_sd.subdev.ctrl_handler);
-		media_entity_cleanup(&imgu_pipe->imgu_sd.subdev.entity);
+		ipu3_v4l2_nodes_cleanup_pipe(imgu, i, IMGU_NODE_NUM);
+		ipu3_v4l2_subdev_cleanup(imgu, i);
 	}
 }
 
@@ -1332,14 +1310,19 @@ static int ipu3_v4l2_register_pipes(struct imgu_device *imgu)
 		if (r) {
 			dev_err(&imgu->pci_dev->dev,
 				"failed to register subdev%d ret (%d)\n", i, r);
-			break;
+			goto pipes_cleanup;
+		}
+		r = ipu3_v4l2_nodes_setup_pipe(imgu, i);
+		if (r) {
+			ipu3_v4l2_subdev_cleanup(imgu, i);
+			goto pipes_cleanup;
 		}
 	}
 
-	if (i == IMGU_MAX_PIPE_NUM)
-		return 0;
+	return 0;
 
-	ipu3_v4l2_subdevs_cleanup(imgu, i);
+pipes_cleanup:
+	ipu3_v4l2_cleanup_pipes(imgu, i);
 	return r;
 }
 
@@ -1389,16 +1372,10 @@ int ipu3_v4l2_register(struct imgu_device *imgu)
 		goto fail_subdevs;
 	}
 
-	r = ipu3_v4l2_nodes_setup(imgu);
-	if (r) {
-		dev_err(&imgu->pci_dev->dev, "failed to setup nodes (%d)", r);
-		goto fail_subdevs;
-	}
-
 	return 0;
 
 fail_subdevs:
-	ipu3_v4l2_subdevs_cleanup(imgu, IMGU_MAX_PIPE_NUM);
+	ipu3_v4l2_cleanup_pipes(imgu, IMGU_MAX_PIPE_NUM);
 fail_v4l2_pipes:
 	v4l2_device_unregister(&imgu->v4l2_dev);
 fail_v4l2_dev:
@@ -1411,8 +1388,7 @@ EXPORT_SYMBOL_GPL(ipu3_v4l2_register);
 int ipu3_v4l2_unregister(struct imgu_device *imgu)
 {
 	media_device_unregister(&imgu->media_dev);
-	ipu3_v4l2_nodes_cleanup(imgu, IMGU_MAX_PIPE_NUM);
-	ipu3_v4l2_subdevs_cleanup(imgu, IMGU_MAX_PIPE_NUM);
+	ipu3_v4l2_cleanup_pipes(imgu, IMGU_MAX_PIPE_NUM);
 	v4l2_device_unregister(&imgu->v4l2_dev);
 
 	return 0;
