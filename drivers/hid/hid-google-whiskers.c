@@ -377,6 +377,8 @@ static void whiskers_remove(struct hid_device *hdev)
 	if (intf->cur_altsetting->desc.bInterfaceProtocol ==
 			USB_INTERFACE_PROTOCOL_KEYBOARD)
 		hid_hw_close(hdev);
+
+	hid_hw_stop(hdev);
 }
 
 static const struct hid_device_id whiskers_hid_devices[] = {
