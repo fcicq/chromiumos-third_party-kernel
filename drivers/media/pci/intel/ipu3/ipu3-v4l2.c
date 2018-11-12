@@ -594,8 +594,8 @@ static int ipu3_vidioc_querycap(struct file *file, void *fh,
 {
 	struct imgu_video_device *node = file_to_intel_ipu3_node(file);
 
-	strlcpy(cap->driver, IMGU_NAME, sizeof(cap->driver));
-	strlcpy(cap->card, IMGU_NAME, sizeof(cap->card));
+	strscpy(cap->driver, IMGU_NAME, sizeof(cap->driver));
+	strscpy(cap->card, IMGU_NAME, sizeof(cap->card));
 	snprintf(cap->bus_info, sizeof(cap->bus_info), "PCI:%s", node->name);
 
 	return 0;
@@ -835,7 +835,7 @@ static int ipu3_vidioc_enum_input(struct file *file, void *fh,
 {
 	if (input->index > 0)
 		return -EINVAL;
-	strlcpy(input->name, "camera", sizeof(input->name));
+	strscpy(input->name, "camera", sizeof(input->name));
 	input->type = V4L2_INPUT_TYPE_CAMERA;
 
 	return 0;
@@ -858,7 +858,7 @@ static int ipu3_vidioc_enum_output(struct file *file, void *fh,
 {
 	if (output->index > 0)
 		return -EINVAL;
-	strlcpy(output->name, "camera", sizeof(output->name));
+	strscpy(output->name, "camera", sizeof(output->name));
 	output->type = V4L2_INPUT_TYPE_CAMERA;
 
 	return 0;
@@ -1354,7 +1354,7 @@ int ipu3_v4l2_register(struct imgu_device *imgu)
 
 	/* Set up media device */
 	imgu->media_dev.dev = &imgu->pci_dev->dev;
-	strlcpy(imgu->media_dev.model, IMGU_NAME,
+	strscpy(imgu->media_dev.model, IMGU_NAME,
 		sizeof(imgu->media_dev.model));
 	snprintf(imgu->media_dev.bus_info, sizeof(imgu->media_dev.bus_info),
 		 "%s", dev_name(&imgu->pci_dev->dev));

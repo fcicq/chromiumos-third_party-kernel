@@ -30,7 +30,7 @@
 #define CSS_QUEUE_PARAMS_BUF_SIZE	0
 #define CSS_QUEUE_OUT_BUF_SIZE		(4160 * 3120 * 12 / 8)
 #define CSS_QUEUE_VF_BUF_SIZE		(1920 * 1080 * 12 / 8)
-#define CSS_QUEUE_STAT_3A_BUF_SIZE	125664
+#define CSS_QUEUE_STAT_3A_BUF_SIZE	sizeof(struct ipu3_uapi_stats_3a)
 
 static const size_t css_queue_buf_size_map[IPU3_CSS_QUEUES] = {
 	[IPU3_CSS_QUEUE_IN] = CSS_QUEUE_IN_BUF_SIZE,

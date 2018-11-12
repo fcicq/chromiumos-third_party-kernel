@@ -70,9 +70,8 @@ struct imgu_node_mapping {
  */
 struct imgu_video_device {
 	const char *name;
-	bool output;		/* Frames to the driver? */
+	bool output;
 	bool enabled;
-	int queued;		/* Buffers already queued */
 	struct v4l2_format vdev_fmt;	/* Currently set format */
 
 	/* Private fields */
