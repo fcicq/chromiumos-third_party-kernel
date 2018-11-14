@@ -467,6 +467,8 @@ cifs_sfu_type(struct cifs_fattr *fattr, const char *path,
 	oparms.cifs_sb = cifs_sb;
 	oparms.desired_access = GENERIC_READ;
 	oparms.create_options = CREATE_NOT_DIR;
+	if (backup_cred(cifs_sb))
+		oparms.create_options |= CREATE_OPEN_BACKUP_INTENT;
 	oparms.disposition = FILE_OPEN;
 	oparms.path = path;
 	oparms.fid = &fid;
@@ -710,7 +712,7 @@ cgfi_exit:
 /* Simple function to return a 64 bit hash of string.  Rarely called */
 static __u64 simple_hashstr(const char *str)
 {
-	const __u64 hash_mult =  1125899906842597L; /* a big enough prime */
+	const __u64 hash_mult =  1125899906842597ULL; /* a big enough prime */
 	__u64 hash = 0;
 
 	while (*str)
@@ -1121,6 +1123,8 @@ cifs_set_file_info(struct inode *inode, struct iattr *attrs, unsigned int xid,
 	server = cifs_sb_master_tcon(cifs_sb)->ses->server;
 	if (!server->ops->set_file_info)
 		return -ENOSYS;
+
+	info_buf.Pad = 0;
 
 	if (attrs->ia_valid & ATTR_ATIME) {
 		set_time = true;
