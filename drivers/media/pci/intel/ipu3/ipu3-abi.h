@@ -670,7 +670,7 @@ struct imgu_abi_acc_operation {
 struct imgu_abi_acc_process_lines_cmd_data {
 	u16 lines;
 	u8 cfg_set;
-	u8 __reserved;		/* Align to 4 bytes */
+	u8 reserved;		/* Align to 4 bytes */
 } __packed;
 
 /* Bayer shading definitions */
@@ -688,15 +688,15 @@ struct imgu_abi_shd_grid_config {
 	u32 grid_width:8;
 	u32 grid_height:8;
 	u32 block_width:3;
-	u32 __reserved0:1;
+	u32 reserved0:1;
 	u32 block_height:3;
-	u32 __reserved1:1;
+	u32 reserved1:1;
 	u32 grid_height_per_slice:8;
 	/* reg 1 */
 	s32 x_start:13;
-	s32 __reserved2:3;
+	s32 reserved2:3;
 	s32 y_start:13;
-	s32 __reserved3:3;
+	s32 reserved3:3;
 } __packed;
 
 struct imgu_abi_shd_general_config {
@@ -704,37 +704,37 @@ struct imgu_abi_shd_general_config {
 	u32 shd_enable:1;
 	/* aka 'gf' */
 	u32 gain_factor:2;
-	u32 __reserved:21;
+	u32 reserved:21;
 } __packed;
 
 struct imgu_abi_shd_black_level_config {
 	/* reg 0 */
 	s32 bl_r:12;
-	s32 __reserved0:4;
+	s32 reserved0:4;
 	s32 bl_gr:12;
-	u32 __reserved1:1;
+	u32 reserved1:1;
 	/* aka 'nf' */
 	u32 normalization_shift:3;
 	/* reg 1 */
 	s32 bl_gb:12;
-	s32 __reserved2:4;
+	s32 reserved2:4;
 	s32 bl_b:12;
-	s32 __reserved3:4;
+	s32 reserved3:4;
 } __packed;
 
 struct imgu_abi_shd_intra_frame_operations_data {
 	struct imgu_abi_acc_operation
-		operation_list[IMGU_ABI_SHD_MAX_OPERATIONS] __attribute__((aligned(32)));
+		operation_list[IMGU_ABI_SHD_MAX_OPERATIONS] __aligned(32);
 	struct imgu_abi_acc_process_lines_cmd_data
-		process_lines_data[IMGU_ABI_SHD_MAX_PROCESS_LINES] __attribute__((aligned(32)));
+		process_lines_data[IMGU_ABI_SHD_MAX_PROCESS_LINES] __aligned(32);
 	struct imgu_abi_shd_transfer_luts_set_data
-		transfer_data[IMGU_ABI_SHD_MAX_TRANSFERS] __attribute__((aligned(32)));
+		transfer_data[IMGU_ABI_SHD_MAX_TRANSFERS] __aligned(32);
 } __packed;
 
 struct imgu_abi_shd_config {
-	struct ipu3_uapi_shd_config_static shd __attribute__((aligned(32)));
-	struct imgu_abi_shd_intra_frame_operations_data shd_ops __attribute__((aligned(32)));
-	struct ipu3_uapi_shd_lut shd_lut __attribute__((aligned(32)));
+	struct ipu3_uapi_shd_config_static shd __aligned(32);
+	struct imgu_abi_shd_intra_frame_operations_data shd_ops __aligned(32);
+	struct ipu3_uapi_shd_lut shd_lut __aligned(32);
 } __packed;
 
 struct imgu_abi_stripe_input_frame_resolution {
@@ -847,7 +847,7 @@ struct imgu_abi_input_feeder_data {
 } __packed;
 
 struct imgu_abi_input_feeder_data_aligned {
-	struct imgu_abi_input_feeder_data data __attribute__((aligned(32)));
+	struct imgu_abi_input_feeder_data data __aligned(32);
 } __packed;
 
 struct imgu_abi_input_feeder_data_per_stripe {
@@ -858,7 +858,7 @@ struct imgu_abi_input_feeder_data_per_stripe {
 struct imgu_abi_input_feeder_config {
 	struct imgu_abi_input_feeder_data data;
 	struct imgu_abi_input_feeder_data_per_stripe data_per_stripe
-		__attribute__((aligned(32)));
+		__aligned(32);
 } __packed;
 
 /* DVS related definitions */
@@ -876,10 +876,10 @@ struct imgu_abi_dvs_stat_grd_config {
 } __packed;
 
 struct imgu_abi_dvs_stat_cfg {
-	u8 __reserved0[4];
+	u8 reserved0[4];
 	struct imgu_abi_dvs_stat_grd_config
 					grd_config[IMGU_ABI_DVS_STAT_LEVELS];
-	u8 __reserved1[18];
+	u8 reserved1[18];
 } __packed;
 
 struct imgu_abi_dvs_stat_transfer_op_data {
@@ -888,19 +888,19 @@ struct imgu_abi_dvs_stat_transfer_op_data {
 
 struct imgu_abi_dvs_stat_intra_frame_operations_data {
 	struct imgu_abi_acc_operation
-		ops[IMGU_ABI_DVS_STAT_MAX_OPERATIONS] __attribute__((aligned(32)));
+		ops[IMGU_ABI_DVS_STAT_MAX_OPERATIONS] __aligned(32);
 	struct imgu_abi_acc_process_lines_cmd_data
 		process_lines_data[IMGU_ABI_DVS_STAT_MAX_PROCESS_LINES]
-		__attribute__((aligned(32)));
+		__aligned(32);
 	struct imgu_abi_dvs_stat_transfer_op_data
-		transfer_data[IMGU_ABI_DVS_STAT_MAX_TRANSFERS] __attribute__((aligned(32)));
+		transfer_data[IMGU_ABI_DVS_STAT_MAX_TRANSFERS] __aligned(32);
 } __packed;
 
 struct imgu_abi_dvs_stat_config {
-	struct imgu_abi_dvs_stat_cfg cfg __attribute__((aligned(32)));
-	u8 __reserved0[128];
+	struct imgu_abi_dvs_stat_cfg cfg __aligned(32);
+	u8 reserved0[128];
 	struct imgu_abi_dvs_stat_intra_frame_operations_data operations_data;
-	u8 __reserved1[64];
+	u8 reserved1[64];
 } __packed;
 
 /* Y-tone Mapping */
@@ -943,7 +943,7 @@ struct imgu_abi_osys_formatter_params {
 } __packed;
 
 struct imgu_abi_osys_formatter {
-	struct imgu_abi_osys_formatter_params param __attribute__((aligned(32)));
+	struct imgu_abi_osys_formatter_params param __aligned(32);
 } __packed;
 
 struct imgu_abi_osys_scaler_params {
@@ -1013,7 +1013,7 @@ struct imgu_abi_osys_scaler_params {
 } __packed;
 
 struct imgu_abi_osys_scaler {
-	struct imgu_abi_osys_scaler_params param __attribute__((aligned(32)));
+	struct imgu_abi_osys_scaler_params param __aligned(32);
 } __packed;
 
 struct imgu_abi_osys_frame_params {
@@ -1030,7 +1030,7 @@ struct imgu_abi_osys_frame_params {
 } __packed;
 
 struct imgu_abi_osys_frame {
-	struct imgu_abi_osys_frame_params param __attribute__((aligned(32)));
+	struct imgu_abi_osys_frame_params param __aligned(32);
 } __packed;
 
 struct imgu_abi_osys_stripe {
@@ -1065,12 +1065,12 @@ struct imgu_abi_osys_config {
 
 struct imgu_abi_bds_hor_ctrl0 {
 	u32 sample_patrn_length:9;
-	u32 __reserved0:3;
+	u32 reserved0:3;
 	u32 hor_ds_en:1;
 	u32 min_clip_val:1;
 	u32 max_clip_val:2;
 	u32 out_frame_width:13;
-	u32 __reserved1:3;
+	u32 reserved1:3;
 } __packed;
 
 struct imgu_abi_bds_ptrn_arr {
@@ -1085,7 +1085,7 @@ struct imgu_abi_bds_phase_entry {
 	s8 coeff_pls1;
 	s8 coeff_pls2;
 	s8 coeff_pls3;
-	u8 __reserved;
+	u8 reserved;
 } __packed;
 
 struct imgu_abi_bds_phase_arr {
@@ -1097,16 +1097,16 @@ struct imgu_abi_bds_phase_arr {
 
 struct imgu_abi_bds_hor_ctrl1 {
 	u32 hor_crop_start:13;
-	u32 __reserved0:3;
+	u32 reserved0:3;
 	u32 hor_crop_end:13;
-	u32 __reserved1:1;
+	u32 reserved1:1;
 	u32 hor_crop_en:1;
-	u32 __reserved2:1;
+	u32 reserved2:1;
 } __packed;
 
 struct imgu_abi_bds_hor_ctrl2 {
 	u32 input_frame_height:13;
-	u32 __reserved0:19;
+	u32 reserved0:19;
 } __packed;
 
 struct imgu_abi_bds_hor {
@@ -1119,18 +1119,18 @@ struct imgu_abi_bds_hor {
 
 struct imgu_abi_bds_ver_ctrl0 {
 	u32 sample_patrn_length:9;
-	u32 __reserved0:3;
+	u32 reserved0:3;
 	u32 ver_ds_en:1;
 	u32 min_clip_val:1;
 	u32 max_clip_val:2;
-	u32 __reserved1:16;
+	u32 reserved1:16;
 } __packed;
 
 struct imgu_abi_bds_ver_ctrl1 {
 	u32 out_frame_width:13;
-	u32 __reserved0:3;
+	u32 reserved0:3;
 	u32 out_frame_height:13;
-	u32 __reserved1:3;
+	u32 reserved1:3;
 } __packed;
 
 struct imgu_abi_bds_ver {
@@ -1147,7 +1147,7 @@ struct imgu_abi_bds_per_stripe_data {
 } __packed;
 
 struct imgu_abi_bds_per_stripe_data_aligned {
-	struct imgu_abi_bds_per_stripe_data data __attribute__((aligned(32)));
+	struct imgu_abi_bds_per_stripe_data data __aligned(32);
 } __packed;
 
 struct imgu_abi_bds_per_stripe {
@@ -1156,9 +1156,9 @@ struct imgu_abi_bds_per_stripe {
 } __packed;
 
 struct imgu_abi_bds_config {
-	struct imgu_abi_bds_hor hor __attribute__((aligned(32)));
-	struct imgu_abi_bds_ver ver __attribute__((aligned(32)));
-	struct imgu_abi_bds_per_stripe per_stripe __attribute__((aligned(32)));
+	struct imgu_abi_bds_hor hor __aligned(32);
+	struct imgu_abi_bds_ver ver __aligned(32);
+	struct imgu_abi_bds_per_stripe per_stripe __aligned(32);
 	u32 enabled;
 } __packed;
 
@@ -1174,7 +1174,7 @@ struct imgu_abi_anr_stitch_config {
 	u32 anr_stitch_en;
 	u16 frame_width;
 	u16 frame_height;
-	u8 __reserved[40];
+	u8 reserved[40];
 	struct ipu3_uapi_anr_stitch_pyramid pyramid[IPU3_UAPI_ANR_PYRAMID_SIZE];
 } __packed;
 
@@ -1185,10 +1185,10 @@ struct imgu_abi_anr_tile2strm_config {
 } __packed;
 
 struct imgu_abi_anr_config {
-	struct imgu_abi_anr_search_config search __attribute__((aligned(32)));
-	struct ipu3_uapi_anr_transform_config transform __attribute__((aligned(32)));
-	struct imgu_abi_anr_stitch_config stitch __attribute__((aligned(32)));
-	struct imgu_abi_anr_tile2strm_config tile2strm __attribute__((aligned(32)));
+	struct imgu_abi_anr_search_config search __aligned(32);
+	struct ipu3_uapi_anr_transform_config transform __aligned(32);
+	struct imgu_abi_anr_stitch_config stitch __aligned(32);
+	struct imgu_abi_anr_tile2strm_config tile2strm __aligned(32);
 } __packed;
 
 /* AF */
@@ -1199,21 +1199,21 @@ struct imgu_abi_af_frame_size {
 } __packed;
 
 struct imgu_abi_af_config_s {
-	struct ipu3_uapi_af_filter_config filter_config __attribute__((aligned(32)));
+	struct ipu3_uapi_af_filter_config filter_config __aligned(32);
 	struct imgu_abi_af_frame_size frame_size;
-	struct ipu3_uapi_grid_config grid_cfg __attribute__((aligned(32)));
+	struct ipu3_uapi_grid_config grid_cfg __aligned(32);
 } __packed;
 
 struct imgu_abi_af_intra_frame_operations_data {
 	struct imgu_abi_acc_operation ops[IMGU_ABI_AF_MAX_OPERATIONS]
-		__attribute__((aligned(32)));
+		__aligned(32);
 	struct imgu_abi_acc_process_lines_cmd_data
-		process_lines_data[IMGU_ABI_AF_MAX_PROCESS_LINES] __attribute__((aligned(32)));
+		process_lines_data[IMGU_ABI_AF_MAX_PROCESS_LINES] __aligned(32);
 } __packed;
 
 struct imgu_abi_af_stripe_config {
-	struct imgu_abi_af_frame_size frame_size __attribute__((aligned(32)));
-	struct ipu3_uapi_grid_config grid_cfg __attribute__((aligned(32)));
+	struct imgu_abi_af_frame_size frame_size __aligned(32);
+	struct ipu3_uapi_grid_config grid_cfg __aligned(32);
 } __packed;
 
 struct imgu_abi_af_config {
@@ -1225,12 +1225,12 @@ struct imgu_abi_af_config {
 /* AE */
 
 struct imgu_abi_ae_config {
-	struct ipu3_uapi_ae_grid_config grid_cfg __attribute__((aligned(32)));
+	struct ipu3_uapi_ae_grid_config grid_cfg __aligned(32);
 	struct ipu3_uapi_ae_weight_elem weights[IPU3_UAPI_AE_WEIGHTS]
-								__attribute__((aligned(32)));
-	struct ipu3_uapi_ae_ccm ae_ccm __attribute__((aligned(32)));
+								__aligned(32);
+	struct ipu3_uapi_ae_ccm ae_ccm __aligned(32);
 	struct {
-		struct ipu3_uapi_ae_grid_config grid __attribute__((aligned(32)));
+		struct ipu3_uapi_ae_grid_config grid __aligned(32);
 	} stripes[IPU3_UAPI_MAX_STRIPES];
 } __packed;
 
@@ -1238,9 +1238,9 @@ struct imgu_abi_ae_config {
 
 struct imgu_abi_awb_fr_intra_frame_operations_data {
 	struct imgu_abi_acc_operation ops[IMGU_ABI_AWB_FR_MAX_OPERATIONS]
-								__attribute__((aligned(32)));
+								__aligned(32);
 	struct imgu_abi_acc_process_lines_cmd_data
-	      process_lines_data[IMGU_ABI_AWB_FR_MAX_PROCESS_LINES] __attribute__((aligned(32)));
+	      process_lines_data[IMGU_ABI_AWB_FR_MAX_PROCESS_LINES] __aligned(32);
 } __packed;
 
 struct imgu_abi_awb_fr_config {
@@ -1255,15 +1255,15 @@ struct imgu_abi_acc_transfer_op_data {
 
 struct imgu_abi_awb_intra_frame_operations_data {
 	struct imgu_abi_acc_operation ops[IMGU_ABI_AWB_MAX_OPERATIONS]
-		__attribute__((aligned(32)));
+		__aligned(32);
 	struct imgu_abi_acc_process_lines_cmd_data
-		process_lines_data[IMGU_ABI_AWB_MAX_PROCESS_LINES] __attribute__((aligned(32)));
+		process_lines_data[IMGU_ABI_AWB_MAX_PROCESS_LINES] __aligned(32);
 	struct imgu_abi_acc_transfer_op_data
-		transfer_data[IMGU_ABI_AWB_MAX_TRANSFERS] __attribute__((aligned(32)));
-} __attribute__((aligned(32))) __packed;
+		transfer_data[IMGU_ABI_AWB_MAX_TRANSFERS] __aligned(32);
+} __aligned(32) __packed;
 
 struct imgu_abi_awb_config {
-	struct ipu3_uapi_awb_config_s config __attribute__((aligned(32)));
+	struct ipu3_uapi_awb_config_s config __aligned(32);
 	struct imgu_abi_awb_intra_frame_operations_data operations_data;
 	struct ipu3_uapi_awb_config_s stripes[IPU3_UAPI_MAX_STRIPES];
 } __packed;
@@ -1274,26 +1274,26 @@ struct imgu_abi_acc_param {
 	struct imgu_abi_input_feeder_config input_feeder;
 	struct ipu3_uapi_bnr_static_config bnr;
 	struct ipu3_uapi_bnr_static_config_green_disparity green_disparity
-		__attribute__((aligned(32)));
-	struct ipu3_uapi_dm_config dm __attribute__((aligned(32)));
-	struct ipu3_uapi_ccm_mat_config ccm __attribute__((aligned(32)));
-	struct ipu3_uapi_gamma_config gamma __attribute__((aligned(32)));
-	struct ipu3_uapi_csc_mat_config csc __attribute__((aligned(32)));
-	struct ipu3_uapi_cds_params cds __attribute__((aligned(32)));
-	struct imgu_abi_shd_config shd __attribute__((aligned(32)));
+		__aligned(32);
+	struct ipu3_uapi_dm_config dm __aligned(32);
+	struct ipu3_uapi_ccm_mat_config ccm __aligned(32);
+	struct ipu3_uapi_gamma_config gamma __aligned(32);
+	struct ipu3_uapi_csc_mat_config csc __aligned(32);
+	struct ipu3_uapi_cds_params cds __aligned(32);
+	struct imgu_abi_shd_config shd __aligned(32);
 	struct imgu_abi_dvs_stat_config dvs_stat;
 	u8 padding1[224];	/* reserved for lace_stat */
-	struct ipu3_uapi_yuvp1_iefd_config iefd __attribute__((aligned(32)));
-	struct ipu3_uapi_yuvp1_yds_config yds_c0 __attribute__((aligned(32)));
-	struct ipu3_uapi_yuvp1_chnr_config chnr_c0 __attribute__((aligned(32)));
-	struct ipu3_uapi_yuvp1_y_ee_nr_config y_ee_nr __attribute__((aligned(32)));
-	struct ipu3_uapi_yuvp1_yds_config yds __attribute__((aligned(32)));
-	struct ipu3_uapi_yuvp1_chnr_config chnr __attribute__((aligned(32)));
-	struct imgu_abi_yuvp2_y_tm_lut_static_config ytm __attribute__((aligned(32)));
-	struct ipu3_uapi_yuvp1_yds_config yds2 __attribute__((aligned(32)));
-	struct ipu3_uapi_yuvp2_tcc_static_config tcc __attribute__((aligned(32)));
+	struct ipu3_uapi_yuvp1_iefd_config iefd __aligned(32);
+	struct ipu3_uapi_yuvp1_yds_config yds_c0 __aligned(32);
+	struct ipu3_uapi_yuvp1_chnr_config chnr_c0 __aligned(32);
+	struct ipu3_uapi_yuvp1_y_ee_nr_config y_ee_nr __aligned(32);
+	struct ipu3_uapi_yuvp1_yds_config yds __aligned(32);
+	struct ipu3_uapi_yuvp1_chnr_config chnr __aligned(32);
+	struct imgu_abi_yuvp2_y_tm_lut_static_config ytm __aligned(32);
+	struct ipu3_uapi_yuvp1_yds_config yds2 __aligned(32);
+	struct ipu3_uapi_yuvp2_tcc_static_config tcc __aligned(32);
 	/* reserved for defect pixel correction */
-	u8 dpc[240832] __attribute__((aligned(32)));
+	u8 dpc[240832] __aligned(32);
 	struct imgu_abi_bds_config bds;
 	struct imgu_abi_anr_config anr;
 	struct imgu_abi_awb_fr_config awb_fr;
@@ -1967,7 +1967,7 @@ struct imgu_abi_time_meas {
 struct imgu_abi_buffer {
 	union {
 		struct imgu_abi_isp_3a_statistics s3a;
-		u8 __reserved[28];
+		u8 reserved[28];
 		imgu_addr_t skc_dvs_statistics;
 		imgu_addr_t lace_stat;
 		struct imgu_abi_metadata metadata;
