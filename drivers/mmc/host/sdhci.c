@@ -889,6 +889,7 @@ static void sdhci_set_transfer_mode(struct sdhci_host *host,
 
 static void sdhci_finish_data(struct sdhci_host *host)
 {
+	struct mmc_command *data_cmd = host->data_cmd;
 	struct mmc_data *data;
 
 	BUG_ON(!host->data);
@@ -896,6 +897,16 @@ static void sdhci_finish_data(struct sdhci_host *host)
 	data = host->data;
 	host->data = NULL;
 	host->data_cmd = NULL;
+
+	/*
+	 * The controller needs a reset of internal state machines upon error
+	 * conditions.
+	 */
+	if (data->error) {
+		if (!host->cmd || host->cmd == data_cmd)
+			sdhci_do_reset(host, SDHCI_RESET_CMD);
+		sdhci_do_reset(host, SDHCI_RESET_DATA);
+	}
 
 	if ((host->flags & (SDHCI_REQ_USE_DMA | SDHCI_USE_ADMA)) ==
 	    (SDHCI_REQ_USE_DMA | SDHCI_USE_ADMA))
@@ -920,19 +931,9 @@ static void sdhci_finish_data(struct sdhci_host *host)
 	 */
 	if (data->stop &&
 	    (data->error ||
-	     !host->mrq->sbc)) {
-
-		/*
-		 * The controller needs a reset of internal state machines
-		 * upon error conditions.
-		 */
-		if (data->error) {
-			sdhci_do_reset(host, SDHCI_RESET_CMD);
-			sdhci_do_reset(host, SDHCI_RESET_DATA);
-		}
-
+	     !host->mrq->sbc))
 		sdhci_send_command(host, data->stop);
-	} else
+	else
 		tasklet_schedule(&host->finish_tasklet);
 }
 
@@ -2221,8 +2222,7 @@ static void sdhci_tasklet_finish(unsigned long param)
 	if (!(host->flags & SDHCI_DEVICE_DEAD) &&
 	    ((mrq->cmd && mrq->cmd->error) ||
 	     (mrq->sbc && mrq->sbc->error) ||
-	     (mrq->data && ((mrq->data->error && !mrq->data->stop) ||
-			    (mrq->data->stop && mrq->data->stop->error))) ||
+	     (mrq->data && mrq->data->stop && mrq->data->stop->error) ||
 	     (host->quirks & SDHCI_QUIRK_RESET_AFTER_REQUEST))) {
 
 		/* Some controllers need this kick or reset won't work here */
@@ -2307,20 +2307,12 @@ static void sdhci_cmd_irq(struct sdhci_host *host, u32 intmask, u32 *mask)
 		else
 			host->cmd->error = -EILSEQ;
 
-		/*
-		 * If this command initiates a data phase and a response
-		 * CRC error is signalled, the card can start transferring
-		 * data - the card may have received the command without
-		 * error.  We must not terminate the mmc_request early.
-		 *
-		 * If the card did not receive the command or returned an
-		 * error which prevented it sending data, the data phase
-		 * will time out.
-		 */
+		/* Treat data command CRC error the same as data CRC error */
 		if (host->cmd->data &&
 		    (intmask & (SDHCI_INT_CRC | SDHCI_INT_TIMEOUT)) ==
 		     SDHCI_INT_CRC) {
 			host->cmd = NULL;
+			*mask |= SDHCI_INT_DATA_CRC;
 			return;
 		}
 
