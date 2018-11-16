@@ -1657,6 +1657,8 @@ static const struct msm_pinctrl_soc_data qcs404_pinctrl = {
 	.groups = qcs404_groups,
 	.ngroups = ARRAY_SIZE(qcs404_groups),
 	.ngpios = 120,
+	.tiles = qcs404_tiles,
+	.ntiles = ARRAY_SIZE(qcs404_tiles),
 };
 
 static int qcs404_pinctrl_probe(struct platform_device *pdev)
