@@ -124,14 +124,13 @@ static int get_next_event_xfer(struct cros_ec_device *ec_dev,
 
 int cros_ec_get_next_event(struct cros_ec_device *ec_dev)
 {
-	static int cmd_version = 1;
 	struct {
 		struct cros_ec_command msg;
 		struct ec_response_get_next_event_v1 event;
 	} __packed buf;
 	struct cros_ec_command *msg = &buf.msg;
 	struct ec_response_get_next_event_v1 *event = &buf.event;
-	int ret;
+	const int cmd_version = ec_dev->mkbp_event_supported - 1;
 
 	BUILD_BUG_ON(sizeof(union ec_response_get_next_data_v1) != 16);
 
@@ -142,20 +141,12 @@ int cros_ec_get_next_event(struct cros_ec_device *ec_dev)
 		return -EHOSTDOWN;
 	}
 
-	if (cmd_version == 1) {
-		ret = get_next_event_xfer(ec_dev, msg, event, 1,
-				sizeof(struct ec_response_get_next_event_v1));
-		if (ret < 0 || msg->result != EC_RES_INVALID_VERSION)
-			return ret;
-
-		/* Fallback to version 0 for future send attempts */
-		cmd_version = 0;
-	}
-
-	ret = get_next_event_xfer(ec_dev, msg, event, 0,
+	if (cmd_version == 0)
+		return get_next_event_xfer(ec_dev, msg, event, 0,
 				  sizeof(struct ec_response_get_next_event));
 
-	return ret;
+	return get_next_event_xfer(ec_dev, msg, event, cmd_version,
+				sizeof(struct ec_response_get_next_event_v1));
 }
 EXPORT_SYMBOL(cros_ec_get_next_event);
 
@@ -216,33 +207,38 @@ static irqreturn_t ec_irq_handler(int irq, void *data) {
 	return IRQ_WAKE_THREAD;
 }
 
-static irqreturn_t ec_irq_thread(int irq, void *data)
+static bool ec_handle_event(struct cros_ec_device *ec_dev)
 {
-	struct cros_ec_device *ec_dev = data;
 	int wake_event = 1;
 	u8 event_type;
 	u32 host_event;
 	int ret;
+	bool ec_has_more_events = false;
 
 	if (ec_dev->mkbp_event_supported) {
 		ret = cros_ec_get_next_event(ec_dev);
 
 		if (ret > 0) {
-			event_type = ec_dev->event_data.event_type;
+			event_type = ec_dev->event_data.event_type &
+				EC_MKBP_EVENT_TYPE_MASK;
+			ec_has_more_events =
+				ec_dev->event_data.event_type &
+					EC_MKBP_HAS_MORE_EVENTS;
 			host_event = cros_ec_get_host_event(ec_dev);
 
 			/*
 			 * Sensor events need to be parsed by the sensor
-			 * sub-device. Defer them, and don't report the wakeup
-			 * here.
+			 * sub-device. Defer them, and don't report the
+			 * wakeup here.
 			 */
 			if (event_type == EC_MKBP_EVENT_SENSOR_FIFO)
 				wake_event = 0;
 			/*
-			 * Masked host-events should not count as wake events.
+			 * Masked host-events should not count as
+			 * wake events.
 			 */
 			else if (host_event &&
-				 !(host_event & ec_dev->host_event_wake_mask))
+				!(host_event & ec_dev->host_event_wake_mask))
 				wake_event = 0;
 			/* Consider all other events as wake events. */
 			else
@@ -257,7 +253,21 @@ static irqreturn_t ec_irq_thread(int irq, void *data)
 
 	if (ret > 0)
 		blocking_notifier_call_chain(&ec_dev->event_notifier,
-					     0, ec_dev);
+					0, ec_dev);
+
+	return ec_has_more_events;
+
+}
+
+static irqreturn_t ec_irq_thread(int irq, void *data)
+{
+	struct cros_ec_device *ec_dev = data;
+	bool ec_has_more_events;
+
+	do {
+		ec_has_more_events = ec_handle_event(ec_dev);
+	} while (ec_has_more_events);
+
 	return IRQ_HANDLED;
 }
 
