@@ -283,6 +283,8 @@
 			clock-names = "core", "iface";
 			dmas = <&blsp1_dma 5>, <&blsp1_dma 4>;
 			dma-names = "rx", "tx";
+			pinctrl-names = "default";
+			pinctrl-0 = <&blsp1_uart2_default>;
 			status = "okay";
 		};
 
@@ -441,6 +443,18 @@
 				bias-pull-down;
 				drive-strength = <8>;
 				output-low;
+			};
+
+			blsp1_uart2_default: blsp1-uart2-default {
+				rx {
+					pins = "gpio18";
+					function = "blsp_uart_rx_a2";
+				};
+
+				tx {
+					pins = "gpio17";
+					function = "blsp_uart_tx_a2";
+				};
 			};
 		};
 
