@@ -63,6 +63,7 @@
 #include <linux/page_owner.h>
 #include <linux/kthread.h>
 #include <linux/low-mem-notify.h>
+#include <linux/mm_metrics.h>
 
 #include <asm/sections.h>
 #include <asm/tlbflush.h>
@@ -3316,6 +3317,8 @@ retry_cpuset:
 	alloc_mask = gfp_mask|__GFP_HARDWALL;
 	page = get_page_from_freelist(alloc_mask, order, alloc_flags, &ac);
 	if (unlikely(!page)) {
+		u64 start = 0;
+
 		/*
 		 * Runtime PM, block IO and its error handling path
 		 * can deadlock because I/O on the device might not
@@ -3324,7 +3327,11 @@ retry_cpuset:
 		alloc_mask = memalloc_noio_flags(gfp_mask);
 		ac.spread_dirty_pages = false;
 
+		if (order < MAX_ORDER && (gfp_mask & __GFP_DIRECT_RECLAIM) &&
+		    !(current->flags & PF_MEMALLOC))
+			start = mm_metrics_reclaim_start();
 		page = __alloc_pages_slowpath(alloc_mask, order, &ac);
+		mm_metrics_reclaim_end(start);
 	}
 
 	if (kmemcheck_enabled && page)
