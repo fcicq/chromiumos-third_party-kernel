@@ -1005,6 +1005,7 @@ struct wmi_cmd_map {
 	u32 pdev_wds_entry_list_cmdid;
 	u32 tdls_set_offchan_mode_cmdid;
 	u32 peer_set_cfr_capture_conf_cmdid;
+	u32 vdev_aggr_size_per_ac_cmdid;
 };
 
 /*
@@ -4304,6 +4305,30 @@ struct wmi_wmm_params_all_arg {
 	struct wmi_wmm_params_arg ac_bk;
 	struct wmi_wmm_params_arg ac_vi;
 	struct wmi_wmm_params_arg ac_vo;
+};
+
+enum wmi_vdev_custom_aggr_type {
+	WMI_VDEV_CUSTOM_AGGR_TYPE_AMPDU,
+	WMI_VDEV_CUSTOM_AGGR_TYPE_AMSDU,
+	WMI_VDEV_CUSTOM_AGGR_TYPE_MAX,
+};
+
+enum wmi_vdev_ac_type {
+	AC_BE,
+	AC_BK,
+	AC_VI,
+	AC_VO,
+	AC_MAX,
+};
+
+#define	SET_AMPDU_AGGREGATION BIT(5)
+#define	SET_AMSDU_AGGREGATION BIT(3)
+
+struct wmi_set_aggr_size_per_ac {
+	enum wmi_vdev_custom_aggr_type aggr_type;
+	enum wmi_vdev_ac_type ac;
+	u32 tx_aggr_size;
+	u32 rx_aggr_size;
 };
 
 struct wmi_pdev_stats_tx {

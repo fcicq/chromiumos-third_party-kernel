@@ -215,6 +215,9 @@ struct wmi_ops {
 	struct sk_buff *(*gen_peer_cfr_capture_conf)(struct ath10k *ar,
 						     u32 vdev_id, const u8 *mac,
 						     const struct wmi_peer_cfr_capture_conf_arg *arg);
+	struct sk_buff *(*gen_vdev_aggr_size_per_ac)
+				(struct ath10k *ar, u32 vdev_id,
+				 const struct wmi_set_aggr_size_per_ac *arg);
 };
 
 int ath10k_wmi_cmd_send(struct ath10k *ar, struct sk_buff *skb, u32 cmd_id);
@@ -795,6 +798,24 @@ ath10k_wmi_vdev_wmm_conf(struct ath10k *ar, u32 vdev_id,
 		return PTR_ERR(skb);
 
 	cmd_id = ar->wmi.cmd->vdev_set_wmm_params_cmdid;
+	return ath10k_wmi_cmd_send(ar, skb, cmd_id);
+}
+
+static inline int
+ath10k_wmi_vdev_aggr_per_ac_conf(struct ath10k *ar, u32 vdev_id,
+				 const struct wmi_set_aggr_size_per_ac *arg)
+{
+	struct sk_buff *skb;
+	u32 cmd_id;
+
+	if (!ar->wmi.ops->gen_vdev_aggr_size_per_ac)
+		return -EOPNOTSUPP;
+
+	skb = ar->wmi.ops->gen_vdev_aggr_size_per_ac(ar, vdev_id, arg);
+	if (IS_ERR(skb))
+		return PTR_ERR(skb);
+
+	cmd_id = ar->wmi.cmd->vdev_aggr_size_per_ac_cmdid;
 	return ath10k_wmi_cmd_send(ar, skb, cmd_id);
 }
 

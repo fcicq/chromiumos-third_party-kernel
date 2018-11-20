@@ -2093,6 +2093,42 @@ ath10k_wmi_tlv_op_gen_vdev_wmm_conf(struct ath10k *ar, u32 vdev_id,
 }
 
 static struct sk_buff *
+ath10k_wmi_tlv_gen_vdev_aggr_size(struct ath10k *ar, u32 vdev_id,
+				  const struct wmi_set_aggr_size_per_ac *arg)
+{
+	struct wmi_tlv_vdev_set_aggr_per_ac_cmd *cmd;
+	struct wmi_tlv *tlv;
+	struct sk_buff *skb;
+	size_t len;
+	void *ptr;
+
+	len = sizeof(*tlv) + sizeof(*cmd);
+	skb = ath10k_wmi_alloc_skb(ar, len);
+	if (!skb)
+		return ERR_PTR(-ENOMEM);
+
+	ptr = (void *)skb->data;
+	tlv = ptr;
+	tlv->tag = __cpu_to_le16(
+			WMI_TLV_TAG_STRUCT_VDEV_SET_CUSTOM_AGGR_SIZE_CMD);
+	tlv->len = __cpu_to_le16(sizeof(*cmd));
+
+	cmd = (void *)tlv->value;
+	cmd->vdev_id = __cpu_to_le32(vdev_id);
+	cmd->rx_aggr_size = __cpu_to_le32(arg->rx_aggr_size);
+	cmd->tx_aggr_size = __cpu_to_le32(arg->tx_aggr_size);
+	cmd->enable_bitmap = __cpu_to_le32(SET_AMPDU_AGGREGATION |
+					   arg->ac);
+
+	if (arg->aggr_type == WMI_VDEV_CUSTOM_AGGR_TYPE_AMSDU)
+		cmd->enable_bitmap = __cpu_to_le32(cmd->enable_bitmap |
+						   SET_AMSDU_AGGREGATION);
+
+	ath10k_dbg(ar, ATH10K_DBG_WMI, "wmi tlv vdev set custom aggregation size conf\n");
+	return skb;
+}
+
+static struct sk_buff *
 ath10k_wmi_tlv_op_gen_sta_keepalive(struct ath10k *ar,
 				    const struct wmi_sta_keepalive_arg *arg)
 {
@@ -3604,6 +3640,7 @@ static struct wmi_cmd_map wmi_tlv_cmd_map = {
 	.pdev_get_ani_cck_config_cmdid = WMI_CMD_UNSUPPORTED,
 	.pdev_get_ani_ofdm_config_cmdid = WMI_CMD_UNSUPPORTED,
 	.pdev_reserve_ast_entry_cmdid = WMI_CMD_UNSUPPORTED,
+	.vdev_aggr_size_per_ac_cmdid = WMI_VDEV_SET_CUSTOM_AGGR_SIZE_CMDID
 };
 
 static struct wmi_pdev_param_map wmi_tlv_pdev_param_map = {
@@ -3857,6 +3894,7 @@ static const struct wmi_ops wmi_tlv_ops = {
 	.gen_echo = ath10k_wmi_tlv_op_gen_echo,
 	.gen_vdev_spectral_conf = ath10k_wmi_tlv_op_gen_vdev_spectral_conf,
 	.gen_vdev_spectral_enable = ath10k_wmi_tlv_op_gen_vdev_spectral_enable,
+	.gen_vdev_aggr_size_per_ac = ath10k_wmi_tlv_gen_vdev_aggr_size,
 };
 
 static const struct wmi_peer_flags_map wmi_tlv_peer_flags_map = {
