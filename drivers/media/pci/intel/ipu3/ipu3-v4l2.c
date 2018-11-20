@@ -1144,7 +1144,7 @@ static int ipu3_v4l2_node_setup(struct imgu_device *imgu, unsigned int pipe,
 	/* Initialize formats to default values */
 	def_bus_fmt.width = 1920;
 	def_bus_fmt.height = 1080;
-	def_bus_fmt.code = MEDIA_BUS_FMT_UYVY8_2X8;
+	def_bus_fmt.code = MEDIA_BUS_FMT_FIXED;
 	def_bus_fmt.field = V4L2_FIELD_NONE;
 	def_bus_fmt.colorspace = V4L2_COLORSPACE_RAW;
 	def_bus_fmt.ycbcr_enc = V4L2_YCBCR_ENC_DEFAULT;
