@@ -14,30 +14,28 @@
 
 static int ipu3_subdev_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 {
-	struct imgu_device *imgu = v4l2_get_subdevdata(sd);
-	struct imgu_media_pipe *imgu_pipe;
 	struct v4l2_rect try_crop = {
 		.top = 0,
 		.left = 0,
+		.width = 1920,
+		.height = 1080,
 	};
 	unsigned int i;
-	struct imgu_v4l2_subdev *imgu_sd = container_of(sd,
-							struct imgu_v4l2_subdev,
-							subdev);
-	unsigned int pipe = imgu_sd->pipe;
-
-	imgu_pipe = &imgu->imgu_pipe[pipe];
-	try_crop.width =
-		imgu_pipe->nodes[IMGU_NODE_IN].vdev_fmt.fmt.pix_mp.width;
-	try_crop.height =
-		imgu_pipe->nodes[IMGU_NODE_IN].vdev_fmt.fmt.pix_mp.height;
 
 	/* Initialize try_fmt */
-	for (i = 0; i < IMGU_NODE_NUM; i++)
-		*v4l2_subdev_get_try_format(sd, fh->pad, i) =
-			imgu_pipe->nodes[i].pad_fmt;
+	for (i = 0; i < IMGU_NODE_NUM; i++) {
+		struct v4l2_mbus_framefmt *try_fmt =
+			v4l2_subdev_get_try_format(sd, fh->pad, i);
+
+		try_fmt->width = try_crop.width;
+		try_fmt->height = try_crop.height;
+		try_fmt->code = MEDIA_BUS_FMT_FIXED;
+		try_fmt->colorspace = V4L2_COLORSPACE_RAW;
+		try_fmt->field = V4L2_FIELD_NONE;
+	}
 
 	*v4l2_subdev_get_try_crop(sd, fh->pad, IMGU_NODE_IN) = try_crop;
+	*v4l2_subdev_get_try_compose(sd, fh->pad, IMGU_NODE_IN) = try_crop;
 
 	return 0;
 }
