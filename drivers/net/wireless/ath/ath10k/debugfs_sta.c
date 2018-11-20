@@ -721,6 +721,98 @@ static const struct file_operations fops_set_tpc = {
 	.llseek = default_llseek,
 };
 
+/**
+ * This function parses the command in the format
+ * <aggr_type> <access_category> <Tx_aggr_size> <Rx_aggr_size>
+ *
+ * Eg: echo "1 0 5 7" > /sys/kernel/debug/ieee80211/
+ *		phy0/netdev\:wlan0/stations/xx:xx:xx:xx:xx:xx/aggr_size_per_ac
+ * 1 - Aggregation type
+ * 0 - Access category
+ * 5 - Tx Aggregation size
+ * 7 - Rx Aggregation size
+ */
+static ssize_t
+ath10k_dbg_sta_write_aggr_size_per_ac(struct file *file,
+				      const char __user *user_buf,
+				      size_t count, loff_t *ppos)
+{
+	struct ieee80211_sta *sta = file->private_data;
+	struct ath10k_sta *arsta = (struct ath10k_sta *)sta->drv_priv;
+	struct wmi_set_aggr_size_per_ac arg = {0};
+	struct ath10k *ar = arsta->arvif->ar;
+	char *kernel_buf = NULL;
+	char *token = NULL;
+	int ret = -EINVAL;
+	char *ptr = NULL;
+
+	kernel_buf = kzalloc(count, GFP_KERNEL);
+	if (!kernel_buf)
+		return -ENOMEM;
+
+	if (copy_from_user(kernel_buf, user_buf, count))
+		return -EINVAL;
+
+	kernel_buf[count - 1] = '\0';
+	ptr = kernel_buf;
+
+	/* Parse aggr_type */
+	token = strsep(&ptr, " ");
+	if (!token)
+		goto err;
+
+	if (kstrtou32(token, 0, &arg.aggr_type))
+		goto err;
+
+	if (arg.aggr_type < 0 ||
+	    arg.aggr_type >= WMI_VDEV_CUSTOM_AGGR_TYPE_MAX)
+		goto err;
+
+	/* Parse access category */
+	token = strsep(&ptr, " ");
+	if (!token)
+		goto err;
+
+	if (kstrtou32(token, 0, &arg.ac))
+		goto err;
+
+	if (arg.ac < 0 || arg.ac >= AC_MAX)
+		goto err;
+
+	/* Parse tx_aggr_size */
+	token = strsep(&ptr, " ");
+	if (!token)
+		goto err;
+
+	if (kstrtou32(token, 0, &arg.tx_aggr_size))
+		goto err;
+
+	/* Parse rx_aggr_size */
+	token = strsep(&ptr, " ");
+	if (!token)
+		goto err;
+
+	if (kstrtou32(token, 0, &arg.rx_aggr_size))
+		goto err;
+
+	ret = ath10k_wmi_vdev_aggr_per_ac_conf(ar, arsta->arvif->vdev_id, &arg);
+	if (ret) {
+		ath10k_warn(ar, "Fail to write aggr size, ret = %d\n", ret);
+		goto err;
+	}
+	ret = count;
+err:
+	kfree(kernel_buf);
+	return ret;
+}
+
+static const struct file_operations fops_aggr_size_per_ac = {
+	.write = ath10k_dbg_sta_write_aggr_size_per_ac,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+	.llseek = default_llseek,
+};
+
 void ath10k_sta_add_debugfs(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 			    struct ieee80211_sta *sta, struct dentry *dir)
 {
@@ -747,4 +839,6 @@ void ath10k_sta_add_debugfs(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	if (test_bit(WMI_SERVICE_CFR_CAPTURE_SUPPORT, ar->wmi.svc_map))
 		debugfs_create_file("cfr_capture", 0644 , dir,
 				    sta, &fops_cfr_capture);
+	debugfs_create_file("aggr_size_per_ac", 0644, dir, sta,
+			    &fops_aggr_size_per_ac);
 }
