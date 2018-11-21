@@ -43,7 +43,7 @@
 #if (__LINUX_ARM_ARCH__ >= 5)
 #define LZO_USE_CTZ32	1
 #endif
-#if (__LINUX_ARM_ARCH__ >= 6) && (CONFIG_THUMB2_KERNEL)
+#if (__LINUX_ARM_ARCH__ >= 6) && defined(CONFIG_THUMB2_KERNEL)
 #define LZO_USE_CTZ64	1
 #endif
 #endif
