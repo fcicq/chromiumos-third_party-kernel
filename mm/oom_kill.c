@@ -267,6 +267,7 @@ enum oom_scan_t oom_scan_process_thread(struct task_struct *task,
 		unsigned long totalpages, const nodemask_t *nodemask,
 		bool force_kill)
 {
+	static DEFINE_RATELIMIT_STATE(dump_stack_ratelimit, HZ * 2, 1);
 	if (oom_unkillable_task(task, NULL, nodemask))
 		return OOM_SCAN_CONTINUE;
 
@@ -297,7 +298,8 @@ enum oom_scan_t oom_scan_process_thread(struct task_struct *task,
 				if (task->state != TASK_RUNNING) {
 					sched_show_task(task);
 					return OOM_SCAN_CONTINUE;
-				}
+				} else if (__ratelimit(&dump_stack_ratelimit))
+					sched_show_task(task);
 
 				/*
 				 * We just printed that we refused to die; delay
