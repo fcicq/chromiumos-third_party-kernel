@@ -2582,6 +2582,7 @@ enum nl80211_attrs {
 	NL80211_ATTR_EXTERNAL_AUTH_SUPPORT,
 
 	NL80211_ATTR_NSS,
+	NL80211_ATTR_ACK_SIGNAL,
 
 	/* add attributes here, update the policy in nl80211.c */
 
@@ -2933,6 +2934,7 @@ enum nl80211_rx_mcast_bcast {
  * @NL80211_STA_INFO_AIRTIME_LINK_METRIC: airtime link metric for mesh station.
  * @NL80211_STA_INFO_RX_MCAST_BCAST: per station rx mcast/bcast packet stats.
  * @NL80211_STA_INFO_PAD: attribute used for padding for 64-bit alignment
+ * @NL80211_STA_INFO_ACK_SIGNAL: signal strength of the last ACK frame(u8, dBm)
  * @__NL80211_STA_INFO_AFTER_LAST: internal
  * @NL80211_STA_INFO_MAX: highest possible station info attribute
  */
@@ -2973,6 +2975,7 @@ enum nl80211_sta_info {
 	NL80211_STA_INFO_AIRTIME_LINK_METRIC,
 	NL80211_STA_INFO_RX_MCAST_BCAST,
 	NL80211_STA_INFO_PAD,
+	NL80211_STA_INFO_ACK_SIGNAL,
 
 	/* keep last */
 	__NL80211_STA_INFO_AFTER_LAST,
