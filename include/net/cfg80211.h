@@ -1163,6 +1163,8 @@ struct mc_bc_stats {
  * @pertid: per-TID statistics, see &struct cfg80211_tid_stats, using the last
  *	(IEEE80211_NUM_TIDS) index for MSDUs not encapsulated in QoS-MPDUs.
  * @ack_signal: signal strength (in dBm) of the last ACK frame.
+ * @avg_ack_signal: average rssi value of ack packet for the no of msdu's has
+ *	been sent.
  */
 struct station_info {
 	u64 filled;
@@ -1212,6 +1214,7 @@ struct station_info {
 	u8 rx_beacon_signal_avg;
 	struct cfg80211_tid_stats pertid[IEEE80211_NUM_TIDS + 1];
 	s8 ack_signal;
+	s8 avg_ack_signal;
 };
 
 #if IS_ENABLED(CONFIG_CFG80211)
