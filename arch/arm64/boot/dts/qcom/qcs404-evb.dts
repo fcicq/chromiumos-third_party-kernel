@@ -93,6 +93,7 @@
 		vreg_l4_1p2: l4 {
 			regulator-min-microvolt = <1144000>;
 			regulator-max-microvolt = <1256000>;
+			regulator-always-on;
 		};
 
 		vreg_l5_1p8: l5 {
@@ -110,6 +111,7 @@
 		vreg_l7_1p8: l7 {
 			regulator-min-microvolt = <1616000>;
 			regulator-max-microvolt = <3000000>;
+			regulator-always-on;
 		};
 
 		vreg_l8_1p2: l8 {
@@ -120,6 +122,7 @@
 		vreg_l10_3p3: l10 {
 			regulator-min-microvolt = <2936000>;
 			regulator-max-microvolt = <3088000>;
+			regulator-always-on;
 		};
 
 		vreg_l11_sdc2: l11 {
@@ -130,11 +133,13 @@
 		vreg_l12_3p3: l12 {
 			regulator-min-microvolt = <2968000>;
 			regulator-max-microvolt = <3300000>;
+			regulator-always-on;
 		};
 
 		vreg_l13_3p3: l13 {
 			regulator-min-microvolt = <3000000>;
 			regulator-max-microvolt = <3300000>;
+			regulator-always-on;
 		};
 	};
 };
@@ -369,4 +374,12 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&blsp1_uart3_default>;
 	status = "okay";
+
+	bluetooth: wcn3990-bt {
+		compatible = "qcom,wcn3990-bt";
+		vddio-supply = <&vreg_l6_1p8>;
+		vddxo-supply = <&vreg_l5_1p8>;
+		//vddrf-supply = <&vreg_s5_1p35>;
+		//vddch0-supply = <&pp3300_l25a_ch0_wcn3990>;
+	};
 };
