@@ -133,7 +133,6 @@ struct ipu3_css_pipe {
 		unsigned int bytesperpixel;
 	} aux_frames[IPU3_CSS_AUX_FRAME_TYPES];
 
-
 	struct {
 		struct ipu3_css_pool parameter_set_info;
 		struct ipu3_css_pool acc;
@@ -145,7 +144,6 @@ struct ipu3_css_pipe {
 
 	struct ipu3_css_map abi_buffers[IPU3_CSS_QUEUES]
 				    [IMGU_ABI_HOST2SP_BUFQ_SIZE];
-	long frame; /* Latest frame not yet processed */
 };
 
 /* IPU3 Camera Sub System structure */

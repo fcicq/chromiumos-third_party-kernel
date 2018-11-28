@@ -36,12 +36,7 @@ int ipu3_css_pool_init(struct imgu_device *imgu, struct ipu3_css_pool *pool,
 	unsigned int i;
 
 	for (i = 0; i < IPU3_CSS_POOL_SIZE; i++) {
-		/*
-		 * entry[i].framenum is initialized to INT_MIN so that
-		 * ipu3_css_pool_check() can treat it as usesable slot.
-		 */
-		pool->entry[i].framenum = INT_MIN;
-
+		pool->entry[i].valid = false;
 		if (size == 0) {
 			pool->entry[i].param.vaddr = NULL;
 			continue;
@@ -61,15 +56,14 @@ fail:
 }
 
 /*
- * Allocate a new parameter from pool at frame number `framenum'.
- * Release the oldest entry in the pool to make space for the new entry.
+ * Allocate a new parameter via recycling the oldest entry in the pool.
  */
-void ipu3_css_pool_get(struct ipu3_css_pool *pool, long framenum)
+void ipu3_css_pool_get(struct ipu3_css_pool *pool)
 {
 	/* Get the oldest entry */
-	int n = (pool->last + 1) % IPU3_CSS_POOL_SIZE;
+	u32 n = (pool->last + 1) % IPU3_CSS_POOL_SIZE;
 
-	pool->entry[n].framenum = framenum;
+	pool->entry[n].valid = true;
 	pool->last = n;
 }
 
@@ -78,7 +72,7 @@ void ipu3_css_pool_get(struct ipu3_css_pool *pool, long framenum)
  */
 void ipu3_css_pool_put(struct ipu3_css_pool *pool)
 {
-	pool->entry[pool->last].framenum = INT_MIN;
+	pool->entry[pool->last].valid = false;
 	pool->last = (pool->last + IPU3_CSS_POOL_SIZE - 1) % IPU3_CSS_POOL_SIZE;
 }
 
@@ -99,7 +93,7 @@ ipu3_css_pool_last(struct ipu3_css_pool *pool, unsigned int n)
 
 	WARN_ON(n >= IPU3_CSS_POOL_SIZE);
 
-	if (pool->entry[i].framenum < 0)
+	if (!pool->entry[i].valid)
 		return &null_map;
 
 	return &pool->entry[i].param;

@@ -1349,7 +1349,6 @@ int ipu3_css_start_streaming(struct ipu3_css *css)
 		goto fail;
 
 	for_each_set_bit(pipe, css->enabled_pipes, IMGU_MAX_PIPE_NUM) {
-		css->pipes[pipe].frame = 0;
 		r = ipu3_css_pipeline_init(css, pipe);
 		if (r < 0)
 			goto fail;
@@ -2087,14 +2086,8 @@ struct ipu3_css_buffer *ipu3_css_buf_dequeue(struct ipu3_css *css)
 		}
 
 		css_pipe = &css->pipes[pipe];
-		dev_dbg(css->dev,
-			"event: pipeline done 0x%8x for frame %ld pipe %d\n",
-			event, css_pipe->frame, pipe);
-
-		if (css_pipe->frame == LONG_MAX)
-			css_pipe->frame = 0;
-		else
-			css_pipe->frame++;
+		dev_dbg(css->dev, "event: pipeline done 0x%8x for pipe %d\n",
+			event, pipe);
 		break;
 	case IMGU_ABI_EVTTYPE_TIMER:
 		r = ipu3_css_dequeue_data(css, IMGU_ABI_QUEUE_EVENT_ID, &event);
@@ -2172,14 +2165,14 @@ int ipu3_css_set_parameters(struct ipu3_css *css, unsigned int pipe,
 	 * parameters from previous buffers will be overwritten. Fix the driver
 	 * not to allow this.
 	 */
-	ipu3_css_pool_get(&css_pipe->pool.parameter_set_info, css_pipe->frame);
+	ipu3_css_pool_get(&css_pipe->pool.parameter_set_info);
 	param_set = ipu3_css_pool_last(&css_pipe->pool.parameter_set_info,
 				       0)->vaddr;
 
 	/* Get a new acc only if new parameters given, or none yet */
 	map = ipu3_css_pool_last(&css_pipe->pool.acc, 0);
 	if (set_params || !map->vaddr) {
-		ipu3_css_pool_get(&css_pipe->pool.acc, css_pipe->frame);
+		ipu3_css_pool_get(&css_pipe->pool.acc);
 		map = ipu3_css_pool_last(&css_pipe->pool.acc, 0);
 		acc = map->vaddr;
 	}
@@ -2190,7 +2183,7 @@ int ipu3_css_set_parameters(struct ipu3_css *css, unsigned int pipe,
 	if (!map->vaddr || (set_params && (set_params->use.lin_vmem_params ||
 					   set_params->use.tnr3_vmem_params ||
 					   set_params->use.xnr3_vmem_params))) {
-		ipu3_css_pool_get(&css_pipe->pool.binary_params_p[m], css_pipe->frame);
+		ipu3_css_pool_get(&css_pipe->pool.binary_params_p[m]);
 		map = ipu3_css_pool_last(&css_pipe->pool.binary_params_p[m], 0);
 		vmem0 = map->vaddr;
 	}
@@ -2200,7 +2193,7 @@ int ipu3_css_set_parameters(struct ipu3_css *css, unsigned int pipe,
 	map = ipu3_css_pool_last(&css_pipe->pool.binary_params_p[m], 0);
 	if (!map->vaddr || (set_params && (set_params->use.tnr3_dmem_params ||
 					   set_params->use.xnr3_dmem_params))) {
-		ipu3_css_pool_get(&css_pipe->pool.binary_params_p[m], css_pipe->frame);
+		ipu3_css_pool_get(&css_pipe->pool.binary_params_p[m]);
 		map = ipu3_css_pool_last(&css_pipe->pool.binary_params_p[m], 0);
 		dmem0 = map->vaddr;
 	}
@@ -2243,7 +2236,7 @@ int ipu3_css_set_parameters(struct ipu3_css *css, unsigned int pipe,
 
 		map = ipu3_css_pool_last(&css_pipe->pool.gdc, 0);
 		if (!map->vaddr) {
-			ipu3_css_pool_get(&css_pipe->pool.gdc, css_pipe->frame);
+			ipu3_css_pool_get(&css_pipe->pool.gdc);
 			map = ipu3_css_pool_last(&css_pipe->pool.gdc, 0);
 			gdc = map->vaddr;
 			ipu3_css_cfg_gdc_table(map->vaddr,
@@ -2261,7 +2254,7 @@ int ipu3_css_set_parameters(struct ipu3_css *css, unsigned int pipe,
 	/* Get a new obgrid only if a new obgrid is given, or none yet */
 	map = ipu3_css_pool_last(&css_pipe->pool.obgrid, 0);
 	if (!map->vaddr || (set_params && set_params->use.obgrid_param)) {
-		ipu3_css_pool_get(&css_pipe->pool.obgrid, css_pipe->frame);
+		ipu3_css_pool_get(&css_pipe->pool.obgrid);
 		map = ipu3_css_pool_last(&css_pipe->pool.obgrid, 0);
 		obgrid = map->vaddr;
 

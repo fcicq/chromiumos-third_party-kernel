@@ -30,16 +30,15 @@ struct ipu3_css_map {
  *
  * @entry:		array with IPU3_CSS_POOL_SIZE elements.
  * @entry.param:	a &struct ipu3_css_map for storing the mem mapping.
- * @entry.framenum:	the css frame number, used to determine if the entry
- *			is old enough to be recycled.
+ * @entry.valid:	used to mark if the entry has vaid data.
  * @last:		write pointer, initialized to IPU3_CSS_POOL_SIZE.
  */
 struct ipu3_css_pool {
 	struct {
 		struct ipu3_css_map param;
-		long framenum;
+		bool valid;
 	} entry[IPU3_CSS_POOL_SIZE];
-	unsigned int last;
+	u32 last;
 };
 
 int ipu3_css_dma_buffer_resize(struct imgu_device *imgu,
@@ -48,9 +47,9 @@ void ipu3_css_pool_cleanup(struct imgu_device *imgu,
 			   struct ipu3_css_pool *pool);
 int ipu3_css_pool_init(struct imgu_device *imgu, struct ipu3_css_pool *pool,
 		       size_t size);
-void ipu3_css_pool_get(struct ipu3_css_pool *pool, long framenum);
+void ipu3_css_pool_get(struct ipu3_css_pool *pool);
 void ipu3_css_pool_put(struct ipu3_css_pool *pool);
 const struct ipu3_css_map *ipu3_css_pool_last(struct ipu3_css_pool *pool,
-					      unsigned int last);
+					      u32 last);
 
 #endif
