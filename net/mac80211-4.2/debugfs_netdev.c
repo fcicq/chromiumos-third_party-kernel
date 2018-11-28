@@ -684,7 +684,6 @@ static void add_ap_files(struct ieee80211_sub_if_data *sdata)
 	DEBUGFS_ADD(dtim_count);
 	DEBUGFS_ADD(num_buffered_multicast);
 	DEBUGFS_ADD_MODE(tkip_mic_test, 0200);
-	DEBUGFS_ADD(mc_bc_rx_limit);
 }
 
 static void add_ibss_files(struct ieee80211_sub_if_data *sdata)
@@ -770,6 +769,7 @@ static void add_files(struct ieee80211_sub_if_data *sdata)
 	DEBUGFS_ADD(txpower);
 	DEBUGFS_ADD(user_power_level);
 	DEBUGFS_ADD(ap_power_level);
+	DEBUGFS_ADD(mc_bc_rx_limit);
 
 	if (sdata->vif.type != NL80211_IFTYPE_MONITOR)
 		add_common_files(sdata);
