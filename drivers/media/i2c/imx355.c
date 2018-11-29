@@ -864,14 +864,6 @@ static const char * const imx355_test_pattern_menu[] = {
 	"PN9"
 };
 
-static const int imx355_test_pattern_val[] = {
-	IMX355_TEST_PATTERN_DISABLED,
-	IMX355_TEST_PATTERN_COLOR_BARS,
-	IMX355_TEST_PATTERN_SOLID_COLOR,
-	IMX355_TEST_PATTERN_GRAY_COLOR_BARS,
-	IMX355_TEST_PATTERN_PN9,
-};
-
 /* Configurations for supported link frequencies */
 /* Menu items for LINK_FREQ V4L2 control */
 static const s64 link_freq_menu_items[] = {
@@ -1207,7 +1199,7 @@ static int imx355_set_ctrl(struct v4l2_ctrl *ctrl)
 		break;
 	case V4L2_CID_TEST_PATTERN:
 		ret = imx355_write_reg(imx355, IMX355_REG_TEST_PATTERN,
-				       2, imx355_test_pattern_val[ctrl->val]);
+				       2, ctrl->val);
 		break;
 	case V4L2_CID_HFLIP:
 	case V4L2_CID_VFLIP:
