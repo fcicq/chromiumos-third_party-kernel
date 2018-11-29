@@ -1,6 +1,6 @@
 config DRM_POWERVR_ROGUE_1_10
 	tristate "PowerVR Rogue"
-	depends on ARM || ARM64 || X86 || METAG || MIPS
+	depends on ARM64 || METAG
 	depends on HAS_IOMEM
 	depends on DRM
 	depends on SYNC_FILE
