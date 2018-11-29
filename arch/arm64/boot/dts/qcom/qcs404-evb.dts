@@ -16,6 +16,7 @@
 
 	aliases {
 		serial0 = &blsp1_uart2;
+		serial1 = &blsp1_uart3;
 	};
 
 	chosen {
@@ -151,6 +152,13 @@
 };
 
 &tlmm {
+	blsp1_uart3_default: blsp1-uart3-default {
+		pins = "gpio82", "gpio83", "gpio84", "gpio85";
+		function = "blsp_uart3";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
 	sdc1_on: sdc1-on {
 		clk {
 			pins = "sdc1_clk";
@@ -355,4 +363,10 @@
 &blsp1_i2c1 {
 	status = "okay";
 	clock-frequency = <400000>;
+};
+
+&blsp1_uart3 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&blsp1_uart3_default>;
+	status = "okay";
 };
