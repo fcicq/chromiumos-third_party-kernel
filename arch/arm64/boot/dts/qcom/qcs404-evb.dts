@@ -293,3 +293,20 @@
 		bias-disable;
 	};
 };
+
+&blsp1_spi0 {
+	status = "okay";
+};
+
+&blsp1_spi4 {
+	status = "okay";
+};
+
+&blsp2_spi0 {
+	status = "okay";
+	spidev@0 {
+		compatible = "spidev";
+		reg = <0>;
+		spi-max-frequency = <25000000>;
+	};
+};
