@@ -214,6 +214,18 @@
 			input-enable;
 		};
 	};
+
+	h1_ap_int_odl: h1-ap-int-odl {
+		pinmux {
+			pins = "gpio53";
+			function = "gpio";
+			input-enable;
+		};
+		pinconf {
+			pins = "gpio53";
+			bias-pull-up;
+		};
+	};
 };
 
 &pms405_gpios {
@@ -302,6 +314,16 @@
 
 &blsp1_spi4 {
 	status = "okay";
+	spi-max-frequency = <800000>; /* TODO: Drop this */
+	cr50@0 {
+		compatible = "google,cr50";
+		reg = <0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&h1_ap_int_odl>;
+		spi-max-frequency = <800000>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <53 IRQ_TYPE_EDGE_RISING>;
+	};
 };
 
 &blsp2_spi0 {
