@@ -53,7 +53,6 @@ enum {
 	GLK_DPCM_AUDIO_PB = 0,
 	GLK_DPCM_AUDIO_CP,
 	GLK_DPCM_AUDIO_HS_PB,
-	GLK_DPCM_AUDIO_ECHO_REF_CP,
 	GLK_DPCM_AUDIO_REF_CP,
 	GLK_DPCM_AUDIO_DMIC_CP,
 	GLK_DPCM_AUDIO_HDMI1_PB,
@@ -308,6 +307,36 @@ static struct snd_pcm_hw_constraint_list constraints_channels_quad = {
 	.mask = 0,
 };
 
+static int glk_fe_startup(struct snd_pcm_substream *substream)
+{
+	struct snd_pcm_runtime *runtime = substream->runtime;
+	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+
+	/*
+	 * On this platform for PCM device we support,
+	 * 48Khz
+	 * stereo
+	 * 16 bit audio
+	 */
+	if (!strstr(rtd->cpu_dai->name, "HDMI")) {
+		runtime->hw.channels_max = DUAL_CHANNEL;
+		snd_pcm_hw_constraint_list(runtime, 0,
+					   SNDRV_PCM_HW_PARAM_CHANNELS,
+					   &constraints_channels);
+
+		runtime->hw.formats = SNDRV_PCM_FMTBIT_S16_LE;
+		snd_pcm_hw_constraint_msbits(runtime, 0, 16, 16);
+	}
+	snd_pcm_hw_constraint_list(runtime, 0,
+				SNDRV_PCM_HW_PARAM_RATE, &constraints_rates);
+
+	return 0;
+}
+
+static const struct snd_soc_ops geminilake_rt5682_fe_ops = {
+	.startup = glk_fe_startup,
+};
+
 static int geminilake_dmic_fixup(struct snd_soc_pcm_runtime *rtd,
 		struct snd_pcm_hw_params *params)
 {
@@ -375,6 +404,7 @@ static struct snd_soc_dai_link geminilake_dais[] = {
 		.trigger = {
 			SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
 		.dpcm_playback = 1,
+		.ops = &geminilake_rt5682_fe_ops,
 	},
 	[GLK_DPCM_AUDIO_CP] = {
 		.name = "Glk Audio Capture Port",
@@ -388,10 +418,11 @@ static struct snd_soc_dai_link geminilake_dais[] = {
 		.trigger = {
 			SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
 		.dpcm_capture = 1,
+		.ops = &geminilake_rt5682_fe_ops,
 	},
 	[GLK_DPCM_AUDIO_HS_PB] = {
 		.name = "Glk Audio Headset Playback",
-		.stream_name = "Headset Audio",
+		.stream_name = "Headset Playback",
 		.cpu_dai_name = "System Pin2",
 		.platform_name = "0000:00:0e.0",
 		.codec_name = "snd-soc-dummy",
@@ -399,17 +430,7 @@ static struct snd_soc_dai_link geminilake_dais[] = {
 		.dpcm_playback = 1,
 		.nonatomic = 1,
 		.dynamic = 1,
-	},
-	[GLK_DPCM_AUDIO_ECHO_REF_CP] = {
-		.name = "Glk Audio Echo Reference cap",
-		.stream_name = "Echoreference Capture",
-		.cpu_dai_name = "Echoref Pin",
-		.codec_name = "snd-soc-dummy",
-		.platform_name = "0000:00:0e.0",
-		.codec_dai_name = "snd-soc-dummy-dai",
-		.init = NULL,
-		.capture_only = 1,
-		.nonatomic = 1,
+		.ops = &geminilake_rt5682_fe_ops,
 	},
 	[GLK_DPCM_AUDIO_REF_CP] = {
 		.name = "Glk Audio Reference cap",
