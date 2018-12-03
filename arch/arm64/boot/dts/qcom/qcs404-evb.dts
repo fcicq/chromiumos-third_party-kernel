@@ -226,6 +226,15 @@
 			bias-pull-up;
 		};
 	};
+
+	spi_flash_wp: spi-flash-wp {
+		pins = "gpio54";
+		function = "gpio";
+		bias-disable;
+		bias-no-pull;
+		drive-strength = <2>;
+		input-enable;
+	};
 };
 
 &pms405_gpios {
@@ -328,6 +337,7 @@
 
 &blsp2_spi0 {
 	status = "okay";
+	pinctrl-0 = <&spi_flash_wp>, <&blsp2_spi0_default>;
 	spidev@0 {
 		compatible = "spidev";
 		reg = <0>;
