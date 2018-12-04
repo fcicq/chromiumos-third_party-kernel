@@ -846,7 +846,7 @@ static int ipu3_css_osys_calc_frame_and_stripe_params(
  * This function configures the Output Formatter System, given the number of
  * stripes, scaler luma and chrome parameters
  */
-static void ipu3_css_osys_calc(struct ipu3_css *css, unsigned int pipe,
+static int ipu3_css_osys_calc(struct ipu3_css *css, unsigned int pipe,
 			       unsigned int stripes,
 			       struct imgu_abi_osys_config *osys,
 			       struct ipu3_css_scaler_info *scaler_luma,
@@ -862,10 +862,13 @@ static void ipu3_css_osys_calc(struct ipu3_css *css, unsigned int pipe,
 	memset(osys, 0, sizeof(*osys));
 
 	/* Compute the frame and stripe params */
-	ipu3_css_osys_calc_frame_and_stripe_params(css, stripes, osys,
-						   scaler_luma, scaler_chroma,
-						   frame_params, stripe_params,
-						   pipe);
+	if (ipu3_css_osys_calc_frame_and_stripe_params(css, stripes, osys,
+						       scaler_luma,
+						       scaler_chroma,
+						       frame_params,
+						       stripe_params,
+						       pipe))
+		return -EINVAL;
 
 	/* Output formatter system parameters */
 
@@ -1203,6 +1206,8 @@ static void ipu3_css_osys_calc(struct ipu3_css *css, unsigned int pipe,
 		block_stripes[0].height = css_pipe->rect[IPU3_CSS_RECT_GDC].height;
 		block_stripes[1].height = block_stripes[0].height;
 	}
+
+	return 0;
 }
 
 /*********************** Mostly 3A operations ******************************/
@@ -1724,7 +1729,7 @@ static void ipu3_css_grid_end_calc(struct ipu3_uapi_grid_config *grid_cfg)
 
 /****************** config computation *****************************/
 
-static void ipu3_css_cfg_acc_stripe(struct ipu3_css *css, unsigned int pipe,
+static int ipu3_css_cfg_acc_stripe(struct ipu3_css *css, unsigned int pipe,
 				    struct imgu_abi_acc_param *acc)
 {
 	struct ipu3_css_pipe *css_pipe = &css->pipes[pipe];
@@ -1739,8 +1744,9 @@ static void ipu3_css_cfg_acc_stripe(struct ipu3_css *css, unsigned int pipe,
 
 	/* acc_param: osys_config */
 
-	ipu3_css_osys_calc(css, pipe, stripes, &acc->osys, &scaler_luma,
-			   &scaler_chroma, acc->stripe.block_stripes);
+	if (ipu3_css_osys_calc(css, pipe, stripes, &acc->osys, &scaler_luma,
+			   &scaler_chroma, acc->stripe.block_stripes))
+		return -EINVAL;
 
 	/* acc_param: stripe data */
 
@@ -1891,6 +1897,8 @@ static void ipu3_css_cfg_acc_stripe(struct ipu3_css *css, unsigned int pipe,
 			IMGU_STRIPE_FIXED_HALF_OVERLAP;
 	else
 		acc->stripe.half_overlap_vectors = 0;
+
+	return 0;
 }
 
 static void ipu3_css_cfg_acc_dvs(struct ipu3_css *css,
@@ -1960,7 +1968,8 @@ int ipu3_css_cfg_acc(struct ipu3_css *css, unsigned int pipe,
 
 	/* Update stripe using chroma and luma */
 
-	ipu3_css_cfg_acc_stripe(css, pipe, acc);
+	if (ipu3_css_cfg_acc_stripe(css, pipe, acc))
+		return -EINVAL;
 
 	/* acc_param: input_feeder_config */
 
