@@ -7386,6 +7386,9 @@ int ath10k_mac_register(struct ath10k *ar)
 	ar->hw->wiphy->max_scan_ssids = WLAN_SCAN_PARAMS_MAX_SSID;
 	ar->hw->wiphy->max_scan_ie_len = WLAN_SCAN_PARAMS_MAX_IE_LEN;
 
+	if (ar->hw_params.tx_sk_pacing_shift != 0)
+		ar->hw->tx_sk_pacing_shift = ar->hw_params.tx_sk_pacing_shift;
+
 	ar->hw->vif_data_size = sizeof(struct ath10k_vif);
 	ar->hw->sta_data_size = sizeof(struct ath10k_sta);
 

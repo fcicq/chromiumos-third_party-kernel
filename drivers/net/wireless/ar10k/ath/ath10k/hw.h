@@ -137,6 +137,9 @@ enum qca9377_chip_id_rev {
 
 #define REG_DUMP_COUNT_QCA988X 60
 
+#define SK_PACING_SHIFT_6174 6
+#define SK_PACING_SHIFT_9377 6
+
 #define QCA988X_CAL_DATA_LEN		2116
 
 struct ath10k_fw_ie {

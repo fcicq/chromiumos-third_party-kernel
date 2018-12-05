@@ -723,6 +723,9 @@ struct ath10k {
 
 		/* target supporting fw download via diag ce */
 		bool fw_diag_ce_download;
+
+		/* Number of shift to override the default value of ieee80211_hw*/
+		u8 tx_sk_pacing_shift;
 	} hw_params;
 
 	const struct firmware *board;
