@@ -3039,6 +3039,7 @@ static int btusb_probe(struct usb_interface *intf,
 		goto out_free_dev;
 	} else if (reset_gpio) {
 		data->reset_gpio = reset_gpio;
+		dev_set_drvdata(&data->udev->dev, reset_gpio);
 		hdev->hw_reset = btusb_hw_reset;
 	}
 
