@@ -383,6 +383,17 @@
 			power-source = <1>;
 		};
 	};
+
+	pms405_sleepclk2_pin: pms405_sleepclk2_pin {
+		pinconf {
+			pins = "gpio8";
+			function = PMIC_GPIO_FUNC_FUNC1;
+			qcom,drive-strength = <2>;
+			power-source = <0>;
+			bias-disable;
+			output-low;
+		};
+	};
 };
 
 &usb2 {
@@ -446,6 +457,7 @@
 
 &blsp1_spi0 {
 	status = "okay";
+	pinctrl-0 = <&blsp1_spi0_default &pms405_sleepclk2_pin>;
 	spidev@0 {
 		compatible = "spidev";
 		reg = <0>;
