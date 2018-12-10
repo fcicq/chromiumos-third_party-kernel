@@ -1252,7 +1252,7 @@ static inline void drv_del_nan_func(struct ieee80211_local *local,
 
 static inline int drv_set_noack_tid_bitmap(struct ieee80211_local *local,
 					   struct ieee80211_sub_if_data *sdata,
-					   u16 noack_map)
+					   int noack_map)
 {
 	int ret;
 

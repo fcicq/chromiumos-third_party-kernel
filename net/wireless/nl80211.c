@@ -3033,17 +3033,29 @@ static int nl80211_set_noack_map(struct sk_buff *skb, struct genl_info *info)
 {
 	struct cfg80211_registered_device *rdev = info->user_ptr[0];
 	struct net_device *dev = info->user_ptr[1];
-	u16 noack_map;
+	int noack_map = -1;
+	const u8 *peer = NULL;
 
-	if (!info->attrs[NL80211_ATTR_NOACK_MAP])
+	if (!(info->attrs[NL80211_ATTR_NOACK_MAP] ||
+	      info->attrs[NL80211_ATTR_MAC]))
 		return -EINVAL;
+
+	if (info->attrs[NL80211_ATTR_NOACK_MAP])
+		noack_map = nla_get_u16(info->attrs[NL80211_ATTR_NOACK_MAP]);
+
+	if (info->attrs[NL80211_ATTR_MAC]) {
+		if (!wiphy_ext_feature_isset(
+				&rdev->wiphy,
+				NL80211_EXT_FEATURE_PER_STA_NOACK_MAP))
+			return -EOPNOTSUPP;
+
+		peer = nla_data(info->attrs[NL80211_ATTR_MAC]);
+	}
 
 	if (!rdev->ops->set_noack_map)
 		return -EOPNOTSUPP;
 
-	noack_map = nla_get_u16(info->attrs[NL80211_ATTR_NOACK_MAP]);
-
-	return rdev_set_noack_map(rdev, dev, noack_map);
+	return rdev_set_noack_map(rdev, dev, peer, noack_map);
 }
 
 struct get_key_cookie {

@@ -3751,7 +3751,7 @@ struct ieee80211_ops {
 			    u8 instance_id);
 
 	int (*set_noack_tid_bitmap)(struct ieee80211_hw *hw,
-				    struct ieee80211_vif *vif, u16 noack_map);
+				    struct ieee80211_vif *vif, int noack_map);
 };
 
 /**

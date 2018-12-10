@@ -783,7 +783,18 @@
  *	messages. Note that per PHY only one application may register.
  *
  * @NL80211_CMD_SET_NOACK_MAP: sets a bitmap for the individual TIDs whether
- *      No Acknowledgement Policy should be applied.
+ *	No Acknowledgement Policy should be applied. %NL80211_ATTR_MAC is used
+ *	to apply No Acknowledgement policy for a particular connected station.
+ *	When the command is received without %NL80211_ATTR_NOACK_MAP for a
+ *	connected station (%NL80211_ATTR_MAC), the station's current NoAck
+ *	policy configuration should be reset to default. The default
+ *	configuration for a peer should use the current ndev level NoAck
+ *	policy configuration. Station specific NoAck policy configuration is
+ *	valid only for STA's current connection, i.e. the configuration will
+ *	be reset to default when the station connects back after disconnection/
+ *	roaming. When user-space does not include %NL80211_ATTR_MAC, the No
+ *	Acknowledgement Policy setting should be treated as per-netdev
+ *	configuration.
  *
  * @NL80211_CMD_CH_SWITCH_NOTIFY: An AP or GO may decide to switch channels
  *	independently of the userspace SME, send this event indicating
@@ -5001,6 +5012,8 @@ enum nl80211_feature_flags {
  *      receiving control port frames over nl80211 instead of the netdevice.
  * @NL80211_EXT_FEATURE_ACK_SIGNAL_SUPPORT: This driver/device supports
  *	(average) ACK signal strength reporting.
+ * @NL80211_EXT_FEATURE_PER_STA_NOACK_MAP: Driver supports STA specific NoAck
+ *	policy functionality.
  *
  * @NUM_NL80211_EXT_FEATURES: number of extended features.
  * @MAX_NL80211_EXT_FEATURES: highest extended feature index.
@@ -5036,6 +5049,7 @@ enum nl80211_ext_feature_index {
 	NL80211_EXT_FEATURE_ACK_SIGNAL_SUPPORT,
 	/* we renamed this - stay compatible */
 	NL80211_EXT_FEATURE_DATA_ACK_SIGNAL_SUPPORT = NL80211_EXT_FEATURE_ACK_SIGNAL_SUPPORT,
+	NL80211_EXT_FEATURE_PER_STA_NOACK_MAP,
 
 	/* add new features before the definition below */
 	NUM_NL80211_EXT_FEATURES,

@@ -886,7 +886,7 @@ struct ieee80211_sub_if_data {
 	unsigned int fragment_next;
 
 	/* TID bitmap for NoAck policy */
-	u16 noack_map;
+	int noack_map;
 
 	/* bit field of ACM bits (BIT(802.1D tag)) */
 	u8 wmm_acm;

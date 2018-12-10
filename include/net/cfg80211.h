@@ -2856,7 +2856,15 @@ struct cfg80211_pmk_conf {
  * @probe_client: probe an associated client, must return a cookie that it
  *	later passes to cfg80211_probe_status().
  *
- * @set_noack_map: Set the NoAck Map for the TIDs.
+ * @set_noack_map: Set the NoAck Map for the TIDs. When peer is not %NULL NoAck
+ *	map will be applied for that particular peer. A NoAck map value of -1
+ *	for non-%NULL peer would indicate that the peer's current NoAck
+ *	configuration should be reset to the default one. The default NoAck
+ *	configuration for a peer uses the currently configured NoAck setting of
+ *	netdev. When peer is %NULL NoAck map will be applied for all the
+ *	connected stations on the netdev which have default NoAck policy
+ *	configuration. Default NoAck configuration should be used for newly
+ *	connected stations.
  *
  * @get_channel: Get the current operating channel for the virtual interface.
  *	For monitor interfaces, it should return %NULL unless there's a single
@@ -3161,7 +3169,7 @@ struct cfg80211_ops {
 
 	int	(*set_noack_map)(struct wiphy *wiphy,
 				  struct net_device *dev,
-				  u16 noack_map);
+				  const u8 *peer, int noack_map);
 
 	int	(*get_channel)(struct wiphy *wiphy,
 			       struct wireless_dev *wdev,

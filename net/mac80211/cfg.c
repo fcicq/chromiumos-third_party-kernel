@@ -341,7 +341,8 @@ static void ieee80211_del_nan_func(struct wiphy *wiphy,
 
 static int ieee80211_set_noack_map(struct wiphy *wiphy,
 				  struct net_device *dev,
-				  u16 noack_map)
+				  const u8 *peer,
+				  int noack_map)
 {
 	struct ieee80211_sub_if_data *sdata = IEEE80211_DEV_TO_SUB_IF(dev);
 

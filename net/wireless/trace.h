@@ -1883,21 +1883,24 @@ TRACE_EVENT(rdev_mgmt_tx,
 );
 
 TRACE_EVENT(rdev_set_noack_map,
-	TP_PROTO(struct wiphy *wiphy, struct net_device *netdev,
-		 u16 noack_map),
-	TP_ARGS(wiphy, netdev, noack_map),
+	TP_PROTO(struct wiphy *wiphy, struct net_device *netdev, const u8 *peer,
+		 int noack_map),
+	TP_ARGS(wiphy, netdev, peer, noack_map),
 	TP_STRUCT__entry(
 		WIPHY_ENTRY
 		NETDEV_ENTRY
-		__field(u16, noack_map)
+		MAC_ENTRY(peer)
+		__field(int, noack_map)
 	),
 	TP_fast_assign(
 		WIPHY_ASSIGN;
 		NETDEV_ASSIGN;
+		MAC_ASSIGN(peer, peer);
 		__entry->noack_map = noack_map;
 	),
-	TP_printk(WIPHY_PR_FMT ", " NETDEV_PR_FMT ", noack_map: %u",
-		  WIPHY_PR_ARG, NETDEV_PR_ARG, __entry->noack_map)
+	TP_printk(WIPHY_PR_FMT ", " NETDEV_PR_FMT ", " MAC_PR_FMT
+		  ", noack_map: %d", WIPHY_PR_ARG, NETDEV_PR_ARG,
+		  MAC_PR_ARG(peer), __entry->noack_map)
 );
 
 DEFINE_EVENT(wiphy_wdev_evt, rdev_get_channel,

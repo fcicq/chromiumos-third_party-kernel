@@ -881,11 +881,12 @@ static inline int rdev_probe_client(struct cfg80211_registered_device *rdev,
 }
 
 static inline int rdev_set_noack_map(struct cfg80211_registered_device *rdev,
-				     struct net_device *dev, u16 noack_map)
+				     struct net_device *dev, const u8 *peer,
+				     int noack_map)
 {
 	int ret;
-	trace_rdev_set_noack_map(&rdev->wiphy, dev, noack_map);
-	ret = rdev->ops->set_noack_map(&rdev->wiphy, dev, noack_map);
+	trace_rdev_set_noack_map(&rdev->wiphy, dev, peer, noack_map);
+	ret = rdev->ops->set_noack_map(&rdev->wiphy, dev, peer, noack_map);
 	trace_rdev_return_int(&rdev->wiphy, ret);
 	return ret;
 }
