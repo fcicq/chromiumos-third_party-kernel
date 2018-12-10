@@ -347,9 +347,15 @@ static int ieee80211_set_noack_map(struct wiphy *wiphy,
 
 	sdata->noack_map = noack_map;
 
-	ieee80211_check_fast_xmit_iface(sdata);
+	if (!sdata->local->ops->set_noack_tid_bitmap) {
+		ieee80211_check_fast_xmit_iface(sdata);
+		return 0;
+	}
 
-	return 0;
+	if (!ieee80211_sdata_running(sdata))
+		return 0;
+
+	return drv_set_noack_tid_bitmap(sdata->local, sdata, noack_map);
 }
 
 static int ieee80211_add_key(struct wiphy *wiphy, struct net_device *dev,

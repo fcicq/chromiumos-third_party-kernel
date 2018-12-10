@@ -1250,4 +1250,25 @@ static inline void drv_del_nan_func(struct ieee80211_local *local,
 	trace_drv_return_void(local);
 }
 
+static inline int drv_set_noack_tid_bitmap(struct ieee80211_local *local,
+					   struct ieee80211_sub_if_data *sdata,
+					   u16 noack_map)
+{
+	int ret;
+
+	might_sleep();
+	if (!check_sdata_in_driver(sdata))
+		return -EIO;
+
+	if (!local->ops->set_noack_tid_bitmap)
+		return -EOPNOTSUPP;
+
+	trace_drv_set_noack_tid_bitmap(local, sdata, noack_map);
+	ret = local->ops->set_noack_tid_bitmap(&local->hw, &sdata->vif,
+					       noack_map);
+	trace_drv_return_int(local, ret);
+
+	return ret;
+}
+
 #endif /* __MAC80211_DRIVER_OPS */

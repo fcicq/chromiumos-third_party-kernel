@@ -3464,6 +3464,10 @@ enum ieee80211_reconfig_type {
  * @del_nan_func: Remove a NAN function. The driver must call
  *	ieee80211_nan_func_terminated() with
  *	NL80211_NAN_FUNC_TERM_REASON_USER_REQUEST reason code upon removal.
+ *
+ * @set_noack_tid_bitmap: Set NoAck policy TID bitmap for a virtual interface.
+ *	Drivers mplementing this callback must take care of setting NoAck policy
+ *	in QOS control field based on the configured TID bitmap.
  */
 struct ieee80211_ops {
 	void (*tx)(struct ieee80211_hw *hw,
@@ -3745,6 +3749,9 @@ struct ieee80211_ops {
 	void (*del_nan_func)(struct ieee80211_hw *hw,
 			    struct ieee80211_vif *vif,
 			    u8 instance_id);
+
+	int (*set_noack_tid_bitmap)(struct ieee80211_hw *hw,
+				    struct ieee80211_vif *vif, u16 noack_map);
 };
 
 /**

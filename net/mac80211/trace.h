@@ -1863,6 +1863,31 @@ TRACE_EVENT(drv_del_nan_func,
 	)
 );
 
+TRACE_EVENT(drv_set_noack_tid_bitmap,
+	TP_PROTO(struct ieee80211_local *local,
+		 struct ieee80211_sub_if_data *sdata,
+		 u16 noack_map),
+
+	TP_ARGS(local, sdata, noack_map),
+	TP_STRUCT__entry(
+		LOCAL_ENTRY
+		VIF_ENTRY
+		__field(u16, noack_map)
+	),
+
+	TP_fast_assign(
+		LOCAL_ASSIGN;
+		VIF_ASSIGN;
+		__entry->noack_map = noack_map;
+	),
+
+	TP_printk(
+		LOCAL_PR_FMT  VIF_PR_FMT
+		", noack_map: %u",
+		LOCAL_PR_ARG, VIF_PR_ARG, __entry->noack_map
+	)
+);
+
 /*
  * Tracing for API calls that drivers call.
  */

@@ -2821,7 +2821,7 @@ void ieee80211_check_fast_xmit(struct sta_info *sta)
 	    test_sta_flag(sta, WLAN_STA_CLEAR_PS_FILT))
 		goto out;
 
-	if (sdata->noack_map)
+	if (sdata->noack_map && !local->ops->set_noack_tid_bitmap)
 		goto out;
 
 	/* fast-xmit doesn't handle fragmentation at all */

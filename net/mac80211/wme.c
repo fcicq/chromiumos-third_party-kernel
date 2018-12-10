@@ -255,7 +255,8 @@ void ieee80211_set_qos_hdr(struct ieee80211_sub_if_data *sdata,
 		       IEEE80211_QOS_CTL_ACK_POLICY_MASK);
 
 	if (is_multicast_ether_addr(hdr->addr1) ||
-	    sdata->noack_map & BIT(tid)) {
+	    (!sdata->local->ops->set_noack_tid_bitmap &&
+	    sdata->noack_map & BIT(tid))) {
 		flags |= IEEE80211_QOS_CTL_ACK_POLICY_NOACK;
 		info->flags |= IEEE80211_TX_CTL_NO_ACK;
 	}

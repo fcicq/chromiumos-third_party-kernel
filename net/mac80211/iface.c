@@ -631,6 +631,10 @@ int ieee80211_do_open(struct wireless_dev *wdev, bool coming_up)
 				ieee80211_vif_type_p2p(&sdata->vif));
 			if (res)
 				goto err_del_interface;
+
+			if (sdata->noack_map)
+				drv_set_noack_tid_bitmap(local, sdata,
+							 sdata->noack_map);
 		}
 
 		if (sdata->vif.type == NL80211_IFTYPE_AP) {
