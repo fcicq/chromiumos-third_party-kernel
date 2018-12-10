@@ -2952,6 +2952,9 @@ struct cfg80211_pmk_conf {
  * @set_data_retry_count: configure the number of retries for the data frames
  *	for the given TID. If the retry configuration needs to be peer specific,
  *	peer MAC address can be passed.
+ * @set_tid_aggr_config: enable/disable aggregation configuration for the given
+ *	TID. If this configuration needs to be peer specific peer MAC address
+ *	can be passed.
  *
  */
 struct cfg80211_ops {
@@ -3250,6 +3253,10 @@ struct cfg80211_ops {
 					struct net_device *dev,
 					const u8 *peer, u8 tid,
 					int retry_short, int retry_long);
+	int	(*set_tid_aggr_config)(struct wiphy *wiphy,
+				       struct net_device *dev,
+				       const u8 *peer, u8 tid,
+				       bool aggr);
 };
 
 /*

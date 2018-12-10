@@ -1206,4 +1206,19 @@ rdev_set_data_retry_count(struct cfg80211_registered_device *rdev,
 	return ret;
 }
 
+static inline int
+rdev_set_tid_aggr_config(struct cfg80211_registered_device *rdev,
+			 struct net_device *dev, const u8 *peer,
+			 u8 tid, bool aggr)
+{
+	int ret;
+
+	trace_rdev_set_tid_aggr_config(&rdev->wiphy, dev, peer, tid,
+				       aggr);
+	ret = rdev->ops->set_tid_aggr_config(&rdev->wiphy, dev, peer,
+					     tid, aggr);
+	trace_rdev_return_int(&rdev->wiphy, ret);
+	return ret;
+}
+
 #endif /* __CFG80211_RDEV_OPS */
