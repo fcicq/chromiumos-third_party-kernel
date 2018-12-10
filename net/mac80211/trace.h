@@ -2606,6 +2606,40 @@ TRACE_EVENT(drv_wake_tx_queue,
 	)
 );
 
+TRACE_EVENT(drv_set_tid_conf,
+	TP_PROTO(struct ieee80211_local *local,
+		 struct ieee80211_sub_if_data *sdata,
+		 struct ieee80211_sta *sta,
+		 u8 changed),
+
+	TP_ARGS(local, sdata, sta, changed),
+
+	TP_STRUCT__entry(
+		LOCAL_ENTRY
+		VIF_ENTRY
+		STA_ENTRY
+		__field(u8, tid)
+		__field(int, retry_short)
+		__field(int, retry_long)
+		__field(u8, changed)
+	),
+
+	TP_fast_assign(
+		LOCAL_ASSIGN;
+		VIF_ASSIGN;
+		STA_ASSIGN;
+		__entry->tid = sdata->vif.tid_conf.tid;
+		__entry->retry_short = sdata->vif.tid_conf.retry_short;
+		__entry->retry_long = sdata->vif.tid_conf.retry_long;
+		__entry->changed = changed;
+	),
+
+	TP_printk(
+                LOCAL_PR_FMT VIF_PR_FMT STA_PR_FMT " changed: %#x",
+		LOCAL_PR_ARG, VIF_PR_ARG, STA_PR_ARG, __entry->changed
+	)
+);
+
 #endif /* !__MAC80211_DRIVER_TRACE || TRACE_HEADER_MULTI_READ */
 
 #undef TRACE_INCLUDE_PATH

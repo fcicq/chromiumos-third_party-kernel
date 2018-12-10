@@ -1398,6 +1398,35 @@ struct ieee80211_channel_switch {
 	u8 count;
 };
 
+/*
+ * enum ieee80211_tid_conf_change - TID change configuration notification flags
+ *
+ * These flags are used with the set_tid_conf() callback
+ * to indicate which TID configuration parameter changed.
+ *
+ * @TID_RETRY_CONF_CHANGED: retry configuration changed.
+ * @TID_AGGR_CONF_CHANGED: Aggregation config changed for the TID.
+ */
+enum ieee80211_tid_conf_change {
+	TID_RETRY_CONF_CHANGED		= BIT(0),
+	TID_AGGR_CONF_CHANGED		= BIT(1),
+};
+
+/*
+ * struct ieee80211_tid_conf - holds the tid configiuration data
+ * The information provided in the structure is required for the driver
+ * to configure TID specific configuration.
+ * @tid: TID number
+ * @retry_short: retry count value
+ * @retry_long: retry count value
+ * @aggr: enable/disable aggregation
+ */
+struct ieee80211_tid_conf {
+	u8 tid;
+	int retry_short;
+	int retry_long;
+	bool aggr;
+};
 /**
  * enum ieee80211_vif_flags - virtual interface flags
  *
@@ -1480,6 +1509,8 @@ struct ieee80211_vif {
 #endif
 
 	unsigned int probe_req_reg;
+
+	struct ieee80211_tid_conf tid_conf;
 
 	/* must be last */
 	u8 drv_priv[0] __aligned(sizeof(void *));
@@ -3473,6 +3504,10 @@ enum ieee80211_reconfig_type {
  *	level. Drivers mplementing this callback must take care of setting NoAck
  *	policy in QOS control field based on the configured TID bitmap.
  *	This callback may sleep.
+ * @set_tid_conf: TID specific configuration like number of retries for
+ *	the given TID. Apply this configuration for a particular station when
+ *	@sta is non-NULL. When @sta is NULL, the configuration will be for all
+ *	the connected clients in the vif. This callback may sleep.
  */
 struct ieee80211_ops {
 	void (*tx)(struct ieee80211_hw *hw,
@@ -3758,6 +3793,11 @@ struct ieee80211_ops {
 	int (*set_noack_tid_bitmap)(struct ieee80211_hw *hw,
 				    struct ieee80211_vif *vif,
 				    struct ieee80211_sta *sta, int noack_map);
+	int (*set_tid_conf)(struct ieee80211_hw *hw,
+			    struct ieee80211_vif *vif,
+			    struct ieee80211_sta *sta,
+			    struct ieee80211_tid_conf *tid_conf,
+			    u8 changed);
 };
 
 /**

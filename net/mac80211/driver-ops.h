@@ -1272,4 +1272,20 @@ static inline int drv_set_noack_tid_bitmap(struct ieee80211_local *local,
 	return ret;
 }
 
+static inline int drv_set_tid_conf(struct ieee80211_local *local,
+				   struct ieee80211_sub_if_data *sdata,
+				   struct ieee80211_sta *sta,
+				   u8 changed)
+{
+	int ret;
+
+	might_sleep();
+	trace_drv_set_tid_conf(local, sdata, sta, changed);
+	ret = local->ops->set_tid_conf(&local->hw, &sdata->vif, sta,
+				       &sdata->vif.tid_conf, changed);
+	trace_drv_return_int(local, ret);
+
+	return ret;
+}
+
 #endif /* __MAC80211_DRIVER_OPS */
