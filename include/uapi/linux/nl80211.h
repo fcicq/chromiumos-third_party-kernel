@@ -994,6 +994,10 @@
  *	configured PMK for the authenticator address identified by
  *	&NL80211_ATTR_MAC.
  *
+ * @NL80211_CMD_SET_TID_CONFIG: Data frame TID specific configuration
+ *	is passed through this command using %NL80211_ATTR_TID_CONFIG
+ *	nested attributes.
+ *
  * @NL80211_CMD_MAX: highest used command number
  * @__NL80211_CMD_AFTER_LAST: internal use
  */
@@ -1195,6 +1199,16 @@ enum nl80211_commands {
 
 	NL80211_CMD_SET_PMK,
 	NL80211_CMD_DEL_PMK,
+
+	NL80211_CMD_PORT_AUTHORIZED,
+
+	NL80211_CMD_RELOAD_REGDB,
+
+	NL80211_CMD_EXTERNAL_AUTH,
+
+	NL80211_CMD_STA_OPMODE_CHANGED,
+
+	NL80211_CMD_SET_TID_CONFIG,
 
 	/* add new commands above here */
 
@@ -2163,6 +2177,11 @@ enum nl80211_commands {
  * @NL80211_ATTR_NSS: Station's New/updated  RX_NSS value notified using this
  *      u8 attribute. This is used with %NL80211_CMD_STA_OPMODE_CHANGED.
  *
+ * @NL80211_ATTR_TID_CONFIG: TID specific configuration in a
+ *	nested attribute with %NL80211_ATTR_TID_* sub-attributes.
+ * @NL80211_ATTR_MAX_RETRY_COUNT: The upper limit for the retry count
+ *	configuration that the driver can accept.
+ *
  * @NUM_NL80211_ATTR: total number of nl80211_attrs available
  * @NL80211_ATTR_MAX: highest attribute number currently defined
  * @__NL80211_ATTR_AFTER_LAST: internal use
@@ -2594,6 +2613,9 @@ enum nl80211_attrs {
 
 	NL80211_ATTR_NSS,
 	NL80211_ATTR_ACK_SIGNAL,
+
+	NL80211_ATTR_TID_CONFIG,
+	NL80211_ATTR_MAX_RETRY_COUNT,
 
 	/* add attributes here, update the policy in nl80211.c */
 
@@ -4157,6 +4179,56 @@ enum nl80211_ps_state {
 	NL80211_PS_ENABLED,
 };
 
+/*
+ * @NL80211_ATTR_TID: a TID value (u8 attribute)
+ * @NL80211_ATTR_TID_RETRY_CONFIG: Data frame retry count should be
+ *	applied with the value passed through %NL80211_ATTR_RETRY_LONG
+ *	and/or %NL80211_ATTR_RETRY_SHORT. This configuration is  per-TID,
+ *	TID is specified with %NL80211_ATTR_TID. If the peer MAC address
+ *	is passed in %NL80211_ATTR_MAC, the retry configuration is applied
+ *	to the data frame for the tid to that connected station.
+ *	This attribute will be useful to notfiy the driver to apply default
+ *	retry values for the connected station (%NL80211_ATTR_MAC), when the
+ *	command received without %NL80211_ATTR_RETRY_LONG and/or
+ *	%NL80211_ATTR_RETRY_SHORT.
+ *	Station specific retry configuration is valid only for STA's
+ *	current connection. i.e. the configuration will be reset to default when
+ *	the station connects back after disconnection/roaming.
+ *	when user-space does not include %NL80211_ATTR_MAC, this configuration
+ *	should be treated as per-netdev configuration. This configuration will
+ *	be cleared when the interface goes down and on the disconnection from a
+ *	BSS. When retry count has never been configured using this command, the
+ *	other available radio level retry configuration
+ *	(%NL80211_ATTR_WIPHY_RETRY_SHORT and %NL80211_ATTR_WIPHY_RETRY_LONG)
+ *	should be used. Driver supporting this feature should advertise
+ *	NL80211_EXT_FEATURE_PER_TID_RETRY_CONFIG and supporting per station
+ *	retry count configuration should advertise
+ *	NL80211_EXT_FEATURE_PER_STA_RETRY_CONFIG.
+ * @NL80211_ATTR_TID_RETRY_SHORT: Number of retries used with data frame
+ *	transmission, user-space sets this configuration in
+ *	&NL80211_CMD_SET_TID_CONFIG. Its type is u8, min value is 1 and
+ *	the max value should be advertised by the driver through
+ *	max_data_retry_count. when this attribute is not present, the driver
+ *	would use the default configuration.
+ * @NL80211_ATTR_TID_RETRY_LONG: Number of retries used with data frame
+ *	transmission, user-space sets this configuration in
+ *	&NL80211_CMD_SET_TID_CONFIG. Its type is u8, min value is 1 and
+ *	the max value should be advertised by the driver through
+ *	max_data_retry_count. when this attribute is not present, the driver
+ *	would use the default configuration.
+ */
+enum nl80211_attr_tid_config {
+	__NL80211_ATTR_TID_INVALID,
+	NL80211_ATTR_TID,
+	NL80211_ATTR_TID_RETRY_CONFIG,
+	NL80211_ATTR_TID_RETRY_SHORT,
+	NL80211_ATTR_TID_RETRY_LONG,
+
+	/* keep last */
+	__NL80211_ATTR_TID_AFTER_LAST,
+	NL80211_ATTR_TID_MAX = __NL80211_ATTR_TID_AFTER_LAST - 1
+};
+
 /**
  * enum nl80211_attr_cqm - connection quality monitor attributes
  * @__NL80211_ATTR_CQM_INVALID: invalid
@@ -5015,6 +5087,11 @@ enum nl80211_feature_flags {
  * @NL80211_EXT_FEATURE_PER_STA_NOACK_MAP: Driver supports STA specific NoAck
  *	policy functionality.
  *
+ * @NL80211_EXT_FEATURE_PER_TID_RETRY_CONFIG: Driver supports per TID data retry
+ *	count funcationality.
+ * @NL80211_EXT_FEATURE_PER_STA_RETRY_CONFIG: Driver supports STA specific
+ *	data retry count functionality.
+ *
  * @NUM_NL80211_EXT_FEATURES: number of extended features.
  * @MAX_NL80211_EXT_FEATURES: highest extended feature index.
  */
@@ -5050,6 +5127,8 @@ enum nl80211_ext_feature_index {
 	/* we renamed this - stay compatible */
 	NL80211_EXT_FEATURE_DATA_ACK_SIGNAL_SUPPORT = NL80211_EXT_FEATURE_ACK_SIGNAL_SUPPORT,
 	NL80211_EXT_FEATURE_PER_STA_NOACK_MAP,
+	NL80211_EXT_FEATURE_PER_TID_RETRY_CONFIG,
+	NL80211_EXT_FEATURE_PER_STA_RETRY_CONFIG,
 
 	/* add new features before the definition below */
 	NUM_NL80211_EXT_FEATURES,

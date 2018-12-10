@@ -1191,4 +1191,19 @@ static inline int rdev_del_pmk(struct cfg80211_registered_device *rdev,
 	trace_rdev_return_int(&rdev->wiphy, ret);
 	return ret;
 }
+static inline int
+rdev_set_data_retry_count(struct cfg80211_registered_device *rdev,
+			  struct net_device *dev, const u8 *peer,
+			  u8 tid, int retry_short, int retry_long)
+{
+	int ret;
+
+	trace_rdev_set_data_retry_count(&rdev->wiphy, dev, peer, tid,
+					retry_short, retry_long);
+	ret = rdev->ops->set_data_retry_count(&rdev->wiphy, dev, peer,
+					      tid, retry_short, retry_long);
+	trace_rdev_return_int(&rdev->wiphy, ret);
+	return ret;
+}
+
 #endif /* __CFG80211_RDEV_OPS */

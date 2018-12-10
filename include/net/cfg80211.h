@@ -2949,6 +2949,10 @@ struct cfg80211_pmk_conf {
  *	(invoked with the wireless_dev mutex held)
  * @del_pmk: delete the previously configured PMK for the given authenticator.
  *	(invoked with the wireless_dev mutex held)
+ * @set_data_retry_count: configure the number of retries for the data frames
+ *	for the given TID. If the retry configuration needs to be peer specific,
+ *	peer MAC address can be passed.
+ *
  */
 struct cfg80211_ops {
 	int	(*suspend)(struct wiphy *wiphy, struct cfg80211_wowlan *wow);
@@ -3242,6 +3246,10 @@ struct cfg80211_ops {
 			   const struct cfg80211_pmk_conf *conf);
 	int	(*del_pmk)(struct wiphy *wiphy, struct net_device *dev,
 			   const u8 *aa);
+	int     (*set_data_retry_count)(struct wiphy *wiphy,
+					struct net_device *dev,
+					const u8 *peer, u8 tid,
+					int retry_short, int retry_long);
 };
 
 /*
@@ -3290,6 +3298,7 @@ struct cfg80211_ops {
  *	beaconing mode (AP, IBSS, Mesh, ...).
  * @WIPHY_FLAG_HAS_STATIC_WEP: The device supports static WEP key installation
  *	before connection.
+ * @WIPHY_FLAG_HAS_MAX_DATA_RETRY_COUNT: Device supports data retry count call.
  */
 enum wiphy_flags {
 	/* use hole at 0 */
@@ -3316,6 +3325,7 @@ enum wiphy_flags {
 	WIPHY_FLAG_SUPPORTS_5_10_MHZ		= BIT(22),
 	WIPHY_FLAG_HAS_CHANNEL_SWITCH		= BIT(23),
 	WIPHY_FLAG_HAS_STATIC_WEP		= BIT(24),
+	WIPHY_FLAG_HAS_MAX_DATA_RETRY_COUNT	= BIT(25),
 };
 
 /**
@@ -3746,6 +3756,9 @@ struct wiphy_iftype_ext_capab {
  *	bitmap of &enum nl80211_band values.  For instance, for
  *	NL80211_BAND_2GHZ, bit 0 would be set
  *	(i.e. BIT(NL80211_BAND_2GHZ)).
+ *
+ * @max_data_retry_count: Maximum limit can be configured as retry count
+ *	for a TID.
  */
 struct wiphy {
 	/* assign these fields before you register the wiphy */
@@ -3879,6 +3892,8 @@ struct wiphy {
 	u64 cookie_counter;
 
 	u8 nan_supported_bands;
+
+	u8 max_data_retry_count;
 
 	char priv[0] __aligned(NETDEV_ALIGN);
 };

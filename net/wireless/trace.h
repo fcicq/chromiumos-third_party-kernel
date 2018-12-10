@@ -3176,6 +3176,32 @@ TRACE_EVENT(rdev_set_multicast_to_unicast,
 		  WIPHY_PR_ARG, NETDEV_PR_ARG,
 		  BOOL_TO_STR(__entry->enabled))
 );
+
+TRACE_EVENT(rdev_set_data_retry_count,
+	TP_PROTO(struct wiphy *wiphy, struct net_device *netdev,
+		 const u8 *peer, u8 tid, int retry_short, int retry_long),
+	TP_ARGS(wiphy, netdev, peer, tid, retry_short, retry_long),
+	TP_STRUCT__entry(
+		WIPHY_ENTRY
+		NETDEV_ENTRY
+		MAC_ENTRY(peer)
+		__field(u8, tid)
+		__field(int, retry_short)
+		__field(int, retry_long)
+	),
+	TP_fast_assign(
+		WIPHY_ASSIGN;
+		NETDEV_ASSIGN;
+		MAC_ASSIGN(peer, peer);
+		__entry->tid = tid;
+		__entry->retry_short = retry_short;
+		__entry->retry_long = retry_long;
+	),
+	TP_printk(WIPHY_PR_FMT ", " NETDEV_PR_FMT ", peer: " MAC_PR_FMT
+		  ", tid: %u, retry_short: %d, retry_long: %d", WIPHY_PR_ARG,
+		  NETDEV_PR_ARG, MAC_PR_ARG(peer), __entry->tid,
+		  __entry->retry_short, __entry->retry_long)
+);
 #endif /* !__RDEV_OPS_TRACE || TRACE_HEADER_MULTI_READ */
 
 #undef TRACE_INCLUDE_PATH

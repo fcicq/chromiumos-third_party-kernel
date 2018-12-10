@@ -1507,6 +1507,10 @@ static int nl80211_send_wiphy(struct cfg80211_registered_device *rdev,
 		if ((rdev->wiphy.flags & WIPHY_FLAG_TDLS_EXTERNAL_SETUP) &&
 		    nla_put_flag(msg, NL80211_ATTR_TDLS_EXTERNAL_SETUP))
 			goto nla_put_failure;
+		if ((rdev->wiphy.flags & WIPHY_FLAG_HAS_MAX_DATA_RETRY_COUNT) &&
+		    nla_put_u8(msg, NL80211_ATTR_MAX_RETRY_COUNT,
+			       rdev->wiphy.max_data_retry_count))
+			goto nla_put_failure;
 		state->split_start++;
 		if (state->split)
 			break;
@@ -12413,6 +12417,81 @@ static int nl80211_del_pmk(struct sk_buff *skb, struct genl_info *info)
 	return ret;
 }
 
+static const struct nla_policy
+nl80211_attr_tid_policy[NL80211_ATTR_TID_MAX + 1] = {
+	[NL80211_ATTR_TID] = { .type = NLA_U8 },
+	[NL80211_ATTR_TID_RETRY_CONFIG] = { .type = NLA_FLAG },
+	[NL80211_ATTR_TID_RETRY_SHORT] = { .type = NLA_U8 },
+	[NL80211_ATTR_TID_RETRY_LONG] = { .type = NLA_U8 },
+};
+
+static int nl80211_set_tid_config(struct sk_buff *skb,
+				  struct genl_info *info)
+{
+	struct cfg80211_registered_device *rdev = info->user_ptr[0];
+	struct nlattr *attrs[NL80211_ATTR_TID_MAX + 1];
+	struct nlattr *tid;
+	struct net_device *dev = info->user_ptr[1];
+	const char *peer = NULL;
+	u8 tid_no;
+	int ret = -EINVAL, retry_short = -1, retry_long = -1;
+
+	tid = info->attrs[NL80211_ATTR_TID_CONFIG];
+	if (!tid)
+		return -EINVAL;
+
+	ret = nla_parse_nested(attrs, NL80211_ATTR_TID_MAX, tid,
+			       nl80211_attr_tid_policy, info->extack);
+
+	if (ret)
+		return ret;
+
+	if (!attrs[NL80211_ATTR_TID])
+		return -EINVAL;
+
+	if (attrs[NL80211_ATTR_TID_RETRY_SHORT]) {
+		retry_short = nla_get_u8(attrs[NL80211_ATTR_TID_RETRY_SHORT]);
+		if (!retry_short ||
+		    retry_short > rdev->wiphy.max_data_retry_count)
+			return -EINVAL;
+	}
+
+	if (attrs[NL80211_ATTR_TID_RETRY_LONG]) {
+		retry_long = nla_get_u8(attrs[NL80211_ATTR_TID_RETRY_LONG]);
+		if (!retry_long ||
+		    retry_long > rdev->wiphy.max_data_retry_count)
+			return -EINVAL;
+	}
+
+	tid_no = nla_get_u8(attrs[NL80211_ATTR_TID]);
+	if (tid_no >= IEEE80211_FIRST_TSPEC_TSID)
+		return -EINVAL;
+
+	if (info->attrs[NL80211_ATTR_MAC])
+		peer = nla_data(info->attrs[NL80211_ATTR_MAC]);
+
+	if (nla_get_flag(attrs[NL80211_ATTR_TID_RETRY_CONFIG])) {
+		if (!wiphy_ext_feature_isset(
+				&rdev->wiphy,
+				NL80211_EXT_FEATURE_PER_TID_RETRY_CONFIG))
+			return -EOPNOTSUPP;
+
+		if (peer && !wiphy_ext_feature_isset(
+				&rdev->wiphy,
+				NL80211_EXT_FEATURE_PER_STA_RETRY_CONFIG))
+			return -EOPNOTSUPP;
+
+		if (!rdev->ops->set_data_retry_count ||
+		    !rdev->wiphy.max_data_retry_count)
+			return -EOPNOTSUPP;
+
+		ret = rdev_set_data_retry_count(rdev, dev, peer, tid_no,
+						retry_short, retry_long);
+	}
+
+	return ret;
+}
+
 #define NL80211_FLAG_NEED_WIPHY		0x01
 #define NL80211_FLAG_NEED_NETDEV	0x02
 #define NL80211_FLAG_NEED_RTNL		0x04
@@ -13300,6 +13379,14 @@ static const struct genl_ops nl80211_ops[] = {
 		.doit = nl80211_del_pmk,
 		.policy = nl80211_policy,
 		.internal_flags = NL80211_FLAG_NEED_NETDEV_UP |
+				  NL80211_FLAG_NEED_RTNL,
+	},
+	{
+		.cmd = NL80211_CMD_SET_TID_CONFIG,
+		.doit = nl80211_set_tid_config,
+		.policy = nl80211_policy,
+		.flags = GENL_UNS_ADMIN_PERM,
+		.internal_flags = NL80211_FLAG_NEED_NETDEV |
 				  NL80211_FLAG_NEED_RTNL,
 	},
 
