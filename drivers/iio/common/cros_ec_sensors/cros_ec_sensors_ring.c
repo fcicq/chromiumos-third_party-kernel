@@ -418,7 +418,7 @@ static void cros_ec_ring_check_for_past_timestamp(
 	const u8 sensor_id = sample->sensor_id;
 
 	// if this event is earlier than one we saw before...
-	if (state->newest_sensor_event[sensor_id] >= sample->timestamp)
+	if (state->newest_sensor_event[sensor_id] > sample->timestamp)
 		// mark it for spreading
 		sample->timestamp = state->last_batch_timestamp[sensor_id];
 	else
