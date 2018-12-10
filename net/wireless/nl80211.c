@@ -12424,6 +12424,7 @@ nl80211_attr_tid_policy[NL80211_ATTR_TID_MAX + 1] = {
 	[NL80211_ATTR_TID_RETRY_SHORT] = { .type = NLA_U8 },
 	[NL80211_ATTR_TID_RETRY_LONG] = { .type = NLA_U8 },
 	[NL80211_ATTR_TID_AMPDU_AGGR_CTRL] = { .type = NLA_U8 },
+	[NL80211_ATTR_TID_RTS_CTS_CONFIG] = { .type = NLA_U8 },
 };
 
 static int nl80211_set_tid_config(struct sk_buff *skb,
@@ -12434,7 +12435,7 @@ static int nl80211_set_tid_config(struct sk_buff *skb,
 	struct nlattr *tid;
 	struct net_device *dev = info->user_ptr[1];
 	const char *peer = NULL;
-	u8 tid_no;
+	u8 tid_no, rtscts;
 	int ret = -EINVAL, retry_short = -1, retry_long = -1;
 	bool aggr;
 
@@ -12504,6 +12505,24 @@ static int nl80211_set_tid_config(struct sk_buff *skb,
 
 		aggr = !!nla_get_u8(attrs[NL80211_ATTR_TID_AMPDU_AGGR_CTRL]);
 		ret = rdev_set_tid_aggr_config(rdev, dev, peer, tid_no, aggr);
+	}
+
+	if (attrs[NL80211_ATTR_TID_RTS_CTS_CONFIG]) {
+		if (!rdev->ops->set_tid_rts_cts_config ||
+		    !wiphy_ext_feature_isset(&rdev->wiphy,
+				     NL80211_EXT_FEATURE_PER_TID_RTS_CTS_CTRL))
+			return -EOPNOTSUPP;
+
+		if (peer && !wiphy_ext_feature_isset(
+				&rdev->wiphy,
+				NL80211_EXT_FEATURE_PER_STA_RTS_CTS_CTRL))
+			return -EOPNOTSUPP;
+
+		rtscts = nla_get_u8(attrs[NL80211_ATTR_TID_RTS_CTS_CONFIG]);
+		if (rtscts > NL80211_TID_CONFIG_DISABLE)
+			return -EINVAL;
+		ret = rdev_set_tid_rts_cts_config(rdev, dev, peer, tid_no,
+						  rtscts);
 	}
 	return ret;
 }

@@ -1221,4 +1221,19 @@ rdev_set_tid_aggr_config(struct cfg80211_registered_device *rdev,
 	return ret;
 }
 
+static inline int
+rdev_set_tid_rts_cts_config(struct cfg80211_registered_device *rdev,
+			    struct net_device *dev, const u8 *peer,
+			    u8 tid, u8 rtscts)
+{
+	int ret;
+
+	trace_rdev_set_tid_rts_cts_config(&rdev->wiphy, dev, peer, tid,
+					  rtscts);
+	ret = rdev->ops->set_tid_rts_cts_config(&rdev->wiphy, dev, peer,
+						tid, rtscts);
+	trace_rdev_return_int(&rdev->wiphy, ret);
+	return ret;
+}
+
 #endif /* __CFG80211_RDEV_OPS */

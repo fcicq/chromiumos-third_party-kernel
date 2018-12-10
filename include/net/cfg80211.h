@@ -2955,6 +2955,9 @@ struct cfg80211_pmk_conf {
  * @set_tid_aggr_config: enable/disable aggregation configuration for the given
  *	TID. If this configuration needs to be peer specific peer MAC address
  *	can be passed.
+ * @set_tid_rts_cts_config: enable/disable rts_cts for the give TID, If this
+ *	configuration needs to be peer specific peer MAC address can be
+ *	passed.
  *
  */
 struct cfg80211_ops {
@@ -3257,6 +3260,10 @@ struct cfg80211_ops {
 				       struct net_device *dev,
 				       const u8 *peer, u8 tid,
 				       bool aggr);
+	int	(*set_tid_rts_cts_config)(struct wiphy *wiphy,
+				       struct net_device *dev,
+				       const u8 *peer, u8 tid,
+				       bool rtscts);
 };
 
 /*
