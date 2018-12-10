@@ -226,6 +226,38 @@ u16 ieee80211_select_queue(struct ieee80211_sub_if_data *sdata,
 }
 
 /**
+ * ieee80211_get_noack_map - Get TID bitmap of NoAck policy. NoAck policy
+ * could be device wide or per-station.
+ *
+ * @sdata: local subif
+ * @mac: MAC address of the receiver
+ */
+int ieee80211_get_noack_map(struct ieee80211_sub_if_data *sdata, const u8 *mac)
+{
+	struct sta_info *sta;
+	int noack_map = 0;
+
+	/* Retrieve per-station noack_map config for the receiver, if any */
+
+	rcu_read_lock();
+
+	sta = sta_info_get(sdata, mac);
+	if (!sta) {
+		rcu_read_unlock();
+		return noack_map;
+	}
+
+	noack_map = sta->noack_map;
+
+	rcu_read_unlock();
+
+	if (noack_map == -1)
+		noack_map = sdata->noack_map;
+
+	return noack_map;
+}
+
+/**
  * ieee80211_set_qos_hdr - Fill in the QoS header if there is one.
  *
  * @sdata: local subif
@@ -256,7 +288,7 @@ void ieee80211_set_qos_hdr(struct ieee80211_sub_if_data *sdata,
 
 	if (is_multicast_ether_addr(hdr->addr1) ||
 	    (!sdata->local->ops->set_noack_tid_bitmap &&
-	    sdata->noack_map & BIT(tid))) {
+	     ieee80211_get_noack_map(sdata, hdr->addr1) & BIT(tid))) {
 		flags |= IEEE80211_QOS_CTL_ACK_POLICY_NOACK;
 		info->flags |= IEEE80211_TX_CTL_NO_ACK;
 	}

@@ -633,7 +633,7 @@ int ieee80211_do_open(struct wireless_dev *wdev, bool coming_up)
 				goto err_del_interface;
 
 			if (sdata->noack_map)
-				drv_set_noack_tid_bitmap(local, sdata,
+				drv_set_noack_tid_bitmap(local, sdata, NULL,
 							 sdata->noack_map);
 		}
 

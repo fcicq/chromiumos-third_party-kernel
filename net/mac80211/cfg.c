@@ -345,18 +345,51 @@ static int ieee80211_set_noack_map(struct wiphy *wiphy,
 				  int noack_map)
 {
 	struct ieee80211_sub_if_data *sdata = IEEE80211_DEV_TO_SUB_IF(dev);
+	struct sta_info *sta;
+	int ret;
 
-	sdata->noack_map = noack_map;
+	if (!peer) {
+		sdata->noack_map = noack_map;
+
+		if (!sdata->local->ops->set_noack_tid_bitmap) {
+			ieee80211_check_fast_xmit_iface(sdata);
+			return 0;
+		}
+
+		if (!ieee80211_sdata_running(sdata))
+			return 0;
+
+		return drv_set_noack_tid_bitmap(sdata->local, sdata, NULL,
+						noack_map);
+	}
+
+	/* NoAck policy is for a connected client on the dev */
+
+	if (!ieee80211_sdata_running(sdata))
+		return -ENETDOWN;
+
+	mutex_lock(&sdata->local->sta_mtx);
+
+	sta = sta_info_get_bss(sdata, peer);
+	if (!sta) {
+		mutex_unlock(&sdata->local->sta_mtx);
+		return -ENOENT;
+	}
+
+	sta->noack_map = noack_map;
 
 	if (!sdata->local->ops->set_noack_tid_bitmap) {
-		ieee80211_check_fast_xmit_iface(sdata);
+		ieee80211_check_fast_xmit(sta);
+		mutex_unlock(&sdata->local->sta_mtx);
 		return 0;
 	}
 
-	if (!ieee80211_sdata_running(sdata))
-		return 0;
+	ret = drv_set_noack_tid_bitmap(sdata->local, sdata,
+				       &sta->sta, noack_map);
 
-	return drv_set_noack_tid_bitmap(sdata->local, sdata, noack_map);
+	mutex_unlock(&sdata->local->sta_mtx);
+
+	return ret;
 }
 
 static int ieee80211_add_key(struct wiphy *wiphy, struct net_device *dev,

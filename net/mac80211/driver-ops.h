@@ -1252,6 +1252,7 @@ static inline void drv_del_nan_func(struct ieee80211_local *local,
 
 static inline int drv_set_noack_tid_bitmap(struct ieee80211_local *local,
 					   struct ieee80211_sub_if_data *sdata,
+					   struct ieee80211_sta *sta,
 					   int noack_map)
 {
 	int ret;
@@ -1265,7 +1266,7 @@ static inline int drv_set_noack_tid_bitmap(struct ieee80211_local *local,
 
 	trace_drv_set_noack_tid_bitmap(local, sdata, noack_map);
 	ret = local->ops->set_noack_tid_bitmap(&local->hw, &sdata->vif,
-					       noack_map);
+					       sta, noack_map);
 	trace_drv_return_int(local, ret);
 
 	return ret;

@@ -573,6 +573,8 @@ static int sta_info_insert_finish(struct sta_info *sta) __acquires(RCU)
 	cfg80211_new_sta(sdata->dev, sta->sta.addr, sinfo, GFP_KERNEL);
 	kfree(sinfo);
 
+	sta->noack_map = -1;
+
 	sta_dbg(sdata, "Inserted STA %pM\n", sta->sta.addr);
 
 	/* move reference to rcu-protected */

@@ -600,6 +600,9 @@ struct sta_info {
 
 	struct cfg80211_chan_def tdls_chandef;
 
+	/* TID bitmap for station's NoAck policy */
+	int noack_map;
+
 	/* keep last! */
 	struct ieee80211_sta sta;
 };

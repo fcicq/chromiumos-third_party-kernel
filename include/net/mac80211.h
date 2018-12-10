@@ -3465,9 +3465,14 @@ enum ieee80211_reconfig_type {
  *	ieee80211_nan_func_terminated() with
  *	NL80211_NAN_FUNC_TERM_REASON_USER_REQUEST reason code upon removal.
  *
- * @set_noack_tid_bitmap: Set NoAck policy TID bitmap for a virtual interface.
- *	Drivers mplementing this callback must take care of setting NoAck policy
- *	in QOS control field based on the configured TID bitmap.
+ * @set_noack_tid_bitmap: Set NoAck policy TID bitmap. Apply the TID NoAck
+ *	configuration for a particular station when @sta is non-NULL. NoAck
+ *	policy is set to default for a peer when noack_map is -1 for the peer.
+ *	The default NoAck policy for a peer is using netdev NoAck policy.
+ *	When @sta is NULL, apply TID NoAck configuration at virtual interface
+ *	level. Drivers mplementing this callback must take care of setting NoAck
+ *	policy in QOS control field based on the configured TID bitmap.
+ *	This callback may sleep.
  */
 struct ieee80211_ops {
 	void (*tx)(struct ieee80211_hw *hw,
@@ -3751,7 +3756,8 @@ struct ieee80211_ops {
 			    u8 instance_id);
 
 	int (*set_noack_tid_bitmap)(struct ieee80211_hw *hw,
-				    struct ieee80211_vif *vif, int noack_map);
+				    struct ieee80211_vif *vif,
+				    struct ieee80211_sta *sta, int noack_map);
 };
 
 /**
