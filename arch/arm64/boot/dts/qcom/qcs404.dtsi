@@ -5,6 +5,7 @@
 #include <dt-bindings/clock/qcom,gcc-qcs404.h>
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/clock/qcom,rpmcc.h>
+#include <dt-bindings/clock/qcom,wcss-qcs404.h>
 
 / {
 	interrupt-parent = <&intc>;
@@ -316,6 +317,15 @@
 
 			assigned-clocks = <&gcc GCC_APSS_AHB_CLK_SRC>;
 			assigned-clock-rates = <19200000>;
+			qcom,wcss-protected;
+		};
+
+		clock_wcsscc: qcom,wcsscc {
+			compatible = "qcom,qcs404-wcsscc";
+			reg = <0x07500000 0x4e000>, <0x07550000 0x8012>, <0x07400000 0x104>;
+			reg-names = "wcss_q6sstop", "wcnss_tcsr", "wcss_qdsp6ss";
+			#clock-cells = <1>;
+			#reset-cells = <1>;
 		};
 
 		tcsr_mutex_regs: syscon@1905000 {
