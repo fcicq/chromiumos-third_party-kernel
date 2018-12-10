@@ -3263,7 +3263,7 @@ struct cfg80211_ops {
 	int	(*set_tid_rts_cts_config)(struct wiphy *wiphy,
 				       struct net_device *dev,
 				       const u8 *peer, u8 tid,
-				       bool rtscts);
+				       u8 rtscts);
 };
 
 /*

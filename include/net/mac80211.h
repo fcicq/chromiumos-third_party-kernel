@@ -1406,10 +1406,12 @@ struct ieee80211_channel_switch {
  *
  * @TID_RETRY_CONF_CHANGED: retry configuration changed.
  * @TID_AGGR_CONF_CHANGED: Aggregation config changed for the TID.
+ * @TID_RTSCTS_CONF_CHANGED: RTS_CTS config changed for the TID.
  */
 enum ieee80211_tid_conf_change {
 	TID_RETRY_CONF_CHANGED		= BIT(0),
 	TID_AGGR_CONF_CHANGED		= BIT(1),
+	TID_RTSCTS_CONF_CHANGED		= BIT(2),
 };
 
 /*
@@ -1420,12 +1422,14 @@ enum ieee80211_tid_conf_change {
  * @retry_short: retry count value
  * @retry_long: retry count value
  * @aggr: enable/disable aggregation
+ * @rtscts: enable/disable rts_cts
  */
 struct ieee80211_tid_conf {
 	u8 tid;
 	int retry_short;
 	int retry_long;
 	bool aggr;
+	u8 rtscts;
 };
 /**
  * enum ieee80211_vif_flags - virtual interface flags
