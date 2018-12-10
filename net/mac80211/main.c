@@ -578,6 +578,10 @@ struct ieee80211_hw *ieee80211_alloc_hw_nm(size_t priv_data_len,
 
 	wiphy_ext_feature_set(wiphy, NL80211_EXT_FEATURE_RRM);
 
+	if (!ops->set_noack_tid_bitmap)
+		wiphy_ext_feature_set(wiphy,
+				      NL80211_EXT_FEATURE_PER_STA_NOACK_MAP);
+
 	wiphy->bss_priv_size = sizeof(struct ieee80211_bss);
 
 	local = wiphy_priv(wiphy);
