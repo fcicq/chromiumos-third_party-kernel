@@ -4,6 +4,7 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
+#include <linux/of_device.h>
 
 #include "stmmac.h"
 #include "stmmac_platform.h"
@@ -489,7 +490,7 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	pr_err("power on dump\n");
 	rgmii_dump(ethqos);
 
-	ethqos->por = device_get_match_data(&pdev->dev);
+	ethqos->por = of_device_get_match_data(&pdev->dev);
 
 	ret = devm_clk_bulk_get(&pdev->dev, ethqos->num_clks, ethqos->clks);
 	if (ret) {
