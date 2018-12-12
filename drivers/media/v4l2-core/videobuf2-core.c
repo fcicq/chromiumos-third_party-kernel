@@ -651,7 +651,7 @@ static void __fill_v4l2_buffer(struct vb2_buffer *vb, struct v4l2_buffer *b)
 	b->timestamp = vbuf->timestamp;
 	b->timecode = vbuf->timecode;
 	b->sequence = vbuf->sequence;
-	b->config_store = vbuf->config_store;
+	b->reserved2 = 0;
 	b->reserved = 0;
 
 	if (V4L2_TYPE_IS_MULTIPLANAR(q->type)) {
@@ -1317,8 +1317,6 @@ static void __fill_vb2_buffer(struct vb2_buffer *vb,
 		 */
 		vbuf->flags &= ~V4L2_BUF_FLAG_TSTAMP_SRC_MASK;
 	}
-
-	vbuf->config_store = b->config_store;
 
 	if (V4L2_TYPE_IS_OUTPUT(b->type)) {
 		/*

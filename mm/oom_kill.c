@@ -267,6 +267,7 @@ enum oom_scan_t oom_scan_process_thread(struct task_struct *task,
 		unsigned long totalpages, const nodemask_t *nodemask,
 		bool force_kill)
 {
+	static DEFINE_RATELIMIT_STATE(dump_stack_ratelimit, HZ * 2, 1);
 	if (oom_unkillable_task(task, NULL, nodemask))
 		return OOM_SCAN_CONTINUE;
 
@@ -290,12 +291,22 @@ enum oom_scan_t oom_scan_process_thread(struct task_struct *task,
 		if (!force_kill) {
 			if (time_after(jiffies,
 				       last_victim + msecs_to_jiffies(100))) {
-				pr_warn("Task %s:%d refused to die\n",
-					task->comm, task->pid);
+				pr_warn("Task %s:%d refused to die (killer %s:%d:%d, nvcsw=%lu, nivcsw=%lu)\n",
+					task->comm, task->pid, current->comm,
+					current->pid, current->tgid,
+					current->nvcsw, current->nivcsw);
 				if (task->state != TASK_RUNNING) {
 					sched_show_task(task);
 					return OOM_SCAN_CONTINUE;
-				}
+				} else if (__ratelimit(&dump_stack_ratelimit))
+					sched_show_task(task);
+
+				/*
+				 * We just printed that we refused to die; delay
+				 * printing (or checking for another victim)
+				 * for another 100 ms.
+				 */
+				last_victim = jiffies;
 			}
 			return OOM_SCAN_ABORT;
 		}
