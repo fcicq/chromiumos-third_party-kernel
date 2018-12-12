@@ -386,6 +386,10 @@ struct pci_dev {
 	phys_addr_t rom; /* Physical address of ROM if it's not from the BAR */
 	size_t romlen; /* Length of ROM if it's not from the BAR */
 	char *driver_override; /* Driver name to force a match */
+#ifdef CONFIG_PCIEAER
+	u16             aer_cap;        /* AER capability offset */
+	struct aer_stats *aer_stats;    /* AER stats for this device */
+#endif
 };
 
 static inline struct pci_dev *pci_physfn(struct pci_dev *dev)

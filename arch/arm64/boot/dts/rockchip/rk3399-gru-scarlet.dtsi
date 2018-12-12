@@ -427,6 +427,23 @@ camera: &i2c7 {
 &cros_ec {
 	interrupt-parent = <&gpio1>;
 	interrupts = <18 IRQ_TYPE_LEVEL_LOW>;
+
+	throttler-opps = <&cl0_opp03    /* little cores: 1.008 GHz */
+			  &cl1_opp05    /* big cores: 1.416 GHz */
+			  &gpu_opp03>;  /* GPU: 500 MHz */
+};
+
+/* add labels to OPPs used for throttling */
+&cluster0_opp {
+	cl0_opp03: opp03 {};
+};
+
+&cluster1_opp {
+	cl1_opp05: opp05 {};
+};
+
+&gpu_opp_table {
+	gpu_opp03: opp03 {};
 };
 
 &cru {
@@ -642,6 +659,23 @@ camera: &i2c7 {
 
 &target {
 	temperature = <71000>;
+};
+
+&tcphy0 {
+	rockchip,phy-config = <0x2a 0x00>,
+			<0x1f 0x15>,
+			<0x14 0x22>,
+			<0x02 0x2b>,
+
+			<0x21 0x00>,
+			<0x12 0x15>,
+			<0x02 0x22>,
+			<0 0>,
+
+			<0x15 0x04>,
+			<0x00 0x20>,
+			<0 0>,
+			<0 0>;
 };
 
 &tcphy1 {

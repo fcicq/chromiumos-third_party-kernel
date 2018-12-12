@@ -3376,13 +3376,13 @@ static void hci_vendor_evt(struct hci_dev *hdev, struct sk_buff *skb)
 		case HCI_EV_INTEL_FATAL_EXCEPTION:
 		case HCI_EV_INTEL_DEBUG_EXCEPTION:
 			if (skb->len < 1) {
-				BT_INFO("Evt ID:%02X", evt_id);
+				BT_WARN("Evt ID:%02X", evt_id);
 				return;
 			}
 			b = (u8 *)skb->data;
 			for (i = 0; i < skb->len && i < HCI_MAX_EVENT_SIZE; ++i)
 				sprintf(line + strlen(line), " %02X", b[i]);
-			BT_INFO("Evt ID: %02X data:%s", evt_id, line);
+			BT_WARN("Evt ID: %02X data:%s", evt_id, line);
 			break;
 		default:
 			if (skb->len < 1) {
@@ -4711,7 +4711,8 @@ static void hci_le_conn_update_complete_evt(struct hci_dev *hdev,
 /* This function requires the caller holds hdev->lock */
 static struct hci_conn *check_pending_le_conn(struct hci_dev *hdev,
 					      bdaddr_t *addr,
-					      u8 addr_type, u8 adv_type)
+					      u8 addr_type, u8 adv_type,
+					      bdaddr_t *direct_rpa)
 {
 	struct hci_conn *conn;
 	struct hci_conn_params *params;
@@ -4762,7 +4763,8 @@ static struct hci_conn *check_pending_le_conn(struct hci_dev *hdev,
 	}
 
 	conn = hci_connect_le(hdev, addr, addr_type, BT_SECURITY_LOW,
-			      HCI_LE_AUTOCONN_TIMEOUT, HCI_ROLE_MASTER);
+			      HCI_LE_AUTOCONN_TIMEOUT, HCI_ROLE_MASTER,
+			      direct_rpa);
 	if (!IS_ERR(conn)) {
 		/* If HCI_AUTO_CONN_EXPLICIT is set, conn is already owned
 		 * by higher layer that tried to connect, if no then
@@ -4872,8 +4874,13 @@ static void process_adv_report(struct hci_dev *hdev, u8 type, bdaddr_t *bdaddr,
 		bdaddr_type = irk->addr_type;
 	}
 
-	/* Check if we have been requested to connect to this device */
-	conn = check_pending_le_conn(hdev, bdaddr, bdaddr_type, type);
+	/* Check if we have been requested to connect to this device.
+	 *
+	 * direct_addr is set only for directed advertising reports (it is NULL
+	 * for advertising reports) and is already verified to be RPA above.
+	 */
+	conn = check_pending_le_conn(hdev, bdaddr, bdaddr_type, type,
+								direct_addr);
 	if (conn && type == LE_ADV_IND) {
 		/* Store report for later inclusion by
 		 * mgmt_device_connected

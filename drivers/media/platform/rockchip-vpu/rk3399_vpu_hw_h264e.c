@@ -826,11 +826,16 @@ void rk3399_vpu_h264e_exit(struct rockchip_vpu_ctx *ctx)
 static void rk3399_vpu_h264e_set_buffers(struct rockchip_vpu_dev *vpu,
 		struct rockchip_vpu_ctx *ctx)
 {
+	const u32 src_addr_regs[] = { VEPU_REG_ADDR_IN_LUMA,
+				      VEPU_REG_ADDR_IN_CB,
+				      VEPU_REG_ADDR_IN_CR };
 	const struct rk3288_h264e_reg_params *params =
 		(struct rk3288_h264e_reg_params *)ctx->run.h264e.reg_params;
+	struct v4l2_pix_format_mplane *src_fmt = &ctx->src_fmt;
 	dma_addr_t ref_buf_dma, rec_buf_dma;
 	size_t rounded_size;
 	dma_addr_t dst_dma;
+	int i;
 
 	dma_addr_t cabac_dma =
 		ctx->hw.h264e.cabac_tbl[params->cabac_init_idc].dma;
@@ -859,16 +864,17 @@ static void rk3399_vpu_h264e_set_buffers(struct rockchip_vpu_dev *vpu,
 	vepu_write_relaxed(vpu, rec_buf_dma + rounded_size,
 			VEPU_REG_ADDR_REC_CHROMA);
 
-	vepu_write_relaxed(vpu, vb2_dma_contig_plane_dma_addr(
-				&ctx->run.src->b.vb2_buf, PLANE_Y),
-			VEPU_REG_ADDR_IN_LUMA);
-	vepu_write_relaxed(vpu, vb2_dma_contig_plane_dma_addr(
-				&ctx->run.src->b.vb2_buf, PLANE_CB),
-			VEPU_REG_ADDR_IN_CB);
-	vepu_write_relaxed(vpu, vb2_dma_contig_plane_dma_addr(
-				&ctx->run.src->b.vb2_buf, PLANE_CR),
-			VEPU_REG_ADDR_IN_CR);
-
+	/*
+	 * TODO(crbug.com/901264): The way to pass an offset within a DMA-buf
+	 * is not defined in V4L2 specification, so we abuse data_offset
+	 * for now. Fix it when we have the right interface, including
+	 * any necessary validation and potential alignment issues.
+	 */
+	for (i = 0; i < src_fmt->num_planes; ++i)
+		vepu_write_relaxed(vpu, vb2_dma_contig_plane_dma_addr(
+				   &ctx->run.src->b.vb2_buf, i) +
+				ctx->run.src->b.vb2_buf.planes[i].data_offset,
+				   src_addr_regs[i]);
 }
 
 static s32 exp_golomb_signed(s32 val)

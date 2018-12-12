@@ -101,14 +101,6 @@ config CROS_EC_PROTO
 	---help---
 	  ChromeOS EC communication protocol helpers.
 
-config CROS_EC_SYSFS_USB
-	bool "Chrome OS Embedded Controller sysfs USB attribute group"
-	depends on MFD_CROS_EC
-	default n
-	---help---
-	  Say Y here to expose a sysfs USB attribute group for the Chrome OS
-	  embedded controller.
-
 config CROS_KBD_LED_BACKLIGHT
 	tristate "Backlight LED support for Chrome OS keyboards"
 	depends on LEDS_CLASS && ACPI

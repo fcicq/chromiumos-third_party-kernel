@@ -13,5 +13,4 @@ cros_ec_lpcs-$(CONFIG_CROS_EC_LPC_MEC)	+= cros_ec_lpc_mec.o
 cros_ec_lpcs-objs		:= $(cros_ec_lpcs-y)
 obj-$(CONFIG_CROS_EC_LPC)       += cros_ec_lpcs.o
 obj-$(CONFIG_CROS_EC_PROTO)	+= cros_ec_proto.o
-obj-$(CONFIG_CROS_EC_SYSFS_USB)	+= cros_ec_sysfs_usb.o
 obj-$(CONFIG_CROS_KBD_LED_BACKLIGHT)	+= cros_kbd_led_backlight.o

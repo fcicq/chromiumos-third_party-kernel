@@ -27,6 +27,7 @@
 #include <linux/random.h>
 #include <linux/pm_qos.h>
 #include <linux/pm_dark_resume.h>
+#include <linux/kobject.h>
 
 #include <asm/uaccess.h>
 #include <asm/byteorder.h>
@@ -1138,10 +1139,14 @@ static void hub_activate(struct usb_hub *hub, enum hub_activation_type type)
 
 		if (!udev || udev->state == USB_STATE_NOTATTACHED) {
 			/* Tell hub_wq to disconnect the device or
-			 * check for a new connection
+			 * check for a new connection or over current condition.
+			 * Based on USB2.0 Spec Section 11.12.5,
+			 * C_PORT_OVER_CURRENT could be set while
+			 * PORT_OVER_CURRENT is not. So check for any of them.
 			 */
 			if (udev || (portstatus & USB_PORT_STAT_CONNECTION) ||
-			    (portstatus & USB_PORT_STAT_OVERCURRENT))
+			    (portstatus & USB_PORT_STAT_OVERCURRENT) ||
+			    (portchange & USB_PORT_STAT_C_OVERCURRENT))
 				set_bit(port1, hub->change_bits);
 
 		} else if (portstatus & USB_PORT_STAT_ENABLE) {
@@ -2816,7 +2821,9 @@ static int hub_port_reset(struct usb_hub *hub, int port1,
 					USB_PORT_FEAT_C_BH_PORT_RESET);
 			usb_clear_port_feature(hub->hdev, port1,
 					USB_PORT_FEAT_C_PORT_LINK_STATE);
-			usb_clear_port_feature(hub->hdev, port1,
+
+			if (udev)
+				usb_clear_port_feature(hub->hdev, port1,
 					USB_PORT_FEAT_C_CONNECTION);
 
 			/*
@@ -3388,6 +3395,10 @@ static int wait_for_connected(struct usb_device *udev,
 	while (delay_ms < 2000) {
 		if (status || *portstatus & USB_PORT_STAT_CONNECTION)
 			break;
+		if (!port_is_power_on(hub, *portstatus)) {
+			status = -ENODEV;
+			break;
+		}
 		msleep(20);
 		delay_ms += 20;
 		status = hub_port_status(hub, *port1, portstatus, portchange);
@@ -3654,12 +3665,54 @@ static int hub_suspend(struct usb_interface *intf, pm_message_t msg)
 	return 0;
 }
 
+/* Report wakeup requests from the ports of a resuming root hub */
+static void report_wakeup_requests(struct usb_hub *hub)
+{
+	struct usb_device	*hdev = hub->hdev;
+	struct usb_device	*udev;
+	struct usb_hcd		*hcd;
+	unsigned long		resuming_ports;
+	int			i;
+
+	if (hdev->parent)
+		return;		/* Not a root hub */
+
+	hcd = bus_to_hcd(hdev->bus);
+	if (hcd->driver->get_resuming_ports) {
+
+		/*
+		 * The get_resuming_ports() method returns a bitmap (origin 0)
+		 * of ports which have started wakeup signaling but have not
+		 * yet finished resuming.  During system resume we will
+		 * resume all the enabled ports, regardless of any wakeup
+		 * signals, which means the wakeup requests would be lost.
+		 * To prevent this, report them to the PM core here.
+		 */
+		resuming_ports = hcd->driver->get_resuming_ports(hcd);
+		for (i = 0; i < hdev->maxchild; ++i) {
+			if (test_bit(i, &resuming_ports)) {
+				udev = hub->ports[i]->child;
+				if (udev)
+					pm_wakeup_event(&udev->dev, 0);
+			}
+		}
+	}
+}
+
 static int hub_resume(struct usb_interface *intf)
 {
 	struct usb_hub *hub = usb_get_intfdata(intf);
 
 	dev_dbg(&intf->dev, "%s\n", __func__);
 	hub_activate(hub, HUB_RESUME);
+
+	/*
+	 * This should be called only for system resume, not runtime resume.
+	 * We can't tell the difference here, so some wakeup requests will be
+	 * reported at the wrong time or more than once.  This shouldn't
+	 * matter much, so long as they do get reported.
+	 */
+	report_wakeup_requests(hub);
 	return 0;
 }
 
@@ -4217,6 +4270,19 @@ static int hub_port_disable(struct usb_hub *hub, int port1, int set_state)
 	return ret;
 }
 
+/*
+ * usb_port_disable - disable a usb device's upstream port
+ * @udev: device to disable
+ * Context: @udev locked, must be able to sleep.
+ *
+ * Disables a USB device that isn't in active use.
+ */
+int usb_port_disable(struct usb_device *udev)
+{
+	struct usb_hub *hub = usb_hub_to_struct_hub(udev->parent);
+
+	return hub_port_disable(hub, udev->portnum, 0);
+}
 
 /* USB 2.0 spec, 7.1.7.3 / fig 7-29:
  *
@@ -4533,7 +4599,9 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
 				 * reset. But only on the first attempt,
 				 * lest we get into a time out/reset loop
 				 */
-				if (r == 0  || (r == -ETIMEDOUT && retries == 0))
+				if (r == 0 || (r == -ETIMEDOUT &&
+						retries == 0 &&
+						udev->speed > USB_SPEED_FULL))
 					break;
 			}
 			udev->descriptor.bMaxPacketSize0 =
@@ -5044,6 +5112,42 @@ static void hub_port_connect_change(struct usb_hub *hub, int port1,
 	usb_lock_port(port_dev);
 }
 
+/* Handle notifying userspace about hub over-current events */
+static void port_over_current_notify(struct usb_port *port_dev)
+{
+	static char *envp[] = { NULL, NULL, NULL };
+	struct device *hub_dev;
+	char *port_dev_path;
+
+	sysfs_notify(&port_dev->dev.kobj, NULL, "over_current_count");
+
+	hub_dev = port_dev->dev.parent;
+
+	if (!hub_dev)
+		return;
+
+	port_dev_path = kobject_get_path(&port_dev->dev.kobj, GFP_KERNEL);
+	if (!port_dev_path)
+		return;
+
+	envp[0] = kasprintf(GFP_KERNEL, "OVER_CURRENT_PORT=%s", port_dev_path);
+	if (!envp[0])
+		goto exit_path;
+
+	envp[1] = kasprintf(GFP_KERNEL, "OVER_CURRENT_COUNT=%u",
+			port_dev->over_current_count);
+	if (!envp[1])
+		goto exit;
+
+	kobject_uevent_env(&hub_dev->kobj, KOBJ_CHANGE, envp);
+
+	kfree(envp[1]);
+exit:
+	kfree(envp[0]);
+exit_path:
+	kfree(port_dev_path);
+}
+
 static void port_event(struct usb_hub *hub, int port1)
 		__must_hold(&port_dev->status_lock)
 {
@@ -5085,8 +5189,11 @@ static void port_event(struct usb_hub *hub, int port1)
 
 	if (portchange & USB_PORT_STAT_C_OVERCURRENT) {
 		u16 status = 0, unused;
+		port_dev->over_current_count++;
+		port_over_current_notify(port_dev);
 
-		dev_dbg(&port_dev->dev, "over-current change\n");
+		dev_dbg(&port_dev->dev, "over-current change #%u\n",
+			port_dev->over_current_count);
 		usb_clear_port_feature(hdev, port1,
 				USB_PORT_FEAT_C_OVER_CURRENT);
 		msleep(100);	/* Cool down */

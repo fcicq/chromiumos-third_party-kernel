@@ -309,7 +309,6 @@ static void v4l2_async_cleanup(struct v4l2_subdev *sd)
 	/* Subdevice driver will reprobe and put the subdev back onto the list */
 	list_del_init(&sd->async_list);
 	sd->asd = NULL;
-	sd->dev = NULL;
 }
 
 /* See if an fwnode can be found in a notifier's lists. */
@@ -477,9 +476,9 @@ static void v4l2_async_notifier_unbind_all_subdevs(
 		if (subdev_notifier)
 			v4l2_async_notifier_unbind_all_subdevs(subdev_notifier);
 
-		v4l2_async_cleanup(sd);
-
 		v4l2_async_notifier_call_unbind(notifier, sd, sd->asd);
+
+		v4l2_async_cleanup(sd);
 
 		list_move(&sd->async_list, &subdev_list);
 	}
@@ -600,9 +599,9 @@ void v4l2_async_unregister_subdev(struct v4l2_subdev *sd)
 
 	list_add(&sd->asd->list, &notifier->waiting);
 
-	v4l2_async_cleanup(sd);
-
 	v4l2_async_notifier_call_unbind(notifier, sd, sd->asd);
+
+	v4l2_async_cleanup(sd);
 
 	mutex_unlock(&list_lock);
 }

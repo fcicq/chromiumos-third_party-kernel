@@ -40,7 +40,7 @@
 #include <asm/processor-flags.h>
 #include <asm/ftrace.h>
 #include <asm/irq_vectors.h>
-#include <asm/cpufeature.h>
+#include <asm/cpufeatures.h>
 #include <asm/alternative-asm.h>
 #include <asm/asm.h>
 #include <asm/smap.h>
@@ -205,13 +205,58 @@
 	POP_GS_EX
 .endm
 
+/*
+ * %eax: prev task
+ * %edx: next task
+ */
+ENTRY(__switch_to_asm)
+	/*
+	 * Save callee-saved registers
+	 * This must match the order in struct inactive_task_frame
+	 */
+	pushl	%ebp
+	pushl	%ebx
+	pushl	%edi
+	pushl	%esi
+
+	/* switch stack */
+	movl	%esp, TASK_threadsp(%eax)
+	movl	TASK_threadsp(%edx), %esp
+
+#ifdef CONFIG_CC_STACKPROTECTOR
+	movl	TASK_stack_canary(%edx), %ebx
+	movl	%ebx, PER_CPU_VAR(stack_canary)+stack_canary_offset
+#endif
+
+#ifdef CONFIG_RETPOLINE
+	/*
+	 * When switching from a shallower to a deeper call stack
+	 * the RSB may either underflow or use entries populated
+	 * with userspace addresses. On CPUs where those concerns
+	 * exist, overwrite the RSB with entries which capture
+	 * speculative execution to prevent attack.
+	 */
+	FILL_RETURN_BUFFER %ebx, RSB_CLEAR_LOOPS, X86_FEATURE_RSB_CTXSW
+#endif
+
+	/* restore callee-saved registers */
+	popl	%esi
+	popl	%edi
+	popl	%ebx
+	popl	%ebp
+
+	jmp	__switch_to
+END(__switch_to_asm)
+
+/*
+ * A newly forked process directly context switches into this address.
+ *
+ * eax: prev task we switched from
+ */
 ENTRY(ret_from_fork)
 	pushl	%eax
 	call	schedule_tail
-	GET_THREAD_INFO(%ebp)
 	popl	%eax
-	pushl	$0x0202				# Reset kernel eflags
-	popfl
 
 	/* When we fork, we trace the syscall return in the child, too. */
 	movl    %esp, %eax
@@ -222,10 +267,7 @@ END(ret_from_fork)
 ENTRY(ret_from_kernel_thread)
 	pushl	%eax
 	call	schedule_tail
-	GET_THREAD_INFO(%ebp)
 	popl	%eax
-	pushl	$0x0202				# Reset kernel eflags
-	popfl
 	movl	PT_EBP(%esp), %eax
 	movl	PT_EBX(%esp), %edx
 	CALL_NOSPEC %edx
@@ -253,7 +295,6 @@ ENDPROC(ret_from_kernel_thread)
 ret_from_exception:
 	preempt_stop(CLBR_ANY)
 ret_from_intr:
-	GET_THREAD_INFO(%ebp)
 #ifdef CONFIG_VM86
 	movl	PT_EFLAGS(%esp), %eax		# mix EFLAGS and CS
 	movb	PT_CS(%esp), %al
@@ -303,6 +344,23 @@ sysenter_past_esp:
 	SAVE_ALL pt_regs_ax=$-ENOSYS	/* save rest */
 
 	/*
+	 * SYSENTER doesn't filter flags, so we need to clear NT and AC
+	 * ourselves.  To save a few cycles, we can check whether
+	 * either was set instead of doing an unconditional popfq.
+	 * This needs to happen before enabling interrupts so that
+	 * we don't get preempted with NT set.
+	 *
+	 * NB.: .Lsysenter_fix_flags is a label with the code under it moved
+	 * out-of-line as an optimization: NT is unlikely to be set in the
+	 * majority of the cases and instead of polluting the I$ unnecessarily,
+	 * we're keeping that code behind a branch which will predict as
+	 * not-taken and therefore its instructions won't be fetched.
+	 */
+	testl	$X86_EFLAGS_NT|X86_EFLAGS_AC, PT_EFLAGS(%esp)
+	jnz	.Lsysenter_fix_flags
+.Lsysenter_flags_fixed:
+
+	/*
 	 * User mode is traced as though IRQs are on, and SYSENTER
 	 * turned them off.
 	 */
@@ -339,6 +397,11 @@ sysenter_past_esp:
 .popsection
 	_ASM_EXTABLE(1b, 2b)
 	PTGS_TO_GS_EX
+
+.Lsysenter_fix_flags:
+	pushl	$X86_EFLAGS_FIXED
+	popfl
+	jmp	.Lsysenter_flags_fixed
 ENDPROC(entry_SYSENTER_32)
 
 	# system call handler stub

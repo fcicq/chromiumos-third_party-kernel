@@ -1347,6 +1347,10 @@ static void pci_configure_mps(struct pci_dev *dev)
 	if (!pci_is_pcie(dev) || !bridge || !pci_is_pcie(bridge))
 		return;
 
+	/* MPS and MRRS fields are of type 'RsvdP' for VFs, short-circuit out */
+	if (dev->is_virtfn)
+		return;
+
 	mps = pcie_get_mps(dev);
 	p_mps = pcie_get_mps(bridge);
 
@@ -1549,6 +1553,7 @@ static void pci_configure_device(struct pci_dev *dev)
 
 static void pci_release_capabilities(struct pci_dev *dev)
 {
+	pci_aer_exit(dev);
 	pci_vpd_release(dev);
 	pci_iov_release(dev);
 	pci_free_cap_save_buffers(dev);
@@ -1690,7 +1695,8 @@ static void pci_init_capabilities(struct pci_dev *dev)
 	/* Enable ACS P2P upstream forwarding */
 	pci_enable_acs(dev);
 
-	pci_cleanup_aer_error_status_regs(dev);
+	/* Advanced Error Reporting */
+	pci_aer_init(dev);
 }
 
 /*

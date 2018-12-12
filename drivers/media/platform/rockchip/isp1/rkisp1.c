@@ -1177,6 +1177,12 @@ void rkisp1_isp_isr(unsigned int isp_mis, struct rkisp1_device *dev)
 		if (isp_mis_tmp & CIF_ISP_FRAME_IN)
 			v4l2_err(&dev->v4l2_dev, "isp icr frame_in err: 0x%x\n",
 				 isp_mis_tmp);
+
+		/*
+		 * ISP starts outputting the frame to MI.
+		 * Next MI interrupts are going to be for this frame.
+		 */
+		dev->mi_ready = 0;
 	}
 
 	/* frame was completely put out */

@@ -970,16 +970,19 @@ static void mi_buffers_next_to_curr_locked(struct rkisp1_device *isp_dev)
  * that don't have buffers with matching sequence IDs in the queue, use dummy
  * buffers.
  */
-static int mi_buffers_get_next_locked(struct rkisp1_device *isp_dev)
+static void mi_buffers_get_next_locked(struct rkisp1_device *isp_dev)
 {
-	bool have_matching_buffers = false, have_buffers = false;
+	struct rkisp1_buffer *buffers[ARRAY_SIZE(isp_dev->stream)];
+	unsigned long have_buffers = 0;
 	u64 min_delta = -1ULL;
-	u64 next_sequence_id = isp_dev->buf_sequence_id;
 	int s;
 
-	for_each_set_bit(s,
-			 &isp_dev->mi_streaming,
-			 ARRAY_SIZE(isp_dev->stream)) {
+	/*
+	 * Find buffers with a sequence ID closest to
+	 * isp_dev->buf_sequence_id. We might not have an exact match,
+	 * since stream stop could have removed some buffers from the queue.
+	 */
+	for (s = 0; s < ARRAY_SIZE(isp_dev->stream); ++s) {
 		struct rkisp1_stream *stream = &isp_dev->stream[s];
 		struct rkisp1_buffer *buf;
 		u64 delta;
@@ -987,53 +990,47 @@ static int mi_buffers_get_next_locked(struct rkisp1_device *isp_dev)
 		if (list_empty(&stream->bufs_ready))
 			continue;
 
-		have_buffers = true;
-
 		buf = list_first_entry(&stream->bufs_ready,
 				       struct rkisp1_buffer, queue);
 		delta = buf->sequence_id - isp_dev->buf_sequence_id;
 		if (delta < min_delta) {
 			/*
-			 * Find a sequence ID existing in any queue nearest
-			 * to the global sequence counter. See below for how
-			 * it is used.
+			 * This buffer is closer than previous buffers.
+			 * Remember the new minimum and forget about the
+			 * buffers seen in previous iterations.
 			 */
 			min_delta = delta;
-			next_sequence_id = buf->sequence_id;
+			have_buffers = 0;
 		}
 
-		if (delta)
-			/* Not the next sequence ID, use dummy for this MI. */
-			continue;
+		if (delta == min_delta) {
+			/* Matches currently found minimum, so keep it. */
+			have_buffers |= BIT(s);
+			buffers[s] = buf;
+		}
+	}
 
-		/* Found matching buffer, use it. */
-		stream->next_buf = buf;
+	/* No user buffers. Use dummy. */
+	if (!have_buffers)
+		return;
+
+	/* Increment sequence ID counter only if we had any buffers. */
+	isp_dev->buf_sequence_id += min_delta + 1;
+
+	/*
+	 * Some of the streams have not started yet. Since we need to stay
+	 * in sync, use dummy buffers until they start.
+	 */
+	if ((isp_dev->mi_streaming & have_buffers) != have_buffers)
+		return;
+
+	for_each_set_bit(s, &have_buffers,
+			 ARRAY_SIZE(isp_dev->stream)) {
+		struct rkisp1_stream *stream = &isp_dev->stream[s];
+
+		stream->next_buf = buffers[s];
 		list_del(&stream->next_buf->queue);
-		have_matching_buffers = true;
 	}
-
-	if (have_buffers) {
-		if (!have_matching_buffers) {
-			/*
-			 * This is a tricky case that might show up if we stop
-			 * streaming, while buffers are still in the queue.
-			 * Since VB2 .stop_streaming() removes buffers from the
-			 * queue, we could end up with a gap in sequence ID
-			 * space. Skip to the nearest sequence ID, which we
-			 * found when checking stream queues for buffers.
-			 */
-			v4l2_dbg(1, rkisp1_debug, &isp_dev->v4l2_dev,
-				 "%s: Skipping buffer sequence IDs from %llu to %llu\n",
-				 __func__, isp_dev->buf_sequence_id,
-				 next_sequence_id - 1);
-			isp_dev->buf_sequence_id = next_sequence_id;
-			return -EAGAIN;
-		}
-		/* Increment sequence ID counter only if we had any buffers. */
-		++isp_dev->buf_sequence_id;
-	}
-
-	return 0;
 }
 
 /*
@@ -1061,17 +1058,13 @@ static void mi_buffers_set(struct rkisp1_device *isp_dev)
 static void mi_frame_end(struct rkisp1_device *isp_dev)
 {
 	unsigned long flags;
-	int ret;
 
 	mi_buffers_done(isp_dev);
 
 	spin_lock_irqsave(&isp_dev->vbq_lock, flags);
 
 	mi_buffers_next_to_curr_locked(isp_dev);
-
-	ret = mi_buffers_get_next_locked(isp_dev);
-	if (ret == -EAGAIN)
-		WARN_ON(mi_buffers_get_next_locked(isp_dev) < 0);
+	mi_buffers_get_next_locked(isp_dev);
 
 	spin_unlock_irqrestore(&isp_dev->vbq_lock, flags);
 
@@ -1273,6 +1266,7 @@ static void rkisp1_stop_streaming(struct vb2_queue *queue)
 	struct rkisp1_stream *stream = queue->drv_priv;
 	struct rkisp1_vdev_node *node = &stream->vnode;
 	struct rkisp1_device *dev = stream->ispdev;
+	struct rkisp1_stream *other = &dev->stream[stream->id ^ 1];
 	struct v4l2_device *v4l2_dev = &dev->v4l2_dev;
 	struct rkisp1_buffer *buf;
 	LIST_HEAD(buffers);
@@ -1299,6 +1293,11 @@ static void rkisp1_stop_streaming(struct vb2_queue *queue)
 	}
 	list_splice_tail_init(&stream->bufs_ready, &buffers);
 	list_splice_tail_init(&stream->bufs_pending, &buffers);
+	/*
+	 * Flush pending buffers of the other queue, since they have nothing
+	 * to wait for anymore.
+	 */
+	list_splice_tail_init(&other->bufs_pending, &other->bufs_ready);
 	spin_unlock_irqrestore(&dev->vbq_lock, lock_flags);
 
 	while (!list_empty(&buffers)) {
@@ -1890,8 +1889,6 @@ void rkisp1_mi_isr(u32 mis_val, struct rkisp1_device *dev)
 	 * Update all MIs atomically to maintain synchronization between
 	 * streams.
 	 */
-	if ((dev->mi_ready & dev->mi_streaming) == dev->mi_streaming) {
+	if ((dev->mi_ready & dev->mi_streaming) == dev->mi_streaming)
 		mi_frame_end(dev);
-		dev->mi_ready = 0;
-	}
 }

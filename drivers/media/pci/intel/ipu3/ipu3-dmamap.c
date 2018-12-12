@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 2018 Intel Corporation
- * Copyright (C) 2018 Google, Inc.
+ * Copyright 2018 Google LLC.
  *
  * Author: Tomasz Figa <tfiga@chromium.org>
  * Author: Yong Zhi <yong.zhi@intel.com>
@@ -39,7 +39,7 @@ static struct page **ipu3_dmamap_alloc_buffer(size_t size,
 	const gfp_t high_order_gfp = __GFP_NOWARN | __GFP_NORETRY;
 
 	/* Allocate mem for array of page ptrs */
-	pages = kvmalloc_array(count, sizeof(struct page *), GFP_KERNEL);
+	pages = kvmalloc_array(count, sizeof(*pages), GFP_KERNEL);
 
 	if (!pages)
 		return NULL;
@@ -86,26 +86,23 @@ static struct page **ipu3_dmamap_alloc_buffer(size_t size,
 
 /**
  * ipu3_dmamap_alloc - allocate and map a buffer into KVA
- * @dev: struct device pointer
+ * @imgu: struct device pointer
  * @map: struct to store mapping variables
  * @len: size required
  *
  * Return KVA on success or NULL on failure
  */
-void *ipu3_dmamap_alloc(struct device *dev, struct ipu3_css_map *map,
+void *ipu3_dmamap_alloc(struct imgu_device *imgu, struct ipu3_css_map *map,
 			size_t len)
 {
-	struct imgu_device *imgu = dev_get_drvdata(dev);
 	unsigned long shift = iova_shift(&imgu->iova_domain);
 	unsigned int alloc_sizes = imgu->mmu->pgsize_bitmap;
+	struct device *dev = &imgu->pci_dev->dev;
 	size_t size = PAGE_ALIGN(len);
 	struct page **pages;
 	dma_addr_t iovaddr;
 	struct iova *iova;
 	int i, rval;
-
-	if (WARN_ON(!dev))
-		return NULL;
 
 	dev_dbg(dev, "%s: allocating %zu\n", __func__, size);
 
@@ -164,9 +161,8 @@ out_free_iova:
 	return NULL;
 }
 
-void ipu3_dmamap_unmap(struct device *dev, struct ipu3_css_map *map)
+void ipu3_dmamap_unmap(struct imgu_device *imgu, struct ipu3_css_map *map)
 {
-	struct imgu_device *imgu = dev_get_drvdata(dev);
 	struct iova *iova;
 
 	iova = find_iova(&imgu->iova_domain,
@@ -183,17 +179,17 @@ void ipu3_dmamap_unmap(struct device *dev, struct ipu3_css_map *map)
 /*
  * Counterpart of ipu3_dmamap_alloc
  */
-void ipu3_dmamap_free(struct device *dev, struct ipu3_css_map *map)
+void ipu3_dmamap_free(struct imgu_device *imgu, struct ipu3_css_map *map)
 {
 	struct vm_struct *area = map->vma;
 
-	dev_dbg(dev, "%s: freeing %zu @ IOVA %pad @ VA %p\n",
+	dev_dbg(&imgu->pci_dev->dev, "%s: freeing %zu @ IOVA %pad @ VA %p\n",
 		__func__, map->size, &map->daddr, map->vaddr);
 
 	if (!map->vaddr)
 		return;
 
-	ipu3_dmamap_unmap(dev, map);
+	ipu3_dmamap_unmap(imgu, map);
 
 	if (WARN_ON(!area) || WARN_ON(!area->pages))
 		return;
@@ -203,10 +199,9 @@ void ipu3_dmamap_free(struct device *dev, struct ipu3_css_map *map)
 	map->vaddr = NULL;
 }
 
-int ipu3_dmamap_map_sg(struct device *dev, struct scatterlist *sglist,
+int ipu3_dmamap_map_sg(struct imgu_device *imgu, struct scatterlist *sglist,
 		       int nents, struct ipu3_css_map *map)
 {
-	struct imgu_device *imgu = dev_get_drvdata(dev);
 	unsigned long shift = iova_shift(&imgu->iova_domain);
 	struct scatterlist *sg;
 	struct iova *iova;
@@ -224,7 +219,7 @@ int ipu3_dmamap_map_sg(struct device *dev, struct scatterlist *sglist,
 	}
 
 	size = iova_align(&imgu->iova_domain, size);
-	dev_dbg(dev, "dmamap: mapping sg %d entries, %zu pages\n",
+	dev_dbg(&imgu->pci_dev->dev, "dmamap: mapping sg %d entries, %zu pages\n",
 		nents, size >> shift);
 
 	iova = alloc_iova(&imgu->iova_domain, size >> shift,
@@ -232,7 +227,7 @@ int ipu3_dmamap_map_sg(struct device *dev, struct scatterlist *sglist,
 	if (!iova)
 		return -ENOMEM;
 
-	dev_dbg(dev, "dmamap: iova low pfn %lu, high pfn %lu\n",
+	dev_dbg(&imgu->pci_dev->dev, "dmamap: iova low pfn %lu, high pfn %lu\n",
 		iova->pfn_lo, iova->pfn_hi);
 
 	if (ipu3_mmu_map_sg(imgu->mmu, iova_dma_addr(&imgu->iova_domain, iova),
@@ -251,30 +246,24 @@ out_fail:
 	return -EFAULT;
 }
 
-int ipu3_dmamap_init(struct device *dev)
+int ipu3_dmamap_init(struct imgu_device *imgu)
 {
-	struct imgu_device *imgu = dev_get_drvdata(dev);
-	unsigned long order, base_pfn;
-	int ret;
+	unsigned long order, base_pfn, end_pfn;
+	int ret = iova_cache_get();
 
-	ret = iova_cache_get();
 	if (ret)
 		return ret;
 
 	order = __ffs(imgu->mmu->pgsize_bitmap);
-	base_pfn = max_t(unsigned long, 1,
-			 imgu->mmu->aperture_start >> order);
-
-	init_iova_domain(&imgu->iova_domain, 1UL << order, base_pfn,
-			 1UL << (32 - order));
+	base_pfn = max_t(unsigned long, 1, imgu->mmu->aperture_start >> order);
+	end_pfn = imgu->mmu->aperture_end >> order;
+	init_iova_domain(&imgu->iova_domain, 1UL << order, base_pfn, end_pfn);
 
 	return 0;
 }
 
-void ipu3_dmamap_exit(struct device *dev)
+void ipu3_dmamap_exit(struct imgu_device *imgu)
 {
-	struct imgu_device *imgu = dev_get_drvdata(dev);
-
 	put_iova_domain(&imgu->iova_domain);
 	iova_cache_put();
 }

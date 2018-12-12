@@ -103,10 +103,9 @@ struct rockchip_dfi {
 	struct regmap *regmap_pmu;
 	struct clk *clk;
 	struct devfreq *devfreq;
+	struct mutex devfreq_lock;
 	unsigned int top;
 	unsigned int floor;
-	bool enabled;
-	struct mutex lock;
 };
 
 static unsigned int rockchip_dfi_calc_threshold_num(unsigned long rate,
@@ -239,13 +238,8 @@ static int rockchip_dfi_disable(struct devfreq_event_dev *edev)
 {
 	struct rockchip_dfi *info = devfreq_event_get_drvdata(edev);
 
-	mutex_lock(&info->lock);
-
-	info->enabled = false;
 	rockchip_dfi_stop_hardware_counter(edev);
 	clk_disable_unprepare(info->clk);
-
-	mutex_unlock(&info->lock);
 
 	return 0;
 }
@@ -255,8 +249,6 @@ static int rockchip_dfi_enable(struct devfreq_event_dev *edev)
 	struct rockchip_dfi *info = devfreq_event_get_drvdata(edev);
 	int ret;
 
-	mutex_lock(&info->lock);
-
 	ret = clk_prepare_enable(info->clk);
 	if (ret) {
 		dev_err(&edev->dev, "failed to enable dfi clk: %d\n", ret);
@@ -264,9 +256,6 @@ static int rockchip_dfi_enable(struct devfreq_event_dev *edev)
 	}
 
 	rockchip_dfi_start_hardware_counter(edev);
-	info->enabled = true;
-
-	mutex_unlock(&info->lock);
 
 	return 0;
 }
@@ -296,9 +285,9 @@ static irqreturn_t ddrmon_thread_isr(int irq, void *data)
 	struct rockchip_dfi *info = data;
 	struct devfreq *devfreq;
 
-	mutex_lock(&info->lock);
+	mutex_lock(&info->devfreq_lock);
 
-	if (!info->enabled || !info->devfreq)
+	if (!info->devfreq)
 		goto out;
 
 	devfreq = info->devfreq;
@@ -307,7 +296,7 @@ static irqreturn_t ddrmon_thread_isr(int irq, void *data)
 	mutex_unlock(&devfreq->lock);
 
 out:
-	mutex_unlock(&info->lock);
+	mutex_unlock(&info->devfreq_lock);
 
 	return IRQ_HANDLED;
 }
@@ -335,9 +324,9 @@ void rockchip_dfi_set_devfreq(struct devfreq_event_dev *edev,
 {
 	struct rockchip_dfi *info = devfreq_event_get_drvdata(edev);
 
-	mutex_lock(&info->lock);
+	mutex_lock(&info->devfreq_lock);
 	info->devfreq = devfreq;
-	mutex_unlock(&info->lock);
+	mutex_unlock(&info->devfreq_lock);
 }
 EXPORT_SYMBOL_GPL(rockchip_dfi_set_devfreq);
 
@@ -385,7 +374,7 @@ static int rockchip_dfi_probe(struct platform_device *pdev)
 			return PTR_ERR(data->regmap_pmu);
 	}
 	data->dev = dev;
-	mutex_init(&data->lock);
+	mutex_init(&data->devfreq_lock);
 
 	desc = devm_kzalloc(dev, sizeof(*desc), GFP_KERNEL);
 	if (!desc)

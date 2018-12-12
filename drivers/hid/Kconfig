@@ -300,6 +300,12 @@ config HID_GOOGLE_HAMMER
 	---help---
 	Say Y here if you have a Google Hammer device.
 
+config HID_GOOGLE_WHISKERS
+	tristate "Google Whiskers Keyboard"
+	depends on HID_GOOGLE_HAMMER && MFD_CROS_EC
+	---help---
+	Say Y here if you have a Google Whiskers device.
+
 config HID_GT683R
 	tristate "MSI GT68xR LED support"
 	depends on LEDS_CLASS && USB_HID

@@ -444,14 +444,10 @@ int ath10k_ce_rx_post_buf(struct ath10k_ce_pipe *pipe, void *ctx, u32 paddr)
  */
 int ath10k_ce_completed_recv_next_nolock(struct ath10k_ce_pipe *ce_state,
 					 void **per_transfer_contextp,
-					 u32 *bufferp,
-					 unsigned int *nbytesp,
-					 unsigned int *transfer_idp,
-					 unsigned int *flagsp)
+					 unsigned int *nbytesp)
 {
 	struct ath10k_ce_ring *dest_ring = ce_state->dest_ring;
 	unsigned int nentries_mask = dest_ring->nentries_mask;
-	struct ath10k *ar = ce_state->ar;
 	unsigned int sw_index = dest_ring->sw_index;
 
 	struct ce_desc *base = dest_ring->base_addr_owner_space;
@@ -476,14 +472,7 @@ int ath10k_ce_completed_recv_next_nolock(struct ath10k_ce_pipe *ce_state,
 	desc->nbytes = 0;
 
 	/* Return data from completed destination descriptor */
-	*bufferp = __le32_to_cpu(sdesc.addr);
 	*nbytesp = nbytes;
-	*transfer_idp = MS(__le16_to_cpu(sdesc.flags), CE_DESC_FLAGS_META_DATA);
-
-	if (__le16_to_cpu(sdesc.flags) & CE_DESC_FLAGS_BYTE_SWAP)
-		*flagsp = CE_RECV_FLAG_SWAPPED;
-	else
-		*flagsp = 0;
 
 	if (per_transfer_contextp)
 		*per_transfer_contextp =
@@ -501,10 +490,7 @@ int ath10k_ce_completed_recv_next_nolock(struct ath10k_ce_pipe *ce_state,
 
 int ath10k_ce_completed_recv_next(struct ath10k_ce_pipe *ce_state,
 				  void **per_transfer_contextp,
-				  u32 *bufferp,
-				  unsigned int *nbytesp,
-				  unsigned int *transfer_idp,
-				  unsigned int *flagsp)
+				  unsigned int *nbytesp)
 {
 	struct ath10k *ar = ce_state->ar;
 	struct ath10k_pci *ar_pci = ath10k_pci_priv(ar);
@@ -513,8 +499,7 @@ int ath10k_ce_completed_recv_next(struct ath10k_ce_pipe *ce_state,
 	spin_lock_bh(&ar_pci->ce_lock);
 	ret = ath10k_ce_completed_recv_next_nolock(ce_state,
 						   per_transfer_contextp,
-						   bufferp, nbytesp,
-						   transfer_idp, flagsp);
+						   nbytesp);
 	spin_unlock_bh(&ar_pci->ce_lock);
 
 	return ret;
@@ -1120,4 +1105,43 @@ void ath10k_ce_free_pipe(struct ath10k *ar, int ce_id)
 
 	ce_state->src_ring = NULL;
 	ce_state->dest_ring = NULL;
+}
+
+void ath10k_ce_dump_registers(struct ath10k *ar,
+			      struct ath10k_fw_crash_data *crash_data)
+{
+	struct ath10k_pci *ar_pci = ath10k_pci_priv(ar);
+	struct ath10k_ce_crash_data ce;
+	u32 addr, id;
+
+	lockdep_assert_held(&ar->data_lock);
+
+	ath10k_err(ar, "Copy Engine register dump:\n");
+
+	spin_lock_bh(&ar_pci->ce_lock);
+	for (id = 0; id < CE_COUNT; id++) {
+		addr = ath10k_ce_base_address(ar, id);
+		ce.base_addr = cpu_to_le32(addr);
+
+		ce.src_wr_idx =
+			cpu_to_le32(ath10k_ce_src_ring_write_index_get(ar, addr));
+		ce.src_r_idx =
+			cpu_to_le32(ath10k_ce_src_ring_read_index_get(ar, addr));
+		ce.dst_wr_idx =
+			cpu_to_le32(ath10k_ce_dest_ring_write_index_get(ar, addr));
+		ce.dst_r_idx =
+			cpu_to_le32(ath10k_ce_dest_ring_read_index_get(ar, addr));
+
+		if (crash_data)
+			crash_data->ce_crash_data[id] = ce;
+
+		ath10k_err(ar, "[%02d]: 0x%08x %3u %3u %3u %3u", id,
+			   le32_to_cpu(ce.base_addr),
+			   le32_to_cpu(ce.src_wr_idx),
+			   le32_to_cpu(ce.src_r_idx),
+			   le32_to_cpu(ce.dst_wr_idx),
+			   le32_to_cpu(ce.dst_r_idx));
+	}
+
+	spin_unlock_bh(&ar_pci->ce_lock);
 }

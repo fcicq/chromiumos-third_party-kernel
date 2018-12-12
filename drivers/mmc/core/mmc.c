@@ -351,6 +351,9 @@ static int mmc_decode_ext_csd(struct mmc_card *card, u8 *ext_csd)
 	struct device_node *np;
 	bool broken_hpi = false;
 
+	/* Reset partition, they will be rescanned. */
+	card->nr_parts = 0;
+
 	/* Version is coded in the CSD_STRUCTURE byte in the EXT_CSD register */
 	card->ext_csd.raw_ext_csd_structure = ext_csd[EXT_CSD_STRUCTURE];
 	if (card->csd.structure == 3) {
@@ -598,6 +601,21 @@ static int mmc_decode_ext_csd(struct mmc_card *card, u8 *ext_csd)
 		card->ext_csd.ffu_capable =
 			(ext_csd[EXT_CSD_SUPPORTED_MODE] & 0x1) &&
 			!(ext_csd[EXT_CSD_FW_CONFIG] & 0x1);
+		if (card->ext_csd.ffu_capable) {
+			card->ext_csd.ffu_arg = ext_csd[EXT_CSD_FFU_ARG] |
+				ext_csd[EXT_CSD_FFU_ARG + 1] << 8 |
+				ext_csd[EXT_CSD_FFU_ARG + 2] << 16 |
+				ext_csd[EXT_CSD_FFU_ARG + 3] << 24;
+
+			card->ext_csd.ffu_mode_op =
+				(ext_csd[EXT_CSD_FFU_FEATURES] & 0x1);
+			if (card->ext_csd.ffu_mode_op) {
+				u32 timeout =
+					ext_csd[EXT_CSD_OP_CODES_TIMEOUT];
+				card->ext_csd.mode_op_codes_time =
+					DIV_ROUND_UP(1 << timeout, 10);
+			}
+		}
 	}
 out:
 	return err;
@@ -1511,12 +1529,25 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 		goto err;
 
 	if (oldcard) {
-		if (memcmp(cid, oldcard->raw_cid, sizeof(cid)) != 0) {
+		/*
+		 * When comparing the CID, we should exclude the product
+		 * revision (Field PRV, offset 55:48), because it can change if
+		 * the firmware is upgraded. The new CRC can then be different.
+		 * Therefore we skip offset 55:48 and 7:0 (crc) in the
+		 * comparison.
+		 */
+		if ((cid[0] != oldcard->raw_cid[0]) ||
+		    (cid[1] != oldcard->raw_cid[1]) ||
+		    ((cid[2] & 0xFF00FFFF) !=
+		     (oldcard->raw_cid[2] & 0xFF00FFFF)) ||
+		    ((cid[3] & 0xFFFFFF00) !=
+		     (oldcard->raw_cid[3] & 0xFFFFFF00))) {
 			err = -ENOENT;
 			goto err;
 		}
 
 		card = oldcard;
+		memcpy(card->raw_cid, cid, sizeof(cid));
 	} else {
 		/*
 		 * Allocate card structure.
@@ -1550,21 +1581,20 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 		mmc_set_bus_mode(host, MMC_BUSMODE_PUSHPULL);
 	}
 
-	if (!oldcard) {
-		/*
-		 * Fetch CSD from card.
-		 */
-		err = mmc_send_csd(card, card->raw_csd);
-		if (err)
-			goto free_card;
+	/*
+	 * Fetch CSD from card.
+	 */
+	err = mmc_send_csd(card, card->raw_csd);
+	if (err)
+		goto free_card;
 
-		err = mmc_decode_csd(card);
-		if (err)
-			goto free_card;
-		err = mmc_decode_cid(card);
-		if (err)
-			goto free_card;
-	}
+	err = mmc_decode_csd(card);
+	if (err)
+		goto free_card;
+
+	err = mmc_decode_cid(card);
+	if (err)
+		goto free_card;
 
 	/*
 	 * handling only for cards supporting DSR and hosts requesting
@@ -1582,12 +1612,12 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 			goto free_card;
 	}
 
-	if (!oldcard) {
-		/* Read extended CSD. */
-		err = mmc_read_ext_csd(card);
-		if (err)
-			goto free_card;
+	/* Read extended CSD. */
+	err = mmc_read_ext_csd(card);
+	if (err)
+		goto free_card;
 
+	if (!oldcard) {
 		/* If doing byte addressing, check if required to do sector
 		 * addressing.  Handle the case of <2GB cards needing sector
 		 * addressing.  See section 8.1 JEDEC Standard JED84-A441;

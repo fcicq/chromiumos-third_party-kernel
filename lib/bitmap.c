@@ -12,9 +12,9 @@
 #include <linux/bitmap.h>
 #include <linux/bitops.h>
 #include <linux/bug.h>
+#include <linux/uaccess.h>
 
 #include <asm/page.h>
-#include <asm/uaccess.h>
 
 /*
  * bitmaps provide an array of bits, implemented using an an

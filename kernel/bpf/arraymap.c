@@ -172,7 +172,7 @@ static const struct bpf_map_ops array_ops = {
 	.map_delete_elem = array_map_delete_elem,
 };
 
-static struct bpf_map_type_list array_type __read_mostly = {
+static struct bpf_map_type_list array_type __ro_after_init = {
 	.ops = &array_ops,
 	.type = BPF_MAP_TYPE_ARRAY,
 };
@@ -270,9 +270,7 @@ static void *prog_fd_array_get_ptr(struct bpf_map *map, int fd)
 
 static void prog_fd_array_put_ptr(void *ptr)
 {
-	struct bpf_prog *prog = ptr;
-
-	bpf_prog_put_rcu(prog);
+	bpf_prog_put(ptr);
 }
 
 /* decrement refcnt of all bpf_progs that are stored in this map */
@@ -296,7 +294,7 @@ static const struct bpf_map_ops prog_array_ops = {
 	.map_fd_put_ptr = prog_fd_array_put_ptr,
 };
 
-static struct bpf_map_type_list prog_array_type __read_mostly = {
+static struct bpf_map_type_list prog_array_type __ro_after_init = {
 	.ops = &prog_array_ops,
 	.type = BPF_MAP_TYPE_PROG_ARRAY,
 };
@@ -362,7 +360,7 @@ static const struct bpf_map_ops perf_event_array_ops = {
 	.map_fd_put_ptr = perf_event_fd_array_put_ptr,
 };
 
-static struct bpf_map_type_list perf_event_array_type __read_mostly = {
+static struct bpf_map_type_list perf_event_array_type __ro_after_init = {
 	.ops = &perf_event_array_ops,
 	.type = BPF_MAP_TYPE_PERF_EVENT_ARRAY,
 };

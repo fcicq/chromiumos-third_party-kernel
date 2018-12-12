@@ -17,6 +17,7 @@
 #include <linux/blkdev.h>
 #include <linux/pagevec.h>
 #include <linux/migrate.h>
+#include <linux/mm_metrics.h>
 
 #include <asm/pgtable.h>
 
@@ -187,6 +188,7 @@ int add_to_swap(struct page *page, struct list_head *list)
 	/*
 	 * Add it to the swap cache and mark it dirty
 	 */
+	mm_metrics_swapout(&entry);
 	err = add_to_swap_cache(page, entry,
 			__GFP_HIGH|__GFP_NOMEMALLOC|__GFP_NOWARN);
 

@@ -1024,8 +1024,18 @@ static struct sst_codecs kbl_5663_5514_codecs = {
 };
 
 static struct sst_codecs kbl_7219_98357_codecs = {
+	.num_codecs = 1,
+	.codecs = {"MX98357A"}
+};
+
+static struct sst_codecs kbl_7219_98373_codecs = {
+	.num_codecs = 1,
+	.codecs = {"MX98373"}
+};
+
+static struct sst_codecs kbl_7219_98927_codecs = {
         .num_codecs = 1,
-        .codecs = {"MX98357A"}
+        .codecs = {"MX98927"}
 };
 
 static struct sst_acpi_mach sst_skl_devdata[] = {
@@ -1117,7 +1127,29 @@ static struct sst_acpi_mach sst_kbl_devdata[] = {
 		.fw_filename = "intel/dsp_fw_kbl.bin",
 		.machine_quirk = sst_acpi_codec_list,
 		.quirk_data = &kbl_7219_98357_codecs,
+		.pdata = &skl_dmic_data
+	},
+	{
+		.id = "DLGS7219",
+		.drv_name = "kbl_da7219_max98373",
+		.fw_filename = "intel/dsp_fw_kbl.bin",
+		.machine_quirk = sst_acpi_codec_list,
+		.quirk_data = &kbl_7219_98373_codecs,
                 .pdata = &skl_dmic_data
+	},
+        {
+                .id = "DLGS7219",
+                .drv_name = "kbl_da7219_max98927",
+                .fw_filename = "intel/dsp_fw_kbl.bin",
+                .machine_quirk = sst_acpi_codec_list,
+                .quirk_data = &kbl_7219_98927_codecs,
+                .pdata = &skl_dmic_data
+        },
+	{
+		.id = "MX98373",
+		.drv_name = "kbl_max98373",
+		.fw_filename = "intel/dsp_fw_kbl.bin",
+		.pdata = &skl_dmic_data
 	},
 
 	{}

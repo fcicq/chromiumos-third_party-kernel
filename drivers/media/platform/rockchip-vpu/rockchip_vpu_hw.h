@@ -24,6 +24,7 @@
 #define ROCKCHIP_HEADER_SIZE		1280
 #define ROCKCHIP_HW_PARAMS_SIZE		5487
 #define ROCKCHIP_RET_PARAMS_SIZE	488
+#define ROCKCHIP_JPEG_QUANT_ELE_SIZE	64
 
 #define ROCKCHIP_VPU_CABAC_TABLE_SIZE	(52 * 2 * 464)
 
@@ -398,5 +399,10 @@ void rk3399_vdec_vp9d_exit(struct rockchip_vpu_ctx *ctx);
 void rk3399_vdec_vp9d_run(struct rockchip_vpu_ctx *ctx);
 void rk3399_vdec_vp9d_done(struct rockchip_vpu_ctx *ctx,
 			   enum vb2_buffer_state result);
+
+/* Run ops for rk3399 vdec JPEG encoder */
+void rk3399_vpu_jpege_run(struct rockchip_vpu_ctx *ctx);
+void rk3399_vpu_jpege_done(struct rockchip_vpu_ctx *ctx,
+			  enum vb2_buffer_state result);
 
 #endif /* ROCKCHIP_VPU_HW_H_ */

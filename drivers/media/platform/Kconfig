@@ -378,3 +378,22 @@ menuconfig DVB_PLATFORM_DRIVERS
 if DVB_PLATFORM_DRIVERS
 source "drivers/media/platform/sti/c8sectpfe/Kconfig"
 endif #DVB_PLATFORM_DRIVERS
+
+menuconfig CEC_PLATFORM_DRIVERS
+	bool "CEC platform devices"
+	depends on MEDIA_CEC_SUPPORT
+
+if CEC_PLATFORM_DRIVERS
+
+config VIDEO_CROS_EC_CEC
+	tristate "Chrome OS EC CEC driver"
+	depends on MFD_CROS_EC || COMPILE_TEST
+	select CEC_CORE
+	select CEC_NOTIFIER
+	---help---
+	  If you say yes here you will get support for the
+	  Chrome OS Embedded Controller's CEC.
+	  The CEC bus is present in the HDMI connector and enables communication
+	  between compatible devices.
+
+endif #CEC_PLATFORM_DRIVERS

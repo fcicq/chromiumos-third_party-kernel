@@ -68,6 +68,7 @@ static struct vfsmount *shm_mnt;
 #include <linux/magic.h>
 #include <linux/syscalls.h>
 #include <linux/fcntl.h>
+#include <linux/mm_metrics.h>
 #include <uapi/linux/memfd.h>
 
 #include <asm/uaccess.h>
@@ -255,7 +256,7 @@ static void shmem_recalc_inode(struct inode *inode)
 static int shmem_radix_tree_replace(struct address_space *mapping,
 			pgoff_t index, void *expected, void *replacement)
 {
-	void **pslot;
+	void __rcu **pslot;
 	void *item;
 
 	VM_BUG_ON(!expected);
@@ -285,7 +286,7 @@ static bool shmem_confirm_swap(struct address_space *mapping,
 	rcu_read_lock();
 	item = radix_tree_lookup(&mapping->page_tree, index);
 	rcu_read_unlock();
-	return item == swp_to_radix_entry(swap);
+	return swp_radix_same(swap, item);
 }
 
 /*
@@ -383,7 +384,7 @@ void shmem_unlock_mapping(struct address_space *mapping)
 			break;
 		index = indices[pvec.nr - 1] + 1;
 		pagevec_remove_exceptionals(&pvec);
-		check_move_unevictable_pages(pvec.pages, pvec.nr);
+		check_move_unevictable_pages(&pvec);
 		pagevec_release(&pvec);
 		cond_resched();
 	}
@@ -628,6 +629,41 @@ static void shmem_evict_inode(struct inode *inode)
 	clear_inode(inode);
 }
 
+static unsigned long find_swap_entry(struct radix_tree_root *root,
+				     swp_entry_t swap, void **item)
+{
+	struct radix_tree_iter iter;
+	void __rcu **slot;
+	unsigned long found = -1;
+	unsigned int checked = 0;
+	pgoff_t start = 0;
+
+	rcu_read_lock();
+restart:
+	radix_tree_for_each_slot(slot, root, &iter, start) {
+		void *entry = radix_tree_deref_slot(slot);
+
+		if (radix_tree_deref_retry(entry)) {
+			slot = radix_tree_iter_retry(&iter);
+			continue;
+		}
+		if (swp_radix_same(swap, entry)) {
+			*item = entry;
+			found = iter.index;
+			break;
+		}
+		checked++;
+		if ((checked % 4096) != 0)
+			continue;
+		cond_resched_rcu();
+		start = iter.index + 1;
+		goto restart;
+	}
+
+	rcu_read_unlock();
+	return found;
+}
+
 /*
  * If swap found in inode, free it and move page from swapcache to filecache.
  */
@@ -640,8 +676,7 @@ static int shmem_unuse_inode(struct shmem_inode_info *info,
 	gfp_t gfp;
 	int error = 0;
 
-	radswap = swp_to_radix_entry(swap);
-	index = radix_tree_locate_item(&mapping->page_tree, radswap);
+	index = find_swap_entry(&mapping->page_tree, swap, &radswap);
 	if (index == -1)
 		return -EAGAIN;	/* tell shmem_unuse we found nothing */
 
@@ -720,7 +755,7 @@ int shmem_unuse(swp_entry_t swap, struct page *page)
 	 * There's a faint possibility that swap page was replaced before
 	 * caller locked it: caller will come back later with the right page.
 	 */
-	if (unlikely(!PageSwapCache(page) || page_private(page) != swap.val))
+	if (unlikely(!PageSwapCache(page) || !swp_page_same(swap, page)))
 		goto out;
 
 	/*
@@ -848,6 +883,7 @@ static int shmem_writepage(struct page *page, struct writeback_control *wbc)
 		spin_unlock(&info->lock);
 
 		swap_shmem_alloc(swap);
+		mm_metrics_swapout(&swap);
 		shmem_delete_from_page_cache(page, swp_to_radix_entry(swap));
 
 		mutex_unlock(&shmem_swaplist_mutex);
@@ -1104,9 +1140,13 @@ repeat:
 	sbinfo = SHMEM_SB(inode->i_sb);
 
 	if (swap.val) {
+		u64 start = 0;
+
+		mm_metrics_swapin(swap);
 		/* Look it up and read it in.. */
 		page = lookup_swap_cache(swap);
 		if (!page) {
+			start = mm_metrics_swapin_start();
 			/* here we actually do the io */
 			if (fault_type)
 				*fault_type |= VM_FAULT_MAJOR;
@@ -1119,7 +1159,7 @@ repeat:
 
 		/* We have to do this with page locked to prevent races */
 		lock_page(page);
-		if (!PageSwapCache(page) || page_private(page) != swap.val ||
+		if (!PageSwapCache(page) || !swp_page_same(swap, page) ||
 		    !shmem_confirm_swap(mapping, index, swap)) {
 			error = -EEXIST;	/* try again */
 			goto unlock;
@@ -1128,6 +1168,7 @@ repeat:
 			error = -EIO;
 			goto failed;
 		}
+		mm_metrics_swapin_end(start);
 		wait_on_page_writeback(page);
 
 		if (shmem_should_replace_page(page, gfp)) {
@@ -1464,6 +1505,8 @@ static struct inode *shmem_get_inode(struct super_block *sb, const struct inode 
 			mpol_shared_policy_init(&info->policy, NULL);
 			break;
 		}
+
+		lockdep_annotate_inode_mutex_key(inode);
 	} else
 		shmem_free_inode(sb);
 	return inode;
@@ -1816,9 +1859,7 @@ static loff_t shmem_file_llseek(struct file *file, loff_t offset, int whence)
 	mutex_lock(&inode->i_mutex);
 	/* We're holding i_mutex so we can access i_size directly */
 
-	if (offset < 0)
-		offset = -EINVAL;
-	else if (offset >= inode->i_size)
+	if (offset < 0 || offset >= inode->i_size)
 		offset = -ENXIO;
 	else {
 		start = offset >> PAGE_CACHE_SHIFT;
@@ -1851,7 +1892,7 @@ static loff_t shmem_file_llseek(struct file *file, loff_t offset, int whence)
 static void shmem_tag_pins(struct address_space *mapping)
 {
 	struct radix_tree_iter iter;
-	void **slot;
+	void __rcu **slot;
 	pgoff_t start;
 	struct page *page;
 
@@ -1893,7 +1934,7 @@ restart:
 static int shmem_wait_for_pins(struct address_space *mapping)
 {
 	struct radix_tree_iter iter;
-	void **slot;
+	void __rcu **slot;
 	pgoff_t start;
 	struct page *page;
 	int error, scan;

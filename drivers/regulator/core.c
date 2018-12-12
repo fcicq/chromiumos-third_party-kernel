@@ -3986,13 +3986,13 @@ regulator_register(const struct regulator_desc *regulator_desc,
 	if (ret < 0)
 		goto wash;
 
+	dev_set_drvdata(&rdev->dev, rdev);
+
 	ret = device_register(&rdev->dev);
 	if (ret != 0) {
 		put_device(&rdev->dev);
 		goto wash;
 	}
-
-	dev_set_drvdata(&rdev->dev, rdev);
 
 	if (init_data && init_data->supply_regulator)
 		rdev->supply_name = init_data->supply_regulator;

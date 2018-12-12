@@ -301,6 +301,8 @@ void write_header(u32 value, u32 *buffer, u32 offset, u32 len)
 
 #define IS_VPU_PRIV(x) ((V4L2_CTRL_ID2CLASS(x) == V4L2_CTRL_CLASS_MPEG) && \
 			  V4L2_CTRL_DRIVER_PRIV(x))
+#define IS_USER_PRIV(x) ((V4L2_CTRL_ID2CLASS(x) == V4L2_CTRL_CLASS_USER) && \
+			  V4L2_CTRL_DRIVER_PRIV(x))
 
 int rockchip_vpu_ctrls_setup(struct rockchip_vpu_ctx *ctx,
 			   const struct v4l2_ctrl_ops *ctrl_ops,
@@ -324,8 +326,8 @@ int rockchip_vpu_ctrls_setup(struct rockchip_vpu_ctx *ctx,
 
 	for (i = 0; i < num_ctrls; i++) {
 		if (IS_VPU_PRIV(controls[i].id)
-		    || controls[i].id >= V4L2_CID_CUSTOM_BASE
-		    || controls[i].type == V4L2_CTRL_TYPE_PRIVATE) {
+		    || IS_USER_PRIV(controls[i].id)
+		    || controls[i].type >= V4L2_CTRL_COMPOUND_TYPES) {
 			memset(&cfg, 0, sizeof(struct v4l2_ctrl_config));
 
 			cfg.ops = ctrl_ops;
@@ -356,7 +358,7 @@ int rockchip_vpu_ctrls_setup(struct rockchip_vpu_ctx *ctx,
 					 ctrl_ops,
 					 controls[i].id,
 					 controls[i].maximum,
-					 0,
+					 controls[i].menu_skip_mask,
 					 controls[i].
 					 default_value);
 			} else {

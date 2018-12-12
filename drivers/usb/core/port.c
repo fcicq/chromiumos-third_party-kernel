@@ -50,6 +50,15 @@ static ssize_t connect_type_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(connect_type);
 
+static ssize_t over_current_count_show(struct device *dev,
+				       struct device_attribute *attr, char *buf)
+{
+	struct usb_port *port_dev = to_usb_port(dev);
+
+	return sprintf(buf, "%u\n", port_dev->over_current_count);
+}
+static DEVICE_ATTR_RO(over_current_count);
+
 static ssize_t quirks_show(struct device *dev,
 			   struct device_attribute *attr, char *buf)
 {
@@ -74,6 +83,7 @@ static DEVICE_ATTR_RW(quirks);
 
 static struct attribute *port_dev_attrs[] = {
 	&dev_attr_connect_type.attr,
+	&dev_attr_over_current_count.attr,
 	&dev_attr_quirks.attr,
 	NULL,
 };

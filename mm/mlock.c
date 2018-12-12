@@ -90,7 +90,6 @@ void mlock_vma_page(struct page *page)
 			putback_lru_page(page);
 	}
 }
-EXPORT_SYMBOL_GPL(mlock_vma_page);
 
 /*
  * Isolate a page from LRU with optional get_page() pin.
@@ -205,7 +204,6 @@ unlock_out:
 out:
 	return nr_pages - 1;
 }
-EXPORT_SYMBOL_GPL(munlock_vma_page);
 
 /*
  * convert get_user_pages() return value to posix mlock() error
