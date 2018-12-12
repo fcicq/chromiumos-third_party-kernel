@@ -101,7 +101,6 @@ static int kbase_rk_power_on_callback(struct kbase_device *kbdev)
 	}
 
 	kbase_rk->is_powered = true;
-	KBASE_TIMELINE_GPU_POWER(kbdev, 1);
 
 	return ret;
 }
@@ -119,7 +118,6 @@ static void kbase_rk_power_off_callback(struct kbase_device *kbdev)
 	dev_dbg(kbdev->dev, "%s: powering off\n", __func__);
 
 	kbase_rk->is_powered = false;
-	KBASE_TIMELINE_GPU_POWER(kbdev, 0);
 
 	clk_disable(kbase_rk->clk);
 
