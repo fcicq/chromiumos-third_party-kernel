@@ -556,6 +556,9 @@ static void ath10k_wmi_tlv_op_rx(struct ath10k *ar, struct sk_buff *skb)
 	case WMI_TLV_TX_PAUSE_EVENTID:
 		ath10k_wmi_tlv_event_tx_pause(ar, skb);
 		break;
+	case WMI_TLV_PEER_DELETE_RESP_EVENTID:
+		ath10k_wmi_tlv_event_peer_delete_resp(ar, skb);
+		break;
 	case WMI_TLV_MGMT_TX_COMPLETION_EVENTID:
 		ath10k_wmi_event_mgmt_tx_compl(ar, skb);
 		break;
@@ -749,6 +752,34 @@ static int ath10k_wmi_tlv_op_pull_mgmt_rx_ev(struct ath10k *ar,
 	skb_put(skb, frame - skb->data);
 	skb_pull(skb, frame - skb->data);
 	skb_put(skb, msdu_len);
+
+	kfree(tb);
+	return 0;
+}
+
+static int ath10k_wmi_tlv_op_pull_peer_delete_ev(
+			struct ath10k *ar, struct sk_buff *skb,
+			struct wmi_peer_delete_resp_ev_arg *arg)
+{
+	const struct wmi_peer_delete_resp_ev_arg *ev;
+	const void **tb;
+	int ret;
+
+	tb = ath10k_wmi_tlv_parse_alloc(ar, skb->data, skb->len, GFP_ATOMIC);
+	if (IS_ERR(tb)) {
+		ret = PTR_ERR(tb);
+		ath10k_warn(ar, "failed to parse tlv: %d\n", ret);
+		return ret;
+	}
+
+	ev = tb[WMI_TLV_TAG_STRUCT_PEER_DELETE_RESP_EVENT];
+	if (!ev) {
+		kfree(tb);
+		return -EPROTO;
+	}
+
+	arg->vdev_id = ev->vdev_id;
+	arg->peer_addr = ev->peer_addr;
 
 	kfree(tb);
 	return 0;
@@ -3983,6 +4014,7 @@ static const struct wmi_ops wmi_tlv_ops = {
 	.pull_mgmt_tx_compl = ath10k_wmi_tlv_op_pull_mgmt_tx_compl_ev,
 	.pull_mgmt_tx_bundle_compl = ath10k_wmi_tlv_op_pull_mgmt_tx_bundle_compl_ev,
 	.pull_ch_info = ath10k_wmi_tlv_op_pull_ch_info_ev,
+	.pull_peer_delete_resp = ath10k_wmi_tlv_op_pull_peer_delete_ev,
 	.pull_vdev_start = ath10k_wmi_tlv_op_pull_vdev_start_ev,
 	.pull_peer_kick = ath10k_wmi_tlv_op_pull_peer_kick_ev,
 	.pull_swba = ath10k_wmi_tlv_op_pull_swba_ev,

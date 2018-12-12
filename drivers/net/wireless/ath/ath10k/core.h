@@ -1113,6 +1113,7 @@ struct ath10k {
 	u32	cfr_enable;
 	struct rchan *rfs_cfr_capture;
 
+	struct completion peer_delete_done;
 	/* must be last */
 	u8 drv_priv[0] __aligned(sizeof(void *));
 };

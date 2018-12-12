@@ -2466,6 +2466,24 @@ int ath10k_wmi_event_mgmt_tx_bundle_compl(struct ath10k *ar, struct sk_buff *skb
 	return 0;
 }
 
+int ath10k_wmi_tlv_event_peer_delete_resp(struct ath10k *ar,
+					  struct sk_buff *skb)
+{
+	struct wmi_peer_delete_resp_ev_arg arg = {};
+	int ret;
+
+	ret = ath10k_wmi_pull_peer_delete_resp(ar, skb, &arg);
+	if (ret) {
+		ath10k_warn(ar, "failed to parse peer delete resp: %d\n", ret);
+		dev_kfree_skb(skb);
+		return ret;
+	}
+	ath10k_dbg(ar, ATH10K_DBG_WMI, "WMI_TLV_PEER_DELETE_RESP_EVENTID\n");
+	complete(&ar->peer_delete_done);
+
+	return 0;
+}
+
 int ath10k_wmi_event_mgmt_rx(struct ath10k *ar, struct sk_buff *skb)
 {
 	struct wmi_mgmt_rx_ev_arg arg = {};
