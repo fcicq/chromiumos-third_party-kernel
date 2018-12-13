@@ -576,6 +576,8 @@ static void cros_ec_ring_spread_add(
 					state->last_batch_timestamp[id];
 				batch_len = state->last_batch_len[id];
 
+				sample_idx = batch_len + 1;
+
 				state->last_batch_timestamp[id] =
 					state->penultimate_batch_timestamp[id];
 				state->last_batch_len[id] =
@@ -586,13 +588,11 @@ static void cros_ec_ring_spread_add(
 				 * kifo, it's guaranteed to be correct, the
 				 * rest will follow later on.
 				 */
-				batch_len = 1;
+				sample_idx = batch_len = 1;
 				iio_push_to_buffers(indio_dev,
 					(u8 *)batch_start);
 				batch_start++;
 			}
-
-			sample_idx = batch_len + 1;
 
 			/* Find all samples have the same timestamp. */
 			for (s = batch_start; s < last_out; s++) {
