@@ -1,6 +1,7 @@
 /*
  * net/dsa/slave.c - Slave device handling
  * Copyright (c) 2008-2009 Marvell Semiconductor
+ * Copyright (c) 2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -81,7 +82,9 @@ static int dsa_slave_open(struct net_device *dev)
 	if (!(master->flags & IFF_UP))
 		return -ENETDOWN;
 
-	if (!ether_addr_equal(dev->dev_addr, master->dev_addr)) {
+	if (!is_valid_ether_addr(dev->dev_addr)) {
+		eth_hw_addr_inherit(dev, master);
+	} else if (!ether_addr_equal(dev->dev_addr, master->dev_addr)) {
 		err = dev_uc_add(master, dev->dev_addr);
 		if (err < 0)
 			goto out;
