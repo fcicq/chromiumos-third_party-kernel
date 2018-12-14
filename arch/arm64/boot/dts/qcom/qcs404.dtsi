@@ -207,6 +207,9 @@
 			status = "disabled";
 		};
 
+		ethernet: ethernet@7a80000 {
+		};
+
 		intc: interrupt-controller@b000000 {
 			compatible = "qcom,msm-qgic2";
 			interrupt-controller;
