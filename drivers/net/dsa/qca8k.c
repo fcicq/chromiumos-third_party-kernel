@@ -3,6 +3,7 @@
  * Copyright (C) 2011-2012 Gabor Juhos <juhosg@openwrt.org>
  * Copyright (c) 2015, The Linux Foundation. All rights reserved.
  * Copyright (c) 2016 John Crispin <john@phrozen.org>
+ * Copyright (c) 2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -428,7 +429,9 @@ qca8k_mib_init(struct qca8k_priv *priv)
 static int
 qca8k_set_pad_ctrl(struct qca8k_priv *priv, int port, int mode)
 {
-	u32 reg;
+	u32 reg, val;
+	struct dsa_switch *ds = priv->ds;
+	bool rx_delay_disable, tx_delay_disable;
 
 	switch (port) {
 	case 0:
@@ -447,17 +450,24 @@ qca8k_set_pad_ctrl(struct qca8k_priv *priv, int port, int mode)
 	 */
 	switch (mode) {
 	case PHY_INTERFACE_MODE_RGMII:
-		qca8k_write(priv, reg,
-			    QCA8K_PORT_PAD_RGMII_EN |
-			    QCA8K_PORT_PAD_RGMII_TX_DELAY(3) |
-			    QCA8K_PORT_PAD_RGMII_RX_DELAY(3));
+		rx_delay_disable = of_property_read_bool(ds->dst->cpu_dp->dn,
+							 "rx-delay-disable");
+		tx_delay_disable = of_property_read_bool(ds->dst->cpu_dp->dn,
+							 "tx-delay-disable");
+		val = QCA8K_PORT_PAD_RGMII_EN;
+		if (!rx_delay_disable)
+			val |= QCA8K_PORT_PAD_RGMII_RX_DELAY(3);
+		if (!tx_delay_disable)
+			val |= QCA8K_PORT_PAD_RGMII_TX_DELAY(3);
+		qca8k_write(priv, reg, val);							
 
-		/* According to the datasheet, RGMII delay is enabled through
+		/* According to the datasheet, RGMII rx delay is enabled through
 		 * PORT5_PAD_CTRL for all ports, rather than individual port
 		 * registers
 		 */
-		qca8k_write(priv, QCA8K_REG_PORT5_PAD_CTRL,
-			    QCA8K_PORT_PAD_RGMII_RX_DELAY_EN);
+		if (!rx_delay_disable)
+			qca8k_write(priv, QCA8K_REG_PORT5_PAD_CTRL,
+				    QCA8K_PORT_PAD_RGMII_RX_DELAY_EN);
 		break;
 	case PHY_INTERFACE_MODE_SGMII:
 		qca8k_write(priv, reg, QCA8K_PORT_PAD_SGMII_EN);
