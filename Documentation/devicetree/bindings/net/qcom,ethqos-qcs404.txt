@@ -1,0 +1,5 @@
+Qualcomm ethqos qcs404
+
+Required properties:
+
+ - compatible			: Should be "qcom,ethqos-qcs404"
