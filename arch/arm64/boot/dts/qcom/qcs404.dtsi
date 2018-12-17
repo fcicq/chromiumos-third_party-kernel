@@ -229,6 +229,9 @@
 			snps,aal;
 			snps,tso;
 
+			rx-fifo-depth = <4096>;
+			tx-fifo-depth = <4096>;
+
 			status = "disabled";
 
 			stmmac_axi_setup: stmmac-axi-config {
