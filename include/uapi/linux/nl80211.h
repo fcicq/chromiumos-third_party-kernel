@@ -2886,6 +2886,7 @@ enum nl80211_sta_bss_param {
  *	attributes carrying the actual values.
  * @NL80211_STA_INFO_RX_DURATION: aggregate PPDU duration for all frames
  *	received from the station (u64, usec)
+ * @NL80211_STA_INFO_AIRTIME_LINK_METRIC: airtime link metric for mesh station.
  * @NL80211_STA_INFO_PAD: attribute used for padding for 64-bit alignment
  * @__NL80211_STA_INFO_AFTER_LAST: internal
  * @NL80211_STA_INFO_MAX: highest possible station info attribute
@@ -2924,6 +2925,7 @@ enum nl80211_sta_info {
 	NL80211_STA_INFO_BEACON_SIGNAL_AVG,
 	NL80211_STA_INFO_TID_STATS,
 	NL80211_STA_INFO_RX_DURATION,
+	NL80211_STA_INFO_AIRTIME_LINK_METRIC,
 	NL80211_STA_INFO_PAD,
 
 	/* keep last */

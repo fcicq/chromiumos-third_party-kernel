@@ -315,8 +315,8 @@ void ieee80211s_update_metric(struct ieee80211_local *local,
 		mesh_plink_broken(sta);
 }
 
-static u32 airtime_link_metric_get(struct ieee80211_local *local,
-				   struct sta_info *sta)
+u32 airtime_link_metric_get(struct ieee80211_local *local,
+			    struct sta_info *sta)
 {
 	struct rate_info rinfo;
 	/* This should be adjusted for each device */
