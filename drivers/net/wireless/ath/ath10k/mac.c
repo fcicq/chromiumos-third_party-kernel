@@ -2750,7 +2750,7 @@ static int ath10k_setup_peer_smps(struct ath10k *ar, struct ath10k_vif *arvif,
 		return -EINVAL;
 
 	return ath10k_wmi_peer_set_param(ar, arvif->vdev_id, addr,
-					 WMI_PEER_SMPS_STATE,
+					 ar->wmi.peer_param->smps_state,
 					 ath10k_smps_map[smps]);
 }
 
@@ -2907,7 +2907,7 @@ static void ath10k_bss_assoc(struct ieee80211_hw *hw,
 	 * poked with peer param command.
 	 */
 	ret = ath10k_wmi_peer_set_param(ar, arvif->vdev_id, arvif->bssid,
-					WMI_PEER_DUMMY_VAR, 1);
+					ar->wmi.peer_param->dummy_var, 1);
 	if (ret) {
 		ath10k_warn(ar, "failed to poke peer %pM param for ps workaround on vdev %i: %d\n",
 			    arvif->bssid, arvif->vdev_id, ret);
@@ -6022,7 +6022,7 @@ static void ath10k_sta_rc_update_wk(struct work_struct *wk)
 				sta->addr, bw, mode);
 
 		err = ath10k_wmi_peer_set_param(ar, arvif->vdev_id, sta->addr,
-				WMI_PEER_PHYMODE, mode);
+				ar->wmi.peer_param->phymode, mode);
 		if (err) {
 			ath10k_warn(ar, "failed to update STA %pM peer phymode %d: %d\n",
 					sta->addr, mode, err);
@@ -6030,7 +6030,7 @@ static void ath10k_sta_rc_update_wk(struct work_struct *wk)
 		}
 
 		err = ath10k_wmi_peer_set_param(ar, arvif->vdev_id, sta->addr,
-						WMI_PEER_CHAN_WIDTH, bw);
+						ar->wmi.peer_param->chan_width, bw);
 		if (err)
 			ath10k_warn(ar, "failed to update STA %pM peer bw %d: %d\n",
 				    sta->addr, bw, err);
@@ -6041,7 +6041,7 @@ static void ath10k_sta_rc_update_wk(struct work_struct *wk)
 			   sta->addr, nss);
 
 		err = ath10k_wmi_peer_set_param(ar, arvif->vdev_id, sta->addr,
-						WMI_PEER_NSS, nss);
+						ar->wmi.peer_param->nss, nss);
 		if (err)
 			ath10k_warn(ar, "failed to update STA %pM nss %d: %d\n",
 				    sta->addr, nss, err);
@@ -6052,7 +6052,7 @@ static void ath10k_sta_rc_update_wk(struct work_struct *wk)
 			   sta->addr, smps);
 
 		err = ath10k_wmi_peer_set_param(ar, arvif->vdev_id, sta->addr,
-						WMI_PEER_SMPS_STATE, smps);
+						ar->wmi.peer_param->smps_state, smps);
 		if (err)
 			ath10k_warn(ar, "failed to update STA %pM smps %d: %d\n",
 				    sta->addr, smps, err);

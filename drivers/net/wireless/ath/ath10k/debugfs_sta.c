@@ -323,7 +323,7 @@ ath10k_dbg_sta_write_peer_debug_trigger(struct file *file,
 	}
 
 	ret = ath10k_wmi_peer_set_param(ar, arsta->arvif->vdev_id, sta->addr,
-					WMI_PEER_DEBUG, peer_debug_trigger);
+					ar->wmi.peer_param->debug, peer_debug_trigger);
 	if (ret) {
 		ath10k_warn(ar, "failed to set param to trigger peer tid logs for station ret: %d\n",
 			    ret);
@@ -637,7 +637,7 @@ static ssize_t ath10k_dbg_sta_write_ampdu_subframe_count(struct file *file,
 	}
 
 	ret = ath10k_wmi_peer_set_param(ar, arsta->arvif->vdev_id, sta->addr,
-					WMI_PEER_AMPDU, ampdu_subframe_count);
+					ar->wmi.peer_param->ampdu, ampdu_subframe_count);
 	if (ret) {
 		ath10k_warn(ar, "failed to set ampdu subframe count for station"
 			    " ret: %d\n", ret);
@@ -699,7 +699,7 @@ static ssize_t ath10k_dbg_sta_write_tpc(struct file *file,
 	}
 
 	ret = ath10k_wmi_peer_set_param(ar, arsta->arvif->vdev_id, sta->addr,
-					WMI_PEER_USE_FIXED_PWR, tpc);
+					ar->wmi.peer_param->use_fixed_power, tpc);
 	if (ret) {
 		ath10k_warn(ar, "failed to set tx power for station ret: %d\n",
 			    ret);
