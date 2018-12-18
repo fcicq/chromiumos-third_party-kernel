@@ -23,9 +23,8 @@
 #define IPU3_CSS_MAX_H		3136
 #define IPU3_CSS_MAX_W		4224
 
-/* filter size from graph settings is fixed as 4 */
-#define FILTER_SIZE             4
-#define MIN_ENVELOPE            8
+/* minimal envelope size(GDC in - out) should be 4 */
+#define MIN_ENVELOPE            4
 
 /*
  * pre-allocated buffer size for CSS ABI, auxiliary frames
@@ -1821,9 +1820,9 @@ int ipu3_css_fmt_try(struct ipu3_css *css,
 	vf->width   = ipu3_css_adjust(vf->width, VF_ALIGN_W);
 	vf->height  = ipu3_css_adjust(vf->height, 1);
 
-	s = (bds->width - gdc->width) / 2 - FILTER_SIZE;
+	s = (bds->width - gdc->width) / 2;
 	env->width = s < MIN_ENVELOPE ? MIN_ENVELOPE : s;
-	s = (bds->height - gdc->height) / 2 - FILTER_SIZE;
+	s = (bds->height - gdc->height) / 2;
 	env->height = s < MIN_ENVELOPE ? MIN_ENVELOPE : s;
 
 	css->pipes[pipe].bindex =
@@ -2245,9 +2244,8 @@ int ipu3_css_set_parameters(struct ipu3_css *css, unsigned int pipe,
 				css_pipe->aux_frames[a].height,
 				css_pipe->rect[g].width,
 				css_pipe->rect[g].height,
-				css_pipe->rect[e].width + FILTER_SIZE,
-				css_pipe->rect[e].height +
-				FILTER_SIZE);
+				css_pipe->rect[e].width,
+				css_pipe->rect[e].height);
 		}
 	}
 
