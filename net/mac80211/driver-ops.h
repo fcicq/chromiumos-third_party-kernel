@@ -1195,9 +1195,7 @@ drv_get_ftm_responder_stats(struct ieee80211_local *local,
 static inline void schedule_and_wake_txq(struct ieee80211_local *local,
 					 struct txq_info *txqi)
 {
-	spin_lock_bh(&local->active_txq_lock[txqi->txq.ac]);
-	ieee80211_return_txq(&local->hw, &txqi->txq);
-	spin_unlock_bh(&local->active_txq_lock[txqi->txq.ac]);
+	ieee80211_schedule_txq(&local->hw, &txqi->txq);
 	drv_wake_tx_queue(local, txqi);
 }
 
