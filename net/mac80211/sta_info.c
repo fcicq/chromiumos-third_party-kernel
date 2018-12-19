@@ -1245,7 +1245,7 @@ void ieee80211_sta_ps_deliver_wakeup(struct sta_info *sta)
 			if (!txq_has_queue(sta->sta.txq[i]))
 				continue;
 
-			drv_wake_tx_queue(local, to_txq_info(sta->sta.txq[i]));
+			schedule_and_wake_txq(local, to_txq_info(sta->sta.txq[i]));
 		}
 	}
 

@@ -1440,6 +1440,7 @@ void ieee80211_txq_init(struct ieee80211_sub_if_data *sdata,
 	codel_vars_init(&txqi->def_cvars);
 	codel_stats_init(&txqi->cstats);
 	__skb_queue_head_init(&txqi->frags);
+	INIT_LIST_HEAD(&txqi->schedule_order);
 
 	txqi->txq.vif = &sdata->vif;
 
@@ -1463,6 +1464,9 @@ void ieee80211_txq_purge(struct ieee80211_local *local,
 
 	fq_tin_reset(fq, tin, fq_skb_free_func);
 	ieee80211_purge_tx_queue(&local->hw, &txqi->frags);
+	spin_lock_bh(&local->active_txq_lock[txqi->txq.ac]);
+	list_del_init(&txqi->schedule_order);
+	spin_unlock_bh(&local->active_txq_lock[txqi->txq.ac]);
 }
 
 int ieee80211_txq_setup_flows(struct ieee80211_local *local)
@@ -1565,7 +1569,7 @@ static bool ieee80211_queue_skb(struct ieee80211_local *local,
 #ifdef CONFIG_MAC80211_WIFI_DIAG
 	info->latency.tx_start_time =  ieee80211_txdelay_get_time();
 #endif
-	drv_wake_tx_queue(local, txqi);
+	schedule_and_wake_txq(local, txqi);
 
 	return true;
 }
@@ -3617,6 +3621,60 @@ out:
 	return skb;
 }
 EXPORT_SYMBOL(ieee80211_tx_dequeue);
+
+struct ieee80211_txq *ieee80211_next_txq(struct ieee80211_hw *hw, u8 ac)
+{
+	struct ieee80211_local *local = hw_to_local(hw);
+	struct txq_info *txqi = NULL;
+
+	lockdep_assert_held(&local->active_txq_lock[ac]);
+
+	txqi = list_first_entry_or_null(&local->active_txqs[ac],
+					struct txq_info,
+					schedule_order);
+
+	if (!txqi || txqi->schedule_round == local->schedule_round[ac])
+		return NULL;
+
+	list_del_init(&txqi->schedule_order);
+	txqi->schedule_round = local->schedule_round[ac];
+	return &txqi->txq;
+}
+EXPORT_SYMBOL(ieee80211_next_txq);
+
+void ieee80211_return_txq(struct ieee80211_hw *hw,
+			  struct ieee80211_txq *txq)
+{
+	struct ieee80211_local *local = hw_to_local(hw);
+	struct txq_info *txqi = to_txq_info(txq);
+
+	lockdep_assert_held(&local->active_txq_lock[txq->ac]);
+
+	if (list_empty(&txqi->schedule_order) &&
+	    (!skb_queue_empty(&txqi->frags) || txqi->tin.backlog_packets))
+		list_add_tail(&txqi->schedule_order,
+			      &local->active_txqs[txq->ac]);
+}
+EXPORT_SYMBOL(ieee80211_return_txq);
+
+void ieee80211_txq_schedule_start(struct ieee80211_hw *hw, u8 ac)
+	__acquires(txq_lock)
+{
+	struct ieee80211_local *local = hw_to_local(hw);
+
+	spin_lock_bh(&local->active_txq_lock[ac]);
+	local->schedule_round[ac]++;
+}
+EXPORT_SYMBOL(ieee80211_txq_schedule_start);
+
+void ieee80211_txq_schedule_end(struct ieee80211_hw *hw, u8 ac)
+	__releases(txq_lock)
+{
+	struct ieee80211_local *local = hw_to_local(hw);
+
+	spin_unlock_bh(&local->active_txq_lock[ac]);
+}
+EXPORT_SYMBOL(ieee80211_txq_schedule_end);
 
 void __ieee80211_subif_start_xmit(struct sk_buff *skb,
 				  struct net_device *dev,
