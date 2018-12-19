@@ -973,6 +973,7 @@ struct sta_txpwr {
  * @opmode_notif: operating mode field from Operating Mode Notification
  * @opmode_notif_used: information if operating mode field is used
  * @support_p2p_ps: information if station supports P2P PS mechanism
+ * @airtime_weight: airtime scheduler weight for this station
  */
 struct station_parameters {
 	const u8 *supported_rates;
@@ -1001,6 +1002,7 @@ struct station_parameters {
 	bool opmode_notif_used;
 	int support_p2p_ps;
 	struct sta_txpwr txpwr;
+	u16 airtime_weight;
 };
 
 /**
@@ -1225,6 +1227,8 @@ struct cfg80211_tid_stats {
  * @rx_beacon_signal_avg: signal strength average (in dBm) for beacons received
  *	from this peer
  * @rx_duration: aggregate PPDU duration(usecs) for all the frames from a peer
+ * @tx_duration: aggregate PPDU duration(usecs) for all the frames to a peer
+ * @airtime_weight: current airtime scheduling weight
  * @pertid: per-TID statistics, see &struct cfg80211_tid_stats, using the last
  *	(IEEE80211_NUM_TIDS) index for MSDUs not encapsulated in QoS-MPDUs.
  * @ack_signal: signal strength (in dBm) of the last ACK frame.
@@ -1272,12 +1276,14 @@ struct station_info {
 
 	u32 airtime_link_metric;
 
-	u64 rx_beacon;
+	u64 tx_duration;
 	u64 rx_duration;
+	u64 rx_beacon;
 	u8 rx_beacon_signal_avg;
 	struct cfg80211_tid_stats pertid[IEEE80211_NUM_TIDS + 1];
 	s8 ack_signal;
 	s8 avg_ack_signal;
+	u16 airtime_weight;
 };
 
 #if IS_ENABLED(CONFIG_CFG80211)
@@ -2278,6 +2284,8 @@ enum wiphy_params_flags {
 	WIPHY_PARAM_COVERAGE_CLASS	= 1 << 4,
 	WIPHY_PARAM_DYN_ACK		= 1 << 5,
 };
+
+#define IEEE80211_DEFAULT_AIRTIME_WEIGHT	256
 
 /**
  * struct cfg80211_pmksa - PMK Security Association
