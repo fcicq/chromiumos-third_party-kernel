@@ -695,18 +695,20 @@ static int q6v5_wcss_stop(struct rproc *rproc)
 		return ret;
 	}
 
-	if (wcss->version == WCSS_QCS404)
+	if (wcss->version == WCSS_QCS404) {
 		ret = q6v5_qcs404_wcss_shutdown(wcss);
-	else
+		if (ret)
+			return ret;
+	} else {
 		ret = q6v5_wcss_powerdown(wcss);
+		if (ret)
+			return ret;
 
-	if (ret)
-		return ret;
-
-	/* Q6 Power down */
-	ret = q6v5_q6_powerdown(wcss);
-	if (ret)
-		return ret;
+		/* Q6 Power down */
+		ret = q6v5_q6_powerdown(wcss);
+		if (ret)
+			return ret;
+	}
 
 	qcom_q6v5_unprepare(&wcss->q6v5);
 
