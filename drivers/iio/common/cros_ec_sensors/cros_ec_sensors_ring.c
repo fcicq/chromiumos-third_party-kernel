@@ -503,7 +503,8 @@ static bool cros_ec_ring_process_event(
 	out->flag = in->flags;
 	for (axis = X; axis < MAX_AXIS; axis++)
 		out->vector[axis] = in->data[axis];
-	cros_ec_ring_check_for_past_timestamp(state, out);
+	if (state->tight_timestamps)
+		cros_ec_ring_check_for_past_timestamp(state, out);
 	return true;
 }
 
