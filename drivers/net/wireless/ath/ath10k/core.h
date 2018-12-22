@@ -545,6 +545,7 @@ struct ath10k_fw_crash_data {
 	size_t ramdump_buf_len;
 };
 
+#define ATH10K_FTMR_MAX_NUM_VDEVS 20
 struct ath10k_debug {
 	struct dentry *debugfs_phy;
 
@@ -571,6 +572,7 @@ struct ath10k_debug {
 	u32 nf_cal_period;
 	void *cal_data;
 	u32 enable_extd_tx_stats;
+	int ftmr_enabled[ATH10K_FTMR_MAX_NUM_VDEVS];
 };
 
 enum ath10k_state {
