@@ -90,6 +90,9 @@
 /* The magic used by QCA spec */
 #define ATH10K_SMBIOS_BDF_EXT_MAGIC "BDF_"
 
+/* Number of TID target accepts from host */
+#define ATH10K_MAX_TIDS	0x8
+
 struct ath10k;
 
 enum ath10k_bus {
@@ -124,6 +127,7 @@ enum ath10k_skb_flags {
 	ATH10K_SKB_F_DELIVER_CAB = BIT(2),
 	ATH10K_SKB_F_MGMT = BIT(3),
 	ATH10K_SKB_F_QOS = BIT(4),
+	ATH10K_SKB_F_NOACK_TID = BIT(5),
 };
 
 struct ath10k_skb_cb {
@@ -447,6 +451,10 @@ struct ath10k_sta {
 	u8 tpc;
 	u8 ampdu_subframe_count;
 	struct ath10k_cfr_capture cfr_capture;
+
+	/* TID bitmap for station's NoAck policy, protected by conf_mutex */
+	int noack_map;
+	struct work_struct noack_map_wk;
 };
 
 #define ATH10K_VDEV_SETUP_TIMEOUT_HZ (5 * HZ)
@@ -513,6 +521,9 @@ struct ath10k_vif {
 	struct work_struct ap_csa_work;
 	struct delayed_work connection_loss_work;
 	struct cfg80211_bitrate_mask bitrate_mask;
+
+	/* TID bitmap for station's NoAck policy, protected by conf_mutex */
+	int noack_map;
 };
 
 struct ath10k_vif_iter {

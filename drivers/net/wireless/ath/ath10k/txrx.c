@@ -61,6 +61,7 @@ int ath10k_txrx_tx_unref(struct ath10k_htt *htt,
 	struct ath10k_skb_cb *skb_cb;
 	struct ath10k_txq *artxq;
 	struct sk_buff *msdu;
+	u8 flags;
 
 	ath10k_dbg(ar, ATH10K_DBG_HTT,
 		   "htt tx completion msdu_id %u status %d\n",
@@ -83,6 +84,7 @@ int ath10k_txrx_tx_unref(struct ath10k_htt *htt,
 
 	skb_cb = ATH10K_SKB_CB(msdu);
 	txq = skb_cb->txq;
+	flags = skb_cb->flags;
 
 	if (txq) {
 		artxq = (void *)txq->drv_priv;
@@ -108,14 +110,16 @@ int ath10k_txrx_tx_unref(struct ath10k_htt *htt,
 		return 0;
 	}
 
-	if (!(info->flags & IEEE80211_TX_CTL_NO_ACK))
+	if (!(info->flags & IEEE80211_TX_CTL_NO_ACK) &&
+	    !(flags & ATH10K_SKB_F_NOACK_TID))
 		info->flags |= IEEE80211_TX_STAT_ACK;
 
 	if (tx_done->status == HTT_TX_COMPL_STATE_NOACK)
 		info->flags &= ~IEEE80211_TX_STAT_ACK;
 
 	if ((tx_done->status == HTT_TX_COMPL_STATE_ACK) &&
-	    (info->flags & IEEE80211_TX_CTL_NO_ACK))
+	    ((info->flags & IEEE80211_TX_CTL_NO_ACK) ||
+	    (flags & ATH10K_SKB_F_NOACK_TID)))
 		info->flags |= IEEE80211_TX_STAT_NOACK_TRANSMITTED;
 
 	if (tx_done->status == HTT_TX_COMPL_STATE_ACK &&
