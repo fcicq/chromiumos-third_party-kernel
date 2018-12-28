@@ -1104,8 +1104,6 @@ static struct wmi_vdev_param_map wmi_10_4_vdev_param_map = {
 	.meru_vc = WMI_10_4_VDEV_PARAM_MERU_VC,
 	.rx_decap_type = WMI_10_4_VDEV_PARAM_RX_DECAP_TYPE,
 	.bw_nss_ratemask = WMI_10_4_VDEV_PARAM_BW_NSS_RATEMASK,
-	.inc_tsf = WMI_10_4_VDEV_PARAM_TSF_INCREMENT,
-	.dec_tsf = WMI_10_4_VDEV_PARAM_TSF_DECREMENT,
 	.rtt_responder_role =
 		WMI_10_4_VDEV_PARAM_SET_RTT_RESPONDER_ROLE,
 };
