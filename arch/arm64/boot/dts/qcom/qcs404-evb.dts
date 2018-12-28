@@ -61,6 +61,7 @@
 
 	snps,reset-gpio = <&tlmm 60 GPIO_ACTIVE_LOW>;
 	snps,reset-active-low;
+	snps,reset-delays-us = <0 10000 10000>;
 
 	pinctrl-names = "default";
 	pinctrl-0 = <&ethernet_defaults>;
