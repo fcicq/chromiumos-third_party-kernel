@@ -1236,4 +1236,20 @@ rdev_set_tid_rts_cts_config(struct cfg80211_registered_device *rdev,
 	return ret;
 }
 
+static inline int
+rdev_set_tid_tx_bitrate_mask(struct cfg80211_registered_device *rdev,
+			     struct net_device *dev, const u8 *peer,
+			     u8 tid, enum nl80211_tx_rate_setting txrate_type,
+			     const struct cfg80211_bitrate_mask *mask)
+{
+	int ret;
+
+	trace_rdev_set_tid_tx_bitrate_mask(&rdev->wiphy, dev, peer, tid,
+					   txrate_type, mask);
+	ret = rdev->ops->set_tid_tx_bitrate_mask(&rdev->wiphy, dev, peer,
+						 tid, txrate_type, mask);
+	trace_rdev_return_int(&rdev->wiphy, ret);
+	return ret;
+}
+
 #endif /* __CFG80211_RDEV_OPS */

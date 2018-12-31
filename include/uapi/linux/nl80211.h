@@ -4185,6 +4185,18 @@ enum nl80211_tid_config {
 	NL80211_TID_CONFIG_DISABLE,
 };
 
+/**
+ * enum nl80211_tx_rate_setting - TX rate adjustment
+ * @NL80211_TX_RATE_AUTOMATIC: automatically determine tx rate
+ * @NL80211_TX_RATE_LIMITED: limit TX rate by the tx rate mask
+ * @NL80211_TX_RATE_FIXED: fix TX rate to the tx rate mask
+ */
+enum nl80211_tx_rate_setting {
+	NL80211_TX_RATE_AUTOMATIC,
+	NL80211_TX_RATE_LIMITED,
+	NL80211_TX_RATE_FIXED,
+};
+
 /*
  * @NL80211_ATTR_TID: a TID value (u8 attribute)
  * @NL80211_ATTR_TID_RETRY_CONFIG: Data frame retry count should be
@@ -4259,6 +4271,7 @@ enum nl80211_attr_tid_config {
 	NL80211_ATTR_TID_RETRY_LONG,
 	NL80211_ATTR_TID_AMPDU_AGGR_CTRL,
 	NL80211_ATTR_TID_RTS_CTS_CONFIG,
+	NL80211_ATTR_TID_TX_BITRATE_MASK,
 
 	/* keep last */
 	__NL80211_ATTR_TID_AFTER_LAST,
@@ -5135,6 +5148,10 @@ enum nl80211_feature_flags {
  *	specific TID RTS_CTS control(enable/disable).
  * @NL80211_EXT_FEATURE_PER_TID_RTS_CTS_CTRL: Driver supports per STA
  *	specific TID RTS_CTS control(enable/disable).
+ * @NL80211_EXT_FEATURE_PER_TID_TX_BITRATE_MASK: Driver supports TID specific
+ *	tx bitrate mask configuration.
+ * @NL80211_EXT_FEATURE_PER_STA_TX_BITRATE_MASK: Driver supports per STA
+ *	specific TID tx bitrate mask configuration.
  *
  * @NUM_NL80211_EXT_FEATURES: number of extended features.
  * @MAX_NL80211_EXT_FEATURES: highest extended feature index.
@@ -5177,6 +5194,8 @@ enum nl80211_ext_feature_index {
 	NL80211_EXT_FEATURE_PER_STA_AMPDU_AGGR_CTRL,
 	NL80211_EXT_FEATURE_PER_STA_RTS_CTS_CTRL,
 	NL80211_EXT_FEATURE_PER_TID_RTS_CTS_CTRL,
+	NL80211_EXT_FEATURE_PER_TID_TX_BITRATE_MASK,
+	NL80211_EXT_FEATURE_PER_STA_TX_BITRATE_MASK,
 
 	/* add new features before the definition below */
 	NUM_NL80211_EXT_FEATURES,

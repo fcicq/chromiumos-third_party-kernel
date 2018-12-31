@@ -2958,6 +2958,9 @@ struct cfg80211_pmk_conf {
  * @set_tid_rts_cts_config: enable/disable rts_cts for the give TID, If this
  *	configuration needs to be peer specific peer MAC address can be
  *	passed.
+ * @set_tid_tx_bitrate_mask: Set tx bitrate config for the given TID, If this
+ *	configuration needs to be peer specific then peer MAC address can be
+ *	passed.
  *
  */
 struct cfg80211_ops {
@@ -3264,6 +3267,11 @@ struct cfg80211_ops {
 				       struct net_device *dev,
 				       const u8 *peer, u8 tid,
 				       u8 rtscts);
+	int	(*set_tid_tx_bitrate_mask)(struct wiphy *wiphy,
+				struct net_device *dev,
+				const u8 *peer, u8 tid,
+				enum nl80211_tx_rate_setting txrate_type,
+				const struct cfg80211_bitrate_mask *mask);
 };
 
 /*

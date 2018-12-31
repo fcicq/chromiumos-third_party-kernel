@@ -12425,6 +12425,7 @@ nl80211_attr_tid_policy[NL80211_ATTR_TID_MAX + 1] = {
 	[NL80211_ATTR_TID_RETRY_LONG] = { .type = NLA_U8 },
 	[NL80211_ATTR_TID_AMPDU_AGGR_CTRL] = { .type = NLA_U8 },
 	[NL80211_ATTR_TID_RTS_CTS_CONFIG] = { .type = NLA_U8 },
+	[NL80211_ATTR_TID_TX_BITRATE_MASK] = { .type = NLA_U8 },
 };
 
 static int nl80211_set_tid_config(struct sk_buff *skb,
@@ -12434,6 +12435,7 @@ static int nl80211_set_tid_config(struct sk_buff *skb,
 	struct nlattr *attrs[NL80211_ATTR_TID_MAX + 1];
 	struct nlattr *tid;
 	struct net_device *dev = info->user_ptr[1];
+	struct cfg80211_bitrate_mask mask;
 	const char *peer = NULL;
 	u8 tid_no, rtscts;
 	int ret = -EINVAL, retry_short = -1, retry_long = -1;
@@ -12523,6 +12525,35 @@ static int nl80211_set_tid_config(struct sk_buff *skb,
 			return -EINVAL;
 		ret = rdev_set_tid_rts_cts_config(rdev, dev, peer, tid_no,
 						  rtscts);
+	}
+
+	if (attrs[NL80211_ATTR_TID_TX_BITRATE_MASK]) {
+		enum nl80211_tx_rate_setting type;
+		int idx;
+
+		idx = NL80211_ATTR_TID_TX_BITRATE_MASK;
+		type = nla_get_u8(attrs[idx]);
+
+		if (!rdev->ops->set_tid_tx_bitrate_mask ||
+		    !wiphy_ext_feature_isset(&rdev->wiphy,
+				NL80211_EXT_FEATURE_PER_TID_TX_BITRATE_MASK))
+			return -EOPNOTSUPP;
+
+		if (peer && !wiphy_ext_feature_isset(
+				&rdev->wiphy,
+				NL80211_EXT_FEATURE_PER_STA_TX_BITRATE_MASK))
+			return -EOPNOTSUPP;
+
+		if (type != NL80211_TX_RATE_AUTOMATIC) {
+			ret = nl80211_parse_tx_bitrate_mask(info, &mask);
+			if (ret)
+				return ret;
+			ret = rdev_set_tid_tx_bitrate_mask(rdev, dev, peer,
+							   tid_no, type, &mask);
+		} else {
+			ret = rdev_set_tid_tx_bitrate_mask(rdev, dev, peer,
+							   tid_no, type, NULL);
+		}
 	}
 	return ret;
 }
