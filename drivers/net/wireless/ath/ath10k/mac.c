@@ -2980,6 +2980,57 @@ ath10k_mac_set_noack_tid_bitmap(struct ath10k *ar,
 	return ret;
 }
 
+static int ath10k_new_peer_tid_config(struct ath10k *ar,
+				      struct ieee80211_sta *sta,
+				      struct ath10k_vif *arvif)
+{
+	struct ath10k_sta *arsta = (struct ath10k_sta *)sta->drv_priv;
+	struct wmi_per_peer_per_tid_cfg_arg arg = {};
+	int i, ret;
+
+	if (arvif->noack_map) {
+		arg.vdev_id = arvif->vdev_id;
+		ether_addr_copy(arg.peer_macaddr.addr, sta->addr);
+
+		ret = ath10k_mac_set_noack_tid_bitmap(ar, &arg,
+						      arvif->noack_map);
+		if (ret) {
+			ath10k_warn(ar, "failed to set peer tid noack policy for sta %pM: %d\n",
+				    sta->addr, ret);
+			return ret;
+		}
+	}
+
+	/* Assign default noack_map value (-1) to newly connecting station.
+	 * This default value used to identify the station configured with
+	 * vif specific noack configuration rather than station specific.
+	 */
+	arsta->noack_map = -1;
+	memset(&arg, 0, sizeof(arg));
+
+	for (i = 0; i < ATH10K_MAX_TIDS; i++) {
+		if (arvif->retry_count[i] || arvif->aggr_ctrl[i]) {
+			arg.tid = i;
+			arg.vdev_id = arvif->vdev_id;
+			arg.retry_count = arvif->retry_count[i];
+			arg.aggr_control = arvif->aggr_ctrl[i];
+			ether_addr_copy(arg.peer_macaddr.addr, sta->addr);
+			ret = ath10k_wmi_set_per_peer_per_tid_cfg(ar, &arg);
+			if (ret) {
+				ath10k_warn(ar, "failed to set per tid retry/aggr config for sta %pM: %d\n",
+					    sta->addr, ret);
+				return ret;
+			}
+		}
+		/* Assign default retry count(-1) to newly connected station.
+		 * This is to identify station specific tid retry count not
+		 * configured for the station.
+		 */
+		arsta->retry_count[i] = -1;
+	}
+	return 0;
+}
+
 static int ath10k_station_assoc(struct ath10k *ar,
 				struct ieee80211_vif *vif,
 				struct ieee80211_sta *sta,
@@ -2987,7 +3038,6 @@ static int ath10k_station_assoc(struct ath10k *ar,
 {
 	struct ath10k_vif *arvif = (void *)vif->drv_priv;
 	struct wmi_peer_assoc_complete_arg peer_arg;
-	struct ath10k_sta *arsta = (struct ath10k_sta *)sta->drv_priv;
 	int ret = 0;
 
 	lockdep_assert_held(&ar->conf_mutex);
@@ -3046,24 +3096,10 @@ static int ath10k_station_assoc(struct ath10k *ar,
 		}
 	}
 
-	if (arvif->noack_map) {
-		struct wmi_per_peer_per_tid_cfg_arg arg = {};
+	if (!test_bit(WMI_SERVICE_PEER_TID_CONFIGS_SUPPORT, ar->wmi.svc_map))
+		return 0;
 
-		arg.vdev_id = arvif->vdev_id;
-		ether_addr_copy(arg.peer_macaddr.addr, sta->addr);
-
-		ret = ath10k_mac_set_noack_tid_bitmap(ar, &arg,
-						      arvif->noack_map);
-		if (ret)
-			return ret;
-	}
-
-	/* Assign default noack_map value (-1) to newly connecting station.
-	 * This default value used to identify the station configured with
-	 * vif specific noack configuration rather than station specific.
-	 */
-	arsta->noack_map = -1;
-	return ret;
+	return ath10k_new_peer_tid_config(ar, sta, arvif);
 }
 
 static int ath10k_station_disassoc(struct ath10k *ar,
@@ -6225,7 +6261,7 @@ static int ath10k_mac_tdls_vifs_count(struct ieee80211_hw *hw)
 	return num_tdls_vifs;
 }
 
-struct ath10k_mac_iter_noack_map_data {
+struct ath10k_mac_iter_tid_config {
 	struct ieee80211_vif *curr_vif;
 	struct ath10k *ar;
 };
@@ -6252,13 +6288,63 @@ static void ath10k_mac_vif_stations_noack_map(void *data,
 					      struct ieee80211_sta *sta)
 {
 	struct ath10k_sta *arsta = (struct ath10k_sta *)sta->drv_priv;
-	struct ath10k_mac_iter_noack_map_data *iter_data = data;
+	struct ath10k_mac_iter_tid_config *iter_data = data;
 	struct ieee80211_vif *sta_vif = arsta->arvif->vif;
 
 	if (sta_vif != iter_data->curr_vif || arsta->noack_map != -1)
 		return;
 
 	ieee80211_queue_work(iter_data->ar->hw, &arsta->noack_map_wk);
+}
+
+static void ath10k_sta_tid_cfg_wk(struct work_struct *wk)
+{
+	struct wmi_per_peer_per_tid_cfg_arg arg = {};
+	struct ieee80211_sta *sta;
+	struct ath10k_sta *arsta;
+	struct ath10k_vif *arvif;
+	struct ath10k *ar;
+	int ret;
+
+	arsta = container_of(wk, struct ath10k_sta, tid_cfg_wk);
+	sta = container_of((void *)arsta, struct ieee80211_sta, drv_priv);
+	arvif = arsta->arvif;
+	ar = arvif->ar;
+	arg.vdev_id = arvif->vdev_id;
+	arg.tid = arvif->tid;
+	ether_addr_copy(arg.peer_macaddr.addr, sta->addr);
+
+	if (arvif->tid_conf_changed & TID_RETRY_CONF_CHANGED) {
+		if (arsta->retry_count[arvif->tid] != -1)
+			return;
+
+		arg.retry_count = arvif->retry_count[arvif->tid];
+	}
+
+	if (arvif->tid_conf_changed & TID_AGGR_CONF_CHANGED) {
+		if (arsta->aggr_ctrl[arvif->tid])
+			return;
+
+		arg.aggr_control = arvif->aggr_ctrl[arvif->tid];
+	}
+
+	ret = ath10k_wmi_set_per_peer_per_tid_cfg(ar, &arg);
+	if (ret)
+		ath10k_warn(ar, "failed to set per tid retry/aggr config for sta %pM: %d\n",
+				sta->addr, ret);
+}
+
+static void ath10k_mac_vif_stations_tid_conf(void *data,
+					     struct ieee80211_sta *sta)
+{
+	struct ath10k_sta *arsta = (struct ath10k_sta *)sta->drv_priv;
+	struct ath10k_mac_iter_tid_config *iter_data = data;
+	struct ieee80211_vif *sta_vif = arsta->arvif->vif;
+
+	if (sta_vif != iter_data->curr_vif)
+		return;
+
+	ieee80211_queue_work(iter_data->ar->hw, &arsta->tid_cfg_wk);
 }
 
 static int ath10k_sta_state(struct ieee80211_hw *hw,
@@ -6282,6 +6368,7 @@ static int ath10k_sta_state(struct ieee80211_hw *hw,
 		INIT_WORK(&arsta->update_wk, ath10k_sta_rc_update_wk);
 		INIT_WORK(&arsta->noack_map_wk,
 			  ath10k_sta_set_noack_tid_bitmap);
+		INIT_WORK(&arsta->tid_cfg_wk, ath10k_sta_tid_cfg_wk);
 
 		for (i = 0; i < ARRAY_SIZE(sta->txq); i++)
 			ath10k_mac_txq_init(sta->txq[i]);
@@ -6292,6 +6379,7 @@ static int ath10k_sta_state(struct ieee80211_hw *hw,
 	     new_state == IEEE80211_STA_NOTEXIST)) {
 		cancel_work_sync(&arsta->update_wk);
 		cancel_work_sync(&arsta->noack_map_wk);
+		cancel_work_sync(&arsta->tid_cfg_wk);
 	}
 
 	mutex_lock(&ar->conf_mutex);
@@ -7888,7 +7976,7 @@ static int ath10k_mac_op_set_noack_tid_bitmap(struct ieee80211_hw *hw,
 					      int noack_map)
 {
 	struct ath10k_vif *arvif = (void *)vif->drv_priv;
-	struct ath10k_mac_iter_noack_map_data data = {};
+	struct ath10k_mac_iter_tid_config data = {};
 	struct wmi_per_peer_per_tid_cfg_arg arg = {};
 	struct ath10k *ar = hw->priv;
 	struct ath10k_sta *arsta;
@@ -7926,6 +8014,96 @@ static int ath10k_mac_op_set_noack_tid_bitmap(struct ieee80211_hw *hw,
 	arvif->noack_map = noack_map;
 	ieee80211_iterate_stations_atomic(hw,
 					  ath10k_mac_vif_stations_noack_map,
+					  &data);
+
+exit:
+	mutex_unlock(&ar->conf_mutex);
+	return ret;
+}
+
+static int ath10k_mac_op_set_tid_conf(struct ieee80211_hw *hw,
+				      struct ieee80211_vif *vif,
+				      struct ieee80211_sta *sta,
+				      struct ieee80211_tid_conf *tid_conf,
+				      u8 changed)
+{
+	int ret;
+	struct ath10k *ar = hw->priv;
+	struct ath10k_vif *arvif = (void *)vif->drv_priv;
+	struct ath10k_mac_iter_tid_config data = {};
+	struct wmi_per_peer_per_tid_cfg_arg arg = {};
+	struct ath10k_sta *arsta;
+
+	if (!(changed & TID_RETRY_CONF_CHANGED) &&
+	    !(changed & TID_AGGR_CONF_CHANGED))
+		return -EINVAL;
+
+	mutex_lock(&ar->conf_mutex);
+	arg.vdev_id = arvif->vdev_id;
+	arg.tid = tid_conf->tid;
+
+	if (sta) {
+		arsta = (struct ath10k_sta *)sta->drv_priv;
+		ether_addr_copy(arg.peer_macaddr.addr, sta->addr);
+
+		if (changed & TID_RETRY_CONF_CHANGED) {
+			if (tid_conf->retry_long ==
+			    arsta->retry_count[arg.tid]) {
+				ret = 0;
+				goto exit;
+			}
+
+			if (tid_conf->retry_long == -1) {
+				if (arvif->retry_count[arg.tid])
+					arg.retry_count =
+						arvif->retry_count[arg.tid];
+				else
+					arg.retry_count =
+						ATH10K_MAX_RETRY_COUNT;
+			} else {
+				arg.retry_count = tid_conf->retry_long;
+			}
+		} else if (changed & TID_AGGR_CONF_CHANGED) {
+			if (tid_conf->aggr)
+				arg.aggr_control =
+					WMI_TID_CONFIG_AGGR_CONTROL_ENABLE;
+			else
+				arg.aggr_control =
+					WMI_TID_CONFIG_AGGR_CONTROL_DISABLE;
+		}
+
+		ret = ath10k_wmi_set_per_peer_per_tid_cfg(ar, &arg);
+		if (!ret) {
+			/* Store the configured parameters in success case */
+			if (changed & TID_RETRY_CONF_CHANGED)
+				arsta->retry_count[arg.tid] =
+							tid_conf->retry_long;
+			if (changed & TID_AGGR_CONF_CHANGED)
+				arsta->aggr_ctrl[arg.tid] = arg.aggr_control;
+		}
+
+		goto exit;
+	}
+
+	ret = 0;
+	if (changed & TID_RETRY_CONF_CHANGED)
+		arvif->retry_count[tid_conf->tid] = tid_conf->retry_long;
+
+	if (changed & TID_AGGR_CONF_CHANGED) {
+		if (tid_conf->aggr)
+			arvif->aggr_ctrl[tid_conf->tid] =
+				WMI_TID_CONFIG_AGGR_CONTROL_ENABLE;
+		else
+			arvif->aggr_ctrl[tid_conf->tid] =
+				WMI_TID_CONFIG_AGGR_CONTROL_DISABLE;
+	}
+
+	data.curr_vif = vif;
+	data.ar = ar;
+	arvif->tid_conf_changed = changed;
+	arvif->tid = tid_conf->tid;
+	ieee80211_iterate_stations_atomic(hw,
+					  ath10k_mac_vif_stations_tid_conf,
 					  &data);
 
 exit:
@@ -7976,6 +8154,7 @@ static const struct ieee80211_ops ath10k_ops = {
 	.sta_pre_rcu_remove		= ath10k_mac_op_sta_pre_rcu_remove,
 	.sta_statistics			= ath10k_sta_statistics,
 	.set_noack_tid_bitmap           = ath10k_mac_op_set_noack_tid_bitmap,
+	.set_tid_conf			= ath10k_mac_op_set_tid_conf,
 
 	CFG80211_TESTMODE_CMD(ath10k_tm_cmd)
 
@@ -8635,11 +8814,24 @@ int ath10k_mac_register(struct ath10k *ar)
 		wiphy_ext_feature_set(ar->hw->wiphy,
 				      NL80211_EXT_FEATURE_ACK_SIGNAL_SUPPORT);
 
-	if (test_bit(WMI_SERVICE_PEER_TID_CONFIGS_SUPPORT, ar->wmi.svc_map))
+	if (test_bit(WMI_SERVICE_PEER_TID_CONFIGS_SUPPORT, ar->wmi.svc_map)) {
 		wiphy_ext_feature_set(ar->hw->wiphy,
 				      NL80211_EXT_FEATURE_PER_STA_NOACK_MAP);
-	else
+		wiphy_ext_feature_set(ar->hw->wiphy,
+				      NL80211_EXT_FEATURE_PER_TID_RETRY_CONFIG);
+		wiphy_ext_feature_set(ar->hw->wiphy,
+				      NL80211_EXT_FEATURE_PER_STA_RETRY_CONFIG);
+		wiphy_ext_feature_set(ar->hw->wiphy,
+			      NL80211_EXT_FEATURE_PER_TID_AMPDU_AGGR_CTRL);
+		wiphy_ext_feature_set(ar->hw->wiphy,
+			      NL80211_EXT_FEATURE_PER_STA_AMPDU_AGGR_CTRL);
+		ar->hw->wiphy->max_data_retry_count = ATH10K_MAX_RETRY_COUNT;
+		ar->hw->wiphy->flags |= WIPHY_FLAG_HAS_MAX_DATA_RETRY_COUNT;
+	} else {
 		ar->ops->set_noack_tid_bitmap = NULL;
+		ar->ops->set_tid_conf = NULL;
+		ar->hw->wiphy->flags &= ~WIPHY_FLAG_HAS_MAX_DATA_RETRY_COUNT;
+	}
 
 	/*
 	 * on LL hardware queues are managed entirely by the FW

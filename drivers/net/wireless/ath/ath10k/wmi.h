@@ -7214,6 +7214,7 @@ struct wmi_per_peer_per_tid_cfg_arg {
 	enum wmi_noack_tid_conf ack_policy;
 	enum wmi_tid_aggr_control_conf aggr_control;
 	enum wmi_tid_rate_ctrl_conf rate_ctrl;
+	u8 retry_count;
 };
 
 struct wmi_peer_per_tid_cfg_cmd {

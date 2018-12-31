@@ -93,6 +93,9 @@
 /* Number of TID target accepts from host */
 #define ATH10K_MAX_TIDS	0x8
 
+/* Upper limit/default retry count for a ppdu */
+#define	ATH10K_MAX_RETRY_COUNT 30
+
 struct ath10k;
 
 enum ath10k_bus {
@@ -455,6 +458,16 @@ struct ath10k_sta {
 	/* TID bitmap for station's NoAck policy, protected by conf_mutex */
 	int noack_map;
 	struct work_struct noack_map_wk;
+
+	/* TID retry count for a station and by default
+	 * this will have -1 for all the TIDs until user changes
+	 * the retry count by specifying station's MAC address
+	 */
+	int retry_count[ATH10K_MAX_TIDS];
+
+	/* TID aggregation control value for the station */
+	u8 aggr_ctrl[ATH10K_MAX_TIDS];
+	struct work_struct tid_cfg_wk;
 };
 
 #define ATH10K_VDEV_SETUP_TIMEOUT_HZ (5 * HZ)
@@ -524,6 +537,16 @@ struct ath10k_vif {
 
 	/* TID bitmap for station's NoAck policy, protected by conf_mutex */
 	int noack_map;
+
+	/* TID retry count for all the stations in the vif */
+	int retry_count[ATH10K_MAX_TIDS];
+
+	/* TID aggregation control parameter fo all the connected
+	 * stations in the vif
+	 */
+	u8 aggr_ctrl[ATH10K_MAX_TIDS];
+	u8 tid_conf_changed;
+	u8 tid;
 };
 
 struct ath10k_vif_iter {

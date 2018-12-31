@@ -8636,10 +8636,12 @@ ath10k_wmi_10_4_gen_per_peer_per_tid_cfg(struct ath10k *ar,
 	cmd->ack_policy = cpu_to_le32(arg->ack_policy);
 	cmd->aggr_control = cpu_to_le32(arg->aggr_control);
 	cmd->rate_control = cpu_to_le32(arg->rate_ctrl);
+	cmd->sw_retry_threshold = cpu_to_le32(arg->retry_count);
 
 	ath10k_dbg(ar, ATH10K_DBG_WMI,
-		   "wmi noack tid %d vdev id %d ack_policy %d aggr %u rate %u mac_addr %pM\n",
-		   arg->tid, arg->vdev_id, arg->ack_policy, arg->aggr_control, arg->rate_ctrl, arg->peer_macaddr.addr);
+		   "wmi noack tid %d vdev id %d ack_policy %d aggr %u rate %u retry_count %d mac_addr %pM\n",
+		   arg->tid, arg->vdev_id, arg->ack_policy, arg->aggr_control, arg->rate_ctrl, arg->retry_count,
+		   arg->peer_macaddr.addr);
 	return skb;
 }
 
