@@ -468,6 +468,7 @@ struct ath10k_sta {
 	/* TID aggregation control value for the station */
 	u8 aggr_ctrl[ATH10K_MAX_TIDS];
 	struct work_struct tid_cfg_wk;
+	u8 rtscts_ctrl[ATH10K_MAX_TIDS];
 };
 
 #define ATH10K_VDEV_SETUP_TIMEOUT_HZ (5 * HZ)
@@ -547,6 +548,7 @@ struct ath10k_vif {
 	u8 aggr_ctrl[ATH10K_MAX_TIDS];
 	u8 tid_conf_changed;
 	u8 tid;
+	u8 rtscts_ctrl[ATH10K_MAX_TIDS];
 };
 
 struct ath10k_vif_iter {

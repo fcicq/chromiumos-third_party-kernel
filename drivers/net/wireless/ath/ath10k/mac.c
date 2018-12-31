@@ -3009,11 +3009,16 @@ static int ath10k_new_peer_tid_config(struct ath10k *ar,
 	memset(&arg, 0, sizeof(arg));
 
 	for (i = 0; i < ATH10K_MAX_TIDS; i++) {
-		if (arvif->retry_count[i] || arvif->aggr_ctrl[i]) {
+		if (arvif->retry_count[i] || arvif->aggr_ctrl[i] ||
+		    arvif->rtscts_ctrl[i]) {
 			arg.tid = i;
 			arg.vdev_id = arvif->vdev_id;
 			arg.retry_count = arvif->retry_count[i];
 			arg.aggr_control = arvif->aggr_ctrl[i];
+			if (arvif->rtscts_ctrl[i])
+				arg.ext_tid_cfg_bitmap = 1;
+			else
+				arg.ext_tid_cfg_bitmap = 0;
 			ether_addr_copy(arg.peer_macaddr.addr, sta->addr);
 			ret = ath10k_wmi_set_per_peer_per_tid_cfg(ar, &arg);
 			if (ret) {
@@ -6328,6 +6333,13 @@ static void ath10k_sta_tid_cfg_wk(struct work_struct *wk)
 		arg.aggr_control = arvif->aggr_ctrl[arvif->tid];
 	}
 
+	if (arvif->tid_conf_changed & TID_RTSCTS_CONF_CHANGED) {
+		if (arsta->rtscts_ctrl[arvif->tid])
+			return;
+
+		arg.rtscts_ctrl = arvif->rtscts_ctrl[arvif->tid];
+		arg.ext_tid_cfg_bitmap = 1;
+	}
 	ret = ath10k_wmi_set_per_peer_per_tid_cfg(ar, &arg);
 	if (ret)
 		ath10k_warn(ar, "failed to set per tid retry/aggr config for sta %pM: %d\n",
@@ -8070,6 +8082,14 @@ static int ath10k_mac_op_set_tid_conf(struct ieee80211_hw *hw,
 			else
 				arg.aggr_control =
 					WMI_TID_CONFIG_AGGR_CONTROL_DISABLE;
+		} else if (changed & TID_RTSCTS_CONF_CHANGED) {
+			if (tid_conf->rtscts)
+				arg.rtscts_ctrl =
+					tid_conf->rtscts - 1;
+			else
+				arg.rtscts_ctrl =
+					WMI_TID_CONFIG_RTSCTS_CONTROL_ENABLE;
+			arg.ext_tid_cfg_bitmap = 1;
 		}
 
 		ret = ath10k_wmi_set_per_peer_per_tid_cfg(ar, &arg);
@@ -8080,6 +8100,9 @@ static int ath10k_mac_op_set_tid_conf(struct ieee80211_hw *hw,
 							tid_conf->retry_long;
 			if (changed & TID_AGGR_CONF_CHANGED)
 				arsta->aggr_ctrl[arg.tid] = arg.aggr_control;
+
+			if (changed & TID_RTSCTS_CONF_CHANGED)
+				arsta->rtscts_ctrl[arg.tid] = tid_conf->rtscts;
 		}
 
 		goto exit;
@@ -8098,6 +8121,14 @@ static int ath10k_mac_op_set_tid_conf(struct ieee80211_hw *hw,
 				WMI_TID_CONFIG_AGGR_CONTROL_DISABLE;
 	}
 
+	if (changed & TID_RTSCTS_CONF_CHANGED) {
+		if (tid_conf->rtscts)
+			arvif->rtscts_ctrl[tid_conf->tid] =
+				tid_conf->rtscts - 1;
+		else
+			arvif->rtscts_ctrl[tid_conf->tid] =
+				WMI_TID_CONFIG_RTSCTS_CONTROL_ENABLE;
+	}
 	data.curr_vif = vif;
 	data.ar = ar;
 	arvif->tid_conf_changed = changed;
@@ -8833,6 +8864,13 @@ int ath10k_mac_register(struct ath10k *ar)
 		ar->hw->wiphy->flags &= ~WIPHY_FLAG_HAS_MAX_DATA_RETRY_COUNT;
 	}
 
+	if (test_bit(WMI_SERVICE_EXT_PEER_TID_CONFIGS_SUPPORT,
+		     ar->wmi.svc_map)) {
+		wiphy_ext_feature_set(ar->hw->wiphy,
+				      NL80211_EXT_FEATURE_PER_TID_RTS_CTS_CTRL);
+		wiphy_ext_feature_set(ar->hw->wiphy,
+				      NL80211_EXT_FEATURE_PER_STA_RTS_CTS_CTRL);
+	}
 	/*
 	 * on LL hardware queues are managed entirely by the FW
 	 * so we only advertise to mac we can do the queues thing
