@@ -3844,6 +3844,42 @@ static int ieee80211_set_tid_rts_cts_config(struct wiphy *wiphy,
 	return ret;
 }
 
+static int
+ieee80211_set_tid_tx_bitrate_mask(struct wiphy *wiphy,
+				  struct net_device *dev,
+				  const u8 *peer, u8 tid,
+				  enum nl80211_tx_rate_setting txrate_type,
+				  const struct cfg80211_bitrate_mask *mask)
+{
+	struct ieee80211_sub_if_data *sdata = IEEE80211_DEV_TO_SUB_IF(dev);
+	struct sta_info *sta;
+	int ret;
+
+	if (!sdata->local->ops->set_tid_conf)
+		return -EOPNOTSUPP;
+
+	sdata->vif.tid_conf.tid = tid;
+	sdata->vif.tid_conf.mask = mask;
+	sdata->vif.tid_conf.txrate_type = txrate_type;
+
+	if (!peer)
+		return drv_set_tid_conf(sdata->local, sdata, NULL,
+					TID_TX_BITRATE_CONF_CHANGED);
+
+	mutex_lock(&sdata->local->sta_mtx);
+
+	sta = sta_info_get_bss(sdata, peer);
+	if (!sta) {
+		mutex_unlock(&sdata->local->sta_mtx);
+		return -ENOENT;
+	}
+
+	ret = drv_set_tid_conf(sdata->local, sdata, &sta->sta,
+			       TID_TX_BITRATE_CONF_CHANGED);
+
+	mutex_unlock(&sdata->local->sta_mtx);
+	return ret;
+}
 const struct cfg80211_ops mac80211_config_ops = {
 	.add_virtual_intf = ieee80211_add_iface,
 	.del_virtual_intf = ieee80211_del_iface,
@@ -3939,4 +3975,5 @@ const struct cfg80211_ops mac80211_config_ops = {
 	.set_data_retry_count = ieee80211_set_data_retry_count,
 	.set_tid_aggr_config = ieee80211_set_tid_aggr_config,
 	.set_tid_rts_cts_config = ieee80211_set_tid_rts_cts_config,
+	.set_tid_tx_bitrate_mask = ieee80211_set_tid_tx_bitrate_mask,
 };

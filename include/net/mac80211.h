@@ -1412,6 +1412,7 @@ enum ieee80211_tid_conf_change {
 	TID_RETRY_CONF_CHANGED		= BIT(0),
 	TID_AGGR_CONF_CHANGED		= BIT(1),
 	TID_RTSCTS_CONF_CHANGED		= BIT(2),
+	TID_TX_BITRATE_CONF_CHANGED	= BIT(3),
 };
 
 /*
@@ -1430,6 +1431,8 @@ struct ieee80211_tid_conf {
 	int retry_long;
 	bool aggr;
 	u8 rtscts;
+	u8 txrate_type;
+	const struct cfg80211_bitrate_mask *mask;
 };
 /**
  * enum ieee80211_vif_flags - virtual interface flags
