@@ -598,7 +598,7 @@ int ath10k_cfr_capture_create(struct ath10k *ar)
 
 	ar->rfs_cfr_capture = relay_open("cfr_dump",
 			      ar->debug.debugfs_phy,
-			      1100, 2000,
+			      2200, 2000,
 			      &rfs_cfr_capture_cb, NULL);
 	return 0;
 }
