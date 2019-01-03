@@ -6301,7 +6301,8 @@ static void ath10k_mac_vif_stations_noack_map(void *data,
 	struct ath10k_mac_iter_tid_config *iter_data = data;
 	struct ieee80211_vif *sta_vif = arsta->arvif->vif;
 
-	if (sta_vif != iter_data->curr_vif || arsta->noack_map != -1)
+	if (sta_vif != iter_data->curr_vif || arsta->noack_map != -1 ||
+	    !sta->wme)
 		return;
 
 	ieee80211_queue_work(iter_data->ar->hw, &arsta->noack_map_wk);
@@ -6533,7 +6534,7 @@ static void ath10k_mac_vif_stations_tid_conf(void *data,
 	u8 rate_ctrl;
 	int ret;
 
-	if (sta_vif != iter_data->curr_vif)
+	if (sta_vif != iter_data->curr_vif || !sta->wme)
 		return;
 
 	if (arsta->arvif->tid_conf_changed & TID_TX_BITRATE_CONF_CHANGED) {
@@ -8119,6 +8120,10 @@ static int ath10k_mac_op_set_noack_tid_bitmap(struct ieee80211_hw *hw,
 	if (sta) {
 		arsta = (struct ath10k_sta *)sta->drv_priv;
 		ether_addr_copy(arg.peer_macaddr.addr, sta->addr);
+
+		if (!sta->wme)
+			return -ENOTSUPP;
+
 		if (arsta->noack_map == noack_map) {
 			ret = 0;
 			goto exit;
@@ -8178,6 +8183,9 @@ static int ath10k_mac_op_set_tid_conf(struct ieee80211_hw *hw,
 	if (sta) {
 		arsta = (struct ath10k_sta *)sta->drv_priv;
 		ether_addr_copy(arg.peer_macaddr.addr, sta->addr);
+
+		if (!sta->wme)
+			return -ENOTSUPP;
 
 		if (changed & TID_RETRY_CONF_CHANGED) {
 			if (tid_conf->retry_long ==
