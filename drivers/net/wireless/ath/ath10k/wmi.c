@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2005-2011 Atheros Communications Inc.
  * Copyright (c) 2011-2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2019, The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -8636,15 +8636,16 @@ ath10k_wmi_10_4_gen_per_peer_per_tid_cfg(struct ath10k *ar,
 	cmd->ack_policy = cpu_to_le32(arg->ack_policy);
 	cmd->aggr_control = cpu_to_le32(arg->aggr_control);
 	cmd->rate_control = cpu_to_le32(arg->rate_ctrl);
+	cmd->rcode_rcflags = cpu_to_le32(arg->rate_ctrl_flags);
 	cmd->sw_retry_threshold = cpu_to_le32(arg->retry_count);
 	cmd->ext_tid_cfg_bitmap = cpu_to_le32(arg->ext_tid_cfg_bitmap);
 	cmd->rtscts_ctrl = cpu_to_le32(arg->rtscts_ctrl);
 
 	ath10k_dbg(ar, ATH10K_DBG_WMI,
-		   "wmi noack tid %d vdev id %d ack_policy %d aggr %u rate %u retry_count %d ext_tid_map %u rts_cts %u mac_addr %pM\n",
+		   "wmi noack tid %d vdev id %d ack_policy %d aggr %u rate %u retry_count %d ext_tid_map %u rts_cts %u rate %u mac_addr %pM\n",
 		   arg->tid, arg->vdev_id, arg->ack_policy, arg->aggr_control,
-		   arg->rate_ctrl, arg->retry_count,
-		   arg->ext_tid_cfg_bitmap, arg->rtscts_ctrl,
+		   arg->rate_ctrl, arg->retry_count, arg->ext_tid_cfg_bitmap,
+		   arg->rtscts_ctrl, arg->rate_ctrl_flags,
 		   arg->peer_macaddr.addr);
 	return skb;
 }

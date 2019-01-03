@@ -469,6 +469,7 @@ struct ath10k_sta {
 	u8 aggr_ctrl[ATH10K_MAX_TIDS];
 	struct work_struct tid_cfg_wk;
 	u8 rtscts_ctrl[ATH10K_MAX_TIDS];
+	u8 rate_ctrl[ATH10K_MAX_TIDS];
 };
 
 #define ATH10K_VDEV_SETUP_TIMEOUT_HZ (5 * HZ)
@@ -549,6 +550,10 @@ struct ath10k_vif {
 	u8 tid_conf_changed;
 	u8 tid;
 	u8 rtscts_ctrl[ATH10K_MAX_TIDS];
+	u8 rate_ctrl[ATH10K_MAX_TIDS];
+	u32 rate_ctrl_flags[ATH10K_MAX_TIDS];
+	u8 tid_txrate_type;
+	const struct cfg80211_bitrate_mask *tid_txrate_mask;
 };
 
 struct ath10k_vif_iter {

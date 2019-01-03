@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2005-2011 Atheros Communications Inc.
  * Copyright (c) 2011-2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2019, The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -7222,6 +7222,7 @@ enum wmi_tid_rate_ctrl_conf {
 	WMI_TID_CONFIG_RATE_CONTROL_AUTO,
 	WMI_TID_CONFIG_RATE_CONTROL_FIXED_RATE,
 	WMI_TID_CONFIG_RATE_CONTROL_DEFAULT_LOWEST_RATE,
+	WMI_PEER_TID_CONFIG_RATE_UPPER_CAP,
 };
 
 struct wmi_per_peer_per_tid_cfg_arg {
@@ -7230,10 +7231,11 @@ struct wmi_per_peer_per_tid_cfg_arg {
 	u32 tid;
 	enum wmi_noack_tid_conf ack_policy;
 	enum wmi_tid_aggr_control_conf aggr_control;
-	enum wmi_tid_rate_ctrl_conf rate_ctrl;
+	u8 rate_ctrl;
 	u8 retry_count;
 	u32 ext_tid_cfg_bitmap;
 	u32 rtscts_ctrl;
+	u32 rate_ctrl_flags;
 };
 
 struct wmi_peer_per_tid_cfg_cmd {
