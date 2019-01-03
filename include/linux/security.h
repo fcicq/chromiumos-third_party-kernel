@@ -3283,6 +3283,9 @@ static inline
 int chromiumos_security_capable(const struct cred *cred,
 				struct user_namespace *ns,
 				int cap)
+{
+	return 0;
+}
 static inline
 int chromiumos_sb_copy_data(char *orig, char *copy)
 {
@@ -3292,6 +3295,9 @@ static inline
 int chromiumos_security_task_fix_setuid(struct cred *new,
 					const struct cred *old,
 					int flags)
+{
+	return 0;
+}
 static inline
 int chromiumos_sb_kern_mount(struct super_block *sb, int flags, void *data)
 {
