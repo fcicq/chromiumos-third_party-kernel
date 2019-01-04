@@ -700,8 +700,7 @@ static int ath10k_peer_delete(struct ath10k *ar, u32 vdev_id, const u8 *addr)
 	if (ret)
 		return ret;
 
-	if (ar->running_fw->fw_file.wmi_op_version ==
-	    ATH10K_FW_WMI_OP_VERSION_TLV) {
+	if (test_bit(WMI_SERVICE_SYNC_DELETE_CMDS, ar->wmi.svc_map)) {
 		time_left = wait_for_completion_timeout(&ar->peer_delete_done,
 							50 * HZ);
 
