@@ -8133,8 +8133,10 @@ static int ath10k_mac_op_set_noack_tid_bitmap(struct ieee80211_hw *hw,
 		arsta = (struct ath10k_sta *)sta->drv_priv;
 		ether_addr_copy(arg.peer_macaddr.addr, sta->addr);
 
-		if (!sta->wme)
-			return -ENOTSUPP;
+		if (!sta->wme) {
+			ret = -ENOTSUPP;
+			goto exit;
+		}
 
 		if (arsta->noack_map == noack_map) {
 			ret = 0;
@@ -8196,8 +8198,10 @@ static int ath10k_mac_op_set_tid_conf(struct ieee80211_hw *hw,
 		arsta = (struct ath10k_sta *)sta->drv_priv;
 		ether_addr_copy(arg.peer_macaddr.addr, sta->addr);
 
-		if (!sta->wme)
-			return -ENOTSUPP;
+		if (!sta->wme) {
+			ret = -ENOTSUPP;
+			goto exit;
+		}
 
 		if (changed & TID_RETRY_CONF_CHANGED) {
 			if (tid_conf->retry_long ==
