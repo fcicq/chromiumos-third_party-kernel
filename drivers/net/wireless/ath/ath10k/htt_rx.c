@@ -2569,6 +2569,8 @@ ath10k_accumulate_per_peer_tx_stats(struct ath10k *ar,
 		STATS_OP_FMT(RETRY).rate_table[0][idx] += pstats->retry_bytes;
 		STATS_OP_FMT(RETRY).rate_table[1][idx] += pstats->retry_pkts;
 	}
+
+	tx_stats->tx_duration += pstats->duration;
 }
 
 static void
@@ -2804,6 +2806,10 @@ static int ath10k_htt_fetch_peer_stats_tlv(struct ath10k *ar,
 				p_tx_stats->failed_pkts =
 					__le16_to_cpu(tx_stats->failed_pkts);
 
+			if (test_bit(HTT_TX_STATS_TX_DURATION, &valid_bitmap))
+				p_tx_stats->duration =
+					__le16_to_cpu(tx_stats->tx_duration);
+
 			ath10k_update_per_peer_tx_stats(ar, sta, p_tx_stats);
 
 			spin_unlock_bh(&ar->data_lock);
@@ -2866,6 +2872,7 @@ static void ath10k_htt_fetch_peer_stats(struct ath10k *ar,
 		p_tx_stats->succ_pkts = __le16_to_cpu(tx_stats->succ_pkts);
 		p_tx_stats->retry_pkts = __le16_to_cpu(tx_stats->retry_pkts);
 		p_tx_stats->failed_pkts = __le16_to_cpu(tx_stats->failed_pkts);
+		p_tx_stats->duration = __le16_to_cpu(tx_stats->tx_duration);
 
 		ath10k_update_per_peer_tx_stats(ar, sta, p_tx_stats);
 	}
