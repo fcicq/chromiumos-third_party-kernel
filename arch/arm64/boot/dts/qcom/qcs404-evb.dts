@@ -105,6 +105,7 @@
 				port@2 {
 					reg = <2>;
 					label = "lan1";
+					local-mac-address = [000000000000];
 					cpu = <&cpu_port1>;
 					phy-handle = <&phy_port2>;
 				};
@@ -112,6 +113,7 @@
 				port@3 {
 					reg = <3>;
 					label = "lan2";
+					local-mac-address = [000000000000];
 					cpu = <&cpu_port1>;
 					phy-handle = <&phy_port3>;
 				};
