@@ -43,6 +43,7 @@
 
 	usb3_con: usb3-connector {
 		compatible = "linux,extcon-usb-gpio";
+		id-gpio = <&tlmm 116 GPIO_ACTIVE_HIGH>;
 		vbus-gpio = <&pms405_gpios 12 GPIO_ACTIVE_HIGH>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&usb3_id_pin>, <&usb3_vbus_pin>;
@@ -356,12 +357,17 @@
 	};
 
 	usb3_id_pin: usb3-id-pin {
-		pins = "gpio116";
-		function = "gpio";
+		pinmux {
+			pins = "gpio116";
+			function = "gpio";
+		};
 
-		bias-pull-down;
-		drive-strength = <2>;
-		output-low;
+		pinconf {
+			pins = "gpio116";
+			drive-strength = <2>;
+			bias-pull-up;
+			input-enable;
+		};
 	};
 
 	h1_ap_int_odl: h1-ap-int-odl {
