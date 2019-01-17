@@ -982,6 +982,14 @@
 
 			pinctrl-names = "default";
 			pinctrl-0 = <&perst_state>, <&pcie_dis_state>;
+			pcie@0 {
+				reg = <0 0 0 0 0>;
+				device_type = "pci";
+
+				wifi@0,0 {
+					reg = <0 0 0 0 0>;
+				};
+			};
 
 //			status = "disabled";
 		};
