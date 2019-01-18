@@ -221,7 +221,6 @@
 			interrupts = <GIC_SPI 56 IRQ_TYPE_LEVEL_HIGH>,
 					<GIC_SPI 55 IRQ_TYPE_LEVEL_HIGH>;
 			interrupt-names = "macirq", "eth_lpi";
-			snps,axi-config = <&stmmac_axi_setup>;
 			snps,mtl-rx-config = <&mtl_rx_setup>;
 			snps,mtl-tx-config = <&mtl_tx_setup>;
 
@@ -232,14 +231,8 @@
 
 			rx-fifo-depth = <4096>;
 			tx-fifo-depth = <4096>;
-
+			snps,force_sf_dma_mode;
 			status = "disabled";
-
-			stmmac_axi_setup: stmmac-axi-config {
-				snps,wr_osr_lmt = <15>;
-				snps,rd_osr_lmt = <15>;
-				snps,blen = <256 128 64 32 0 0 0>;
-			};
 
 			mtl_rx_setup: rx-queues-config {
 				snps,rx-queues-to-use = <4>;
@@ -267,12 +260,13 @@
 			};
 
 			mtl_tx_setup: tx-queues-config {
-				snps,tx-queues-to-use = <4>;
+				snps,tx-queues-to-use = <5>;
 				snps,tx-sched-wrr;
 				queue0 {
 					snps,weight = <0x10>;
 					snps,dcb-algorithm;
 					snps,priority = <0x0>;
+					snps,map-to-dma-channel = <0x0>;
 				};
 				queue1 {
 					snps,avb-algorithm;
@@ -280,7 +274,10 @@
 					snps,idle_slope = <0x1000>;
 					snps,high_credit = <0x3E800>;
 					snps,low_credit = <0xFFC18000>;
+					snps,weight = <0x10>;
+					snps,dcb-algorithm;
 					snps,priority = <0x1>;
+					snps,map-to-dma-channel = <0x1>;
 				};
 				queue2 {
 					snps,avb-algorithm;
@@ -288,7 +285,10 @@
 					snps,idle_slope = <0x1000>;
 					snps,high_credit = <0x3E800>;
 					snps,low_credit = <0xFFC18000>;
+					snps,weight = <0x10>;
+					snps,dcb-algorithm;
 					snps,priority = <0x1>;
+					snps,map-to-dma-channel = <0x2>;
 				};
 				queue3 {
 					snps,avb-algorithm;
@@ -296,7 +296,16 @@
 					snps,idle_slope = <0x1000>;
 					snps,high_credit = <0x3E800>;
 					snps,low_credit = <0xFFC18000>;
+					snps,weight = <0x10>;
+					snps,dcb-algorithm;
 					snps,priority = <0x1>;
+					snps,map-to-dma-channel = <0x3>;
+				};
+				queue4 {
+					snps,weight = <0x10>;
+					snps,dcb-algorithm;
+					snps,priority = <0x1>;
+					snps,map-to-dma-channel = <0x4>;
 				};
 			};
 		};
