@@ -154,6 +154,13 @@ static void stmmac_disable_all_queues(struct stmmac_priv *priv)
 	}
 }
 
+static u16 stmmac_select_queue(struct net_device *dev,
+	struct sk_buff *skb, void *accel_priv,
+	select_queue_fallback_t fallback)
+{
+	return 0;
+}
+
 /**
  * stmmac_enable_all_queues - Enable all queues
  * @priv: driver private structure
@@ -3990,6 +3997,7 @@ static const struct net_device_ops stmmac_netdev_ops = {
 #ifdef CONFIG_NET_POLL_CONTROLLER
 	.ndo_poll_controller = stmmac_poll_controller,
 #endif
+	.ndo_select_queue = stmmac_select_queue,
 	.ndo_set_mac_address = eth_mac_addr,
 };
 
