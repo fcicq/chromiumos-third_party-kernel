@@ -826,7 +826,7 @@ static int spi_qup_transfer_one(struct spi_master *master,
 	timeout = DIV_ROUND_UP(xfer->speed_hz, MSEC_PER_SEC);
 	timeout = DIV_ROUND_UP(min_t(unsigned long, SPI_MAX_XFER,
 				     xfer->len) * 8, timeout);
-	timeout = 100 * msecs_to_jiffies(timeout);
+	timeout = 100 * msecs_to_jiffies(timeout * 1000);
 
 	reinit_completion(&controller->done);
 
