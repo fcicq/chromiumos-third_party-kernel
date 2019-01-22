@@ -107,6 +107,7 @@ struct dsa_device_ops {
 			       struct packet_type *pt);
 	int (*flow_dissect)(const struct sk_buff *skb, __be16 *proto,
 			    int *offset);
+	unsigned int tag_len;
 };
 
 struct dsa_switch_tree {

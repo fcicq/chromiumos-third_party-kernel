@@ -419,6 +419,40 @@ static void dsa_ds_unapply(struct dsa_switch_tree *dst, struct dsa_switch *ds)
 
 }
 
+static int dsa_tree_master_mtu_setup(struct dsa_switch_tree *dst)
+{
+	struct dsa_port *cpu_dp = dst->cpu_dp;
+	struct net_device *master = cpu_dp->netdev;
+	int err = 0;
+	unsigned int tag_len;
+
+	tag_len = dst->tag_ops->tag_len;
+	if (tag_len == 0)
+		return err;
+	if (master->mtu + tag_len > master->max_mtu)
+		return err;
+
+	rtnl_lock();
+	err = dev_set_mtu(master, master->mtu + tag_len);
+	rtnl_unlock();
+
+	return err;
+}
+
+static void dsa_tree_master_mtu_reset(struct dsa_switch_tree *dst)
+{
+	struct dsa_port *cpu_dp = dst->cpu_dp;
+	struct net_device *master = cpu_dp->netdev;
+	int err;
+
+	rtnl_lock();
+	err = dev_set_mtu(master, ETH_DATA_LEN);
+	if (err)
+		netdev_dbg(master,
+			   "Failed to reset MTU to exclude DSA tag\n");
+	rtnl_unlock();
+}
+
 static int dsa_dst_apply(struct dsa_switch_tree *dst)
 {
 	struct dsa_switch *ds;
@@ -437,6 +471,10 @@ static int dsa_dst_apply(struct dsa_switch_tree *dst)
 
 	if (dst->cpu_dp) {
 		err = dsa_cpu_port_ethtool_setup(dst->cpu_dp);
+		if (err)
+			return err;
+
+		err = dsa_tree_master_mtu_setup(dst);
 		if (err)
 			return err;
 	}
@@ -478,6 +516,7 @@ static void dsa_dst_unapply(struct dsa_switch_tree *dst)
 
 	if (dst->cpu_dp) {
 		dsa_cpu_port_ethtool_restore(dst->cpu_dp);
+		dsa_tree_master_mtu_reset(dst);
 		dst->cpu_dp = NULL;
 	}
 
