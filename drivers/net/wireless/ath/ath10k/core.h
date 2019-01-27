@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2005-2011 Atheros Communications Inc.
  * Copyright (c) 2011-2017 Qualcomm Atheros, Inc.
+ * Copyright (c) 2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -474,7 +475,8 @@ struct ath10k_sta {
 	u8 rate_ctrl[ATH10K_MAX_TIDS];
 };
 
-#define ATH10K_VDEV_SETUP_TIMEOUT_HZ (5 * HZ)
+#define ATH10K_VDEV_SETUP_TIMEOUT_HZ	(5 * HZ)
+#define ATH10K_VDEV_DELETE_TIMEOUT_HZ	(5 * HZ)
 
 enum ath10k_beacon_state {
 	ATH10K_BEACON_SCHEDULED = 0,
@@ -1025,6 +1027,7 @@ struct ath10k {
 	struct completion install_key_done;
 
 	struct completion vdev_setup_done;
+	struct completion vdev_delete_done;
 
 	struct workqueue_struct *workqueue;
 	/* Auxiliary workqueue */
