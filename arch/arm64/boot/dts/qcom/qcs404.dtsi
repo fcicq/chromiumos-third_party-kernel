@@ -221,6 +221,8 @@
 			interrupts = <GIC_SPI 56 IRQ_TYPE_LEVEL_HIGH>,
 					<GIC_SPI 55 IRQ_TYPE_LEVEL_HIGH>;
 			interrupt-names = "macirq", "eth_lpi";
+
+			snps,axi-config = <&stmmac_axi_setup>;
 			snps,mtl-rx-config = <&mtl_rx_setup>;
 			snps,mtl-tx-config = <&mtl_tx_setup>;
 
@@ -234,6 +236,10 @@
 			snps,force_sf_dma_mode;
 			status = "disabled";
 
+			stmmac_axi_setup: stmmac-axi-config {
+				snps,rd_osr_lmt = <2>;
+				snps,blen = <0 0 0 0 16 8 4>;
+			};
 			mtl_rx_setup: rx-queues-config {
 				snps,rx-queues-to-use = <4>;
 				snps,rx-sched-sp;
