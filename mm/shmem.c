@@ -3263,14 +3263,6 @@ static struct file_system_type shmem_fs_type = {
 	.fs_flags	= FS_USERNS_MOUNT,
 };
 
-static bool __initdata shmem_execmount = false;
-
-static int __init parse_shmem(char *arg)
-{
-	return kstrtobool(arg, &shmem_execmount);
-}
-early_param("shm_exec", parse_shmem);
-
 int __init shmem_init(void)
 {
 	int error;
@@ -3295,10 +3287,6 @@ int __init shmem_init(void)
 		printk(KERN_ERR "Could not kern_mount tmpfs\n");
 		goto out1;
 	}
-
-	if (!shmem_execmount)
-		shm_mnt->mnt_flags |= MNT_NOEXEC;
-
 	return 0;
 
 out1:
