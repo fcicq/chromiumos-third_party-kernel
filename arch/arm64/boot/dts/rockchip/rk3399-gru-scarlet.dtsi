@@ -628,6 +628,14 @@ camera: &i2c7 {
 	vpcie1v8-supply = <&pp1800_pcie>;
 };
 
+&pci_rootport {
+	qca_wifi: wifi@0,0 {
+		compatible = "qcom,ath10k";
+		reg = <0x83010000 0x0 0x00000000 0x0 0x00100000
+		       0x83010000 0x0 0x00100000 0x0 0x00100000>;
+	};
+};
+
 &sdmmc {
 	cd-gpios = <&gpio1 11 GPIO_ACTIVE_LOW>;
 };
