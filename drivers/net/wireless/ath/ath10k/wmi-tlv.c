@@ -1923,6 +1923,7 @@ static struct sk_buff *ath10k_wmi_tlv_op_gen_init(struct ath10k *ar)
 	void *chunks;
 	size_t len, chunks_len;
 	void *ptr;
+	u32 val;
 
 	chunks_len = ar->wmi.num_mem_chunks *
 		     (sizeof(struct host_memory_chunk_tlv) + sizeof(*tlv));
@@ -2017,7 +2018,14 @@ static struct sk_buff *ath10k_wmi_tlv_op_gen_init(struct ath10k *ar)
 	cfg->num_ocb_vdevs = __cpu_to_le32(0);
 	cfg->num_ocb_channels = __cpu_to_le32(0);
 	cfg->num_ocb_schedules = __cpu_to_le32(0);
-	cfg->host_capab = __cpu_to_le32(WMI_RSRC_CFG_FLAG_TX_ACK_RSSI);
+
+	val = WMI_RSRC_CFG_FLAG_TX_ACK_RSSI;
+	if (test_bit(WMI_SERVICE_EXT_PEER_TID_CONFIGS_SUPPORT,
+		     ar->wmi.svc_map))
+		val |= WMI_RSRC_CFG_FLAG_PEER_TID_EXT;
+
+	cfg->host_capab = __cpu_to_le32(val);
+
 
 	if (ath10k_peer_stats_enabled(ar))
 		cfg->host_capab |=
@@ -3589,6 +3597,42 @@ ath10k_wmi_tlv_op_gen_cfr_cap_cfg(struct ath10k *ar, u32 vdev_id,
 }
 
 static struct sk_buff *
+ath10k_wmi_tlv_op_gen_per_peer_per_tid_cfg(struct ath10k *ar,
+				const struct wmi_per_peer_per_tid_cfg_arg *arg)
+{
+	struct wmi_peer_per_tid_cfg_cmd *cmd;
+	struct wmi_tlv *tlv;
+	struct sk_buff *skb;
+
+	skb = ath10k_wmi_alloc_skb(ar, sizeof(*tlv) + sizeof(*cmd));
+	if (!skb)
+		return ERR_PTR(-ENOMEM);
+
+	tlv = (void *)skb->data;
+	tlv->tag = __cpu_to_le16(WMI_TLV_TAG_STRUCT_PEER_TID_CONFIGURATIONS_CMD);
+	tlv->len = __cpu_to_le16(sizeof(*cmd));
+	cmd = (void *)tlv->value;
+	cmd->vdev_id = cpu_to_le32(arg->vdev_id);
+	ether_addr_copy(cmd->peer_macaddr.addr, arg->peer_macaddr.addr);
+	cmd->tid = cpu_to_le32(arg->tid);
+	cmd->ack_policy = cpu_to_le32(arg->ack_policy);
+	cmd->aggr_control = cpu_to_le32(arg->aggr_control);
+	cmd->rate_control = cpu_to_le32(arg->rate_ctrl);
+	cmd->rcode_rcflags = cpu_to_le32(arg->rate_ctrl_flags);
+	cmd->sw_retry_threshold = cpu_to_le32(arg->retry_count);
+	cmd->ext_tid_cfg_bitmap = cpu_to_le32(arg->ext_tid_cfg_bitmap);
+	cmd->rtscts_ctrl = cpu_to_le32(arg->rtscts_ctrl);
+
+	ath10k_dbg(ar, ATH10K_DBG_WMI,
+		   "wmi noack tid %d vdev id %d ack_policy %d aggr %u rate %u retry_count %d ext_tid_map %u rts_cts %u rate %u mac_addr %pM\n",
+		   arg->tid, arg->vdev_id, arg->ack_policy, arg->aggr_control,
+		   arg->rate_ctrl, arg->retry_count, arg->ext_tid_cfg_bitmap,
+		   arg->rtscts_ctrl, arg->rate_ctrl_flags,
+		   arg->peer_macaddr.addr);
+	return skb;
+}
+
+static struct sk_buff *
 ath10k_wmi_tlv_op_gen_tdls_peer_update(struct ath10k *ar,
 				       const struct wmi_tdls_peer_update_cmd_arg *arg,
 				       const struct wmi_tdls_peer_capab_arg *cap,
@@ -4187,6 +4231,7 @@ static struct wmi_cmd_map wmi_tlv_cmd_map = {
 	.pdev_get_tpc_table_cmdid = WMI_TLV_PDEV_GET_TPC_CONFIG_CMDID,
 	.peer_set_cfr_capture_conf_cmdid =
 			WMI_TLV_PEER_SET_CFR_CAPTURE_CONF_CMDID,
+	.per_peer_per_tid_config_cmdid = WMI_TLV_PEER_TID_CONFIGURATIONS_CMDID,
 
 };
 
@@ -4465,6 +4510,7 @@ static const struct wmi_ops wmi_tlv_ops = {
 	.gen_vdev_aggr_size_per_ac = ath10k_wmi_tlv_gen_vdev_aggr_size,
 	.gen_peer_cfr_capture_conf = ath10k_wmi_tlv_op_gen_cfr_cap_cfg,
 	.gen_pdev_get_tpc_table_cmdid = ath10k_wmi_tlv_op_gen_tpc_final_table,
+	.gen_per_peer_per_tid_cfg = ath10k_wmi_tlv_op_gen_per_peer_per_tid_cfg,
 };
 
 static const struct wmi_peer_flags_map wmi_tlv_peer_flags_map = {
