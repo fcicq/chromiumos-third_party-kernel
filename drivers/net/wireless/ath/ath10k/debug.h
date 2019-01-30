@@ -86,7 +86,7 @@ struct ath10k_pktlog_hdr {
 #define ATH10K_TPC_MIN_VAL 0
 
 #define ATH10K_AMPDU_SUBFRAME_COUNT_MAX 64
-#define ATH10K_AMPDU_SUBFRAME_COUNT_MIN 0
+#define ATH10K_AMPDU_SUBFRAME_COUNT_MIN 1
 
 extern unsigned int ath10k_debug_mask;
 
