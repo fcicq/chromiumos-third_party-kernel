@@ -1318,40 +1318,9 @@ done:
 	return err;
 }
 
-/**
- * hci_dev_get_bd_addr_from_property - Get the Bluetooth Device Address
- *				       (BD_ADDR) for a HCI device from
- *				       a firmware node property.
- * @hdev:	The HCI device
- *
- * Search the firmware node for 'local-bd-address'.
- *
- * All-zero BD addresses are rejected, because those could be properties
- * that exist in the firmware tables, but were not updated by the firmware. For
- * example, the DTS could define 'local-bd-address', with zero BD addresses.
- */
-static int hci_dev_get_bd_addr_from_property(struct hci_dev *hdev)
-{
-	struct fwnode_handle *fwnode = dev_fwnode(hdev->dev.parent);
-	bdaddr_t ba;
-	int ret;
-
-	ret = fwnode_property_read_u8_array(fwnode, "local-bd-address",
-					    (u8 *)&ba, sizeof(ba));
-	if (ret < 0)
-		return ret;
-	if (!bacmp(&ba, BDADDR_ANY))
-		return -ENODATA;
-
-	hdev->public_addr = ba;
-
-	return 0;
-}
-
 static int hci_dev_do_open(struct hci_dev *hdev)
 {
 	int ret = 0;
-	bool bd_addr_set = false;
 
 	BT_DBG("%s %p", hdev->name, hdev);
 
@@ -1415,16 +1384,6 @@ static int hci_dev_do_open(struct hci_dev *hdev)
 
 		if (hdev->setup)
 			ret = hdev->setup(hdev);
-
-		if (test_bit(HCI_QUIRK_USE_BDADDR_PROPERTY, &hdev->quirks)) {
-			if (!hci_dev_get_bd_addr_from_property(hdev))
-				if (hdev->set_bdaddr &&
-				    !hdev->set_bdaddr(hdev, &hdev->public_addr))
-					bd_addr_set = true;
-
-			if (!bd_addr_set)
-				hci_dev_set_flag(hdev, HCI_UNCONFIGURED);
-		}
 
 		/* The transport driver can set these quirks before
 		 * creating the HCI device or in its setup callback.
