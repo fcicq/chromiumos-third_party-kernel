@@ -448,12 +448,15 @@ static bool cros_ec_ring_process_event(
 {
 	struct iio_dev *indio_dev = state->core.indio_dev;
 	int axis;
+	/* Do not populate the filter based on asynchronous events. */
+	const int async_flags = in->flags &
+		(MOTIONSENSE_SENSOR_FLAG_ODR | MOTIONSENSE_SENSOR_FLAG_FLUSH);
 
 	if (device_may_wakeup(&indio_dev->dev) &&
 	    in->flags & MOTIONSENSE_SENSOR_FLAG_WAKEUP)
 		pm_wakeup_event(&indio_dev->dev, 0);
 
-	if (in->flags & MOTIONSENSE_SENSOR_FLAG_TIMESTAMP) {
+	if (in->flags & MOTIONSENSE_SENSOR_FLAG_TIMESTAMP && !async_flags) {
 		s64 a = in->timestamp;
 		s64 b = fifo_info->info.timestamp;
 		s64 c = fifo_timestamp;
@@ -480,6 +483,16 @@ static bool cros_ec_ring_process_event(
 			if (new_timestamp - *current_timestamp > 0)
 				*current_timestamp = new_timestamp;
 		}
+	}
+
+	if (in->flags & MOTIONSENSE_SENSOR_FLAG_ODR) {
+		state->last_batch_len[in->sensor_num] =
+			state->penultimate_batch_len[in->sensor_num] = 0;
+		/*
+		 * ODR change is only useful for the sensor_ring, it does not
+		 * convey information to clients.
+		 */
+		return false;
 	}
 
 	if (in->flags & MOTIONSENSE_SENSOR_FLAG_FLUSH) {
