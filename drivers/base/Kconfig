@@ -239,6 +239,9 @@ config GENERIC_CPU_AUTOPROBE
 	depends on !ARCH_HAS_CPU_AUTOPROBE
 	select HAVE_CPU_AUTOPROBE
 
+config GENERIC_CPU_VULNERABILITIES
+	bool
+
 config SOC_BUS
 	bool
 

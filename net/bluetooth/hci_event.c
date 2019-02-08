@@ -39,6 +39,9 @@
 #define ZERO_KEY "\x00\x00\x00\x00\x00\x00\x00\x00" \
 		 "\x00\x00\x00\x00\x00\x00\x00\x00"
 
+/* Intel manufacturer ID  and specific events */
+#define MAUFACTURER_ID_INTEL      0x0002
+
 /* Handle HCI Event packets */
 
 static void hci_cc_inquiry_cancel(struct hci_dev *hdev, struct sk_buff *skb)
@@ -1072,7 +1075,8 @@ static void hci_cc_le_set_adv_enable(struct hci_dev *hdev, struct sk_buff *skb)
 	} else {
 		hci_dev_clear_flag(hdev, HCI_LE_ADV);
 	}
-
+	hci_dev_clear_flag(hdev, HCI_LE_ADV_CHANGE_IN_PROGRESS);
+	hdev->count_adv_change_in_progress--;
 	hci_dev_unlock(hdev);
 }
 
@@ -1142,6 +1146,8 @@ static void hci_cc_le_set_scan_enable(struct hci_dev *hdev,
 		return;
 
 	hci_dev_lock(hdev);
+	hci_dev_clear_flag(hdev, HCI_LE_SCAN_CHANGE_IN_PROGRESS);
+	hdev->count_scan_change_in_progress--;
 
 	switch (cp->enable) {
 	case LE_SCAN_ENABLE:
@@ -3328,6 +3334,49 @@ static void hci_num_comp_blocks_evt(struct hci_dev *hdev, struct sk_buff *skb)
 	queue_work(hdev->workqueue, &hdev->tx_work);
 }
 
+static void hci_vendor_evt(struct hci_dev *hdev, struct sk_buff *skb)
+{
+	u8 evt_id;
+	u16 i;
+	u8 *b;
+	char line[HCI_MAX_EVENT_SIZE * 3 + 1] = {0x00,};
+
+	if (hdev->manufacturer == MAUFACTURER_ID_INTEL) {
+		if (skb->len < 1)
+			return;
+
+		BT_INFO("Manufacturer ID 0x%04X:", hdev->manufacturer);
+
+		evt_id = *((u8 *)skb->data);
+		skb_pull(skb, sizeof(evt_id));
+
+		switch (evt_id) {
+		case HCI_EV_INTEL_BOOT_UP:
+		case HCI_EV_INTEL_FATAL_EXCEPTION:
+		case HCI_EV_INTEL_DEBUG_EXCEPTION:
+			if (skb->len < 1) {
+				BT_WARN("Evt ID:%02X", evt_id);
+				return;
+			}
+			b = (u8 *)skb->data;
+			for (i = 0; i < skb->len && i < HCI_MAX_EVENT_SIZE; ++i)
+				sprintf(line + strlen(line), " %02X", b[i]);
+			BT_WARN("Evt ID: %02X data:%s", evt_id, line);
+			break;
+		default:
+			if (skb->len < 1) {
+				BT_ERR("Unknown Evt ID:%02x", evt_id);
+				return;
+			}
+			b = (u8 *)skb->data;
+			for (i = 0; i < skb->len && i < HCI_MAX_EVENT_SIZE; ++i)
+				sprintf(line + strlen(line), " %02X", b[i]);
+			BT_ERR("Unknown Evt ID: %02X data:%s", evt_id, line);
+			break;
+		}
+	}
+}
+
 static void hci_mode_change_evt(struct hci_dev *hdev, struct sk_buff *skb)
 {
 	struct hci_ev_mode_change *ev = (void *) skb->data;
@@ -4470,11 +4519,6 @@ static void hci_le_conn_complete_evt(struct hci_dev *hdev, struct sk_buff *skb)
 
 	hci_dev_lock(hdev);
 
-	/* All controllers implicitly stop advertising in the event of a
-	 * connection, so ensure that the state bit is cleared.
-	 */
-	hci_dev_clear_flag(hdev, HCI_LE_ADV);
-
 	conn = hci_lookup_le_connect(hdev);
 	if (!conn) {
 		conn = hci_conn_add(hdev, LE_LINK, &ev->bdaddr, ev->role);
@@ -5430,6 +5474,10 @@ void hci_event_packet(struct hci_dev *hdev, struct sk_buff *skb)
 
 	case HCI_EV_NUM_COMP_BLOCKS:
 		hci_num_comp_blocks_evt(hdev, skb);
+		break;
+
+	case HCI_EV_VENDOR:
+		hci_vendor_evt(hdev, skb);
 		break;
 
 	default:
