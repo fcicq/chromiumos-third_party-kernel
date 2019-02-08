@@ -273,8 +273,6 @@ static noinline int vmalloc_fault(unsigned long address)
 	if (!(address >= VMALLOC_START && address < VMALLOC_END))
 		return -1;
 
-	WARN_ON_ONCE(in_nmi());
-
 	/*
 	 * Synchronize this task's top level page-table
 	 * with the 'reference' page table.
@@ -678,7 +676,7 @@ no_context(struct pt_regs *regs, unsigned long error_code,
 		 * In this case we need to make sure we're not recursively
 		 * faulting through the emulate_vsyscall() logic.
 		 */
-		if (current_thread_info()->sig_on_uaccess_error && signal) {
+		if (current->thread.sig_on_uaccess_err && signal) {
 			tsk->thread.trap_nr = X86_TRAP_PF;
 			tsk->thread.error_code = error_code | PF_USER;
 			tsk->thread.cr2 = address;

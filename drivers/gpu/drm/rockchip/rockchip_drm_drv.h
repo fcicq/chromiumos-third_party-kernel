@@ -106,8 +106,6 @@ void rockchip_drm_dma_detach_device(struct drm_device *drm_dev,
 				    struct device *dev);
 int rockchip_drm_wait_vact_end(struct drm_crtc *crtc, unsigned int mstimeout);
 
-void rockchip_drm_enable_dmc(struct rockchip_drm_private *priv);
-void rockchip_drm_disable_dmc(struct rockchip_drm_private *priv);
 void rockchip_drm_set_win_enabled(struct drm_crtc *ctrc, bool enabled);
 
 #ifdef CONFIG_ROCKCHIP_CDN_DP

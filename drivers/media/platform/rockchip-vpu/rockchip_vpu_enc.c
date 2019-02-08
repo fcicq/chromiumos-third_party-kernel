@@ -91,6 +91,8 @@ enum {
 	ROCKCHIP_VPU_ENC_CTRL_REG_PARAMS,
 	ROCKCHIP_VPU_ENC_CTRL_HW_PARAMS,
 	ROCKCHIP_VPU_ENC_CTRL_RET_PARAMS,
+	ROCKCHIP_VPU_ENC_CTRL_Y_QUANT_TBL,
+	ROCKCHIP_VPU_ENC_CTRL_C_QUANT_TBL,
 };
 
 static struct rockchip_vpu_control controls[] = {
@@ -127,6 +129,22 @@ static struct rockchip_vpu_control controls[] = {
 		.is_read_only = true,
 		.max_stores = VIDEO_MAX_FRAME,
 		.elem_size = ROCKCHIP_RET_PARAMS_SIZE,
+	},
+	[ROCKCHIP_VPU_ENC_CTRL_Y_QUANT_TBL] = {
+		.id = V4L2_CID_JPEG_LUMA_QUANTIZATION,
+		.type = V4L2_CTRL_TYPE_U8,
+		.minimum = 0,
+		.maximum = 255,
+		.step = 1,
+		.dims = { 8, 8 }
+	},
+	[ROCKCHIP_VPU_ENC_CTRL_C_QUANT_TBL] = {
+		.id = V4L2_CID_JPEG_CHROMA_QUANTIZATION,
+		.type = V4L2_CTRL_TYPE_U8,
+		.minimum = 0,
+		.maximum = 255,
+		.step = 1,
+		.dims = { 8, 8 }
 	},
 	/* Generic controls. (currently ignored) */
 	{
@@ -908,6 +926,8 @@ static int rockchip_vpu_enc_s_ctrl(struct v4l2_ctrl *ctrl)
 	case V4L2_CID_PRIVATE_ROCKCHIP_HEADER:
 	case V4L2_CID_PRIVATE_ROCKCHIP_REG_PARAMS:
 	case V4L2_CID_PRIVATE_ROCKCHIP_HW_PARAMS:
+	case V4L2_CID_JPEG_LUMA_QUANTIZATION:
+	case V4L2_CID_JPEG_CHROMA_QUANTIZATION:
 		/* Nothing to do here. The control is used directly. */
 		break;
 
@@ -1284,7 +1304,6 @@ static void rockchip_vpu_buf_finish(struct vb2_buffer *vb)
 		 */
 		rk3288_vpu_vp8e_assemble_bitstream(ctx, buf);
 	}
-
 	vpu_debug_leave();
 }
 
@@ -1449,6 +1468,13 @@ static void rockchip_vpu_enc_prepare_run(struct rockchip_vpu_ctx *ctx)
 	} else if (ctx->vpu_dst_fmt->fourcc == V4L2_PIX_FMT_H264) {
 		ctx->run.h264e.reg_params = get_ctrl_ptr(ctx,
 			ROCKCHIP_VPU_ENC_CTRL_REG_PARAMS);
+	} else if (ctx->vpu_dst_fmt->fourcc == V4L2_PIX_FMT_JPEG_RAW) {
+		memcpy(ctx->run.jpege.lumin_quant_tbl,
+			get_ctrl_ptr(ctx, ROCKCHIP_VPU_ENC_CTRL_Y_QUANT_TBL),
+			ROCKCHIP_JPEG_QUANT_ELE_SIZE);
+		memcpy(ctx->run.jpege.chroma_quant_tbl,
+			get_ctrl_ptr(ctx, ROCKCHIP_VPU_ENC_CTRL_C_QUANT_TBL),
+			ROCKCHIP_JPEG_QUANT_ELE_SIZE);
 	}
 }
 

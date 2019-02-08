@@ -10,8 +10,6 @@
 #define CIO2_PCI_ID					0x9d32
 #define CIO2_PCI_BAR					0
 #define CIO2_DMA_MASK					DMA_BIT_MASK(39)
-#define CIO2_IMAGE_MAX_WIDTH				4224
-#define CIO2_IMAGE_MAX_LENGTH				3136
 
 #define CIO2_IMAGE_MAX_WIDTH				4224
 #define CIO2_IMAGE_MAX_LENGTH				3136
@@ -179,7 +177,7 @@
 /* below n = 0..3 */
 #define CIO2_PBM_FOPN_ABORT(n)				(0x1 << 8 * (n))
 #define CIO2_PBM_FOPN_FORCE_ABORT(n)			(0x2 << 8 * (n))
-#define CIO2_PBM_FOPN_FRAMEOPEN(n)			(0x8 << 8 * (n))
+#define CIO2_PBM_FOPN_FRAMEOPEN(n)			(0x10 << 8 * (n))
 #define CIO2_REG_LTRCTRL				0x1480
 #define CIO2_LTRCTRL_LTRDYNEN				BIT(16)
 #define CIO2_LTRCTRL_LTRSTABLETIME_SHIFT		8

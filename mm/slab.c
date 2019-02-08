@@ -806,8 +806,10 @@ static struct alien_cache *__alloc_alien_cache(int node, int entries,
 	struct alien_cache *alc = NULL;
 
 	alc = kmalloc_node(memsize, gfp, node);
-	init_arraycache(&alc->ac, entries, batch);
-	spin_lock_init(&alc->lock);
+	if (alc) {
+		init_arraycache(&alc->ac, entries, batch);
+		spin_lock_init(&alc->lock);
+	}
 	return alc;
 }
 
@@ -4254,6 +4256,36 @@ static int __init slab_proc_init(void)
 }
 module_init(slab_proc_init);
 #endif
+
+#ifdef CONFIG_HARDENED_USERCOPY
+/*
+ * Rejects objects that are incorrectly sized.
+ *
+ * Returns NULL if check passes, otherwise const char * to name of cache
+ * to indicate an error.
+ */
+const char *__check_heap_object(const void *ptr, unsigned long n,
+				struct page *page)
+{
+	struct kmem_cache *cachep;
+	unsigned int objnr;
+	unsigned long offset;
+
+	/* Find and validate object. */
+	cachep = page->slab_cache;
+	objnr = obj_to_index(cachep, page, (void *)ptr);
+	BUG_ON(objnr >= cachep->num);
+
+	/* Find offset within object. */
+	offset = ptr - index_to_obj(cachep, page, objnr) - obj_offset(cachep);
+
+	/* Allow address range falling entirely within object size. */
+	if (offset <= cachep->object_size && n <= cachep->object_size - offset)
+		return NULL;
+
+	return cachep->name;
+}
+#endif /* CONFIG_HARDENED_USERCOPY */
 
 /**
  * ksize - get the actual amount of memory allocated for a given object

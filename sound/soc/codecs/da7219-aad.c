@@ -59,6 +59,7 @@ static void da7219_aad_btn_det_work(struct work_struct *work)
 		container_of(work, struct da7219_aad_priv, btn_det_work);
 	struct snd_soc_codec *codec = da7219_aad->codec;
 	struct snd_soc_dapm_context *dapm = snd_soc_codec_get_dapm(codec);
+	struct da7219_priv *da7219 = snd_soc_codec_get_drvdata(codec);
 	u8 statusa, micbias_ctrl;
 	bool micbias_up = false;
 	int retries = 0;
@@ -85,6 +86,8 @@ static void da7219_aad_btn_det_work(struct work_struct *work)
 
 	if (retries >= DA7219_AAD_MICBIAS_CHK_RETRIES)
 		dev_warn(codec->dev, "Mic bias status check timed out");
+
+	da7219->micbias_on_event = true;
 
 	/*
 	 * Mic bias pulse required to enable mic, must be done before enabling
@@ -438,6 +441,8 @@ static irqreturn_t da7219_aad_irq_thread(int irq, void *data)
 			/* Ensure button detection disabled */
 			snd_soc_update_bits(codec, DA7219_ACCDET_CONFIG_1,
 					    DA7219_BUTTON_CONFIG_MASK, 0);
+
+		        da7219->micbias_on_event = false;
 
 			/* Disable mic bias */
 			snd_soc_dapm_disable_pin(dapm, "Mic Bias");

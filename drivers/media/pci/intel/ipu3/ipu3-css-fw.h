@@ -98,12 +98,6 @@ struct imgu_fw_binary_xinfo {
 	struct imgu_fw_binary_xinfo *next __aligned(8);
 };
 
-/* Scalar processor sw state */
-#define IMGU_ABI_SP_SWSTATE_TERMINATED	0
-#define IMGU_ABI_SP_SWSTATE_INITIALIZED	1
-#define IMGU_ABI_SP_SWSTATE_CONNECTED	2
-#define IMGU_ABI_SP_SWSTATE_RUNNING	3
-
 struct imgu_fw_sp_info {
 	u32 init_dmem_data;	/* data sect config, stored to dmem */
 	u32 per_frame_data;	/* Per frame data, stored to dmem */
@@ -112,7 +106,7 @@ struct imgu_fw_sp_info {
 	u32 host_sp_queue;	/* Host <-> SP queues */
 	u32 host_sp_com;	/* Host <-> SP commands */
 	u32 isp_started;	/* P'ed from sensor thread, csim only */
-	u32 sw_state;		/* Polled from css */
+	u32 sw_state;		/* Polled from css, enum imgu_abi_sp_swstate */
 	u32 host_sp_queues_initialized;	/* Polled from the SP */
 	u32 sleep_mode;		/* different mode to halt SP */
 	u32 invalidate_tlb;	/* inform SP to invalidate mmu TLB */
@@ -131,15 +125,11 @@ struct imgu_fw_sp_info {
 	u32 tagger_frames_addr;	/* Base address of tagger state */
 };
 
-/* Boot loader sw state */
-#define IMGU_ABI_BL_SWSTATE_OK		0x100
-#define IMGU_ABI_BL_SWSTATE_BUSY	(IMGU_ABI_BL_SWSTATE_OK + 1)
-#define IMGU_ABI_BL_SWSTATE_ERR		(IMGU_ABI_BL_SWSTATE_OK + 2)
-
 struct imgu_fw_bl_info {
 	u32 num_dma_cmds;	/* Number of cmds sent by CSS */
 	u32 dma_cmd_list;	/* Dma command list sent by CSS */
-	u32 sw_state;		/* Polled from css */
+	u32 sw_state;		/* Polled from css, enum imgu_abi_bl_swstate */
+	/* Entry functions */
 	u32 bl_entry;		/* The SP entry function */
 };
 
@@ -189,7 +179,7 @@ int ipu3_css_fw_init(struct ipu3_css *css);
 void ipu3_css_fw_cleanup(struct ipu3_css *css);
 
 unsigned int ipu3_css_fw_obgrid_size(const struct imgu_fw_info *bi);
-void *ipu3_css_fw_pipeline_params(struct ipu3_css *css,
+void *ipu3_css_fw_pipeline_params(struct ipu3_css *css, unsigned int pipe,
 				  enum imgu_abi_param_class cls,
 				  enum imgu_abi_memories mem,
 				  struct imgu_fw_isp_parameter *par,

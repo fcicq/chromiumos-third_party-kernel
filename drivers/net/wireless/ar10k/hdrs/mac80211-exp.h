@@ -137,4 +137,5 @@
 #define ieee80211_tdls_oper_request __ar10k_ieee80211_tdls_oper_request
 #define ieee80211_iterate_interfaces __ar10k_ieee80211_iterate_interfaces
 #define ieee80211_reserve_tid __ar10k_ieee80211_reserve_tid
+#define ieee80211_update_mu_groups __ar10k_ieee80211_update_mu_groups
 #endif

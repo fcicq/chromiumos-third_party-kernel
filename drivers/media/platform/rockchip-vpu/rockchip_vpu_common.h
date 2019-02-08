@@ -92,6 +92,7 @@ struct rockchip_vpu_variant {
  * @RK_VPU_CODEC_VP9D:	VP9 decoder.
  * @RK_VPU_CODEC_H264E:	H264 encoder.
  * @RK_VPU_CODEC_VP8E:	VP8 encoder.
+ * @RK_VPU_CODEC_JPEGE:	JPEG encoder.
  */
 enum rockchip_vpu_codec_mode {
 	RK_VPU_CODEC_NONE = -1,
@@ -99,7 +100,8 @@ enum rockchip_vpu_codec_mode {
 	RK_VPU_CODEC_VP8D,
 	RK_VPU_CODEC_VP9D,
 	RK_VPU_CODEC_H264E,
-	RK_VPU_CODEC_VP8E
+	RK_VPU_CODEC_VP8E,
+	RK_VPU_CODEC_JPEGE
 };
 
 /**
@@ -297,6 +299,11 @@ struct rockchip_vpu_vp9d_run {
 	struct v4l2_ctrl_vp9_entropy *entropy;
 };
 
+struct rockchip_vpu_jpege_run {
+	u8 lumin_quant_tbl[ROCKCHIP_JPEG_QUANT_ELE_SIZE];
+	u8 chroma_quant_tbl[ROCKCHIP_JPEG_QUANT_ELE_SIZE];
+};
+
 #define FIELD(word, bit)	(32 * (word) + (bit))
 
 #define WRITE_HEADER(value, buffer, field)	\
@@ -325,6 +332,7 @@ struct rockchip_vpu_run {
 		struct rockchip_vpu_h264d_run h264d;
 		struct rockchip_vpu_h264e_run h264e;
 		struct rockchip_vpu_vp9d_run vp9d;
+		struct rockchip_vpu_jpege_run jpege;
 		/* Other modes will need different data. */
 	};
 };

@@ -1901,17 +1901,17 @@ static const struct bpf_verifier_ops tc_cls_act_ops = {
 	.convert_ctx_access = bpf_net_convert_ctx_access,
 };
 
-static struct bpf_prog_type_list sk_filter_type __read_mostly = {
+static struct bpf_prog_type_list sk_filter_type __ro_after_init = {
 	.ops = &sk_filter_ops,
 	.type = BPF_PROG_TYPE_SOCKET_FILTER,
 };
 
-static struct bpf_prog_type_list sched_cls_type __read_mostly = {
+static struct bpf_prog_type_list sched_cls_type __ro_after_init = {
 	.ops = &tc_cls_act_ops,
 	.type = BPF_PROG_TYPE_SCHED_CLS,
 };
 
-static struct bpf_prog_type_list sched_act_type __read_mostly = {
+static struct bpf_prog_type_list sched_act_type __ro_after_init = {
 	.ops = &tc_cls_act_ops,
 	.type = BPF_PROG_TYPE_SCHED_ACT,
 };

@@ -1,16 +1,5 @@
-/*
- * Copyright (c) 2017 Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License version
- * 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- */
+// SPDX-License-Identifier: GPL-2.0
+// Copyright (c) 2017 Intel Corporation.
 
 #include <linux/acpi.h>
 #include <linux/delay.h>
@@ -1679,7 +1668,8 @@ static int ov13858_init_controls(struct ov13858 *ov13858)
 				OV13858_NUM_OF_LINK_FREQS - 1,
 				0,
 				link_freq_menu_items);
-	ov13858->link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	if (ov13858->link_freq)
+		ov13858->link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
 	pixel_rate_max = link_freq_to_pixel_rate(link_freq_menu_items[0]);
 	pixel_rate_min = link_freq_to_pixel_rate(link_freq_menu_items[1]);
@@ -1702,7 +1692,8 @@ static int ov13858_init_controls(struct ov13858 *ov13858)
 	ov13858->hblank = v4l2_ctrl_new_std(
 				ctrl_hdlr, &ov13858_ctrl_ops, V4L2_CID_HBLANK,
 				hblank, hblank, 1, hblank);
-	ov13858->hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	if (ov13858->hblank)
+		ov13858->hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
 	exposure_max = mode->vts_def - 8;
 	ov13858->exposure = v4l2_ctrl_new_std(

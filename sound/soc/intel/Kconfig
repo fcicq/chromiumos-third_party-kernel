@@ -224,6 +224,36 @@ config SND_SOC_INTEL_KBL_DA7219_MAX98357A_MACH
 	  Say Y if you have such a device.
 	  If unsure select "N".
 
+config SND_SOC_INTEL_KBL_DA7219_MAX98373_MACH
+	tristate "ASoC Audio driver for KBL with DA7219 and MAX98373 in I2S Mode"
+	depends on X86_INTEL_LPSS && I2C
+	select SND_SOC_INTEL_SST
+	select SND_SOC_INTEL_SKYLAKE
+	select SND_SOC_DA7219
+	select SND_SOC_MAX98373
+	select SND_SOC_DMIC
+	select SND_SOC_HDAC_HDMI
+	help
+	  This adds support for ASoC Onboard Codec I2S machine driver. This will
+	  create an alsa sound card for DA7219 + MAX98373 I2S audio codec.
+	  Say Y if you have such a device.
+	  If unsure select "N".
+
+config SND_SOC_INTEL_KBL_DA7219_MAX98927_MACH
+        tristate "ASoC Audio driver for KBL with DA7219 and MAX98927 in I2S Mode"
+        depends on X86_INTEL_LPSS && I2C
+        select SND_SOC_INTEL_SST
+        select SND_SOC_INTEL_SKYLAKE
+        select SND_SOC_DA7219
+        select SND_SOC_MAX98927
+        select SND_SOC_DMIC
+        select SND_SOC_HDAC_HDMI
+        help
+          This adds support for ASoC Onboard Codec I2S machine driver. This will
+          create an alsa sound card for DA7219 + MAX98927 I2S audio codec.
+          Say Y if you have such a device.
+          If unsure select "N".
+
 config SND_SOC_INTEL_SKYLAKE_SSP_CLK
 	tristate
 	help

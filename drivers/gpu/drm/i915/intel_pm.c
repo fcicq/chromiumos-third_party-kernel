@@ -3116,8 +3116,12 @@ skl_ddb_get_pipe_allocation_limits(struct drm_device *dev,
 	struct intel_atomic_state *intel_state = to_intel_atomic_state(state);
 	struct drm_i915_private *dev_priv = to_i915(dev);
 	struct drm_crtc *for_crtc = cstate->base.crtc;
-	unsigned int pipe_size, ddb_size;
-	int nth_active_pipe;
+	const struct drm_crtc_state *crtc_state;
+	const struct drm_crtc *crtc;
+	u32 pipe_width = 0, total_width = 0, width_before_pipe = 0;
+	enum pipe for_pipe = to_intel_crtc(for_crtc)->pipe;
+	u16 ddb_size;
+	u32 i;
 
 	if (WARN_ON(!state) || !cstate->base.active) {
 		alloc->start = 0;
@@ -3137,14 +3141,14 @@ skl_ddb_get_pipe_allocation_limits(struct drm_device *dev,
 	ddb_size -= 4; /* 4 blocks for bypass path allocation */
 
 	/*
-	 * If the state doesn't change the active CRTC's, then there's
-	 * no need to recalculate; the existing pipe allocation limits
-	 * should remain unchanged.  Note that we're safe from racing
-	 * commits since any racing commit that changes the active CRTC
-	 * list would need to grab _all_ crtc locks, including the one
-	 * we currently hold.
+	 * If the state doesn't change the active CRTC's or there is no
+	 * modeset request, then there's no need to recalculate;
+	 * the existing pipe allocation limits should remain unchanged.
+	 * Note that we're safe from racing commits since any racing commit
+	 * that changes the active CRTC list or do modeset would need to
+	 * grab _all_ crtc locks, including the one we currently hold.
 	 */
-	if (!intel_state->active_pipe_changes) {
+	if (!intel_state->active_pipe_changes && !intel_state->modeset) {
 		/*
 		 * alloc may be cleared by clear_intel_crtc_state,
 		 * copy from old state to be sure
@@ -3153,11 +3157,32 @@ skl_ddb_get_pipe_allocation_limits(struct drm_device *dev,
 		return;
 	}
 
-	nth_active_pipe = hweight32(intel_state->active_crtcs &
-				    (drm_crtc_mask(for_crtc) - 1));
-	pipe_size = ddb_size / hweight32(intel_state->active_crtcs);
-	alloc->start = nth_active_pipe * ddb_size / *num_active;
-	alloc->end = alloc->start + pipe_size;
+	/*
+	 * Watermark/ddb requirement highly depends upon width of the
+	 * framebuffer, So instead of allocating DDB equally among pipes
+	 * distribute DDB based on resolution/width of the display.
+	 */
+	for_each_new_crtc_in_state(state, crtc, crtc_state, i) {
+		const struct drm_display_mode *adjusted_mode;
+		int hdisplay, vdisplay;
+		enum pipe pipe;
+
+		if (!crtc_state->enable)
+			continue;
+
+		pipe = to_intel_crtc(crtc)->pipe;
+		adjusted_mode = &crtc_state->adjusted_mode;
+		drm_mode_get_hv_timing(adjusted_mode, &hdisplay, &vdisplay);
+		total_width += hdisplay;
+
+		if (pipe < for_pipe)
+			width_before_pipe += hdisplay;
+		else if (pipe == for_pipe)
+			pipe_width = hdisplay;
+	}
+
+	alloc->start = ddb_size * width_before_pipe / total_width;
+	alloc->end = ddb_size * (width_before_pipe + pipe_width) / total_width;
 }
 
 static unsigned int skl_cursor_allocation(int num_active)
@@ -4470,7 +4495,7 @@ skl_ddb_add_affected_pipes(struct drm_atomic_state *state, bool *changed)
 	 * any other display updates race with this transaction, so we need
 	 * to grab the lock on *all* CRTC's.
 	 */
-	if (intel_state->active_pipe_changes) {
+	if (intel_state->active_pipe_changes || intel_state->modeset) {
 		realloc_pipes = ~0;
 		intel_state->wm_results.dirty_pipes = ~0;
 	}
@@ -5010,6 +5035,30 @@ void intel_update_watermarks(struct intel_crtc *crtc)
 
 	if (dev_priv->display.update_wm)
 		dev_priv->display.update_wm(crtc);
+}
+
+void intel_enable_ipc(struct drm_i915_private *dev_priv)
+{
+	u32 val;
+
+	val = I915_READ(DISP_ARB_CTL2);
+
+	if (dev_priv->ipc_enabled)
+		val |= DISP_IPC_ENABLE;
+	else
+		val &= ~DISP_IPC_ENABLE;
+
+	I915_WRITE(DISP_ARB_CTL2, val);
+}
+
+void intel_init_ipc(struct drm_i915_private *dev_priv)
+{
+	dev_priv->ipc_enabled = false;
+	if (!HAS_IPC(dev_priv))
+		return;
+
+	dev_priv->ipc_enabled = true;
+	intel_enable_ipc(dev_priv);
 }
 
 /*
@@ -8208,9 +8257,9 @@ int sandybridge_pcode_read(struct drm_i915_private *dev_priv, u32 mbox, u32 *val
 	I915_WRITE_FW(GEN6_PCODE_DATA1, 0);
 	I915_WRITE_FW(GEN6_PCODE_MAILBOX, GEN6_PCODE_READY | mbox);
 
-	if (intel_wait_for_register_fw(dev_priv,
-				       GEN6_PCODE_MAILBOX, GEN6_PCODE_READY, 0,
-				       500)) {
+	if (__intel_wait_for_register_fw(dev_priv,
+					 GEN6_PCODE_MAILBOX, GEN6_PCODE_READY, 0,
+					 500, 0, NULL)) {
 		DRM_ERROR("timeout waiting for pcode read (%d) to finish\n", mbox);
 		return -ETIMEDOUT;
 	}
@@ -8253,9 +8302,9 @@ int sandybridge_pcode_write(struct drm_i915_private *dev_priv,
 	I915_WRITE_FW(GEN6_PCODE_DATA1, 0);
 	I915_WRITE_FW(GEN6_PCODE_MAILBOX, GEN6_PCODE_READY | mbox);
 
-	if (intel_wait_for_register_fw(dev_priv,
-				       GEN6_PCODE_MAILBOX, GEN6_PCODE_READY, 0,
-				       500)) {
+	if (__intel_wait_for_register_fw(dev_priv,
+					 GEN6_PCODE_MAILBOX, GEN6_PCODE_READY, 0,
+					 500, 0, NULL)) {
 		DRM_ERROR("timeout waiting for pcode write (%d) to finish\n", mbox);
 		return -ETIMEDOUT;
 	}

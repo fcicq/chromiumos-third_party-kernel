@@ -431,6 +431,20 @@ const char * const *v4l2_ctrl_get_menu(u32 id)
 		"Use Previous Specific Frame",
 		NULL,
 	};
+	static const char * const vp8_profile[] = {
+		"0",
+		"1",
+		"2",
+		"3",
+		NULL,
+	};
+	static const char * const vp9_profile[] = {
+		"0",
+		"1",
+		"2",
+		"3",
+		NULL,
+	};
 
 	static const char * const flash_led_mode[] = {
 		"Off",
@@ -555,6 +569,10 @@ const char * const *v4l2_ctrl_get_menu(u32 id)
 		return mpeg4_profile;
 	case V4L2_CID_MPEG_VIDEO_VPX_GOLDEN_FRAME_SEL:
 		return vpx_golden_frame_sel;
+	case V4L2_CID_MPEG_VIDEO_VP8_PROFILE:
+		return vp8_profile;
+	case V4L2_CID_MPEG_VIDEO_VP9_PROFILE:
+		return vp9_profile;
 	case V4L2_CID_JPEG_CHROMA_SUBSAMPLING:
 		return jpeg_chroma_subsampling;
 	case V4L2_CID_DV_TX_MODE:
@@ -769,7 +787,8 @@ const char *v4l2_ctrl_get_name(u32 id)
 	case V4L2_CID_MPEG_VIDEO_VPX_MAX_QP:			return "VPX Maximum QP Value";
 	case V4L2_CID_MPEG_VIDEO_VPX_I_FRAME_QP:		return "VPX I-Frame QP Value";
 	case V4L2_CID_MPEG_VIDEO_VPX_P_FRAME_QP:		return "VPX P-Frame QP Value";
-	case V4L2_CID_MPEG_VIDEO_VPX_PROFILE:			return "VPX Profile";
+	case V4L2_CID_MPEG_VIDEO_VP8_PROFILE:			return "VP8 Profile";
+	case V4L2_CID_MPEG_VIDEO_VP9_PROFILE:			return "VP9 Profile";
 
 	case V4L2_CID_MPEG_VIDEO_VP8_FRAME_HDR:			return "VP8 Frame Header";
 	case V4L2_CID_MPEG_VIDEO_VP9_FRAME_HDR:			return "VP9 Frame Header";
@@ -868,6 +887,8 @@ const char *v4l2_ctrl_get_name(u32 id)
 	case V4L2_CID_JPEG_RESTART_INTERVAL:	return "Restart Interval";
 	case V4L2_CID_JPEG_COMPRESSION_QUALITY:	return "Compression Quality";
 	case V4L2_CID_JPEG_ACTIVE_MARKER:	return "Active Markers";
+	case V4L2_CID_JPEG_LUMA_QUANTIZATION:	return "Luminance Quantization Matrix";
+	case V4L2_CID_JPEG_CHROMA_QUANTIZATION:	return "Chrominance Quantization Matrix";
 
 	/* Image source controls */
 	/* Keep the order of the 'case's the same as in v4l2-controls.h! */
@@ -886,6 +907,7 @@ const char *v4l2_ctrl_get_name(u32 id)
 	case V4L2_CID_LINK_FREQ:		return "Link Frequency";
 	case V4L2_CID_PIXEL_RATE:		return "Pixel Rate";
 	case V4L2_CID_TEST_PATTERN:		return "Test Pattern";
+	case V4L2_CID_DIGITAL_GAIN:		return "Digital Gain";
 
 	/* DV controls */
 	/* Keep the order of the 'case's the same as in v4l2-controls.h! */
@@ -1058,6 +1080,8 @@ void v4l2_ctrl_fill(u32 id, const char **name, enum v4l2_ctrl_type *type,
 	case V4L2_CID_TEST_PATTERN:
 	case V4L2_CID_TUNE_DEEMPHASIS:
 	case V4L2_CID_MPEG_VIDEO_VPX_GOLDEN_FRAME_SEL:
+	case V4L2_CID_MPEG_VIDEO_VP8_PROFILE:
+	case V4L2_CID_MPEG_VIDEO_VP9_PROFILE:
 	case V4L2_CID_DETECT_MD_MODE:
 		*type = V4L2_CTRL_TYPE_MENU;
 		break;
@@ -1134,6 +1158,8 @@ void v4l2_ctrl_fill(u32 id, const char **name, enum v4l2_ctrl_type *type,
 		*flags |= V4L2_CTRL_FLAG_READ_ONLY;
 		break;
 	case V4L2_CID_DETECT_MD_REGION_GRID:
+	case V4L2_CID_JPEG_LUMA_QUANTIZATION:
+	case V4L2_CID_JPEG_CHROMA_QUANTIZATION:
 		*type = V4L2_CTRL_TYPE_U8;
 		break;
 	case V4L2_CID_DETECT_MD_THRESHOLD_GRID:
@@ -2471,20 +2497,15 @@ void v4l2_ctrl_activate(struct v4l2_ctrl *ctrl, bool active)
 }
 EXPORT_SYMBOL(v4l2_ctrl_activate);
 
-/* Grab/ungrab a control.
-   Typically used when streaming starts and you want to grab controls,
-   preventing the user from changing them.
-
-   Just call this and the framework will block any attempts to change
-   these controls. */
-void v4l2_ctrl_grab(struct v4l2_ctrl *ctrl, bool grabbed)
+void __v4l2_ctrl_grab(struct v4l2_ctrl *ctrl, bool grabbed)
 {
 	bool old;
 
 	if (ctrl == NULL)
 		return;
 
-	v4l2_ctrl_lock(ctrl);
+	lockdep_assert_held(ctrl->handler->lock);
+
 	if (grabbed)
 		/* set V4L2_CTRL_FLAG_GRABBED */
 		old = test_and_set_bit(1, &ctrl->flags);
@@ -2493,9 +2514,8 @@ void v4l2_ctrl_grab(struct v4l2_ctrl *ctrl, bool grabbed)
 		old = test_and_clear_bit(1, &ctrl->flags);
 	if (old != grabbed)
 		send_event(NULL, ctrl, V4L2_EVENT_CTRL_CH_FLAGS);
-	v4l2_ctrl_unlock(ctrl);
 }
-EXPORT_SYMBOL(v4l2_ctrl_grab);
+EXPORT_SYMBOL(__v4l2_ctrl_grab);
 
 /* Log the control name and value */
 static void log_ctrl(const struct v4l2_ctrl *ctrl,

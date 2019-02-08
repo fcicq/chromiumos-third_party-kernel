@@ -13,7 +13,7 @@ struct vm86;
 #include <asm/types.h>
 #include <uapi/asm/sigcontext.h>
 #include <asm/current.h>
-#include <asm/cpufeature.h>
+#include <asm/cpufeatures.h>
 #include <asm/page.h>
 #include <asm/pgtable_types.h>
 #include <asm/percpu.h>
@@ -24,7 +24,6 @@ struct vm86;
 #include <asm/fpu/types.h>
 
 #include <linux/personality.h>
-#include <linux/cpumask.h>
 #include <linux/cache.h>
 #include <linux/threads.h>
 #include <linux/math64.h>
@@ -105,6 +104,8 @@ struct cpuinfo_x86 {
 	__u8			x86_phys_bits;
 	/* CPUID returned core id bits: */
 	__u8			x86_coreid_bits;
+
+	__u8			x86_cache_bits;
 	/* Max extended CPUID function supported: */
 	__u32			extended_cpuid_level;
 	/* Maximum supported CPUID level, -1=no CPUID: */
@@ -172,6 +173,11 @@ extern const struct seq_operations cpuinfo_op;
 #define cache_line_size()	(boot_cpu_data.x86_cache_alignment)
 
 extern void cpu_detect(struct cpuinfo_x86 *c);
+
+static inline unsigned long long l1tf_pfn_limit(void)
+{
+	return BIT_ULL(boot_cpu_data.x86_cache_bits - 1 - PAGE_SHIFT);
+}
 
 extern void early_cpu_init(void);
 extern void identify_boot_cpu(void);
@@ -369,6 +375,10 @@ extern unsigned int xstate_size;
 
 struct perf_event;
 
+typedef struct {
+	unsigned long		seg;
+} mm_segment_t;
+
 struct thread_struct {
 	/* Cached TLS descriptors: */
 	struct desc_struct	tls_array[GDT_ENTRY_TLS_ENTRIES];
@@ -382,9 +392,9 @@ struct thread_struct {
 	unsigned short		fsindex;
 	unsigned short		gsindex;
 #endif
-#ifdef CONFIG_X86_32
-	unsigned long		ip;
-#endif
+
+	u32			status;		/* thread synchronous flags */
+
 #ifdef CONFIG_X86_64
 	unsigned long		fs;
 #endif
@@ -410,6 +420,11 @@ struct thread_struct {
 	/* Max allowed port in the bitmap, in bytes: */
 	unsigned		io_bitmap_max;
 
+	mm_segment_t		addr_limit;
+
+	unsigned int		sig_on_uaccess_err:1;
+	unsigned int		uaccess_err:1;	/* uaccess failed */
+
 	/* Floating point and extended processor state */
 	struct fpu		fpu;
 	/*
@@ -417,6 +432,15 @@ struct thread_struct {
 	 * the end.
 	 */
 };
+
+/*
+ * Thread-synchronous status.
+ *
+ * This is different from the flags in that nobody else
+ * ever touches our thread-synchronous status, so we don't
+ * have to worry about atomic accesses.
+ */
+#define TS_COMPAT		0x0002	/* 32bit syscall active (64BIT)*/
 
 /*
  * Set IOPL bits in EFLAGS from given mask
@@ -481,11 +505,6 @@ static inline void load_sp0(struct tss_struct *tss,
 
 #define set_iopl_mask native_set_iopl_mask
 #endif /* CONFIG_PARAVIRT */
-
-typedef struct {
-	unsigned long		seg;
-} mm_segment_t;
-
 
 /* Free all resources held by a thread. */
 extern void release_thread(struct task_struct *);
@@ -708,6 +727,7 @@ static inline void spin_lock_prefetch(const void *x)
 	.sp0			= TOP_OF_INIT_STACK,			  \
 	.sysenter_cs		= __KERNEL_CS,				  \
 	.io_bitmap_ptr		= NULL,					  \
+	.addr_limit		= KERNEL_DS,				  \
 }
 
 extern unsigned long thread_saved_pc(struct task_struct *tsk);
@@ -757,8 +777,9 @@ extern unsigned long thread_saved_pc(struct task_struct *tsk);
 #define STACK_TOP		TASK_SIZE
 #define STACK_TOP_MAX		TASK_SIZE_MAX
 
-#define INIT_THREAD  { \
-	.sp0 = TOP_OF_INIT_STACK \
+#define INIT_THREAD  {						\
+	.sp0			= TOP_OF_INIT_STACK,		\
+	.addr_limit		= KERNEL_DS,			\
 }
 
 /*

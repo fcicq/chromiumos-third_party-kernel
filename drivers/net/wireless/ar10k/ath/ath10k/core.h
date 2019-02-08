@@ -65,6 +65,23 @@
 #define ATH10K_KEEPALIVE_MAX_IDLE 3895
 #define ATH10K_KEEPALIVE_MAX_UNRESPONSIVE 3900
 
+/* SMBIOS type containing Board Data File Name Extension */
+#define ATH10K_SMBIOS_BDF_EXT_TYPE 0xF8
+
+/* SMBIOS type structure length (excluding strings-set) */
+#define ATH10K_SMBIOS_BDF_EXT_LENGTH 0x9
+
+/* Offset pointing to Board Data File Name Extension */
+#define ATH10K_SMBIOS_BDF_EXT_OFFSET 0x8
+
+/* Board Data File Name Extension string length.
+ * String format: BDF_<Customer ID>_<Extension>\0
+ */
+#define ATH10K_SMBIOS_BDF_EXT_STR_LENGTH 0x20
+
+/* The magic used by QCA spec */
+#define ATH10K_SMBIOS_BDF_EXT_MAGIC "BDF_"
+
 struct ath10k;
 
 enum ath10k_bus {
@@ -393,13 +410,32 @@ struct ath10k_vif_iter {
 	struct ath10k_vif *arvif;
 };
 
+/* Copy Engine register dump, protected by ce-lock */
+struct ath10k_ce_crash_data {
+	__le32 base_addr;
+	__le32 src_wr_idx;
+	__le32 src_r_idx;
+	__le32 dst_wr_idx;
+	__le32 dst_r_idx;
+};
+
+struct ath10k_ce_crash_hdr {
+	__le32 ce_count;
+	__le32 reserved[3]; /* for future use */
+	struct ath10k_ce_crash_data entries[];
+};
+
+#define MAX_MEM_DUMP_TYPE	5
+
 /* used for crash-dump storage, protected by data-lock */
 struct ath10k_fw_crash_data {
-	bool crashed_since_read;
-
 	uuid_le uuid;
 	struct timespec timestamp;
 	__le32 registers[REG_DUMP_COUNT_QCA988X];
+	struct ath10k_ce_crash_data ce_crash_data[CE_COUNT_MAX];
+
+	u8 *ramdump_buf;
+	size_t ramdump_buf_len;
 };
 
 struct ath10k_debug {
@@ -701,6 +737,12 @@ struct ath10k {
 		/* hw specific clock control parameters */
 		const struct ath10k_hw_clk_params *hw_clk;
 		int target_cpu_freq;
+
+		/* target supporting fw download via diag ce */
+		bool fw_diag_ce_download;
+
+		/* Number of shift to override the default value of ieee80211_hw*/
+		u8 tx_sk_pacing_shift;
 	} hw_params;
 
 	const struct firmware *board;
@@ -732,6 +774,8 @@ struct ath10k {
 		bool bmi_ids_valid;
 		u8 bmi_board_id;
 		u8 bmi_chip_id;
+
+		char bdf_ext[ATH10K_SMBIOS_BDF_EXT_STR_LENGTH];
 	} id;
 
 	int fw_api;
@@ -856,6 +900,12 @@ struct ath10k {
 		struct ath10k_spec_scan config;
 	} spectral;
 
+#ifdef CONFIG_DEV_COREDUMP
+	struct {
+		struct ath10k_fw_crash_data *fw_crash_data;
+	} coredump;
+#endif
+
 	struct {
 		/* protected by conf_mutex */
 		const struct firmware *utf;
@@ -882,6 +932,8 @@ struct ath10k {
 	/* must be last */
 	u8 drv_priv[0] __aligned(sizeof(void *));
 };
+
+extern unsigned long ath10k_coredump_mask;
 
 struct ath10k *ath10k_core_create(size_t priv_size, struct device *dev,
 				  enum ath10k_bus bus,

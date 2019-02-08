@@ -337,7 +337,6 @@ static void __init __map_memblock(phys_addr_t start, phys_addr_t end)
 				end - kernel_x_end,
 				PAGE_KERNEL);
 	}
-
 }
 #else
 static void __init __map_memblock(phys_addr_t start, phys_addr_t end)
@@ -425,7 +424,7 @@ static void __init fixup_executable(void)
 void mark_rodata_ro(void)
 {
 	create_mapping_late(__pa(_stext), (unsigned long)_stext,
-				(unsigned long)_etext - (unsigned long)_stext,
+				(unsigned long)__init_begin - (unsigned long)_stext,
 				PAGE_KERNEL_ROX);
 
 }
@@ -699,12 +698,12 @@ void *__init fixmap_remap_fdt(phys_addr_t dt_phys)
 }
 
 #ifdef CONFIG_HAVE_ARCH_HUGE_VMAP
-int pud_free_pmd_page(pud_t *pud)
+int pud_free_pmd_page(pud_t *pud, unsigned long addr)
 {
 	return pud_none(*pud);
 }
 
-int pmd_free_pte_page(pmd_t *pmd)
+int pmd_free_pte_page(pmd_t *pmd, unsigned long addr)
 {
 	return pmd_none(*pmd);
 }

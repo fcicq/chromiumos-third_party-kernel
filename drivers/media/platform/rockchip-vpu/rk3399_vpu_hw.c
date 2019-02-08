@@ -87,6 +87,20 @@ static const struct rockchip_vpu_fmt rk3399_vpu_enc_fmts[] = {
 			.step_height = MB_DIM,
 		},
 	},
+	{
+		.name = "JPEG Encoded Stream",
+		.fourcc = V4L2_PIX_FMT_JPEG_RAW,
+		.codec_mode = RK_VPU_CODEC_JPEGE,
+		.num_planes = 1,
+		.frmsize = {
+			.min_width = 96,
+			.max_width = 8192,
+			.step_width = MB_DIM,
+			.min_height = 32,
+			.max_height = 8192,
+			.step_height = MB_DIM,
+		},
+	},
 };
 
 static const struct rockchip_vpu_fmt rk3399_vpu_dec_fmts[] = {
@@ -279,6 +293,11 @@ static const struct rockchip_vpu_codec_ops rk3399_vpu_mode_ops[] = {
 		.exit = rk3399_vpu_h264e_exit,
 		.run = rk3399_vpu_h264e_run,
 		.done = rk3399_vpu_h264e_done,
+		.reset = rk3399_vpu_enc_reset,
+	},
+	[RK_VPU_CODEC_JPEGE] = {
+		.run = rk3399_vpu_jpege_run,
+		.done = rk3399_vpu_jpege_done,
 		.reset = rk3399_vpu_enc_reset,
 	},
 };

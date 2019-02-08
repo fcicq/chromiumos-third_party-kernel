@@ -2502,72 +2502,138 @@ static int i915_guc_log_dump(struct seq_file *m, void *data)
 	return 0;
 }
 
+static int i915_psr_sink_status_show(struct seq_file *m, void *data)
+{
+	u8 val;
+	static const char * const sink_status[] = {
+		"inactive",
+		"transition to active, capture and display",
+		"active, display from RFB",
+		"active, capture and display on sink device timings",
+		"transition to inactive, capture and display, timing re-sync",
+		"reserved",
+		"reserved",
+		"sink internal error",
+	};
+	struct drm_connector *connector = m->private;
+	struct drm_i915_private *dev_priv = to_i915(connector->dev);
+	struct intel_dp *intel_dp =
+		enc_to_intel_dp(&intel_attached_encoder(connector)->base);
+	int ret;
+
+	if (!CAN_PSR(dev_priv)) {
+		seq_puts(m, "PSR Unsupported\n");
+		return -ENODEV;
+	}
+
+	if (connector->status != connector_status_connected)
+		return -ENODEV;
+
+	ret = drm_dp_dpcd_readb(&intel_dp->aux, DP_PSR_STATUS, &val);
+
+	if (ret == 1) {
+		const char *str = "unknown";
+
+		val &= DP_PSR_SINK_STATE_MASK;
+		if (val < ARRAY_SIZE(sink_status))
+			str = sink_status[val];
+		seq_printf(m, "Sink PSR status: 0x%x [%s]\n", val, str);
+	} else {
+		return ret;
+	}
+
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(i915_psr_sink_status);
+
+static void
+psr_source_status(struct drm_i915_private *dev_priv, struct seq_file *m)
+{
+	u32 val, psr_status;
+
+	if (dev_priv->psr.psr2_enabled) {
+		static const char * const live_status[] = {
+			"IDLE",
+			"CAPTURE",
+			"CAPTURE_FS",
+			"SLEEP",
+			"BUFON_FW",
+			"ML_UP",
+			"SU_STANDBY",
+			"FAST_SLEEP",
+			"DEEP_SLEEP",
+			"BUF_ON",
+			"TG_ON"
+		};
+		psr_status = I915_READ(EDP_PSR2_STATUS);
+		val = (psr_status & EDP_PSR2_STATUS_STATE_MASK) >>
+			EDP_PSR2_STATUS_STATE_SHIFT;
+		if (val < ARRAY_SIZE(live_status)) {
+			seq_printf(m, "Source PSR status: 0x%x [%s]\n",
+				   psr_status, live_status[val]);
+			return;
+		}
+	} else {
+		static const char * const live_status[] = {
+			"IDLE",
+			"SRDONACK",
+			"SRDENT",
+			"BUFOFF",
+			"BUFON",
+			"AUXACK",
+			"SRDOFFACK",
+			"SRDENT_ON",
+		};
+		psr_status = I915_READ(EDP_PSR_STATUS);
+		val = (psr_status & EDP_PSR_STATUS_STATE_MASK) >>
+			EDP_PSR_STATUS_STATE_SHIFT;
+		if (val < ARRAY_SIZE(live_status)) {
+			seq_printf(m, "Source PSR status: 0x%x [%s]\n",
+				   psr_status, live_status[val]);
+			return;
+		}
+	}
+
+	seq_printf(m, "Source PSR status: 0x%x [%s]\n", psr_status, "unknown");
+}
+
 static int i915_edp_psr_status(struct seq_file *m, void *data)
 {
 	struct drm_i915_private *dev_priv = node_to_i915(m->private);
 	u32 psrperf = 0;
-	u32 stat[3];
-	enum pipe pipe;
 	bool enabled = false;
+	bool sink_support;
 
 	if (!HAS_PSR(dev_priv)) {
 		seq_puts(m, "PSR not supported\n");
 		return 0;
 	}
 
+	sink_support = dev_priv->psr.sink_support;
+	seq_printf(m, "Sink_Support: %s\n", yesno(sink_support));
+	if (!sink_support)
+		return 0;
+
 	intel_runtime_pm_get(dev_priv);
 
 	mutex_lock(&dev_priv->psr.lock);
-	seq_printf(m, "Sink_Support: %s\n", yesno(dev_priv->psr.sink_support));
-	seq_printf(m, "Source_OK: %s\n", yesno(dev_priv->psr.source_ok));
+	seq_printf(m, "PSR mode: %s\n",
+		   dev_priv->psr.psr2_enabled ? "PSR2" : "PSR1");
 	seq_printf(m, "Enabled: %s\n", yesno((bool)dev_priv->psr.enabled));
-	seq_printf(m, "Active: %s\n", yesno(dev_priv->psr.active));
 	seq_printf(m, "Busy frontbuffer bits: 0x%03x\n",
 		   dev_priv->psr.busy_frontbuffer_bits);
-	seq_printf(m, "Re-enable work scheduled: %s\n",
-		   yesno(work_busy(&dev_priv->psr.work.work)));
 
-	if (HAS_DDI(dev_priv)) {
-		if (dev_priv->psr.psr2_support)
-			enabled = I915_READ(EDP_PSR2_CTL) & EDP_PSR2_ENABLE;
-		else
-			enabled = I915_READ(EDP_PSR_CTL) & EDP_PSR_ENABLE;
-	} else {
-		for_each_pipe(dev_priv, pipe) {
-			enum transcoder cpu_transcoder =
-				intel_pipe_to_cpu_transcoder(dev_priv, pipe);
-			enum intel_display_power_domain power_domain;
-
-			power_domain = POWER_DOMAIN_TRANSCODER(cpu_transcoder);
-			if (!intel_display_power_get_if_enabled(dev_priv,
-								power_domain))
-				continue;
-
-			stat[pipe] = I915_READ(VLV_PSRSTAT(pipe)) &
-				VLV_EDP_PSR_CURR_STATE_MASK;
-			if ((stat[pipe] == VLV_EDP_PSR_ACTIVE_NORFB_UP) ||
-			    (stat[pipe] == VLV_EDP_PSR_ACTIVE_SF_UPDATE))
-				enabled = true;
-
-			intel_display_power_put(dev_priv, power_domain);
-		}
-	}
+	if (dev_priv->psr.psr2_enabled)
+		enabled = I915_READ(EDP_PSR2_CTL) & EDP_PSR2_ENABLE;
+	else
+		enabled = I915_READ(EDP_PSR_CTL) & EDP_PSR_ENABLE;
 
 	seq_printf(m, "Main link in standby mode: %s\n",
 		   yesno(dev_priv->psr.link_standby));
 
-	seq_printf(m, "HW Enabled & Active bit: %s", yesno(enabled));
-
-	if (!HAS_DDI(dev_priv))
-		for_each_pipe(dev_priv, pipe) {
-			if ((stat[pipe] == VLV_EDP_PSR_ACTIVE_NORFB_UP) ||
-			    (stat[pipe] == VLV_EDP_PSR_ACTIVE_SF_UPDATE))
-				seq_printf(m, " pipe %c", pipe_name(pipe));
-		}
-	seq_puts(m, "\n");
+	seq_printf(m, "HW Enabled & Active bit: %s\n", yesno(enabled));
 
 	/*
-	 * VLV/CHV PSR has no kind of performance counter
 	 * SKL+ Perf counter is reset to 0 everytime DC state is entered
 	 */
 	if (IS_HASWELL(dev_priv) || IS_BROADWELL(dev_priv)) {
@@ -2576,35 +2642,57 @@ static int i915_edp_psr_status(struct seq_file *m, void *data)
 
 		seq_printf(m, "Performance_Counter: %u\n", psrperf);
 	}
-	if (dev_priv->psr.psr2_support) {
-		static const char * const live_status[] = {
-							"IDLE",
-							"CAPTURE",
-							"CAPTURE_FS",
-							"SLEEP",
-							"BUFON_FW",
-							"ML_UP",
-							"SU_STANDBY",
-							"FAST_SLEEP",
-							"DEEP_SLEEP",
-							"BUF_ON",
-							"TG_ON" };
-		u8 pos = (I915_READ(EDP_PSR2_STATUS_CTL) &
-			EDP_PSR2_STATUS_STATE_MASK) >>
-			EDP_PSR2_STATUS_STATE_SHIFT;
 
-		seq_printf(m, "PSR2_STATUS_EDP: %x\n",
-			I915_READ(EDP_PSR2_STATUS_CTL));
-
-		if (pos < ARRAY_SIZE(live_status))
-		seq_printf(m, "PSR2 live state %s\n",
-			live_status[pos]);
-	}
+	psr_source_status(dev_priv, m);
 	mutex_unlock(&dev_priv->psr.lock);
+
+	if (READ_ONCE(dev_priv->psr.debug)) {
+		/*
+		 * ktime_to_ns() needed only in chromeos-4.4 because
+		 * ktime_t is defined as a union with member tv64
+		 */
+		seq_printf(m, "Last attempted entry at: %lld\n",
+			   ktime_to_ns(dev_priv->psr.last_entry_attempt));
+		seq_printf(m, "Last exit at: %lld\n",
+			   ktime_to_ns(dev_priv->psr.last_exit));
+	}
 
 	intel_runtime_pm_put(dev_priv);
 	return 0;
 }
+
+static int
+i915_edp_psr_debug_set(void *data, u64 val)
+{
+	struct drm_i915_private *dev_priv = data;
+
+	if (!CAN_PSR(dev_priv))
+		return -ENODEV;
+
+	DRM_DEBUG_KMS("PSR debug %s\n", enableddisabled(val));
+
+	intel_runtime_pm_get(dev_priv);
+	intel_psr_irq_control(dev_priv, !!val);
+	intel_runtime_pm_put(dev_priv);
+
+	return 0;
+}
+
+static int
+i915_edp_psr_debug_get(void *data, u64 *val)
+{
+	struct drm_i915_private *dev_priv = data;
+
+	if (!CAN_PSR(dev_priv))
+		return -ENODEV;
+
+	*val = READ_ONCE(dev_priv->psr.debug);
+	return 0;
+}
+
+DEFINE_SIMPLE_ATTRIBUTE(i915_edp_psr_debug_fops,
+			i915_edp_psr_debug_get, i915_edp_psr_debug_set,
+			"%llu\n");
 
 static int i915_sink_crc(struct seq_file *m, void *data)
 {
@@ -4606,7 +4694,7 @@ static const struct i915_debugfs_files {
 	{"i915_fbc_false_color", &i915_fbc_fc_fops},
 	{"i915_dp_test_data", &i915_displayport_test_data_fops},
 	{"i915_dp_test_type", &i915_displayport_test_type_fops},
-	{"i915_dp_test_active", &i915_displayport_test_active_fops}
+	{"i915_edp_psr_debug", &i915_edp_psr_debug_fops}
 };
 
 int i915_debugfs_register(struct drm_i915_private *dev_priv)
@@ -4730,6 +4818,40 @@ static const struct file_operations i915_dpcd_fops = {
 	.release = single_release,
 };
 
+static int i915_panel_show(struct seq_file *m, void *data)
+{
+	struct drm_connector *connector = m->private;
+	struct intel_dp *intel_dp =
+		enc_to_intel_dp(&intel_attached_encoder(connector)->base);
+
+	if (connector->status != connector_status_connected)
+		return -ENODEV;
+
+	seq_printf(m, "Panel power up delay: %d\n",
+		   intel_dp->panel_power_up_delay);
+	seq_printf(m, "Panel power down delay: %d\n",
+		   intel_dp->panel_power_down_delay);
+	seq_printf(m, "Backlight on delay: %d\n",
+		   intel_dp->backlight_on_delay);
+	seq_printf(m, "Backlight off delay: %d\n",
+		   intel_dp->backlight_off_delay);
+
+	return 0;
+}
+
+static int i915_panel_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, i915_panel_show, inode->i_private);
+}
+
+static const struct file_operations i915_panel_fops = {
+	.owner = THIS_MODULE,
+	.open = i915_panel_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = single_release,
+};
+
 /**
  * i915_debugfs_connector_add - add i915 specific connector debugfs files
  * @connector: pointer to a registered drm_connector
@@ -4749,8 +4871,15 @@ int i915_debugfs_connector_add(struct drm_connector *connector)
 
 	if (connector->connector_type == DRM_MODE_CONNECTOR_DisplayPort ||
 	    connector->connector_type == DRM_MODE_CONNECTOR_eDP)
-		debugfs_create_file("i915_dpcd", S_IRUGO, root, connector,
-				    &i915_dpcd_fops);
+		debugfs_create_file("i915_dpcd", S_IRUGO, root,
+				    connector, &i915_dpcd_fops);
+
+	if (connector->connector_type == DRM_MODE_CONNECTOR_eDP) {
+		debugfs_create_file("i915_panel_timings", S_IRUGO, root,
+				    connector, &i915_panel_fops);
+		debugfs_create_file("i915_psr_sink_status", S_IRUGO, root,
+				    connector, &i915_psr_sink_status_fops);
+	}
 
 	return 0;
 }

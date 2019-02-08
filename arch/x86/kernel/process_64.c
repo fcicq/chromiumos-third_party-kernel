@@ -158,12 +158,17 @@ int copy_thread_tls(unsigned long clone_flags, unsigned long sp,
 {
 	int err;
 	struct pt_regs *childregs;
+	struct fork_frame *fork_frame;
+	struct inactive_task_frame *frame;
 	struct task_struct *me = current;
 
 	p->thread.sp0 = (unsigned long)task_stack_page(p) + THREAD_SIZE;
 	childregs = task_pt_regs(p);
-	p->thread.sp = (unsigned long) childregs;
-	set_tsk_thread_flag(p, TIF_FORK);
+	fork_frame = container_of(childregs, struct fork_frame, regs);
+	frame = &fork_frame->frame;
+	frame->bp = 0;
+	frame->ret_addr = (unsigned long) ret_from_fork;
+	p->thread.sp = (unsigned long) fork_frame;
 	p->thread.io_bitmap_ptr = NULL;
 
 	savesegment(gs, p->thread.gsindex);
@@ -208,7 +213,7 @@ int copy_thread_tls(unsigned long clone_flags, unsigned long sp,
 	 */
 	if (clone_flags & CLONE_SETTLS) {
 #ifdef CONFIG_IA32_EMULATION
-		if (is_ia32_task())
+		if (in_ia32_syscall())
 			err = do_set_thread_area(p, -1,
 				(struct user_desc __user *)tls, 0);
 		else
@@ -250,6 +255,7 @@ start_thread(struct pt_regs *regs, unsigned long new_ip, unsigned long new_sp)
 	start_thread_common(regs, new_ip, new_sp,
 			    __USER_CS, __USER_DS, 0);
 }
+EXPORT_SYMBOL_GPL(start_thread);
 
 #ifdef CONFIG_COMPAT
 void compat_start_thread(struct pt_regs *regs, u32 new_ip, u32 new_sp)
@@ -490,7 +496,7 @@ void set_personality_ia32(bool x32)
 		current->personality &= ~READ_IMPLIES_EXEC;
 		/* is_compat_task() uses the presence of the x32
 		   syscall bit flag to determine compat status */
-		current_thread_info()->status &= ~TS_COMPAT;
+		current->thread.status &= ~TS_COMPAT;
 	} else {
 		set_thread_flag(TIF_IA32);
 		clear_thread_flag(TIF_X32);
@@ -498,7 +504,7 @@ void set_personality_ia32(bool x32)
 			current->mm->context.ia32_compat = TIF_IA32;
 		current->personality |= force_personality32;
 		/* Prepare the first "return" to user space */
-		current_thread_info()->status |= TS_COMPAT;
+		current->thread.status |= TS_COMPAT;
 	}
 }
 EXPORT_SYMBOL_GPL(set_personality_ia32);

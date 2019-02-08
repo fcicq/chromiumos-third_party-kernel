@@ -18,6 +18,8 @@
 #include <linux/module.h>
 #include <linux/firmware.h>
 #include <linux/of.h>
+#include <linux/dmi.h>
+#include <linux/ctype.h>
 
 #include "core.h"
 #include "mac.h"
@@ -29,6 +31,7 @@
 #include "htt.h"
 #include "testmode.h"
 #include "wmi-ops.h"
+#include "coredump.h"
 
 unsigned int ath10k_debug_mask;
 static unsigned int ath10k_cryptmode_param;
@@ -36,17 +39,25 @@ static bool uart_print;
 static bool skip_otp;
 static bool rawmode;
 
+/* Enable ATH10K_FW_CRASH_DUMP_REGISTERS and ATH10K_FW_CRASH_DUMP_CE_DATA
+ * by default.
+ */
+unsigned long ath10k_coredump_mask = 0x3;
+
+/* FIXME: most of these should be readonly */
 module_param_named(debug_mask, ath10k_debug_mask, uint, 0644);
 module_param_named(cryptmode, ath10k_cryptmode_param, uint, 0644);
 module_param(uart_print, bool, 0644);
 module_param(skip_otp, bool, 0644);
 module_param(rawmode, bool, 0644);
+module_param_named(coredump_mask, ath10k_coredump_mask, ulong, 0444);
 
 MODULE_PARM_DESC(debug_mask, "Debugging mask");
 MODULE_PARM_DESC(uart_print, "Uart target debugging");
 MODULE_PARM_DESC(skip_otp, "Skip otp failure for calibration in testmode");
 MODULE_PARM_DESC(cryptmode, "Crypto mode: 0-hardware, 1-software");
 MODULE_PARM_DESC(rawmode, "Use raw 802.11 frame datapath");
+MODULE_PARM_DESC(coredump_mask, "Bitfield of what to include in firmware crash file");
 
 static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
@@ -69,6 +80,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 			.board_ext_size = QCA988X_BOARD_EXT_DATA_SZ,
 		},
 		.hw_ops = &qca988x_ops,
+		.fw_diag_ce_download = false,
 	},
 	{
 		.id = QCA6174_HW_2_1_VERSION,
@@ -88,6 +100,8 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 			.board_ext_size = QCA6174_BOARD_EXT_DATA_SZ,
 		},
 		.hw_ops = &qca988x_ops,
+		.fw_diag_ce_download = false,
+		.tx_sk_pacing_shift = SK_PACING_SHIFT_6174,
 	},
 	{
 		.id = QCA6174_HW_2_1_VERSION,
@@ -108,6 +122,8 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 			.board_ext_size = QCA6174_BOARD_EXT_DATA_SZ,
 		},
 		.hw_ops = &qca988x_ops,
+		.fw_diag_ce_download = false,
+		.tx_sk_pacing_shift = SK_PACING_SHIFT_6174,
 	},
 	{
 		.id = QCA6174_HW_3_0_VERSION,
@@ -128,6 +144,8 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 			.board_ext_size = QCA6174_BOARD_EXT_DATA_SZ,
 		},
 		.hw_ops = &qca988x_ops,
+		.fw_diag_ce_download = false,
+		.tx_sk_pacing_shift = SK_PACING_SHIFT_6174,
 	},
 	{
 		.id = QCA6174_HW_3_2_VERSION,
@@ -151,6 +169,8 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 		.hw_ops = &qca6174_ops,
 		.hw_clk = qca6174_clk,
 		.target_cpu_freq = 176000000,
+		.fw_diag_ce_download = true,
+		.tx_sk_pacing_shift = SK_PACING_SHIFT_6174,
 	},
 	{
 		.id = QCA99X0_HW_2_0_DEV_VERSION,
@@ -176,6 +196,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 			.board_size = QCA99X0_BOARD_DATA_SZ,
 			.board_ext_size = QCA99X0_BOARD_EXT_DATA_SZ,
 		},
+		.fw_diag_ce_download = false,
 	},
 	{
 		.id = QCA9377_HW_1_0_DEV_VERSION,
@@ -195,6 +216,8 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 			.board_ext_size = QCA9377_BOARD_EXT_DATA_SZ,
 		},
 		.hw_ops = &qca988x_ops,
+		.fw_diag_ce_download = false,
+		.tx_sk_pacing_shift = SK_PACING_SHIFT_9377,
 	},
 	{
 		.id = QCA9377_HW_1_1_DEV_VERSION,
@@ -214,6 +237,8 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 			.board_ext_size = QCA9377_BOARD_EXT_DATA_SZ,
 		},
 		.hw_ops = &qca988x_ops,
+		.fw_diag_ce_download = true,
+		.tx_sk_pacing_shift = SK_PACING_SHIFT_9377,
 	},
 	{
 		.id = QCA4019_HW_1_0_DEV_VERSION,
@@ -239,6 +264,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 			.board_size = QCA4019_BOARD_DATA_SZ,
 			.board_ext_size = QCA4019_BOARD_EXT_DATA_SZ,
 		},
+		.fw_diag_ce_download = false,
 	},
 };
 
@@ -607,6 +633,94 @@ static int ath10k_core_get_board_id_from_otp(struct ath10k *ar)
 	return 0;
 }
 
+static void ath10k_core_check_bdfext(const struct dmi_header *hdr, void *data)
+{
+	struct ath10k *ar = data;
+	const char *bdf_ext;
+	const char *magic = ATH10K_SMBIOS_BDF_EXT_MAGIC;
+	u8 bdf_enabled;
+	int i;
+
+	if (hdr->type != ATH10K_SMBIOS_BDF_EXT_TYPE)
+		return;
+
+	if (hdr->length != ATH10K_SMBIOS_BDF_EXT_LENGTH) {
+		ath10k_dbg(ar, ATH10K_DBG_BOOT,
+			   "wrong smbios bdf ext type length (%d).\n",
+			   hdr->length);
+		return;
+	}
+
+	bdf_enabled = *((u8 *)hdr + ATH10K_SMBIOS_BDF_EXT_OFFSET);
+	if (!bdf_enabled) {
+		ath10k_dbg(ar, ATH10K_DBG_BOOT, "bdf variant name not found.\n");
+		return;
+	}
+
+	/* Only one string exists (per spec) */
+	bdf_ext = (char *)hdr + hdr->length;
+
+	if (memcmp(bdf_ext, magic, strlen(magic)) != 0) {
+		ath10k_dbg(ar, ATH10K_DBG_BOOT,
+			   "bdf variant magic does not match.\n");
+		return;
+	}
+
+	for (i = 0; i < strlen(bdf_ext); i++) {
+		if (!isascii(bdf_ext[i]) || !isprint(bdf_ext[i])) {
+			ath10k_dbg(ar, ATH10K_DBG_BOOT,
+				   "bdf variant name contains non ascii chars.\n");
+			return;
+		}
+	}
+
+	/* Copy extension name without magic suffix */
+	if (strscpy(ar->id.bdf_ext, bdf_ext + strlen(magic),
+		    sizeof(ar->id.bdf_ext)) < 0) {
+		ath10k_dbg(ar, ATH10K_DBG_BOOT,
+			   "bdf variant string is longer than the buffer can accommodate (variant: %s)\n",
+			    bdf_ext);
+		return;
+	}
+
+	ath10k_dbg(ar, ATH10K_DBG_BOOT,
+		   "found and validated bdf variant smbios_type 0x%x bdf %s\n",
+		   ATH10K_SMBIOS_BDF_EXT_TYPE, bdf_ext);
+}
+
+static int ath10k_core_check_smbios(struct ath10k *ar)
+{
+	ar->id.bdf_ext[0] = '\0';
+	dmi_walk(ath10k_core_check_bdfext, ar);
+
+	if (ar->id.bdf_ext[0] == '\0')
+		return -ENODATA;
+
+	return 0;
+}
+
+static int ath10k_core_check_dt(struct ath10k *ar)
+{
+	struct device_node *node;
+	const char *variant = NULL;
+
+	node = ar->dev->of_node;
+	if (!node)
+		return -ENOENT;
+
+	of_property_read_string(node, "qcom,ath10k-calibration-variant",
+				&variant);
+	if (!variant)
+		return -ENODATA;
+
+	if (strscpy(ar->id.bdf_ext, variant, sizeof(ar->id.bdf_ext)) < 0)
+		ath10k_dbg(ar, ATH10K_DBG_BOOT,
+			   "bdf variant string is longer than the buffer can accommodate (variant: %s)\n",
+			    variant);
+
+	return 0;
+}
+
 static int ath10k_download_and_run_otp(struct ath10k *ar)
 {
 	u32 result, address = ar->hw_params.patch_load_addr;
@@ -690,14 +804,24 @@ static int ath10k_download_fw(struct ath10k *ar, enum ath10k_firmware_mode mode)
 		   "boot uploading firmware image %p len %d mode %s\n",
 		   data, data_len, mode_name);
 
-	ret = ath10k_bmi_fast_download(ar, address, data, data_len);
-	if (ret) {
-		ath10k_err(ar, "failed to download %s firmware: %d\n",
-			   mode_name, ret);
-		return ret;
+	/* Check if device supports to download firmware via
+	 * diag copy engine. Downloading firmware via diag CE
+	 * greatly reduces the time to download firmware.
+	 */
+	if (ar->hw_params.fw_diag_ce_download) {
+		ret = ath10k_hw_diag_fast_download(ar, address,
+						   data, data_len);
+		if (ret == 0)
+			/* firmware upload via diag ce was successful */
+			return 0;
+
+		ath10k_warn(ar,
+			    "failed to upload firmware via diag ce, trying BMI: %d",
+			    ret);
 	}
 
-	return ret;
+	return ath10k_bmi_fast_download(ar, address,
+					data, data_len);
 }
 
 static void ath10k_core_free_board_files(struct ath10k *ar)
@@ -914,6 +1038,23 @@ static int ath10k_core_fetch_board_data_api_n(struct ath10k *ar,
 		case ATH10K_BD_IE_BOARD:
 			ret = ath10k_core_parse_bd_ie_board(ar, data, ie_len,
 							    boardname);
+			if (ret == -ENOENT && ar->id.bdf_ext[0] != '\0') {
+				/* try default bdf if variant was not found */
+				char *s, *v = ",variant=";
+				char boardname2[100];
+
+				strlcpy(boardname2, boardname,
+					sizeof(boardname2));
+
+				s = strstr(boardname2, v);
+				if (s)
+					*s = '\0';  /* strip ",variant=%s" */
+
+				ret = ath10k_core_parse_bd_ie_board(ar, data,
+								    ie_len,
+								    boardname2);
+			}
+
 			if (ret == -ENOENT)
 				/* no match found, continue */
 				break;
@@ -951,21 +1092,27 @@ err:
 static int ath10k_core_create_board_name(struct ath10k *ar, char *name,
 					 size_t name_len)
 {
+	/* strlen(',variant=') + strlen(ar->id.bdf_ext) */
+	char variant[9 + ATH10K_SMBIOS_BDF_EXT_STR_LENGTH] = { 0 };
+
+	if (ar->id.bdf_ext[0] != '\0')
+		scnprintf(variant, sizeof(variant), ",variant=%s",
+			  ar->id.bdf_ext);
+
 	if (ar->id.bmi_ids_valid) {
 		scnprintf(name, name_len,
-			  "bus=%s,bmi-chip-id=%d,bmi-board-id=%d",
+			  "bus=%s,bmi-chip-id=%d,bmi-board-id=%d%s",
 			  ath10k_bus_str(ar->hif.bus),
 			  ar->id.bmi_chip_id,
-			  ar->id.bmi_board_id);
+			  ar->id.bmi_board_id, variant);
 		goto out;
 	}
 
 	scnprintf(name, name_len,
-		  "bus=%s,vendor=%04x,device=%04x,subsystem-vendor=%04x,subsystem-device=%04x",
+		  "bus=%s,vendor=%04x,device=%04x,subsystem-vendor=%04x,subsystem-device=%04x%s",
 		  ath10k_bus_str(ar->hif.bus),
 		  ar->id.vendor, ar->id.device,
-		  ar->id.subsystem_vendor, ar->id.subsystem_device);
-
+		  ar->id.subsystem_vendor, ar->id.subsystem_device, variant);
 out:
 	ath10k_dbg(ar, ATH10K_DBG_BOOT, "boot using board name '%s'\n", name);
 
@@ -1385,6 +1532,7 @@ static int ath10k_init_hw_params(struct ath10k *ar)
 static void ath10k_core_restart(struct work_struct *work)
 {
 	struct ath10k *ar = container_of(work, struct ath10k, restart_work);
+	int ret;
 
 	set_bit(ATH10K_FLAG_CRASH_FLUSH, &ar->dev_flags);
 
@@ -1435,6 +1583,11 @@ static void ath10k_core_restart(struct work_struct *work)
 	}
 
 	mutex_unlock(&ar->conf_mutex);
+
+	ret = ath10k_coredump_submit(ar);
+	if (ret)
+		ath10k_warn(ar, "failed to send firmware crash dump via devcoredump: %d",
+			    ret);
 }
 
 static int ath10k_core_init_firmware_features(struct ath10k *ar)
@@ -1860,6 +2013,14 @@ static int ath10k_core_probe_fw(struct ath10k *ar)
 		return ret;
 	}
 
+	ret = ath10k_core_check_smbios(ar);
+	if (ret)
+		ath10k_dbg(ar, ATH10K_DBG_BOOT, "SMBIOS bdf variant name not set.\n");
+
+	ret = ath10k_core_check_dt(ar);
+	if (ret)
+		ath10k_dbg(ar, ATH10K_DBG_BOOT, "DT bdf variant name not set.\n");
+
 	ret = ath10k_core_fetch_board_file(ar);
 	if (ret) {
 		ath10k_err(ar, "failed to fetch board file: %d\n", ret);
@@ -1927,10 +2088,16 @@ static void ath10k_core_register_work(struct work_struct *work)
 		goto err_release_fw;
 	}
 
+	status = ath10k_coredump_register(ar);
+	if (status) {
+		ath10k_err(ar, "unable to register coredump\n");
+		goto err_unregister_mac;
+	}
+
 	status = ath10k_debug_register(ar);
 	if (status) {
 		ath10k_err(ar, "unable to initialize debugfs\n");
-		goto err_unregister_mac;
+		goto err_unregister_coredump;
 	}
 
 	status = ath10k_spectral_create(ar);
@@ -1953,6 +2120,8 @@ err_spectral_destroy:
 	ath10k_spectral_destroy(ar);
 err_debug_destroy:
 	ath10k_debug_destroy(ar);
+err_unregister_coredump:
+	ath10k_coredump_unregister(ar);
 err_unregister_mac:
 	ath10k_mac_unregister(ar);
 err_release_fw:
@@ -2083,11 +2252,18 @@ struct ath10k *ath10k_core_create(size_t priv_size, struct device *dev,
 	INIT_WORK(&ar->register_work, ath10k_core_register_work);
 	INIT_WORK(&ar->restart_work, ath10k_core_restart);
 
-	ret = ath10k_debug_create(ar);
+	ret = ath10k_coredump_create(ar);
 	if (ret)
 		goto err_free_aux_wq;
 
+	ret = ath10k_debug_create(ar);
+	if (ret)
+		goto err_free_coredump;
+
 	return ar;
+
+err_free_coredump:
+	ath10k_coredump_destroy(ar);
 
 err_free_aux_wq:
 	destroy_workqueue(ar->workqueue_aux);
@@ -2110,6 +2286,7 @@ void ath10k_core_destroy(struct ath10k *ar)
 	destroy_workqueue(ar->workqueue_aux);
 
 	ath10k_debug_destroy(ar);
+	ath10k_coredump_destroy(ar);
 	ath10k_wmi_free_host_mem(ar);
 	ath10k_mac_destroy(ar);
 }

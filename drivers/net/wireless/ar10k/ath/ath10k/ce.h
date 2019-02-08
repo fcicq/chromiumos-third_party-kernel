@@ -20,8 +20,6 @@
 
 #include "hif.h"
 
-/* Maximum number of Copy Engine's supported */
-#define CE_COUNT_MAX 12
 #define CE_HTT_H2T_MSG_SRC_NENTRIES 4096
 
 /* Descriptor rings must be aligned to this boundary */
@@ -177,10 +175,7 @@ int ath10k_ce_rx_post_buf(struct ath10k_ce_pipe *pipe, void *ctx, u32 paddr);
  */
 int ath10k_ce_completed_recv_next(struct ath10k_ce_pipe *ce_state,
 				  void **per_transfer_contextp,
-				  u32 *bufferp,
-				  unsigned int *nbytesp,
-				  unsigned int *transfer_idp,
-				  unsigned int *flagsp);
+				  unsigned int *nbytesp);
 /*
  * Supply data for the next completed unprocessed send descriptor.
  * Pops 1 completed send buffer from Source ring.
@@ -212,10 +207,7 @@ int ath10k_ce_revoke_recv_next(struct ath10k_ce_pipe *ce_state,
 
 int ath10k_ce_completed_recv_next_nolock(struct ath10k_ce_pipe *ce_state,
 					 void **per_transfer_contextp,
-					 u32 *bufferp,
-					 unsigned int *nbytesp,
-					 unsigned int *transfer_idp,
-					 unsigned int *flagsp);
+					 unsigned int *nbytesp);
 
 /*
  * Support clean shutdown by allowing the caller to cancel
@@ -233,6 +225,8 @@ void ath10k_ce_per_engine_service_any(struct ath10k *ar);
 void ath10k_ce_per_engine_service(struct ath10k *ar, unsigned int ce_id);
 int ath10k_ce_disable_interrupts(struct ath10k *ar);
 void ath10k_ce_enable_interrupts(struct ath10k *ar);
+void ath10k_ce_dump_registers(struct ath10k *ar,
+			      struct ath10k_fw_crash_data *crash_data);
 
 /* ce_attr.flags values */
 /* Use NonSnooping PCIe accesses? */

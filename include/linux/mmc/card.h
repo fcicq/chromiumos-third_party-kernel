@@ -60,8 +60,9 @@ struct mmc_ext_csd {
 	u8			packed_event_en;
 	unsigned int		part_time;		/* Units: ms */
 	unsigned int		sa_timeout;		/* Units: 100ns */
-	unsigned int		generic_cmd6_time;	/* Units: 10ms */
+	unsigned int		generic_cmd6_time;	/* Units: ms */
 	unsigned int            power_off_longtime;     /* Units: ms */
+	unsigned int		mode_op_codes_time;	/* Units: ms */
 	u8			power_off_notification;	/* state */
 	unsigned int		hs_max_dtr;
 	unsigned int		hs200_max_dtr;
@@ -82,6 +83,7 @@ struct mmc_ext_csd {
 	bool			hpi_en;			/* HPI enablebit */
 	bool			hpi;			/* HPI support bit */
 	unsigned int		hpi_cmd;		/* cmd used as HPI */
+	bool			ffu_mode_op;       /* FFU mode operation code */
 	bool			bkops;		/* background support bit */
 	bool			man_bkops_en;	/* manual bkops enable bit */
 	unsigned int            data_sector_size;       /* 512 bytes or 4KB */
@@ -89,6 +91,7 @@ struct mmc_ext_csd {
 	unsigned int		boot_ro_lock;		/* ro lock support */
 	bool			boot_ro_lockable;
 	bool			ffu_capable;	/* Firmware upgrade support */
+	u32			ffu_arg;	/* Argument for FFU command */
 #define MMC_FIRMWARE_LEN 8
 	u8			fwrev[MMC_FIRMWARE_LEN];  /* FW version */
 	u8			raw_exception_status;	/* 54 */

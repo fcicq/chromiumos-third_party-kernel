@@ -200,7 +200,14 @@ extern const struct attribute_group *pci_dev_groups[];
 extern const struct attribute_group *pcibus_groups[];
 extern struct device_type pci_dev_type;
 extern const struct attribute_group *pci_bus_groups[];
-
+#ifdef CONFIG_PCIEAER
+int pci_aer_init(struct pci_dev *pdev);
+void pci_aer_exit(struct pci_dev *pdev);
+extern const struct attribute_group aer_stats_attr_group;
+#else
+static inline int pci_aer_init(struct pci_dev *dev) { return -ENODEV; }
+static void pci_aer_exit(struct pci_dev *pdev) { }
+#endif
 
 /**
  * pci_match_one_device - Tell if a PCI device structure has a matching

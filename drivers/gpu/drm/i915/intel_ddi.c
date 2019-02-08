@@ -388,7 +388,7 @@ skl_get_buf_trans_dp(struct drm_i915_private *dev_priv, int *n_entries)
 static const struct ddi_buf_trans *
 kbl_get_buf_trans_dp(struct drm_i915_private *dev_priv, int *n_entries)
 {
-	if (IS_KBL_ULX(dev_priv)) {
+	if (IS_KBL_ULX(dev_priv) || IS_AML_ULX(dev_priv)) {
 		*n_entries = ARRAY_SIZE(kbl_y_ddi_translations_dp);
 		return kbl_y_ddi_translations_dp;
 	} else if (IS_KBL_ULT(dev_priv)) {
@@ -404,7 +404,7 @@ static const struct ddi_buf_trans *
 skl_get_buf_trans_edp(struct drm_i915_private *dev_priv, int *n_entries)
 {
 	if (dev_priv->vbt.edp.low_vswing) {
-		if (IS_SKL_ULX(dev_priv) || IS_KBL_ULX(dev_priv)) {
+		if (IS_SKL_ULX(dev_priv) || IS_KBL_ULX(dev_priv) || IS_AML_ULX(dev_priv)) {
 			*n_entries = ARRAY_SIZE(skl_y_ddi_translations_edp);
 			return skl_y_ddi_translations_edp;
 		} else if (IS_SKL_ULT(dev_priv) || IS_KBL_ULT(dev_priv)) {
@@ -425,7 +425,7 @@ skl_get_buf_trans_edp(struct drm_i915_private *dev_priv, int *n_entries)
 static const struct ddi_buf_trans *
 skl_get_buf_trans_hdmi(struct drm_i915_private *dev_priv, int *n_entries)
 {
-	if (IS_SKL_ULX(dev_priv) || IS_KBL_ULX(dev_priv)) {
+	if (IS_SKL_ULX(dev_priv) || IS_KBL_ULX(dev_priv) || IS_AML_ULX(dev_priv)) {
 		*n_entries = ARRAY_SIZE(skl_y_ddi_translations_hdmi);
 		return skl_y_ddi_translations_hdmi;
 	} else {
@@ -1889,7 +1889,7 @@ static void intel_enable_ddi(struct intel_encoder *intel_encoder,
 			intel_dp_stop_link_train(intel_dp);
 
 		intel_edp_backlight_on(intel_dp);
-		intel_psr_enable(intel_dp);
+		intel_psr_enable(intel_dp, pipe_config);
 		intel_edp_drrs_enable(intel_dp, pipe_config);
 	}
 
@@ -1919,7 +1919,7 @@ static void intel_disable_ddi(struct intel_encoder *intel_encoder,
 		struct intel_dp *intel_dp = enc_to_intel_dp(encoder);
 
 		intel_edp_drrs_disable(intel_dp, old_crtc_state);
-		intel_psr_disable(intel_dp);
+		intel_psr_disable(intel_dp, old_crtc_state);
 		intel_edp_backlight_off(intel_dp);
 	}
 }

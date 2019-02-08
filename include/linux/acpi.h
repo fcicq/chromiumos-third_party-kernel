@@ -471,6 +471,24 @@ void acpi_walk_dep_device_list(acpi_handle handle);
 struct platform_device *acpi_create_platform_device(struct acpi_device *);
 #define ACPI_PTR(_ptr)	(_ptr)
 
+static inline void acpi_device_set_enumerated(struct acpi_device *adev)
+{
+	adev->flags.visited = true;
+}
+
+static inline void acpi_device_clear_enumerated(struct acpi_device *adev)
+{
+	adev->flags.visited = false;
+}
+
+enum acpi_reconfig_event  {
+	ACPI_RECONFIG_DEVICE_ADD = 0,
+	ACPI_RECONFIG_DEVICE_REMOVE,
+};
+
+int acpi_reconfig_notifier_register(struct notifier_block *nb);
+int acpi_reconfig_notifier_unregister(struct notifier_block *nb);
+
 #else	/* !CONFIG_ACPI */
 
 #define acpi_disabled 1
@@ -626,6 +644,24 @@ static inline void acpi_dma_configure(struct device *dev,
 static inline void acpi_dma_deconfigure(struct device *dev) { }
 
 #define ACPI_PTR(_ptr)	(NULL)
+
+static inline void acpi_device_set_enumerated(struct acpi_device *adev)
+{
+}
+
+static inline void acpi_device_clear_enumerated(struct acpi_device *adev)
+{
+}
+
+static inline int acpi_reconfig_notifier_register(struct notifier_block *nb)
+{
+	return -EINVAL;
+}
+
+static inline int acpi_reconfig_notifier_unregister(struct notifier_block *nb)
+{
+	return -EINVAL;
+}
 
 #endif	/* !CONFIG_ACPI */
 

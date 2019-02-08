@@ -209,9 +209,9 @@ EXPORT_SYMBOL(boot_cpu_data);
 
 
 #if !defined(CONFIG_X86_PAE) || defined(CONFIG_X86_64)
-__visible unsigned long mmu_cr4_features;
+__visible unsigned long mmu_cr4_features __ro_after_init;
 #else
-__visible unsigned long mmu_cr4_features = X86_CR4_PAE;
+__visible unsigned long mmu_cr4_features __ro_after_init = X86_CR4_PAE;
 #endif
 
 /* Boot loader ID and version as integers, for the benefit of proc_dointvec */
@@ -850,6 +850,12 @@ void __init setup_arch(char **cmdline_p)
 {
 	memblock_reserve(__pa_symbol(_text),
 			 (unsigned long)__bss_stop - (unsigned long)_text);
+
+	/*
+	 * Make sure page 0 is always reserved because on systems with
+	 * L1TF its contents can be leaked to user processes.
+	 */
+	memblock_reserve(0, PAGE_SIZE);
 
 	early_reserve_initrd();
 

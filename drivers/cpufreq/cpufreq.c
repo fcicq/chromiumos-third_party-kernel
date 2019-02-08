@@ -667,6 +667,8 @@ static ssize_t store_##file_name					\
 	struct cpufreq_policy new_policy;				\
 									\
 	memcpy(&new_policy, policy, sizeof(*policy));			\
+	new_policy.min = policy->user_policy.min;			\
+	new_policy.max = policy->user_policy.max;			\
 									\
 	ret = sscanf(buf, "%u", &new_policy.object);			\
 	if (ret != 1)							\
@@ -2275,14 +2277,13 @@ static int cpufreq_set_policy(struct cpufreq_policy *policy,
  *	Useful for policy notifiers which have different necessities
  *	at different times.
  */
-int cpufreq_update_policy(unsigned int cpu)
+void cpufreq_update_policy(unsigned int cpu)
 {
 	struct cpufreq_policy *policy = cpufreq_cpu_get(cpu);
 	struct cpufreq_policy new_policy;
-	int ret;
 
 	if (!policy)
-		return -ENODEV;
+		return;
 
 	down_write(&policy->rwsem);
 
@@ -2297,10 +2298,8 @@ int cpufreq_update_policy(unsigned int cpu)
 	 */
 	if (cpufreq_driver->get && !cpufreq_driver->setpolicy) {
 		new_policy.cur = cpufreq_driver->get(cpu);
-		if (WARN_ON(!new_policy.cur)) {
-			ret = -EIO;
+		if (WARN_ON(!new_policy.cur))
 			goto unlock;
-		}
 
 		if (!policy->cur) {
 			pr_debug("Driver did not initialize current freq\n");
@@ -2311,13 +2310,12 @@ int cpufreq_update_policy(unsigned int cpu)
 		}
 	}
 
-	ret = cpufreq_set_policy(policy, &new_policy);
+	cpufreq_set_policy(policy, &new_policy);
 
 unlock:
 	up_write(&policy->rwsem);
 
 	cpufreq_cpu_put(policy);
-	return ret;
 }
 EXPORT_SYMBOL(cpufreq_update_policy);
 

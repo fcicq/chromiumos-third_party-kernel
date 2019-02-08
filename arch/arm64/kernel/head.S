@@ -30,6 +30,7 @@
 #include <asm/cache.h>
 #include <asm/cputype.h>
 #include <asm/kernel-pgtable.h>
+#include <asm/kvm_arm.h>
 #include <asm/memory.h>
 #include <asm/pgtable-hwdef.h>
 #include <asm/pgtable.h>
@@ -423,7 +424,10 @@ __mmap_switched:
 	str	xzr, [x6], #8			// Clear BSS
 	b	1b
 2:
-	adr_l	sp, initial_sp, x4
+	adrp	x4, init_thread_union
+	add	sp, x4, #THREAD_SIZE
+	adr_l	x5, init_task
+	msr	sp_el0, x5			// Save thread_info
 	str_l	x21, __fdt_pointer, x5		// Save FDT pointer
 	str_l	x24, memstart_addr, x6		// Save PHYS_OFFSET
 	mov	x29, #0
@@ -464,7 +468,7 @@ CPU_LE(	bic	x0, x0, #(3 << 24)	)	// Clear the EE and E0E bits for EL1
 	ret
 
 	/* Hyp configuration. */
-2:	mov	x0, #(1 << 31)			// 64-bit EL1
+2:	mov_q	x0, HCR_HOST_NVHE_FLAGS
 	msr	hcr_el2, x0
 
 	/* Generic timers. */
@@ -611,8 +615,11 @@ ENTRY(secondary_startup)
 ENDPROC(secondary_startup)
 
 ENTRY(__secondary_switched)
-	ldr	x0, [x21]			// get secondary_data.stack
-	mov	sp, x0
+	adr_l	x0, secondary_data
+	ldr	x1, [x0, #CPU_BOOT_STACK]	// get secondary_data.stack
+	mov	sp, x1
+	ldr	x2, [x0, #CPU_BOOT_TASK]
+	msr	sp_el0, x2
 	mov	x29, #0
 	b	secondary_start_kernel
 ENDPROC(__secondary_switched)

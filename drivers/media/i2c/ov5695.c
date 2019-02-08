@@ -1382,6 +1382,12 @@ static const struct of_device_id ov5695_of_match[] = {
 MODULE_DEVICE_TABLE(of, ov5695_of_match);
 #endif
 
+static const struct i2c_device_id ov5695_id[] = {
+	{ "ov5695", 0 },
+	{ },
+};
+MODULE_DEVICE_TABLE(i2c, ov5695_id);
+
 static struct i2c_driver ov5695_i2c_driver = {
 	.driver = {
 		.name = "ov5695",
@@ -1391,6 +1397,7 @@ static struct i2c_driver ov5695_i2c_driver = {
 	},
 	.probe		= &ov5695_probe,
 	.remove		= &ov5695_remove,
+	.id_table	= ov5695_id,
 };
 
 module_i2c_driver(ov5695_i2c_driver);
