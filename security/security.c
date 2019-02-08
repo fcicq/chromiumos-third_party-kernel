@@ -197,6 +197,11 @@ int security_capset(struct cred *new, const struct cred *old,
 int security_capable(const struct cred *cred, struct user_namespace *ns,
 		     int cap)
 {
+	int ret = chromiumos_security_capable(cred, ns, cap);
+
+	if (ret)
+		return ret;
+
 	return security_ops->capable(cred, ns, cap, SECURITY_CAP_AUDIT);
 }
 
@@ -273,6 +278,12 @@ void security_sb_free(struct super_block *sb)
 
 int security_sb_copy_data(char *orig, char *copy)
 {
+	int ret;
+
+	ret = chromiumos_sb_copy_data(orig, copy);
+	if (ret)
+		return ret;
+
 	return security_ops->sb_copy_data(orig, copy);
 }
 EXPORT_SYMBOL(security_sb_copy_data);
@@ -284,6 +295,12 @@ int security_sb_remount(struct super_block *sb, void *data)
 
 int security_sb_kern_mount(struct super_block *sb, int flags, void *data)
 {
+	int ret;
+
+	ret = chromiumos_sb_kern_mount(sb, flags, data);
+	if (ret)
+		return ret;
+
 	return security_ops->sb_kern_mount(sb, flags, data);
 }
 
@@ -904,6 +921,11 @@ int security_kernel_module_from_file(struct file *file)
 int security_task_fix_setuid(struct cred *new, const struct cred *old,
 			     int flags)
 {
+	int ret = chromiumos_security_task_fix_setuid(new, old, flags);
+
+	if (ret)
+		return ret;
+
 	return security_ops->task_fix_setuid(new, old, flags);
 }
 

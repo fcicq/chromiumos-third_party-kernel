@@ -3128,6 +3128,10 @@ int hci_register_dev(struct hci_dev *hdev)
 	hci_sock_dev_event(hdev, HCI_DEV_REG);
 	hci_dev_hold(hdev);
 
+	// Don't try to power on if LE splitter is not yet set up.
+	if (hci_le_splitter_get_enabled_state() == SPLITTER_STATE_NOT_SET)
+		return id;
+
 	queue_work(hdev->req_workqueue, &hdev->power_on);
 
 	return id;
@@ -4196,10 +4200,8 @@ static void hci_rx_work(struct work_struct *work)
 			continue;
 		}
 
-		if (!hci_le_splitter_should_allow_bluez_rx(hdev, skb)) {
-			kfree_skb(skb);
+		if (!hci_le_splitter_should_allow_bluez_rx(hdev, skb))
 			continue;
-		}
 
 		if (test_bit(HCI_INIT, &hdev->flags)) {
 			/* Don't process data packets in this states. */

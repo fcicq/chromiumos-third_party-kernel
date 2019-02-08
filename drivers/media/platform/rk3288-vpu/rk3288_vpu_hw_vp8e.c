@@ -183,14 +183,18 @@ static inline u32 enc_in_img_ctrl(struct rk3288_vpu_ctx *ctx)
 static void rk3288_vpu_vp8e_set_buffers(struct rk3288_vpu_dev *vpu,
 					struct rk3288_vpu_ctx *ctx)
 {
+	const u32 src_addr_regs[] = { VEPU_REG_ADDR_IN_LUMA,
+				      VEPU_REG_ADDR_IN_CB,
+				      VEPU_REG_ADDR_IN_CR };
 	const struct rk3288_vp8e_reg_params *params = ctx->run.vp8e.reg_params;
+	struct v4l2_pix_format_mplane *src_fmt = &ctx->src_fmt;
 	dma_addr_t ref_buf_dma, rec_buf_dma;
 	dma_addr_t stream_dma;
 	size_t rounded_size;
 	dma_addr_t dst_dma;
 	u32 start_offset;
 	size_t dst_size;
-
+	int i;
 	rounded_size = ref_luma_size(ctx->src_fmt.width,
 						ctx->src_fmt.height);
 
@@ -279,15 +283,19 @@ static void rk3288_vpu_vp8e_set_buffers(struct rk3288_vpu_dev *vpu,
 		vepu_write_relaxed(vpu, vpu->dummy_encode_src[PLANE_CR].dma,
 					VEPU_REG_ADDR_IN_CR);
 	} else {
-		vepu_write_relaxed(vpu, vb2_dma_contig_plane_dma_addr(
-					&ctx->run.src->b, PLANE_Y),
-					VEPU_REG_ADDR_IN_LUMA);
-		vepu_write_relaxed(vpu, vb2_dma_contig_plane_dma_addr(
-					&ctx->run.src->b, PLANE_CB),
-					VEPU_REG_ADDR_IN_CB);
-		vepu_write_relaxed(vpu, vb2_dma_contig_plane_dma_addr(
-					&ctx->run.src->b, PLANE_CR),
-					VEPU_REG_ADDR_IN_CR);
+		/*
+		 * TODO(crbug.com/901264): The way to pass an offset within a
+		 * DMA-buf is not defined in V4L2 specification, so we abuse
+		 * data_offset for now. Fix it when we have the right interface,
+		 * including any necessary validation and potential alignment
+		 * issues.
+		 */
+		for (i = 0; i < src_fmt->num_planes; ++i)
+			vepu_write_relaxed(
+				vpu, vb2_dma_contig_plane_dma_addr(
+					&ctx->run.src->b, i) +
+				ctx->run.src->b.v4l2_planes[i].data_offset,
+				src_addr_regs[i]);
 	}
 
 	/* Source parameters. */
