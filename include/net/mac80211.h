@@ -2321,9 +2321,10 @@ enum ieee80211_hw_flags {
  * @tx_sk_pacing_shift: Pacing shift to set on TCP sockets when frames from
  *	them are encountered. The default should typically not be changed,
  *	unless the driver has good reasons for needing more buffers.
+
  *
- * @weight_multipler: Driver specific airtime weight multiplier used while
- *     refilling deficit of each TXQ.
+ * @weight_multiplier: Driver specific airtime weight multiplier used while
+ *	refilling deficit of each TXQ.
  */
 struct ieee80211_hw {
 	struct ieee80211_conf conf;

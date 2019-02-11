@@ -485,6 +485,9 @@ struct rx_rate_limit {
  * @last_seq_ctrl: last received seq/frag number from this STA (per TID
  *	plus one for non-QoS frames)
  * @tid_seq: per-TID sequence numbers for sending to this STA
+ * @airtime: per-AC struct airtime_info describing airtime statistics for this
+ *	station
+ * @airtime_weight: station weight for airtime fairness calculation purposes
  * @ampdu_mlme: A-MPDU state machine state
  * @timer_to_tid: identity mapping to ID timers
  * @mesh: mesh STA information
