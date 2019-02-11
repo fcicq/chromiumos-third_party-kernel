@@ -18,7 +18,6 @@
 #include <linux/pm_runtime.h>
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-device.h>
-#include <asm/unaligned.h>
 
 #ifndef V4L2_CID_DIGITAL_GAIN
 #define V4L2_CID_DIGITAL_GAIN V4L2_CID_GAIN
@@ -26,6 +25,7 @@
 
 #define IMX258_REG_VALUE_08BIT		1
 #define IMX258_REG_VALUE_16BIT		2
+#define IMX258_REG_VALUE_24BIT		3
 
 #define IMX258_REG_MODE_SELECT		0x0100
 #define IMX258_MODE_STANDBY		0x00
@@ -38,8 +38,6 @@
 /* V_TIMING internal */
 #define IMX258_REG_VTS			0x0340
 #define IMX258_VTS_30FPS		0x0c98
-#define IMX258_VTS_30FPS_2K		0x0638
-#define IMX258_VTS_30FPS_VGA		0x034c
 #define IMX258_VTS_MAX			0xffff
 
 /*Frame Length Line*/
@@ -49,7 +47,8 @@
 #define IMX258_FLL_DEFAULT		0x0c98
 
 /* HBLANK control - read only */
-#define IMX258_PPL_DEFAULT		5352
+#define IMX258_PPL_650MHZ		5352
+#define IMX258_PPL_325MHZ		2676
 
 /* Exposure control */
 #define IMX258_REG_EXPOSURE		0x0202
@@ -114,398 +113,259 @@ struct imx258_mode {
 	struct imx258_reg_list reg_list;
 };
 
-/* 4208x3118 needs 1267Mbps/lane, 4 lanes */
-static const struct imx258_reg mipi_data_rate_1267mbps[] = {
-	{ 0x0301, 0x05 },
-	{ 0x0303, 0x02 },
-	{ 0x0305, 0x03 },
-	{ 0x0306, 0x00 },
-	{ 0x0307, 0xC6 },
-	{ 0x0309, 0x0A },
-	{ 0x030B, 0x01 },
-	{ 0x030D, 0x02 },
-	{ 0x030E, 0x00 },
-	{ 0x030F, 0xD8 },
-	{ 0x0310, 0x00 },
-	{ 0x0820, 0x13 },
-	{ 0x0821, 0x4C },
-	{ 0x0822, 0xCC },
-	{ 0x0823, 0xCC },
+/* 4208x3118 needs 1300Mbps/lane, 4 lanes */
+static const struct imx258_reg mipi_data_rate_1300mbps[] = {
+	{0x0301, 0x05},
+	{0x0303, 0x02},
+	{0x0305, 0x03},
+	{0x0306, 0x00},
+	{0x0307, 0xCB},
+	{0x0309, 0x0A},
+	{0x030B, 0x01},
+	{0x030D, 0x02},
+	{0x030E, 0x00},
+	{0x030F, 0xD8},
+	{0x0310, 0x00},
+	{0x0820, 0x14},
+	{0x0821, 0x4C},
+	{0x0822, 0xCC},
+	{0x0823, 0xCC},
 };
 
-static const struct imx258_reg mipi_data_rate_640mbps[] = {
-	{ 0x0301, 0x05 },
-	{ 0x0303, 0x02 },
-	{ 0x0305, 0x03 },
-	{ 0x0306, 0x00 },
-	{ 0x0307, 0x64 },
-	{ 0x0309, 0x0A },
-	{ 0x030B, 0x01 },
-	{ 0x030D, 0x02 },
-	{ 0x030E, 0x00 },
-	{ 0x030F, 0xD8 },
-	{ 0x0310, 0x00 },
-	{ 0x0820, 0x0A },
-	{ 0x0821, 0x00 },
-	{ 0x0822, 0x00 },
-	{ 0x0823, 0x00 },
+static const struct imx258_reg mipi_data_rate_650mbps[] = {
+	{0x0301, 0x05},
+	{0x0303, 0x02},
+	{0x0305, 0x03},
+	{0x0306, 0x00},
+	{0x0307, 0x64},
+	{0x0309, 0x0A},
+	{0x030B, 0x01},
+	{0x030D, 0x02},
+	{0x030E, 0x00},
+	{0x030F, 0xD8},
+	{0x0310, 0x00},
+	{0x0820, 0x14},
+	{0x0821, 0x50},
+	{0x0822, 0x00},
+	{0x0823, 0x00},
 };
 
 static const struct imx258_reg mode_4208x3118_regs[] = {
-	{ 0x0136, 0x13 },
-	{ 0x0137, 0x33 },
-	{ 0x3051, 0x00 },
-	{ 0x3052, 0x00 },
-	{ 0x4E21, 0x14 },
-	{ 0x6B11, 0xCF },
-	{ 0x7FF0, 0x08 },
-	{ 0x7FF1, 0x0F },
-	{ 0x7FF2, 0x08 },
-	{ 0x7FF3, 0x1B },
-	{ 0x7FF4, 0x23 },
-	{ 0x7FF5, 0x60 },
-	{ 0x7FF6, 0x00 },
-	{ 0x7FF7, 0x01 },
-	{ 0x7FF8, 0x00 },
-	{ 0x7FF9, 0x78 },
-	{ 0x7FFA, 0x00 },
-	{ 0x7FFB, 0x00 },
-	{ 0x7FFC, 0x00 },
-	{ 0x7FFD, 0x00 },
-	{ 0x7FFE, 0x00 },
-	{ 0x7FFF, 0x03 },
-	{ 0x7F76, 0x03 },
-	{ 0x7F77, 0xFE },
-	{ 0x7FA8, 0x03 },
-	{ 0x7FA9, 0xFE },
-	{ 0x7B24, 0x81 },
-	{ 0x7B25, 0x00 },
-	{ 0x6564, 0x07 },
-	{ 0x6B0D, 0x41 },
-	{ 0x653D, 0x04 },
-	{ 0x6B05, 0x8C },
-	{ 0x6B06, 0xF9 },
-	{ 0x6B08, 0x65 },
-	{ 0x6B09, 0xFC },
-	{ 0x6B0A, 0xCF },
-	{ 0x6B0B, 0xD2 },
-	{ 0x6700, 0x0E },
-	{ 0x6707, 0x0E },
-	{ 0x9104, 0x00 },
-	{ 0x4648, 0x7F },
-	{ 0x7420, 0x00 },
-	{ 0x7421, 0x1C },
-	{ 0x7422, 0x00 },
-	{ 0x7423, 0xD7 },
-	{ 0x5F04, 0x00 },
-	{ 0x5F05, 0xED },
-	{ 0x0112, 0x0A },
-	{ 0x0113, 0x0A },
-	{ 0x0114, 0x03 },
-	{ 0x0342, 0x14 },
-	{ 0x0343, 0xE8 },
-	{ 0x0340, 0x0C },
-	{ 0x0341, 0x50 },
-	{ 0x0344, 0x00 },
-	{ 0x0345, 0x00 },
-	{ 0x0346, 0x00 },
-	{ 0x0347, 0x00 },
-	{ 0x0348, 0x10 },
-	{ 0x0349, 0x6F },
-	{ 0x034A, 0x0C },
-	{ 0x034B, 0x2E },
-	{ 0x0381, 0x01 },
-	{ 0x0383, 0x01 },
-	{ 0x0385, 0x01 },
-	{ 0x0387, 0x01 },
-	{ 0x0900, 0x00 },
-	{ 0x0901, 0x11 },
-	{ 0x0401, 0x00 },
-	{ 0x0404, 0x00 },
-	{ 0x0405, 0x10 },
-	{ 0x0408, 0x00 },
-	{ 0x0409, 0x00 },
-	{ 0x040A, 0x00 },
-	{ 0x040B, 0x00 },
-	{ 0x040C, 0x10 },
-	{ 0x040D, 0x70 },
-	{ 0x040E, 0x0C },
-	{ 0x040F, 0x30 },
-	{ 0x3038, 0x00 },
-	{ 0x303A, 0x00 },
-	{ 0x303B, 0x10 },
-	{ 0x300D, 0x00 },
-	{ 0x034C, 0x10 },
-	{ 0x034D, 0x70 },
-	{ 0x034E, 0x0C },
-	{ 0x034F, 0x30 },
-	{ 0x0350, 0x01 },
-	{ 0x0202, 0x0C },
-	{ 0x0203, 0x46 },
-	{ 0x0204, 0x00 },
-	{ 0x0205, 0x00 },
-	{ 0x020E, 0x01 },
-	{ 0x020F, 0x00 },
-	{ 0x0210, 0x01 },
-	{ 0x0211, 0x00 },
-	{ 0x0212, 0x01 },
-	{ 0x0213, 0x00 },
-	{ 0x0214, 0x01 },
-	{ 0x0215, 0x00 },
-	{ 0x7BCD, 0x00 },
-	{ 0x94DC, 0x20 },
-	{ 0x94DD, 0x20 },
-	{ 0x94DE, 0x20 },
-	{ 0x95DC, 0x20 },
-	{ 0x95DD, 0x20 },
-	{ 0x95DE, 0x20 },
-	{ 0x7FB0, 0x00 },
-	{ 0x9010, 0x3E },
-	{ 0x9419, 0x50 },
-	{ 0x941B, 0x50 },
-	{ 0x9519, 0x50 },
-	{ 0x951B, 0x50 },
-	{ 0x3030, 0x00 },
-	{ 0x3032, 0x00 },
-	{ 0x0220, 0x00 },
+	{0x0136, 0x13},
+	{0x0137, 0x33},
+	{0x3051, 0x00},
+	{0x3052, 0x00},
+	{0x4E21, 0x14},
+	{0x6B11, 0xCF},
+	{0x7FF0, 0x08},
+	{0x7FF1, 0x0F},
+	{0x7FF2, 0x08},
+	{0x7FF3, 0x1B},
+	{0x7FF4, 0x23},
+	{0x7FF5, 0x60},
+	{0x7FF6, 0x00},
+	{0x7FF7, 0x01},
+	{0x7FF8, 0x00},
+	{0x7FF9, 0x78},
+	{0x7FFA, 0x00},
+	{0x7FFB, 0x00},
+	{0x7FFC, 0x00},
+	{0x7FFD, 0x00},
+	{0x7FFE, 0x00},
+	{0x7FFF, 0x03},
+	{0x7F76, 0x03},
+	{0x7F77, 0xFE},
+	{0x7FA8, 0x03},
+	{0x7FA9, 0xFE},
+	{0x7B24, 0x81},
+	{0x7B25, 0x00},
+	{0x6564, 0x07},
+	{0x6B0D, 0x41},
+	{0x653D, 0x04},
+	{0x6B05, 0x8C},
+	{0x6B06, 0xF9},
+	{0x6B08, 0x65},
+	{0x6B09, 0xFC},
+	{0x6B0A, 0xCF},
+	{0x6B0B, 0xD2},
+	{0x6700, 0x0E},
+	{0x6707, 0x0E},
+	{0x9104, 0x00},
+	{0x7421, 0x1C},
+	{0x7423, 0xD7},
+	{0x5F04, 0x00},
+	{0x5F05, 0xED},
+	{0x0112, 0x0A},
+	{0x0113, 0x0A},
+	{0x0114, 0x03},
+	{0x0342, 0x14},
+	{0x0343, 0xE8},
+	{0x0340, 0x0C},
+	{0x0341, 0x98},
+	{0x0344, 0x00},
+	{0x0345, 0x00},
+	{0x0346, 0x00},
+	{0x0347, 0x00},
+	{0x0348, 0x10},
+	{0x0349, 0x6F},
+	{0x034A, 0x0C},
+	{0x034B, 0x2E},
+	{0x0381, 0x01},
+	{0x0383, 0x01},
+	{0x0385, 0x01},
+	{0x0387, 0x01},
+	{0x0900, 0x00},
+	{0x0901, 0x11},
+	{0x0401, 0x00},
+	{0x0404, 0x00},
+	{0x0405, 0x10},
+	{0x0408, 0x00},
+	{0x0409, 0x00},
+	{0x040A, 0x00},
+	{0x040B, 0x00},
+	{0x040C, 0x10},
+	{0x040D, 0x70},
+	{0x040E, 0x0C},
+	{0x040F, 0x30},
+	{0x3038, 0x00},
+	{0x303A, 0x00},
+	{0x303B, 0x10},
+	{0x300D, 0x00},
+	{0x034C, 0x10},
+	{0x034D, 0x70},
+	{0x034E, 0x0C},
+	{0x034F, 0x30},
+	{0x0202, 0x0C},
+	{0x0203, 0x8E},
+	{0x0204, 0x00},
+	{0x0205, 0x00},
+	{0x020E, 0x01},
+	{0x020F, 0x00},
+	{0x7BCD, 0x00},
+	{0x94DC, 0x20},
+	{0x94DD, 0x20},
+	{0x94DE, 0x20},
+	{0x95DC, 0x20},
+	{0x95DD, 0x20},
+	{0x95DE, 0x20},
+	{0x7FB0, 0x00},
+	{0x9010, 0x3E},
+	{0x9419, 0x50},
+	{0x941B, 0x50},
+	{0x9519, 0x50},
+	{0x951B, 0x50},
+	{0x3030, 0x00},
+	{0x3032, 0x00},
+	{0x0220, 0x00},
 };
 
 static const struct imx258_reg mode_2104_1560_regs[] = {
-	{ 0x0136, 0x13 },
-	{ 0x0137, 0x33 },
-	{ 0x3051, 0x00 },
-	{ 0x3052, 0x00 },
-	{ 0x4E21, 0x14 },
-	{ 0x6B11, 0xCF },
-	{ 0x7FF0, 0x08 },
-	{ 0x7FF1, 0x0F },
-	{ 0x7FF2, 0x08 },
-	{ 0x7FF3, 0x1B },
-	{ 0x7FF4, 0x23 },
-	{ 0x7FF5, 0x60 },
-	{ 0x7FF6, 0x00 },
-	{ 0x7FF7, 0x01 },
-	{ 0x7FF8, 0x00 },
-	{ 0x7FF9, 0x78 },
-	{ 0x7FFA, 0x00 },
-	{ 0x7FFB, 0x00 },
-	{ 0x7FFC, 0x00 },
-	{ 0x7FFD, 0x00 },
-	{ 0x7FFE, 0x00 },
-	{ 0x7FFF, 0x03 },
-	{ 0x7F76, 0x03 },
-	{ 0x7F77, 0xFE },
-	{ 0x7FA8, 0x03 },
-	{ 0x7FA9, 0xFE },
-	{ 0x7B24, 0x81 },
-	{ 0x7B25, 0x00 },
-	{ 0x6564, 0x07 },
-	{ 0x6B0D, 0x41 },
-	{ 0x653D, 0x04 },
-	{ 0x6B05, 0x8C },
-	{ 0x6B06, 0xF9 },
-	{ 0x6B08, 0x65 },
-	{ 0x6B09, 0xFC },
-	{ 0x6B0A, 0xCF },
-	{ 0x6B0B, 0xD2 },
-	{ 0x6700, 0x0E },
-	{ 0x6707, 0x0E },
-	{ 0x9104, 0x00 },
-	{ 0x4648, 0x7F },
-	{ 0x7420, 0x00 },
-	{ 0x7421, 0x1C },
-	{ 0x7422, 0x00 },
-	{ 0x7423, 0xD7 },
-	{ 0x5F04, 0x00 },
-	{ 0x5F05, 0xED },
-	{ 0x0112, 0x0A },
-	{ 0x0113, 0x0A },
-	{ 0x0114, 0x03 },
-	{ 0x0342, 0x14 },
-	{ 0x0343, 0xE8 },
-	{ 0x0340, 0x06 },
-	{ 0x0341, 0x38 },
-	{ 0x0344, 0x00 },
-	{ 0x0345, 0x00 },
-	{ 0x0346, 0x00 },
-	{ 0x0347, 0x00 },
-	{ 0x0348, 0x10 },
-	{ 0x0349, 0x6F },
-	{ 0x034A, 0x0C },
-	{ 0x034B, 0x2E },
-	{ 0x0381, 0x01 },
-	{ 0x0383, 0x01 },
-	{ 0x0385, 0x01 },
-	{ 0x0387, 0x01 },
-	{ 0x0900, 0x01 },
-	{ 0x0901, 0x12 },
-	{ 0x0401, 0x01 },
-	{ 0x0404, 0x00 },
-	{ 0x0405, 0x20 },
-	{ 0x0408, 0x00 },
-	{ 0x0409, 0x02 },
-	{ 0x040A, 0x00 },
-	{ 0x040B, 0x00 },
-	{ 0x040C, 0x10 },
-	{ 0x040D, 0x6A },
-	{ 0x040E, 0x06 },
-	{ 0x040F, 0x18 },
-	{ 0x3038, 0x00 },
-	{ 0x303A, 0x00 },
-	{ 0x303B, 0x10 },
-	{ 0x300D, 0x00 },
-	{ 0x034C, 0x08 },
-	{ 0x034D, 0x38 },
-	{ 0x034E, 0x06 },
-	{ 0x034F, 0x18 },
-	{ 0x0350, 0x01 },
-	{ 0x0202, 0x06 },
-	{ 0x0203, 0x2E },
-	{ 0x0204, 0x00 },
-	{ 0x0205, 0x00 },
-	{ 0x020E, 0x01 },
-	{ 0x020F, 0x00 },
-	{ 0x0210, 0x01 },
-	{ 0x0211, 0x00 },
-	{ 0x0212, 0x01 },
-	{ 0x0213, 0x00 },
-	{ 0x0214, 0x01 },
-	{ 0x0215, 0x00 },
-	{ 0x7BCD, 0x01 },
-	{ 0x94DC, 0x20 },
-	{ 0x94DD, 0x20 },
-	{ 0x94DE, 0x20 },
-	{ 0x95DC, 0x20 },
-	{ 0x95DD, 0x20 },
-	{ 0x95DE, 0x20 },
-	{ 0x7FB0, 0x00 },
-	{ 0x9010, 0x3E },
-	{ 0x9419, 0x50 },
-	{ 0x941B, 0x50 },
-	{ 0x9519, 0x50 },
-	{ 0x951B, 0x50 },
-	{ 0x3030, 0x00 },
-	{ 0x3032, 0x00 },
-	{ 0x0220, 0x00 },
-};
-
-static const struct imx258_reg mode_1048_780_regs[] = {
-	{ 0x0136, 0x13 },
-	{ 0x0137, 0x33 },
-	{ 0x3051, 0x00 },
-	{ 0x3052, 0x00 },
-	{ 0x4E21, 0x14 },
-	{ 0x6B11, 0xCF },
-	{ 0x7FF0, 0x08 },
-	{ 0x7FF1, 0x0F },
-	{ 0x7FF2, 0x08 },
-	{ 0x7FF3, 0x1B },
-	{ 0x7FF4, 0x23 },
-	{ 0x7FF5, 0x60 },
-	{ 0x7FF6, 0x00 },
-	{ 0x7FF7, 0x01 },
-	{ 0x7FF8, 0x00 },
-	{ 0x7FF9, 0x78 },
-	{ 0x7FFA, 0x00 },
-	{ 0x7FFB, 0x00 },
-	{ 0x7FFC, 0x00 },
-	{ 0x7FFD, 0x00 },
-	{ 0x7FFE, 0x00 },
-	{ 0x7FFF, 0x03 },
-	{ 0x7F76, 0x03 },
-	{ 0x7F77, 0xFE },
-	{ 0x7FA8, 0x03 },
-	{ 0x7FA9, 0xFE },
-	{ 0x7B24, 0x81 },
-	{ 0x7B25, 0x00 },
-	{ 0x6564, 0x07 },
-	{ 0x6B0D, 0x41 },
-	{ 0x653D, 0x04 },
-	{ 0x6B05, 0x8C },
-	{ 0x6B06, 0xF9 },
-	{ 0x6B08, 0x65 },
-	{ 0x6B09, 0xFC },
-	{ 0x6B0A, 0xCF },
-	{ 0x6B0B, 0xD2 },
-	{ 0x6700, 0x0E },
-	{ 0x6707, 0x0E },
-	{ 0x9104, 0x00 },
-	{ 0x4648, 0x7F },
-	{ 0x7420, 0x00 },
-	{ 0x7421, 0x1C },
-	{ 0x7422, 0x00 },
-	{ 0x7423, 0xD7 },
-	{ 0x5F04, 0x00 },
-	{ 0x5F05, 0xED },
-	{ 0x0112, 0x0A },
-	{ 0x0113, 0x0A },
-	{ 0x0114, 0x03 },
-	{ 0x0342, 0x14 },
-	{ 0x0343, 0xE8 },
-	{ 0x0340, 0x03 },
-	{ 0x0341, 0x4C },
-	{ 0x0344, 0x00 },
-	{ 0x0345, 0x00 },
-	{ 0x0346, 0x00 },
-	{ 0x0347, 0x00 },
-	{ 0x0348, 0x10 },
-	{ 0x0349, 0x6F },
-	{ 0x034A, 0x0C },
-	{ 0x034B, 0x2E },
-	{ 0x0381, 0x01 },
-	{ 0x0383, 0x01 },
-	{ 0x0385, 0x01 },
-	{ 0x0387, 0x01 },
-	{ 0x0900, 0x01 },
-	{ 0x0901, 0x14 },
-	{ 0x0401, 0x01 },
-	{ 0x0404, 0x00 },
-	{ 0x0405, 0x40 },
-	{ 0x0408, 0x00 },
-	{ 0x0409, 0x06 },
-	{ 0x040A, 0x00 },
-	{ 0x040B, 0x00 },
-	{ 0x040C, 0x10 },
-	{ 0x040D, 0x64 },
-	{ 0x040E, 0x03 },
-	{ 0x040F, 0x0C },
-	{ 0x3038, 0x00 },
-	{ 0x303A, 0x00 },
-	{ 0x303B, 0x10 },
-	{ 0x300D, 0x00 },
-	{ 0x034C, 0x04 },
-	{ 0x034D, 0x18 },
-	{ 0x034E, 0x03 },
-	{ 0x034F, 0x0C },
-	{ 0x0350, 0x01 },
-	{ 0x0202, 0x03 },
-	{ 0x0203, 0x42 },
-	{ 0x0204, 0x00 },
-	{ 0x0205, 0x00 },
-	{ 0x020E, 0x01 },
-	{ 0x020F, 0x00 },
-	{ 0x0210, 0x01 },
-	{ 0x0211, 0x00 },
-	{ 0x0212, 0x01 },
-	{ 0x0213, 0x00 },
-	{ 0x0214, 0x01 },
-	{ 0x0215, 0x00 },
-	{ 0x7BCD, 0x00 },
-	{ 0x94DC, 0x20 },
-	{ 0x94DD, 0x20 },
-	{ 0x94DE, 0x20 },
-	{ 0x95DC, 0x20 },
-	{ 0x95DD, 0x20 },
-	{ 0x95DE, 0x20 },
-	{ 0x7FB0, 0x00 },
-	{ 0x9010, 0x3E },
-	{ 0x9419, 0x50 },
-	{ 0x941B, 0x50 },
-	{ 0x9519, 0x50 },
-	{ 0x951B, 0x50 },
-	{ 0x3030, 0x00 },
-	{ 0x3032, 0x00 },
-	{ 0x0220, 0x00 },
+	{0x0136, 0x1A},
+	{0x0137, 0x00},
+	{0x3051, 0x00},
+	{0x3052, 0x00},
+	{0x4E21, 0x14},
+	{0x6B11, 0xCF},
+	{0x7FF0, 0x08},
+	{0x7FF1, 0x0F},
+	{0x7FF2, 0x08},
+	{0x7FF3, 0x1B},
+	{0x7FF4, 0x23},
+	{0x7FF5, 0x60},
+	{0x7FF6, 0x00},
+	{0x7FF7, 0x01},
+	{0x7FF8, 0x00},
+	{0x7FF9, 0x78},
+	{0x7FFA, 0x00},
+	{0x7FFB, 0x00},
+	{0x7FFC, 0x00},
+	{0x7FFD, 0x00},
+	{0x7FFE, 0x00},
+	{0x7FFF, 0x03},
+	{0x7F76, 0x03},
+	{0x7F77, 0xFE},
+	{0x7FA8, 0x03},
+	{0x7FA9, 0xFE},
+	{0x7B24, 0x81},
+	{0x7B25, 0x00},
+	{0x6564, 0x07},
+	{0x6B0D, 0x41},
+	{0x653D, 0x04},
+	{0x6B05, 0x8C},
+	{0x6B06, 0xF9},
+	{0x6B08, 0x65},
+	{0x6B09, 0xFC},
+	{0x6B0A, 0xCF},
+	{0x6B0B, 0xD2},
+	{0x6700, 0x0E},
+	{0x6707, 0x0E},
+	{0x9104, 0x00},
+	{0x7421, 0x1C},
+	{0x7423, 0xD7},
+	{0x5F04, 0x00},
+	{0x5F05, 0xED},
+	{0x0112, 0x0A},
+	{0x0113, 0x0A},
+	{0x0114, 0x03},
+	{0x0342, 0x14},
+	{0x0343, 0xE8},
+	{0x0340, 0x06},
+	{0x0341, 0x40},
+	{0x0344, 0x00},
+	{0x0345, 0x00},
+	{0x0346, 0x00},
+	{0x0347, 0x00},
+	{0x0348, 0x10},
+	{0x0349, 0x6F},
+	{0x034A, 0x0C},
+	{0x034B, 0x2E},
+	{0x0381, 0x01},
+	{0x0383, 0x01},
+	{0x0385, 0x01},
+	{0x0387, 0x01},
+	{0x0900, 0x01},
+	{0x0901, 0x12},
+	{0x0401, 0x01},
+	{0x0404, 0x00},
+	{0x0405, 0x1F},
+	{0x0408, 0x00},
+	{0x0409, 0x3C},
+	{0x040A, 0x00},
+	{0x040B, 0x00},
+	{0x040C, 0x0F},
+	{0x040D, 0xF6},
+	{0x040E, 0x06},
+	{0x040F, 0x18},
+	{0x3038, 0x00},
+	{0x303A, 0x00},
+	{0x303B, 0x10},
+	{0x300D, 0x00},
+	{0x034C, 0x08},
+	{0x034D, 0x38},
+	{0x034E, 0x06},
+	{0x034F, 0x18},
+	{0x0202, 0x06},
+	{0x0203, 0x36},
+	{0x0204, 0x00},
+	{0x0205, 0x00},
+	{0x020E, 0x01},
+	{0x020F, 0x00},
+	{0x7BCD, 0x01},
+	{0x94DC, 0x20},
+	{0x94DD, 0x20},
+	{0x94DE, 0x20},
+	{0x95DC, 0x20},
+	{0x95DD, 0x20},
+	{0x95DE, 0x20},
+	{0x7FB0, 0x00},
+	{0x9010, 0x3E},
+	{0x9419, 0x50},
+	{0x941B, 0x50},
+	{0x9519, 0x50},
+	{0x951B, 0x50},
+	{0x3030, 0x00},
+	{0x3032, 0x00},
+	{0x0220, 0x00},
 };
 
 static const char * const imx258_test_pattern_menu[] = {
@@ -517,13 +377,8 @@ static const char * const imx258_test_pattern_menu[] = {
 };
 
 /* Configurations for supported link frequencies */
-#define IMX258_LINK_FREQ_634MHZ	633600000ULL
-#define IMX258_LINK_FREQ_320MHZ	320000000ULL
-
-enum {
-	IMX258_LINK_FREQ_1267MBPS,
-	IMX258_LINK_FREQ_640MBPS,
-};
+#define IMX258_LINK_FREQ_650MHZ	649600000ULL
+#define IMX258_LINK_FREQ_325MHZ	324800000ULL
 
 /*
  * pixel_rate = link_freq * data-rate * nr_of_lanes / bits_per_sample
@@ -539,24 +394,24 @@ static u64 link_freq_to_pixel_rate(u64 f)
 
 /* Menu items for LINK_FREQ V4L2 control */
 static const s64 link_freq_menu_items[] = {
-	IMX258_LINK_FREQ_634MHZ,
-	IMX258_LINK_FREQ_320MHZ,
+	IMX258_LINK_FREQ_650MHZ,
+	IMX258_LINK_FREQ_325MHZ,
 };
 
 /* Link frequency configs */
 static const struct imx258_link_freq_config link_freq_configs[] = {
-	[IMX258_LINK_FREQ_1267MBPS] = {
-		.pixels_per_line = IMX258_PPL_DEFAULT,
+	{
+		.pixels_per_line = IMX258_PPL_650MHZ,
 		.reg_list = {
-			.num_of_regs = ARRAY_SIZE(mipi_data_rate_1267mbps),
-			.regs = mipi_data_rate_1267mbps,
+			.num_of_regs = ARRAY_SIZE(mipi_data_rate_1300mbps),
+			.regs = mipi_data_rate_1300mbps,
 		}
 	},
-	[IMX258_LINK_FREQ_640MBPS] = {
-		.pixels_per_line = IMX258_PPL_DEFAULT,
+	{
+		.pixels_per_line = IMX258_PPL_325MHZ,
 		.reg_list = {
-			.num_of_regs = ARRAY_SIZE(mipi_data_rate_640mbps),
-			.regs = mipi_data_rate_640mbps,
+			.num_of_regs = ARRAY_SIZE(mipi_data_rate_650mbps),
+			.regs = mipi_data_rate_650mbps,
 		}
 	},
 };
@@ -572,29 +427,18 @@ static const struct imx258_mode supported_modes[] = {
 			.num_of_regs = ARRAY_SIZE(mode_4208x3118_regs),
 			.regs = mode_4208x3118_regs,
 		},
-		.link_freq_index = IMX258_LINK_FREQ_1267MBPS,
+		.link_freq_index = 0,
 	},
 	{
 		.width = 2104,
 		.height = 1560,
-		.vts_def = IMX258_VTS_30FPS_2K,
-		.vts_min = IMX258_VTS_30FPS_2K,
+		.vts_def = IMX258_VTS_30FPS,
+		.vts_min = 1608,
 		.reg_list = {
 			.num_of_regs = ARRAY_SIZE(mode_2104_1560_regs),
 			.regs = mode_2104_1560_regs,
 		},
-		.link_freq_index = IMX258_LINK_FREQ_640MBPS,
-	},
-	{
-		.width = 1048,
-		.height = 780,
-		.vts_def = IMX258_VTS_30FPS_VGA,
-		.vts_min = IMX258_VTS_30FPS_VGA,
-		.reg_list = {
-			.num_of_regs = ARRAY_SIZE(mode_1048_780_regs),
-			.regs = mode_1048_780_regs,
-		},
-		.link_freq_index = IMX258_LINK_FREQ_640MBPS,
+		.link_freq_index = 1,
 	},
 };
 
@@ -613,65 +457,71 @@ struct imx258 {
 	/* Current mode */
 	const struct imx258_mode *cur_mode;
 
-	/*
-	 * Mutex for serialized access:
-	 * Protect sensor module set pad format and start/stop streaming safely.
-	 */
+	/* Mutex for serialized access */
 	struct mutex mutex;
 
 	/* Streaming on/off */
 	bool streaming;
 };
 
-static inline struct imx258 *to_imx258(struct v4l2_subdev *_sd)
-{
-	return container_of(_sd, struct imx258, sd);
-}
+#define to_imx258(_sd)	container_of(_sd, struct imx258, sd)
 
-/* Read registers up to 2 at a time */
+/* Read registers up to 4 at a time */
 static int imx258_read_reg(struct imx258 *imx258, u16 reg, u32 len, u32 *val)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&imx258->sd);
 	struct i2c_msg msgs[2];
-	u8 addr_buf[2] = { reg >> 8, reg & 0xff };
-	u8 data_buf[4] = { 0, };
+	u8 *data_be_p;
 	int ret;
+	u32 data_be = 0;
+	u16 reg_addr_be = cpu_to_be16(reg);
 
 	if (len > 4)
 		return -EINVAL;
 
+	data_be_p = (u8 *)&data_be;
 	/* Write register address */
 	msgs[0].addr = client->addr;
 	msgs[0].flags = 0;
-	msgs[0].len = ARRAY_SIZE(addr_buf);
-	msgs[0].buf = addr_buf;
+	msgs[0].len = 2;
+	msgs[0].buf = (u8 *)&reg_addr_be;
 
 	/* Read data from register */
 	msgs[1].addr = client->addr;
 	msgs[1].flags = I2C_M_RD;
 	msgs[1].len = len;
-	msgs[1].buf = &data_buf[4 - len];
+	msgs[1].buf = &data_be_p[4 - len];
 
 	ret = i2c_transfer(client->adapter, msgs, ARRAY_SIZE(msgs));
 	if (ret != ARRAY_SIZE(msgs))
 		return -EIO;
 
-	*val = get_unaligned_be32(data_buf);
+	*val = be32_to_cpu(data_be);
 
 	return 0;
 }
 
-/* Write registers up to 2 at a time */
+/* Write registers up to 4 at a time */
 static int imx258_write_reg(struct imx258 *imx258, u16 reg, u32 len, u32 val)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&imx258->sd);
-	u8 buf[6];
+	int buf_i, val_i;
+	u8 buf[6], *val_p;
 
 	if (len > 4)
 		return -EINVAL;
 
-	put_unaligned_be16(reg, buf);
-	put_unaligned_be32(val << (8 * (4 - len)), buf + 2);
+	buf[0] = reg >> 8;
+	buf[1] = reg & 0xff;
+
+	val = cpu_to_be32(val);
+	val_p = (u8 *)&val;
+	buf_i = 2;
+	val_i = 4 - len;
+
+	while (val_i < 4)
+		buf[buf_i++] = val_p[val_i++];
+
 	if (i2c_master_send(client, buf, len + 2) != len + 2)
 		return -EIO;
 
@@ -683,8 +533,8 @@ static int imx258_write_regs(struct imx258 *imx258,
 			      const struct imx258_reg *regs, u32 len)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&imx258->sd);
-	unsigned int i;
 	int ret;
+	u32 i;
 
 	for (i = 0; i < len; i++) {
 		ret = imx258_write_reg(imx258, regs[i].address, 1,
@@ -702,6 +552,12 @@ static int imx258_write_regs(struct imx258 *imx258,
 	return 0;
 }
 
+static int imx258_write_reg_list(struct imx258 *imx258,
+				  const struct imx258_reg_list *r_list)
+{
+	return imx258_write_regs(imx258, r_list->regs, r_list->num_of_regs);
+}
+
 /* Open sub-device */
 static int imx258_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 {
@@ -717,26 +573,38 @@ static int imx258_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 	return 0;
 }
 
+static int imx258_i2c_write_reg_ext(struct imx258 *imx258, u16 reg,
+						u32 len, u32 val)
+{
+	u32 val_d, val_d2;
+	int ret;
+	u32 mask = 0xff;
+
+	val_d = (val & ~mask) >> 8;
+	val_d2 = val & mask;
+
+	ret = imx258_write_reg(imx258, reg, len/2, val_d);
+	ret = imx258_write_reg(imx258, reg+1, len/2, val_d2);
+
+	if (ret)
+		return ret;
+	return 0;
+}
+
 static int imx258_update_digital_gain(struct imx258 *imx258, u32 len, u32 val)
 {
 	int ret;
 
-	ret = imx258_write_reg(imx258, IMX258_REG_GR_DIGITAL_GAIN,
+	ret = imx258_i2c_write_reg_ext(imx258, IMX258_REG_GR_DIGITAL_GAIN,
 				IMX258_REG_VALUE_16BIT,
 				val);
-	if (ret)
-		return ret;
-	ret = imx258_write_reg(imx258, IMX258_REG_GB_DIGITAL_GAIN,
+	ret |= imx258_i2c_write_reg_ext(imx258, IMX258_REG_GB_DIGITAL_GAIN,
 				IMX258_REG_VALUE_16BIT,
 				val);
-	if (ret)
-		return ret;
-	ret = imx258_write_reg(imx258, IMX258_REG_R_DIGITAL_GAIN,
+	ret |= imx258_i2c_write_reg_ext(imx258, IMX258_REG_R_DIGITAL_GAIN,
 				IMX258_REG_VALUE_16BIT,
 				val);
-	if (ret)
-		return ret;
-	ret = imx258_write_reg(imx258, IMX258_REG_B_DIGITAL_GAIN,
+	ret |= imx258_i2c_write_reg_ext(imx258, IMX258_REG_B_DIGITAL_GAIN,
 				IMX258_REG_VALUE_16BIT,
 				val);
 	if (ret)
@@ -750,34 +618,27 @@ static int imx258_set_ctrl(struct v4l2_ctrl *ctrl)
 		container_of(ctrl->handler, struct imx258, ctrl_handler);
 	struct i2c_client *client = v4l2_get_subdevdata(&imx258->sd);
 	int ret = 0;
-
 	/*
 	 * Applying V4L2 control value only happens
 	 * when power is up for streaming
 	 */
-	if (pm_runtime_get_if_in_use(&client->dev) == 0)
+	if (pm_runtime_get_if_in_use(&client->dev) <= 0)
 		return 0;
 
 	switch (ctrl->id) {
 	case V4L2_CID_ANALOGUE_GAIN:
-		ret = imx258_write_reg(imx258, IMX258_REG_ANALOG_GAIN,
+		ret = imx258_i2c_write_reg_ext(imx258, IMX258_REG_ANALOG_GAIN,
 				IMX258_REG_VALUE_16BIT,
 				ctrl->val);
 		break;
 	case V4L2_CID_EXPOSURE:
-		ret = imx258_write_reg(imx258, IMX258_REG_EXPOSURE,
+		ret = imx258_i2c_write_reg_ext(imx258, IMX258_REG_EXPOSURE,
 				IMX258_REG_VALUE_16BIT,
 				ctrl->val);
 		break;
 	case V4L2_CID_DIGITAL_GAIN:
 		ret = imx258_update_digital_gain(imx258, IMX258_REG_VALUE_16BIT,
 				ctrl->val);
-		break;
-	case V4L2_CID_VBLANK:
-		/*
-		 * Auto Frame Length Line Control is enabled by default.
-		 * Not need control Vblank Register.
-		 */
 		break;
 	default:
 		dev_info(&client->dev,
@@ -862,6 +723,38 @@ static int imx258_get_pad_format(struct v4l2_subdev *sd,
 	return ret;
 }
 
+/*
+ * Calculate resolution distance
+ */
+static int imx258_get_resolution_dist(const struct imx258_mode *mode,
+		       struct v4l2_mbus_framefmt *framefmt)
+{
+	return abs(mode->width - framefmt->width) +
+	       abs(mode->height - framefmt->height);
+}
+
+/*
+ * Find the closest supported resolution to the requested resolution
+ */
+static const struct imx258_mode *
+imx258_find_best_fit(struct imx258 *imx258,
+		      struct v4l2_subdev_format *fmt)
+{
+	int i, dist, cur_best_fit = 0, cur_best_fit_dist = -1;
+	struct v4l2_mbus_framefmt *framefmt = &fmt->format;
+
+	for (i = 0; i < ARRAY_SIZE(supported_modes); i++) {
+		dist = imx258_get_resolution_dist(&supported_modes[i],
+						   framefmt);
+		if (cur_best_fit_dist == -1 || dist < cur_best_fit_dist) {
+			cur_best_fit_dist = dist;
+			cur_best_fit = i;
+		}
+	}
+
+	return &supported_modes[cur_best_fit];
+}
+
 static int imx258_set_pad_format(struct v4l2_subdev *sd,
 		       struct v4l2_subdev_pad_config *cfg,
 		       struct v4l2_subdev_format *fmt)
@@ -880,9 +773,7 @@ static int imx258_set_pad_format(struct v4l2_subdev *sd,
 	/* Only one raw bayer(GBRG) order is supported */
 	fmt->format.code = MEDIA_BUS_FMT_SGRBG10_1X10;
 
-	mode = v4l2_find_nearest_size(
-		supported_modes, ARRAY_SIZE(supported_modes), width, height,
-		fmt->format.width, fmt->format.height);
+	mode = imx258_find_best_fit(imx258, fmt);
 	imx258_update_pad_format(mode, fmt);
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
 		framefmt = v4l2_subdev_get_try_format(sd, cfg, fmt->pad);
@@ -926,7 +817,7 @@ static int imx258_start_streaming(struct imx258 *imx258)
 	/* Setup PLL */
 	link_freq_index = imx258->cur_mode->link_freq_index;
 	reg_list = &link_freq_configs[link_freq_index].reg_list;
-	ret = imx258_write_regs(imx258, reg_list->regs, reg_list->num_of_regs);
+	ret = imx258_write_reg_list(imx258, reg_list);
 	if (ret) {
 		dev_err(&client->dev, "%s failed to set plls\n", __func__);
 		return ret;
@@ -934,7 +825,7 @@ static int imx258_start_streaming(struct imx258 *imx258)
 
 	/* Apply default values of current mode */
 	reg_list = &imx258->cur_mode->reg_list;
-	ret = imx258_write_regs(imx258, reg_list->regs, reg_list->num_of_regs);
+	ret = imx258_write_reg_list(imx258, reg_list);
 	if (ret) {
 		dev_err(&client->dev, "%s failed to set mode\n", __func__);
 		return ret;
@@ -954,10 +845,12 @@ static int imx258_start_streaming(struct imx258 *imx258)
 	if (ret)
 		return ret;
 
+	usleep_range(12000, 13000);
+
 	/* set stream on register */
 	return imx258_write_reg(imx258, IMX258_REG_MODE_SELECT,
-				IMX258_REG_VALUE_08BIT,
-				IMX258_MODE_STREAMING);
+				 IMX258_REG_VALUE_08BIT,
+				 IMX258_MODE_STREAMING);
 }
 
 /* Stop streaming */
@@ -972,8 +865,7 @@ static int imx258_stop_streaming(struct imx258 *imx258)
 	if (ret)
 		dev_err(&client->dev, "%s failed to set stream\n", __func__);
 
-	/*
-	 * Return success even if it was an error, as there is nothing the
+	/* Return success even if it was an error, as there is nothing the
 	 * caller can do about it.
 	 */
 	return 0;
@@ -1126,16 +1018,20 @@ static int imx258_init_controls(struct imx258 *imx258)
 				0,
 				link_freq_menu_items);
 
-	if (imx258->link_freq)
-		imx258->link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	if (!imx258->link_freq) {
+		ret = -EINVAL;
+		goto error;
+	}
+
+	imx258->link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
 	pixel_rate_max = link_freq_to_pixel_rate(link_freq_menu_items[0]);
 	pixel_rate_min = link_freq_to_pixel_rate(link_freq_menu_items[1]);
 	/* By default, PIXEL_RATE is read only */
 	imx258->pixel_rate = v4l2_ctrl_new_std(ctrl_hdlr, &imx258_ctrl_ops,
-				V4L2_CID_PIXEL_RATE,
-				pixel_rate_min, pixel_rate_max,
-				1, pixel_rate_max);
+					V4L2_CID_PIXEL_RATE,
+					pixel_rate_min, pixel_rate_max,
+					1, pixel_rate_max);
 
 
 	vblank_def = imx258->cur_mode->vts_def - imx258->cur_mode->height;
@@ -1148,13 +1044,17 @@ static int imx258_init_controls(struct imx258 *imx258)
 
 	imx258->hblank = v4l2_ctrl_new_std(
 				ctrl_hdlr, &imx258_ctrl_ops, V4L2_CID_HBLANK,
-				IMX258_PPL_DEFAULT - imx258->cur_mode->width,
-				IMX258_PPL_DEFAULT - imx258->cur_mode->width,
+				IMX258_PPL_650MHZ - imx258->cur_mode->width,
+				IMX258_PPL_650MHZ - imx258->cur_mode->width,
 				1,
-				IMX258_PPL_DEFAULT - imx258->cur_mode->width);
+				IMX258_PPL_650MHZ - imx258->cur_mode->width);
 
-	if (imx258->hblank)
-		imx258->hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	if (!imx258->hblank) {
+		ret = -EINVAL;
+		goto error;
+	}
+
+	imx258->hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
 	exposure_max = imx258->cur_mode->vts_def - 8;
 	imx258->exposure = v4l2_ctrl_new_std(
@@ -1173,14 +1073,14 @@ static int imx258_init_controls(struct imx258 *imx258)
 				IMX258_DGTL_GAIN_DEFAULT);
 
 	v4l2_ctrl_new_std_menu_items(ctrl_hdlr, &imx258_ctrl_ops,
-				V4L2_CID_TEST_PATTERN,
-				ARRAY_SIZE(imx258_test_pattern_menu) - 1,
-				0, 0, imx258_test_pattern_menu);
+				     V4L2_CID_TEST_PATTERN,
+				     ARRAY_SIZE(imx258_test_pattern_menu) - 1,
+				     0, 0, imx258_test_pattern_menu);
 
 	if (ctrl_hdlr->error) {
 		ret = ctrl_hdlr->error;
 		dev_err(&client->dev, "%s control init failed (%d)\n",
-				__func__, ret);
+			__func__, ret);
 		goto error;
 	}
 
@@ -1239,6 +1139,7 @@ static int imx258_probe(struct i2c_client *client)
 	imx258->pad.flags = MEDIA_PAD_FL_SOURCE;
 	ret = media_entity_init(&imx258->sd.entity, 1, &imx258->pad, 0);
 	if (ret) {
+		dev_err(&client->dev, "%s failed:%d\n", __func__, ret);
 		goto error_handler_free;
 	}
 
