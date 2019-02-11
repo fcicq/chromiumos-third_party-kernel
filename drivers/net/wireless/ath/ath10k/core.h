@@ -93,6 +93,9 @@
 
 #define ATH10K_MAX_RETRY_COUNT 30
 
+/* Default Airtime weight multipler (Tuned for multiclient performance) */
+#define ATH10K_AIRTIME_WEIGHT_MULTIPLIER  4
+
 struct ath10k;
 
 enum ath10k_bus {
@@ -1036,10 +1039,7 @@ struct ath10k {
 
 	/* protects shared structure data */
 	spinlock_t data_lock;
-	/* protects: ar->txqs, artxq->list */
-	spinlock_t txqs_lock;
 
-	struct list_head txqs;
 	struct list_head arvifs;
 	struct list_head peers;
 	struct ath10k_peer *peer_map[ATH10K_MAX_NUM_PEER_IDS];
