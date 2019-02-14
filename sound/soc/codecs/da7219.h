@@ -827,6 +827,7 @@ struct da7219_priv {
 	int clk_src;
 
 	bool master;
+	bool tdm_en;
 	bool alc_en;
 	u8 gain_ramp_ctrl;
 
