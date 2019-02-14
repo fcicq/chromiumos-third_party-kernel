@@ -4,37 +4,19 @@
  *
  * Copyright (C) 2012 Google, Inc
  *
- * NOTE: This file is copied verbatim from the ChromeOS EC Open Source
- * project in an attempt to make future updates easy to make.
+ * NOTE: This file is auto-generated from ChromeOS EC Open Source code from
+ * https://chromium.googlesource.com/chromiumos/platform/ec/+/master/include/ec_commands.h
  */
 
 /* Host communication command constants for Chrome EC */
 
-#ifndef __CROS_EC_EC_COMMANDS_H
-#define __CROS_EC_EC_COMMANDS_H
+#ifndef __CROS_EC_COMMANDS_H
+#define __CROS_EC_COMMANDS_H
 
-#if !defined(__ACPI__) && !defined(__KERNEL__)
-#include <stdint.h>
-#endif
 
-#ifdef __cplusplus
-extern "C"{
-#endif
 
-/*
- * Include common.h for CONFIG_HOSTCMD_ALIGNED, if it's defined. This
- * generates more efficient code for accessing request/response structures on
- * ARM Cortex-M if the structures are guaranteed 32-bit aligned.
- */
-#ifdef CHROMIUM_EC
-#include "common.h"
-#endif
 
-#ifdef __KERNEL__
 #define BUILD_ASSERT(_cond)
-#else
-#include "compile_time_macros.h"
-#endif
 
 /*
  * Current version of this protocol
@@ -46,7 +28,7 @@ extern "C"{
 #define EC_PROTO_VERSION          0x00000002
 
 /* Command version mask */
-#define EC_VER_MASK(version) (1UL << (version))
+#define EC_VER_MASK(version) BIT(version)
 
 /* I/O addresses for ACPI commands */
 #define EC_LPC_ADDR_ACPI_DATA  0x62
@@ -60,25 +42,28 @@ extern "C"{
 /* Protocol version 2 */
 #define EC_LPC_ADDR_HOST_ARGS    0x800  /* And 0x801, 0x802, 0x803 */
 #define EC_LPC_ADDR_HOST_PARAM   0x804  /* For version 2 params; size is
-					 * EC_PROTO2_MAX_PARAM_SIZE */
+					 * EC_PROTO2_MAX_PARAM_SIZE
+					 */
 /* Protocol version 3 */
 #define EC_LPC_ADDR_HOST_PACKET  0x800  /* Offset of version 3 packet */
 #define EC_LPC_HOST_PACKET_SIZE  0x100  /* Max size of version 3 packet */
 
-/* The actual block is 0x800-0x8ff, but some BIOSes think it's 0x880-0x8ff
- * and they tell the kernel that so we have to think of it as two parts. */
+/*
+ * The actual block is 0x800-0x8ff, but some BIOSes think it's 0x880-0x8ff
+ * and they tell the kernel that so we have to think of it as two parts.
+ */
 #define EC_HOST_CMD_REGION0    0x800
 #define EC_HOST_CMD_REGION1    0x880
 #define EC_HOST_CMD_REGION_SIZE 0x80
 
 /* EC command register bit functions */
-#define EC_LPC_CMDR_DATA	(1 << 0)  /* Data ready for host to read */
-#define EC_LPC_CMDR_PENDING	(1 << 1)  /* Write pending to EC */
-#define EC_LPC_CMDR_BUSY	(1 << 2)  /* EC is busy processing a command */
-#define EC_LPC_CMDR_CMD		(1 << 3)  /* Last host write was a command */
-#define EC_LPC_CMDR_ACPI_BRST	(1 << 4)  /* Burst mode (not used) */
-#define EC_LPC_CMDR_SCI		(1 << 5)  /* SCI event is pending */
-#define EC_LPC_CMDR_SMI		(1 << 6)  /* SMI event is pending */
+#define EC_LPC_CMDR_DATA	BIT(0)  /* Data ready for host to read */
+#define EC_LPC_CMDR_PENDING	BIT(1)  /* Write pending to EC */
+#define EC_LPC_CMDR_BUSY	BIT(2)  /* EC is busy processing a command */
+#define EC_LPC_CMDR_CMD		BIT(3)  /* Last host write was a command */
+#define EC_LPC_CMDR_ACPI_BRST	BIT(4)  /* Burst mode (not used) */
+#define EC_LPC_CMDR_SCI		BIT(5)  /* SCI event is pending */
+#define EC_LPC_CMDR_SMI		BIT(6)  /* SMI event is pending */
 
 #define EC_LPC_ADDR_MEMMAP       0x900
 #define EC_MEMMAP_SIZE         255 /* ACPI IO buffer max is 255 bytes */
@@ -136,8 +121,8 @@ extern "C"{
 
 /* Define the format of the accelerometer mapped memory status byte. */
 #define EC_MEMMAP_ACC_STATUS_SAMPLE_ID_MASK  0x0f
-#define EC_MEMMAP_ACC_STATUS_BUSY_BIT        (1 << 4)
-#define EC_MEMMAP_ACC_STATUS_PRESENCE_BIT    (1 << 7)
+#define EC_MEMMAP_ACC_STATUS_BUSY_BIT        BIT(4)
+#define EC_MEMMAP_ACC_STATUS_PRESENCE_BIT    BIT(7)
 
 /* Number of temp sensors at EC_MEMMAP_TEMP_SENSOR */
 #define EC_TEMP_SENSOR_ENTRIES     16
@@ -312,8 +297,8 @@ extern "C"{
  *   bit 1 enables/disables the selected threshold (0 = off, 1 = on)
  * Each write to the commit register affects one threshold.
  */
-#define EC_ACPI_MEM_TEMP_COMMIT_SELECT_MASK (1 << 0)
-#define EC_ACPI_MEM_TEMP_COMMIT_ENABLE_MASK (1 << 1)
+#define EC_ACPI_MEM_TEMP_COMMIT_SELECT_MASK BIT(0)
+#define EC_ACPI_MEM_TEMP_COMMIT_ENABLE_MASK BIT(1)
 /*
  * Example:
  *
@@ -401,19 +386,7 @@ extern "C"{
  * is pre-processed to handle constants but the ASL compiler is unable to
  * handle actual C code so keep it separate.
  */
-#ifndef __ACPI__
 
-/*
- * Define __packed if someone hasn't beat us to it.  Linux kernel style
- * checking prefers __packed over __attribute__((packed)).
- */
-#ifndef __packed
-#define __packed __attribute__((packed))
-#endif
-
-#ifndef __aligned
-#define __aligned(x) __attribute__((aligned(x)))
-#endif
 
 /*
  * Attributes for EC request and response packets.  Just defining __packed
@@ -442,45 +415,6 @@ extern "C"{
  * members of other structs/unions (and their original declarations should be
  * annotated).
  */
-#ifdef CONFIG_HOSTCMD_ALIGNED
-
-/*
- * Packed structures where offset and size are always aligned to 1, 2, or 4
- * byte boundary.
- */
-#define __ec_align1 __packed
-#define __ec_align2 __packed __aligned(2)
-#define __ec_align4 __packed __aligned(4)
-
-/*
- * Packed structure which must be under-aligned, because its size is not a
- * 4-byte multiple.  This is sub-optimal because it forces byte-wise access
- * of all multi-byte fields in it, even though they are themselves aligned.
- *
- * In theory, we could duplicate the structure with __aligned(4) for accessing
- * its members, but use the __packed version for sizeof().
- */
-#define __ec_align_size1 __packed
-
-/*
- * Packed structure which must be under-aligned, because its offset inside a
- * parent structure is not a 4-byte multiple.
- */
-#define __ec_align_offset1 __packed
-#define __ec_align_offset2 __packed __aligned(2)
-
-/*
- * Structures which are complicated enough that I'm skipping them on the first
- * pass.  They are effectively unchanged from their previous definitions.
- *
- * TODO(rspangler): Figure out what to do with these.  It's likely necessary
- * to work out the size and offset of each member and add explicit padding to
- * maintain those.
- */
-#define __ec_todo_packed __packed
-#define __ec_todo_unpacked
-
-#else  /* !CONFIG_HOSTCMD_ALIGNED */
 
 /*
  * Packed structures make no assumption about alignment, so they do inefficient
@@ -495,7 +429,6 @@ extern "C"{
 #define __ec_todo_packed __packed
 #define __ec_todo_unpacked
 
-#endif  /* !CONFIG_HOSTCMD_ALIGNED */
 
 /* LPC command status byte masks */
 /* EC has written a byte in the data register and host hasn't read it yet */
@@ -522,7 +455,8 @@ extern "C"{
 #define EC_LPC_STATUS_BUSY_MASK \
 	(EC_LPC_STATUS_FROM_HOST | EC_LPC_STATUS_PROCESSING)
 
-/* Host command response codes (16-bit).  Note that response codes should be
+/*
+ * Host command response codes (16-bit).  Note that response codes should be
  * stored in a uint16_t rather than directly in a value of this type.
  */
 enum ec_status {
@@ -632,7 +566,7 @@ enum host_event_code {
 	EC_HOST_EVENT_INVALID = 32
 };
 /* Host event mask */
-#define EC_HOST_EVENT_MASK(event_code) (1ULL << ((event_code) - 1))
+#define EC_HOST_EVENT_MASK(event_code) BIT_ULL((event_code) - 1)
 
 /**
  * struct ec_lpc_host_args - Arguments at EC_LPC_ADDR_HOST_ARGS
@@ -1160,7 +1094,7 @@ struct ec_response_get_cmd_versions {
 
 /* Avoid using ec_status which is for return values */
 enum ec_comms_status {
-	EC_COMMS_STATUS_PROCESSING	= 1 << 0,	/* Processing cmd */
+	EC_COMMS_STATUS_PROCESSING	= BIT(0),	/* Processing cmd */
 };
 
 /**
@@ -1192,7 +1126,7 @@ struct ec_response_test_protocol {
 
 /* Flags for ec_response_get_protocol_info.flags */
 /* EC_RES_IN_PROGRESS may be returned if a command is slow */
-#define EC_PROTOCOL_INFO_IN_PROGRESS_SUPPORTED (1 << 0)
+#define EC_PROTOCOL_INFO_IN_PROGRESS_SUPPORTED BIT(0)
 
 /**
  * struct ec_response_get_protocol_info - Response to the get protocol info.
@@ -1345,12 +1279,14 @@ enum ec_feature_code {
 	EC_FEATURE_REFINED_TABLET_MODE_HYSTERESIS = 37,
 	/* EC supports audio codec. */
 	EC_FEATURE_AUDIO_CODEC = 38,
-	/* EC Supports SCP. */
+	/* The MCU is a System Companion Processor (SCP). */
 	EC_FEATURE_SCP = 39,
+	/* The MCU is an Integrated Sensor Hub */
+	EC_FEATURE_ISH = 40,
 };
 
-#define EC_FEATURE_MASK_0(event_code) (1UL << (event_code % 32))
-#define EC_FEATURE_MASK_1(event_code) (1UL << (event_code - 32))
+#define EC_FEATURE_MASK_0(event_code) BIT(event_code % 32)
+#define EC_FEATURE_MASK_1(event_code) BIT(event_code - 32)
 
 struct ec_response_get_features {
 	uint32_t flags[2];
@@ -1397,7 +1333,7 @@ struct ec_response_flash_info {
  * Flags for version 1+ flash info command
  * EC flash erases bits to 0 instead of 1.
  */
-#define EC_FLASH_INFO_ERASE_TO_0 (1 << 0)
+#define EC_FLASH_INFO_ERASE_TO_0 BIT(0)
 
 /*
  * Flash must be selected for read/write/erase operations to succeed.  This may
@@ -1406,7 +1342,7 @@ struct ec_response_flash_info {
  * or where the read/write/erase operations require cleanly suspending other
  * chip functionality.
  */
-#define EC_FLASH_INFO_SELECT_REQUIRED (1 << 1)
+#define EC_FLASH_INFO_SELECT_REQUIRED BIT(1)
 
 /**
  * struct ec_response_flash_info_1 - Response to the flash info v1 command.
@@ -1585,34 +1521,34 @@ struct ec_params_flash_erase_v1 {
 
 /* Flags for flash protection */
 /* RO flash code protected when the EC boots */
-#define EC_FLASH_PROTECT_RO_AT_BOOT         (1 << 0)
+#define EC_FLASH_PROTECT_RO_AT_BOOT         BIT(0)
 /*
  * RO flash code protected now.  If this bit is set, at-boot status cannot
  * be changed.
  */
-#define EC_FLASH_PROTECT_RO_NOW             (1 << 1)
+#define EC_FLASH_PROTECT_RO_NOW             BIT(1)
 /* Entire flash code protected now, until reboot. */
-#define EC_FLASH_PROTECT_ALL_NOW            (1 << 2)
+#define EC_FLASH_PROTECT_ALL_NOW            BIT(2)
 /* Flash write protect GPIO is asserted now */
-#define EC_FLASH_PROTECT_GPIO_ASSERTED      (1 << 3)
+#define EC_FLASH_PROTECT_GPIO_ASSERTED      BIT(3)
 /* Error - at least one bank of flash is stuck locked, and cannot be unlocked */
-#define EC_FLASH_PROTECT_ERROR_STUCK        (1 << 4)
+#define EC_FLASH_PROTECT_ERROR_STUCK        BIT(4)
 /*
  * Error - flash protection is in inconsistent state.  At least one bank of
  * flash which should be protected is not protected.  Usually fixed by
  * re-requesting the desired flags, or by a hard reset if that fails.
  */
-#define EC_FLASH_PROTECT_ERROR_INCONSISTENT (1 << 5)
+#define EC_FLASH_PROTECT_ERROR_INCONSISTENT BIT(5)
 /* Entire flash code protected when the EC boots */
-#define EC_FLASH_PROTECT_ALL_AT_BOOT        (1 << 6)
+#define EC_FLASH_PROTECT_ALL_AT_BOOT        BIT(6)
 /* RW flash code protected when the EC boots */
-#define EC_FLASH_PROTECT_RW_AT_BOOT         (1 << 7)
+#define EC_FLASH_PROTECT_RW_AT_BOOT         BIT(7)
 /* RW flash code protected now. */
-#define EC_FLASH_PROTECT_RW_NOW             (1 << 8)
+#define EC_FLASH_PROTECT_RW_NOW             BIT(8)
 /* Rollback information flash region protected when the EC boots */
-#define EC_FLASH_PROTECT_ROLLBACK_AT_BOOT   (1 << 9)
+#define EC_FLASH_PROTECT_ROLLBACK_AT_BOOT   BIT(9)
 /* Rollback information flash region protected now */
-#define EC_FLASH_PROTECT_ROLLBACK_NOW       (1 << 10)
+#define EC_FLASH_PROTECT_ROLLBACK_NOW       BIT(10)
 
 
 /**
@@ -1998,7 +1934,7 @@ struct lightbar_params_v2_colors {
 	struct rgb_s color[8];			/* 0-3 are Google colors */
 } __ec_todo_packed;
 
-/* Lightbyte program. */
+/* Lightbar program. */
 #define EC_LB_PROG_LEN 192
 struct lightbar_program {
 	uint8_t size;
@@ -2167,8 +2103,8 @@ enum ec_led_id {
 };
 
 /* LED control flags */
-#define EC_LED_FLAGS_QUERY (1 << 0) /* Query LED capability only */
-#define EC_LED_FLAGS_AUTO  (1 << 1) /* Switch LED back to automatic control */
+#define EC_LED_FLAGS_QUERY BIT(0) /* Query LED capability only */
+#define EC_LED_FLAGS_AUTO  BIT(1) /* Switch LED back to automatic control */
 
 enum ec_led_colors {
 	EC_LED_COLOR_RED = 0,
@@ -2434,6 +2370,10 @@ enum motionsensor_chip {
 	MOTIONSENSE_CHIP_LIS2DH = 13,
 	MOTIONSENSE_CHIP_LSM6DSM = 14,
 	MOTIONSENSE_CHIP_LIS2DE = 15,
+	MOTIONSENSE_CHIP_LIS2MDL = 16,
+	MOTIONSENSE_CHIP_LSM6DS3 = 17,
+	MOTIONSENSE_CHIP_LSM6DSO = 18,
+	MOTIONSENSE_CHIP_LNG2DM = 19,
 	MOTIONSENSE_CHIP_MAX,
 };
 
@@ -2449,7 +2389,7 @@ enum motionsensor_orientation {
 struct ec_response_motion_sensor_data {
 	/* Flags for each sensor. */
 	uint8_t flags;
-	/* sensor number the data comes from */
+	/* Sensor number the data comes from. */
 	uint8_t sensor_num;
 	/* Each sensor is up to 3-axis. */
 	union {
@@ -2504,20 +2444,20 @@ struct ec_motion_sense_activity {
 } __ec_todo_unpacked;
 
 /* Module flag masks used for the dump sub-command. */
-#define MOTIONSENSE_MODULE_FLAG_ACTIVE (1<<0)
+#define MOTIONSENSE_MODULE_FLAG_ACTIVE BIT(0)
 
 /* Sensor flag masks used for the dump sub-command. */
-#define MOTIONSENSE_SENSOR_FLAG_PRESENT (1<<0)
+#define MOTIONSENSE_SENSOR_FLAG_PRESENT BIT(0)
 
 /*
  * Flush entry for synchronization.
  * data contains time stamp
  */
-#define MOTIONSENSE_SENSOR_FLAG_FLUSH (1<<0)
-#define MOTIONSENSE_SENSOR_FLAG_TIMESTAMP (1<<1)
-#define MOTIONSENSE_SENSOR_FLAG_WAKEUP (1<<2)
-#define MOTIONSENSE_SENSOR_FLAG_TABLET_MODE (1<<3)
-#define MOTIONSENSE_SENSOR_FLAG_ODR (1<<4)
+#define MOTIONSENSE_SENSOR_FLAG_FLUSH BIT(0)
+#define MOTIONSENSE_SENSOR_FLAG_TIMESTAMP BIT(1)
+#define MOTIONSENSE_SENSOR_FLAG_WAKEUP BIT(2)
+#define MOTIONSENSE_SENSOR_FLAG_TABLET_MODE BIT(3)
+#define MOTIONSENSE_SENSOR_FLAG_ODR BIT(4)
 
 /*
  * Send this value for the data element to only perform a read. If you
@@ -2530,10 +2470,10 @@ struct ec_motion_sense_activity {
 
 /* MOTIONSENSE_CMD_SENSOR_OFFSET subcommand flag */
 /* Set Calibration information */
-#define MOTION_SENSE_SET_OFFSET (1 << 0)
+#define MOTION_SENSE_SET_OFFSET BIT(0)
 
 /* Default Scale value, factor 1. */
-#define MOTION_SENSE_DEFAULT_SCALE (1 << 15)
+#define MOTION_SENSE_DEFAULT_SCALE BIT(15)
 
 #define LID_ANGLE_UNRELIABLE 500
 
@@ -2554,7 +2494,7 @@ enum motionsense_spoof_mode {
 struct ec_params_motion_sense {
 	uint8_t cmd;
 	union {
-		/* Used for MOTIONSENSE_CMD_DUMP */
+		/* Used for MOTIONSENSE_CMD_DUMP. */
 		struct __ec_todo_unpacked {
 			/*
 			 * Maximal number of sensor the host is expecting.
@@ -2650,7 +2590,7 @@ struct ec_params_motion_sense {
 			/*
 			 * Scale for calibration:
 			 * By default scale is 1, it is encoded on 16bits:
-			 * 1 = 1 << 15
+			 * 1 = BIT(15)
 			 * ~2 = 0xFFFF
 			 * ~0 = 0.
 			 */
@@ -2725,11 +2665,11 @@ struct ec_response_motion_sense {
 			/* Flags representing the motion sensor module. */
 			uint8_t module_flags;
 
-			/* Number of sensors managed directly by the EC */
+			/* Number of sensors managed directly by the EC. */
 			uint8_t sensor_count;
 
 			/*
-			 * sensor data is truncated if response_max is too small
+			 * Sensor data is truncated if response_max is too small
 			 * for holding all the data.
 			 */
 			struct ec_response_motion_sensor_data sensor[0];
@@ -2851,7 +2791,7 @@ struct ec_params_force_lid_open {
 
 enum ec_config_power_button_flags {
 	/* Enable/Disable power button pulses for x86 devices */
-	EC_POWER_BUTTON_ENABLE_PULSE = (1 << 0),
+	EC_POWER_BUTTON_ENABLE_PULSE = BIT(0),
 };
 
 struct ec_params_config_power_button {
@@ -2867,7 +2807,8 @@ struct ec_params_config_power_button {
 
 struct ec_params_usb_charge_set_mode {
 	uint8_t usb_port_id;
-	uint8_t mode;
+	uint8_t mode:7;
+	uint8_t inhibit_charge:1;
 } __ec_align1;
 
 /*****************************************************************************/
@@ -3091,8 +3032,10 @@ struct ec_params_thermal_get_threshold_v1 {
 } __ec_align4;
 /* This returns a struct ec_thermal_config */
 
-/* Version 1 - set config for one sensor.
- * Use read-modify-write for best results! */
+/*
+ * Version 1 - set config for one sensor.
+ * Use read-modify-write for best results!
+ */
 struct ec_params_thermal_set_threshold_v1 {
 	uint32_t sensor_num;
 	struct ec_thermal_config cfg;
@@ -3274,13 +3217,13 @@ enum mkbp_config_flags {
 };
 
 enum mkbp_config_valid {
-	EC_MKBP_VALID_SCAN_PERIOD		= 1 << 0,
-	EC_MKBP_VALID_POLL_TIMEOUT		= 1 << 1,
-	EC_MKBP_VALID_MIN_POST_SCAN_DELAY	= 1 << 3,
-	EC_MKBP_VALID_OUTPUT_SETTLE		= 1 << 4,
-	EC_MKBP_VALID_DEBOUNCE_DOWN		= 1 << 5,
-	EC_MKBP_VALID_DEBOUNCE_UP		= 1 << 6,
-	EC_MKBP_VALID_FIFO_MAX_DEPTH		= 1 << 7,
+	EC_MKBP_VALID_SCAN_PERIOD		= BIT(0),
+	EC_MKBP_VALID_POLL_TIMEOUT		= BIT(1),
+	EC_MKBP_VALID_MIN_POST_SCAN_DELAY	= BIT(3),
+	EC_MKBP_VALID_OUTPUT_SETTLE		= BIT(4),
+	EC_MKBP_VALID_DEBOUNCE_DOWN		= BIT(5),
+	EC_MKBP_VALID_DEBOUNCE_UP		= BIT(6),
+	EC_MKBP_VALID_FIFO_MAX_DEPTH		= BIT(7),
 };
 
 /*
@@ -3334,7 +3277,7 @@ enum ec_collect_flags {
 	 * Indicates this scan was processed by the EC. Due to timing, some
 	 * scans may be skipped.
 	 */
-	EC_KEYSCAN_SEQ_FLAG_DONE	= 1 << 0,
+	EC_KEYSCAN_SEQ_FLAG_DONE	= BIT(0),
 };
 
 struct ec_collect_item {
@@ -3388,10 +3331,10 @@ struct ec_result_keyscan_seq_ctrl {
  * We use the most significant bit of the event type to indicate to the host
  * that the EC has more MKBP events available to provide.
  */
-#define EC_MKBP_HAS_MORE_EVENTS (1 << EC_MKBP_HAS_MORE_EVENTS_SHIFT)
+#define EC_MKBP_HAS_MORE_EVENTS BIT(EC_MKBP_HAS_MORE_EVENTS_SHIFT)
 
 /* The mask to apply to get the raw event type */
-#define EC_MKBP_EVENT_TYPE_MASK ((1 << EC_MKBP_HAS_MORE_EVENTS_SHIFT) - 1)
+#define EC_MKBP_EVENT_TYPE_MASK (BIT(EC_MKBP_HAS_MORE_EVENTS_SHIFT) - 1)
 
 enum ec_mkbp_event {
 	/* Keyboard matrix changed. The event data is the new matrix state. */
@@ -3529,11 +3472,11 @@ struct ec_response_keyboard_factory_test {
 #define EC_MKBP_FP_MATCH_IDX_MASK 0x0000F000
 #define EC_MKBP_FP_MATCH_IDX(fpe) (((fpe) & EC_MKBP_FP_MATCH_IDX_MASK) \
 					 >> EC_MKBP_FP_MATCH_IDX_OFFSET)
-#define EC_MKBP_FP_ENROLL               (1 << 27)
-#define EC_MKBP_FP_MATCH                (1 << 28)
-#define EC_MKBP_FP_FINGER_DOWN          (1 << 29)
-#define EC_MKBP_FP_FINGER_UP            (1 << 30)
-#define EC_MKBP_FP_IMAGE_READY          (1 << 31)
+#define EC_MKBP_FP_ENROLL               BIT(27)
+#define EC_MKBP_FP_MATCH                BIT(28)
+#define EC_MKBP_FP_FINGER_DOWN          BIT(29)
+#define EC_MKBP_FP_FINGER_UP            BIT(30)
+#define EC_MKBP_FP_IMAGE_READY          BIT(31)
 /* code given by EC_MKBP_FP_ERRCODE() when EC_MKBP_FP_ENROLL is set */
 #define EC_MKBP_FP_ERR_ENROLL_OK               0
 #define EC_MKBP_FP_ERR_ENROLL_LOW_QUALITY      1
@@ -3843,7 +3786,6 @@ struct ec_params_charge_control {
 } __ec_align4;
 
 /*****************************************************************************/
-/* Console commands. Only available when flash write protect is unlocked. */
 
 /* Snapshot console output buffer for use by EC_CMD_CONSOLE_READ. */
 #define EC_CMD_CONSOLE_SNAPSHOT 0x0097
@@ -3882,7 +3824,7 @@ struct ec_params_console_read_v1 {
  */
 #define EC_CMD_BATTERY_CUT_OFF 0x0099
 
-#define EC_BATTERY_CUTOFF_FLAG_AT_SHUTDOWN	(1 << 0)
+#define EC_BATTERY_CUTOFF_FLAG_AT_SHUTDOWN	BIT(0)
 
 struct ec_params_battery_cutoff {
 	uint8_t flags;
@@ -3953,13 +3895,13 @@ struct ec_response_power_info {
 #define EC_CMD_I2C_PASSTHRU 0x009E
 
 /* Read data; if not present, message is a write */
-#define EC_I2C_FLAG_READ	(1 << 15)
+#define EC_I2C_FLAG_READ	BIT(15)
 
 /* Mask for address */
 #define EC_I2C_ADDR_MASK	0x3ff
 
-#define EC_I2C_STATUS_NAK	(1 << 0) /* Transfer was not acknowledged */
-#define EC_I2C_STATUS_TIMEOUT	(1 << 1) /* Timeout during transfer */
+#define EC_I2C_STATUS_NAK	BIT(0) /* Transfer was not acknowledged */
+#define EC_I2C_STATUS_TIMEOUT	BIT(1) /* Timeout during transfer */
 
 /* Any error */
 #define EC_I2C_STATUS_ERROR	(EC_I2C_STATUS_NAK | EC_I2C_STATUS_TIMEOUT)
@@ -3989,27 +3931,27 @@ struct ec_response_i2c_passthru {
 
 /* Reasons to start hang detection timer */
 /* Power button pressed */
-#define EC_HANG_START_ON_POWER_PRESS  (1 << 0)
+#define EC_HANG_START_ON_POWER_PRESS  BIT(0)
 
 /* Lid closed */
-#define EC_HANG_START_ON_LID_CLOSE    (1 << 1)
+#define EC_HANG_START_ON_LID_CLOSE    BIT(1)
 
  /* Lid opened */
-#define EC_HANG_START_ON_LID_OPEN     (1 << 2)
+#define EC_HANG_START_ON_LID_OPEN     BIT(2)
 
 /* Start of AP S3->S0 transition (booting or resuming from suspend) */
-#define EC_HANG_START_ON_RESUME       (1 << 3)
+#define EC_HANG_START_ON_RESUME       BIT(3)
 
 /* Reasons to cancel hang detection */
 
 /* Power button released */
-#define EC_HANG_STOP_ON_POWER_RELEASE (1 << 8)
+#define EC_HANG_STOP_ON_POWER_RELEASE BIT(8)
 
 /* Any host command from AP received */
-#define EC_HANG_STOP_ON_HOST_COMMAND  (1 << 9)
+#define EC_HANG_STOP_ON_HOST_COMMAND  BIT(9)
 
 /* Stop on end of AP S0->S3 transition (suspending or shutting down) */
-#define EC_HANG_STOP_ON_SUSPEND       (1 << 10)
+#define EC_HANG_STOP_ON_SUSPEND       BIT(10)
 
 /*
  * If this flag is set, all the other fields are ignored, and the hang detect
@@ -4017,14 +3959,14 @@ struct ec_response_i2c_passthru {
  * without reconfiguring any of the other hang detect settings.  Note that
  * you must previously have configured the timeouts.
  */
-#define EC_HANG_START_NOW             (1 << 30)
+#define EC_HANG_START_NOW             BIT(30)
 
 /*
  * If this flag is set, all the other fields are ignored (including
  * EC_HANG_START_NOW).  This provides the AP a way to stop the hang timer
  * without reconfiguring any of the other hang detect settings.
  */
-#define EC_HANG_STOP_NOW              (1 << 31)
+#define EC_HANG_STOP_NOW              BIT(31)
 
 struct ec_params_hang_detect {
 	/* Flags; see EC_HANG_* */
@@ -4207,6 +4149,63 @@ struct ec_params_host_sleep_event {
 	uint8_t sleep_event;
 } __ec_align1;
 
+/*
+ * Use a default timeout value (CONFIG_SLEEP_TIMEOUT_MS) for detecting sleep
+ * transition failures
+ */
+#define EC_HOST_SLEEP_TIMEOUT_DEFAULT 0
+
+/* Disable timeout detection for this sleep transition */
+#define EC_HOST_SLEEP_TIMEOUT_INFINITE 0xFFFF
+
+struct ec_params_host_sleep_event_v1 {
+	/* The type of sleep being entered or exited. */
+	uint8_t sleep_event;
+
+	/* Padding */
+	uint8_t reserved;
+	union {
+		/* Parameters that apply for suspend messages. */
+		struct {
+			/*
+			 * The timeout in milliseconds between when this message
+			 * is received and when the EC will declare sleep
+			 * transition failure if the sleep signal is not
+			 * asserted.
+			 */
+			uint16_t sleep_timeout_ms;
+		} suspend_params;
+
+		/* No parameters for non-suspend messages. */
+	};
+} __ec_align2;
+
+/* A timeout occurred when this bit is set */
+#define EC_HOST_RESUME_SLEEP_TIMEOUT 0x80000000
+
+/*
+ * The mask defining which bits correspond to the number of sleep transitions,
+ * as well as the maximum number of suspend line transitions that will be
+ * reported back to the host.
+ */
+#define EC_HOST_RESUME_SLEEP_TRANSITIONS_MASK 0x7FFFFFFF
+
+struct ec_response_host_sleep_event_v1 {
+	union {
+		/* Response fields that apply for resume messages. */
+		struct {
+			/*
+			 * The number of sleep power signal transitions that
+			 * occurred since the suspend message. The high bit
+			 * indicates a timeout occurred.
+			 */
+			uint32_t sleep_transitions;
+		} resume_response;
+
+		/* No response fields for non-resume messages. */
+	};
+} __ec_align4;
+
 /*****************************************************************************/
 /* Device events */
 #define EC_CMD_DEVICE_EVENT 0x00AA
@@ -4226,7 +4225,7 @@ enum ec_device_event_param {
 	EC_DEVICE_EVENT_PARAM_SET_ENABLED_EVENTS,
 };
 
-#define EC_DEVICE_EVENT_MASK(event_code) (1UL << (event_code % 32))
+#define EC_DEVICE_EVENT_MASK(event_code) BIT(event_code % 32)
 
 struct ec_params_device_event {
 	uint32_t event_mask;
@@ -4462,10 +4461,99 @@ enum cec_command {
 /* Events from CEC to AP */
 enum mkbp_cec_event {
 	/* Outgoing message was acknowledged by a follower */
-	EC_MKBP_CEC_SEND_OK			= 1 << 0,
+	EC_MKBP_CEC_SEND_OK			= BIT(0),
 	/* Outgoing message was not acknowledged */
-	EC_MKBP_CEC_SEND_FAILED			= 1 << 1,
+	EC_MKBP_CEC_SEND_FAILED			= BIT(1),
 };
+
+/*****************************************************************************/
+
+/* Commands for I2S recording on audio codec. */
+
+#define EC_CMD_CODEC_I2S 0x00BC
+#define EC_WOV_I2S_SAMPLE_RATE 48000
+
+enum ec_codec_i2s_subcmd {
+	EC_CODEC_SET_SAMPLE_DEPTH = 0x0,
+	EC_CODEC_SET_GAIN = 0x1,
+	EC_CODEC_GET_GAIN = 0x2,
+	EC_CODEC_I2S_ENABLE = 0x3,
+	EC_CODEC_I2S_SET_CONFIG = 0x4,
+	EC_CODEC_I2S_SET_TDM_CONFIG = 0x5,
+	EC_CODEC_I2S_SET_BCLK = 0x6,
+	EC_CODEC_I2S_SUBCMD_COUNT = 0x7,
+};
+
+enum ec_sample_depth_value {
+	EC_CODEC_SAMPLE_DEPTH_16 = 0,
+	EC_CODEC_SAMPLE_DEPTH_24 = 1,
+};
+
+enum ec_i2s_config {
+	EC_DAI_FMT_I2S = 0,
+	EC_DAI_FMT_RIGHT_J = 1,
+	EC_DAI_FMT_LEFT_J = 2,
+	EC_DAI_FMT_PCM_A = 3,
+	EC_DAI_FMT_PCM_B = 4,
+	EC_DAI_FMT_PCM_TDM = 5,
+};
+
+/*
+ * For subcommand EC_CODEC_GET_GAIN.
+ */
+struct __ec_align1 ec_codec_i2s_gain {
+	uint8_t left;
+	uint8_t right;
+};
+
+struct __ec_todo_unpacked ec_param_codec_i2s_tdm {
+	int16_t ch0_delay; /* 0 to 496 */
+	int16_t ch1_delay; /* -1 to 496 */
+	uint8_t adjacent_to_ch0;
+	uint8_t adjacent_to_ch1;
+};
+
+struct __ec_todo_packed ec_param_codec_i2s {
+	/* enum ec_codec_i2s_subcmd */
+	uint8_t cmd;
+	union {
+		/*
+		 * EC_CODEC_SET_SAMPLE_DEPTH
+		 * Value should be one of ec_sample_depth_value.
+		 */
+		uint8_t depth;
+
+		/*
+		 * EC_CODEC_SET_GAIN
+		 * Value should be 0~43 for both channels.
+		 */
+		struct ec_codec_i2s_gain gain;
+
+		/*
+		 * EC_CODEC_I2S_ENABLE
+		 * 1 to enable, 0 to disable.
+		 */
+		uint8_t i2s_enable;
+
+		/*
+		 * EC_CODEC_I2S_SET_CONFIG
+		 * Value should be one of ec_i2s_config.
+		 */
+		uint8_t i2s_config;
+
+		/*
+		 * EC_CODEC_I2S_SET_TDM_CONFIG
+		 * Value should be one of ec_i2s_config.
+		 */
+		struct ec_param_codec_i2s_tdm tdm_param;
+
+		/*
+		 * EC_CODEC_I2S_SET_BCLK
+		 */
+		uint32_t bclk;
+	};
+};
+
 
 /*****************************************************************************/
 /* System commands */
@@ -4489,9 +4577,9 @@ enum ec_reboot_cmd {
 };
 
 /* Flags for ec_params_reboot_ec.reboot_flags */
-#define EC_REBOOT_FLAG_RESERVED0      (1 << 0)  /* Was recovery request */
-#define EC_REBOOT_FLAG_ON_AP_SHUTDOWN (1 << 1)  /* Reboot after AP shutdown */
-#define EC_REBOOT_FLAG_SWITCH_RW_SLOT (1 << 2)  /* Switch RW slot */
+#define EC_REBOOT_FLAG_RESERVED0      BIT(0)  /* Was recovery request */
+#define EC_REBOOT_FLAG_ON_AP_SHUTDOWN BIT(1)  /* Reboot after AP shutdown */
+#define EC_REBOOT_FLAG_SWITCH_RW_SLOT BIT(2)  /* Switch RW slot */
 
 struct ec_params_reboot_ec {
 	uint8_t cmd;           /* enum ec_reboot_cmd */
@@ -4565,7 +4653,7 @@ enum pd_charge_state {
 };
 
 /* Status of EC being sent to PD */
-#define EC_STATUS_HIBERNATING	(1 << 0)
+#define EC_STATUS_HIBERNATING	BIT(0)
 
 struct ec_params_pd_status {
 	uint8_t status;       /* EC status */
@@ -4574,13 +4662,13 @@ struct ec_params_pd_status {
 } __ec_align1;
 
 /* Status of PD being sent back to EC */
-#define PD_STATUS_HOST_EVENT      (1 << 0) /* Forward host event to AP */
-#define PD_STATUS_IN_RW           (1 << 1) /* Running RW image */
-#define PD_STATUS_JUMPED_TO_IMAGE (1 << 2) /* Current image was jumped to */
-#define PD_STATUS_TCPC_ALERT_0    (1 << 3) /* Alert active in port 0 TCPC */
-#define PD_STATUS_TCPC_ALERT_1    (1 << 4) /* Alert active in port 1 TCPC */
-#define PD_STATUS_TCPC_ALERT_2    (1 << 5) /* Alert active in port 2 TCPC */
-#define PD_STATUS_TCPC_ALERT_3    (1 << 6) /* Alert active in port 3 TCPC */
+#define PD_STATUS_HOST_EVENT      BIT(0) /* Forward host event to AP */
+#define PD_STATUS_IN_RW           BIT(1) /* Running RW image */
+#define PD_STATUS_JUMPED_TO_IMAGE BIT(2) /* Current image was jumped to */
+#define PD_STATUS_TCPC_ALERT_0    BIT(3) /* Alert active in port 0 TCPC */
+#define PD_STATUS_TCPC_ALERT_1    BIT(4) /* Alert active in port 1 TCPC */
+#define PD_STATUS_TCPC_ALERT_2    BIT(5) /* Alert active in port 2 TCPC */
+#define PD_STATUS_TCPC_ALERT_3    BIT(6) /* Alert active in port 3 TCPC */
 #define PD_STATUS_EC_INT_ACTIVE  (PD_STATUS_TCPC_ALERT_0 | \
 				      PD_STATUS_TCPC_ALERT_1 | \
 				      PD_STATUS_HOST_EVENT)
@@ -4594,10 +4682,10 @@ struct ec_response_pd_status {
 #define EC_CMD_PD_HOST_EVENT_STATUS 0x0104
 
 /* PD MCU host event status bits */
-#define PD_EVENT_UPDATE_DEVICE     (1 << 0)
-#define PD_EVENT_POWER_CHANGE      (1 << 1)
-#define PD_EVENT_IDENTITY_RECEIVED (1 << 2)
-#define PD_EVENT_DATA_SWAP         (1 << 3)
+#define PD_EVENT_UPDATE_DEVICE     BIT(0)
+#define PD_EVENT_POWER_CHANGE      BIT(1)
+#define PD_EVENT_IDENTITY_RECEIVED BIT(2)
+#define PD_EVENT_DATA_SWAP         BIT(3)
 struct ec_response_host_event_status {
 	uint32_t status;      /* PD MCU host event status */
 } __ec_align4;
@@ -4640,17 +4728,17 @@ struct ec_params_usb_pd_control {
 	uint8_t swap;
 } __ec_align1;
 
-#define PD_CTRL_RESP_ENABLED_COMMS      (1 << 0) /* Communication enabled */
-#define PD_CTRL_RESP_ENABLED_CONNECTED  (1 << 1) /* Device connected */
-#define PD_CTRL_RESP_ENABLED_PD_CAPABLE (1 << 2) /* Partner is PD capable */
+#define PD_CTRL_RESP_ENABLED_COMMS      BIT(0) /* Communication enabled */
+#define PD_CTRL_RESP_ENABLED_CONNECTED  BIT(1) /* Device connected */
+#define PD_CTRL_RESP_ENABLED_PD_CAPABLE BIT(2) /* Partner is PD capable */
 
-#define PD_CTRL_RESP_ROLE_POWER         (1 << 0) /* 0=SNK/1=SRC */
-#define PD_CTRL_RESP_ROLE_DATA          (1 << 1) /* 0=UFP/1=DFP */
-#define PD_CTRL_RESP_ROLE_VCONN         (1 << 2) /* Vconn status */
-#define PD_CTRL_RESP_ROLE_DR_POWER      (1 << 3) /* Partner is dualrole power */
-#define PD_CTRL_RESP_ROLE_DR_DATA       (1 << 4) /* Partner is dualrole data */
-#define PD_CTRL_RESP_ROLE_USB_COMM      (1 << 5) /* Partner USB comm capable */
-#define PD_CTRL_RESP_ROLE_EXT_POWERED   (1 << 6) /* Partner externally powerd */
+#define PD_CTRL_RESP_ROLE_POWER         BIT(0) /* 0=SNK/1=SRC */
+#define PD_CTRL_RESP_ROLE_DATA          BIT(1) /* 0=UFP/1=DFP */
+#define PD_CTRL_RESP_ROLE_VCONN         BIT(2) /* Vconn status */
+#define PD_CTRL_RESP_ROLE_DR_POWER      BIT(3) /* Partner is dualrole power */
+#define PD_CTRL_RESP_ROLE_DR_DATA       BIT(4) /* Partner is dualrole data */
+#define PD_CTRL_RESP_ROLE_USB_COMM      BIT(5) /* Partner USB comm capable */
+#define PD_CTRL_RESP_ROLE_EXT_POWERED   BIT(6) /* Partner externally powerd */
 
 struct ec_response_usb_pd_control {
 	uint8_t enabled;
@@ -4664,6 +4752,25 @@ struct ec_response_usb_pd_control_v1 {
 	uint8_t role;
 	uint8_t polarity;
 	char state[32];
+} __ec_align1;
+
+/* Values representing usbc PD CC state */
+#define USBC_PD_CC_NONE		0 /* No accessory connected */
+#define USBC_PD_CC_NO_UFP	1 /* No UFP accessory connected */
+#define USBC_PD_CC_AUDIO_ACC	2 /* Audio accessory connected */
+#define USBC_PD_CC_DEBUG_ACC	3 /* Debug accessory connected */
+#define USBC_PD_CC_UFP_ATTACHED	4 /* UFP attached to usbc */
+#define USBC_PD_CC_DFP_ATTACHED	5 /* DPF attached to usbc */
+
+struct ec_response_usb_pd_control_v2 {
+	uint8_t enabled;
+	uint8_t role;
+	uint8_t polarity;
+	char state[32];
+	uint8_t cc_state; /* USBC_PD_CC_*Encoded cc state */
+	uint8_t dp_mode;  /* Current DP pin mode (MODE_DP_PIN_[A-E]) */
+	/* CL:1500994 Current cable type */
+	uint8_t reserved_cable_type;
 } __ec_align1;
 
 #define EC_CMD_USB_PD_PORTS 0x0102
@@ -4844,11 +4951,11 @@ struct ec_response_pd_log {
  * the data field contains the port state flags as defined below :
  */
 /* Port partner is a dual role device */
-#define CHARGE_FLAGS_DUAL_ROLE         (1 << 15)
+#define CHARGE_FLAGS_DUAL_ROLE         BIT(15)
 /* Port is the pending override port */
-#define CHARGE_FLAGS_DELAYED_OVERRIDE  (1 << 14)
+#define CHARGE_FLAGS_DELAYED_OVERRIDE  BIT(14)
 /* Port is the override port */
-#define CHARGE_FLAGS_OVERRIDE          (1 << 13)
+#define CHARGE_FLAGS_OVERRIDE          BIT(13)
 /* Charger type */
 #define CHARGE_FLAGS_TYPE_SHIFT               3
 #define CHARGE_FLAGS_TYPE_MASK       (0xf << CHARGE_FLAGS_TYPE_SHIFT)
@@ -4945,11 +5052,11 @@ struct ec_params_usb_pd_mux_info {
 } __ec_align1;
 
 /* Flags representing mux state */
-#define USB_PD_MUX_USB_ENABLED       (1 << 0) /* USB connected */
-#define USB_PD_MUX_DP_ENABLED        (1 << 1) /* DP connected */
-#define USB_PD_MUX_POLARITY_INVERTED (1 << 2) /* CC line Polarity inverted */
-#define USB_PD_MUX_HPD_IRQ           (1 << 3) /* HPD IRQ is asserted */
-#define USB_PD_MUX_HPD_LVL           (1 << 4) /* HPD level is asserted */
+#define USB_PD_MUX_USB_ENABLED       BIT(0) /* USB connected */
+#define USB_PD_MUX_DP_ENABLED        BIT(1) /* DP connected */
+#define USB_PD_MUX_POLARITY_INVERTED BIT(2) /* CC line Polarity inverted */
+#define USB_PD_MUX_HPD_IRQ           BIT(3) /* HPD IRQ is asserted */
+#define USB_PD_MUX_HPD_LVL           BIT(4) /* HPD level is asserted */
 
 struct ec_response_usb_pd_mux_info {
 	uint8_t flags; /* USB_PD_MUX_*-encoded USB mux state */
@@ -5040,7 +5147,7 @@ enum cbi_data_tag {
  * RELOAD:  Invalidate cache and read data from EEPROM. Useful to verify
  *          write was successful without reboot.
  */
-#define CBI_GET_RELOAD		(1 << 0)
+#define CBI_GET_RELOAD		BIT(0)
 
 struct ec_params_get_cbi {
 	uint32_t tag;		/* enum cbi_data_tag */
@@ -5055,8 +5162,8 @@ struct ec_params_get_cbi {
  * INIT:    Need to be set when creating a new CBI from scratch. All fields
  *          will be initialized to zero first.
  */
-#define CBI_SET_NO_SYNC		(1 << 0)
-#define CBI_SET_INIT		(1 << 1)
+#define CBI_SET_NO_SYNC		BIT(0)
+#define CBI_SET_INIT		BIT(1)
 
 struct ec_params_set_cbi {
 	uint32_t tag;		/* enum cbi_data_tag */
@@ -5196,23 +5303,23 @@ struct ec_params_fp_passthru {
 #define EC_CMD_FP_MODE 0x0402
 
 /* Put the sensor in its lowest power mode */
-#define FP_MODE_DEEPSLEEP      (1<<0)
+#define FP_MODE_DEEPSLEEP      BIT(0)
 /* Wait to see a finger on the sensor */
-#define FP_MODE_FINGER_DOWN    (1<<1)
+#define FP_MODE_FINGER_DOWN    BIT(1)
 /* Poll until the finger has left the sensor */
-#define FP_MODE_FINGER_UP      (1<<2)
+#define FP_MODE_FINGER_UP      BIT(2)
 /* Capture the current finger image */
-#define FP_MODE_CAPTURE        (1<<3)
+#define FP_MODE_CAPTURE        BIT(3)
 /* Finger enrollment session on-going */
-#define FP_MODE_ENROLL_SESSION (1<<4)
+#define FP_MODE_ENROLL_SESSION BIT(4)
 /* Enroll the current finger image */
-#define FP_MODE_ENROLL_IMAGE   (1<<5)
+#define FP_MODE_ENROLL_IMAGE   BIT(5)
 /* Try to match the current finger image */
-#define FP_MODE_MATCH          (1<<6)
+#define FP_MODE_MATCH          BIT(6)
 /* Reset and re-initialize the sensor. */
-#define FP_MODE_RESET_SENSOR   (1<<7)
+#define FP_MODE_RESET_SENSOR   BIT(7)
 /* special value: don't change anything just read back current mode */
-#define FP_MODE_DONT_CHANGE    (1<<31)
+#define FP_MODE_DONT_CHANGE    BIT(31)
 
 #define FP_VALID_MODES (FP_MODE_DEEPSLEEP      | \
 			FP_MODE_FINGER_DOWN    | \
@@ -5266,13 +5373,13 @@ struct ec_response_fp_mode {
 /* Unknown number of dead pixels detected on the last maintenance */
 #define FP_ERROR_DEAD_PIXELS_UNKNOWN (0x3FF)
 /* No interrupt from the sensor */
-#define FP_ERROR_NO_IRQ    (1 << 12)
+#define FP_ERROR_NO_IRQ    BIT(12)
 /* SPI communication error */
-#define FP_ERROR_SPI_COMM  (1 << 13)
+#define FP_ERROR_SPI_COMM  BIT(13)
 /* Invalid sensor Hardware ID */
-#define FP_ERROR_BAD_HWID  (1 << 14)
+#define FP_ERROR_BAD_HWID  BIT(14)
 /* Sensor initialization failed */
-#define FP_ERROR_INIT_FAIL (1 << 15)
+#define FP_ERROR_INIT_FAIL BIT(15)
 
 struct ec_response_fp_info_v0 {
 	/* Sensor identification */
@@ -5379,8 +5486,8 @@ struct ec_params_fp_context {
 
 #define EC_CMD_FP_STATS 0x0407
 
-#define FPSTATS_CAPTURE_INV  (1 << 0)
-#define FPSTATS_MATCHING_INV (1 << 1)
+#define FPSTATS_CAPTURE_INV  BIT(0)
+#define FPSTATS_MATCHING_INV BIT(1)
 
 struct ec_response_fp_stats {
 	uint32_t capture_time_us;
@@ -5601,10 +5708,6 @@ struct ec_params_charger_control {
 #define EC_LPC_ADDR_OLD_PARAM   EC_HOST_CMD_REGION1
 #define EC_OLD_PARAM_SIZE       EC_HOST_CMD_REGION_SIZE
 
-#endif  /* !__ACPI__ */
 
-#ifdef __cplusplus
-}
-#endif
 
-#endif  /* __CROS_EC_EC_COMMANDS_H */
+#endif  /* __CROS_EC_COMMANDS_H */
