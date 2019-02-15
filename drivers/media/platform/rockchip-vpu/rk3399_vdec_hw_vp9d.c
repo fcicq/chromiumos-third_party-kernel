@@ -617,9 +617,9 @@ static void rk3399_vdec_vp9d_config_registers(struct rockchip_vpu_ctx *ctx)
 		last_info->mv_base_addr = ctx->hw.vp9d.mv_base_addr;
 
 		if (!(frmhdr->sgmnt_params.flags &
-		      V4L2_VP9_SGMNT_PARAM_FLAG_ENABLED) &&
-		    !(frmhdr->sgmnt_params.flags &
-		      V4L2_VP9_SGMNT_PARAM_FLAG_UPDATE_MAP))
+		      V4L2_VP9_SGMNT_PARAM_FLAG_ENABLED &&
+			!(frmhdr->sgmnt_params.flags &
+			  V4L2_VP9_SGMNT_PARAM_FLAG_UPDATE_MAP)))
 			last_info->last_segid_flag =
 				!last_info->last_segid_flag;
 	}
@@ -773,17 +773,17 @@ static void rk3399_vdec_vp9d_config_registers(struct rockchip_vpu_ctx *ctx)
 
 	if (last_info->last_segid_flag) {
 		hw_base = ctx->hw.vp9d.priv_tbl.dma +
-			offsetof(struct rk3399_vdec_vp9d_priv_tbl, segmap);
+			offsetof(struct rk3399_vdec_vp9d_priv_tbl, segmap_last);
 		vdpu_write_relaxed(vpu, hw_base, RKVDEC_REG_VP9_SEGIDCUR_BASE);
 		hw_base = ctx->hw.vp9d.priv_tbl.dma +
-			offsetof(struct rk3399_vdec_vp9d_priv_tbl, segmap_last);
+			offsetof(struct rk3399_vdec_vp9d_priv_tbl, segmap);
 		vdpu_write_relaxed(vpu, hw_base, RKVDEC_REG_VP9_SEGIDLAST_BASE);
 	} else {
 		hw_base = ctx->hw.vp9d.priv_tbl.dma +
-			offsetof(struct rk3399_vdec_vp9d_priv_tbl, segmap_last);
+			offsetof(struct rk3399_vdec_vp9d_priv_tbl, segmap);
 		vdpu_write_relaxed(vpu, hw_base, RKVDEC_REG_VP9_SEGIDCUR_BASE);
 		hw_base = ctx->hw.vp9d.priv_tbl.dma +
-			offsetof(struct rk3399_vdec_vp9d_priv_tbl, segmap);
+			offsetof(struct rk3399_vdec_vp9d_priv_tbl, segmap_last);
 		vdpu_write_relaxed(vpu, hw_base, RKVDEC_REG_VP9_SEGIDLAST_BASE);
 	}
 
