@@ -48,7 +48,13 @@
 
 / {
 	model = "Google Scarlet";
-	compatible = "google,scarlet-rev15-sku2", "google,scarlet-rev14-sku2",
+	compatible = "google,scarlet-rev15-sku0", "google,scarlet-rev14-sku0",
+		     "google,scarlet-rev13-sku0", "google,scarlet-rev12-sku0",
+		     "google,scarlet-rev11-sku0", "google,scarlet-rev10-sku0",
+		     "google,scarlet-rev9-sku0",  "google,scarlet-rev8-sku0",
+		     "google,scarlet-rev7-sku0",  "google,scarlet-rev6-sku0",
+		     "google,scarlet-rev5-sku0",  "google,scarlet-rev4-sku0",
+		     "google,scarlet-rev15-sku2", "google,scarlet-rev14-sku2",
 		     "google,scarlet-rev13-sku2", "google,scarlet-rev12-sku2",
 		     "google,scarlet-rev11-sku2", "google,scarlet-rev10-sku2",
 		     "google,scarlet-rev9-sku2",  "google,scarlet-rev8-sku2",
