@@ -64,6 +64,37 @@
 
 };
 
+&CPU0 {
+	cpu-supply = <&vsvs_apc_buck>;
+};
+
+&CPU1 {
+	cpu-supply = <&vsvs_apc_buck>;
+};
+
+&CPU2 {
+	cpu-supply = <&vsvs_apc_buck>;
+};
+
+&CPU3 {
+	cpu-supply = <&vsvs_apc_buck>;
+};
+
+&cpu_opp_table {
+	opp-1094400000 {
+		opp-microvolt = <1225000 1225000 1225000>;
+	};
+
+	opp-1248000000 {
+		opp-microvolt = <1287500 1287500 1287500>;
+	};
+
+	opp-1401600000 {
+		opp-hz = /bits/ 64 <1401600000>;
+		opp-microvolt = <1356250 1356250 1356250>;
+	};
+};
+
 /* Add required gpio names to use gpio hog mechanism */
 &tlmm {
 	gpio-line-names = "", "", "", "", "", "", "", "", "", "",
@@ -201,6 +232,10 @@
 			drive-strength = <2>;
 		};
 	};
+};
+
+&pms405_s3 {
+	status = "disabled";
 };
 
 &rpm_requests {
