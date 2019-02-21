@@ -313,6 +313,9 @@ pp1800_pcie: &pp1800_s0 {
 
 /delete-node/ &mvl_wifi;
 
+/* Wake-on-BT handled in USB node. */
+/delete-node/ &wake_on_bt;
+
 ap_i2c_dig: &i2c2 {
 	status = "okay";
 
@@ -497,7 +500,7 @@ camera: &i2c7 {
 
 &gpio_keys {
 	pinctrl-names = "default";
-	pinctrl-0 = <&bt_host_wake_l>, <&pen_eject_odl>;
+	pinctrl-0 = <&pen_eject_odl>;
 
 	pen-insert {
 		label = "Pen Insert";
@@ -702,6 +705,21 @@ camera: &i2c7 {
 	status = "disabled";
 };
 
+&usb_host0_ohci {
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	qca_bt: bluetooth@1 {
+		compatible = "usbcf3,e300", "usb4ca,301a";
+		reg = <1>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&bt_host_wake_l>;
+		interrupt-parent = <&gpio1>;
+		interrupts = <2 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "wakeup";
+	};
+};
+
 &usb_host1_ehci {
 	status = "disabled";
 };
@@ -722,10 +740,6 @@ camera: &i2c7 {
 	status = "disabled";
 };
 
-&wake_on_bt {
-	gpios = <&gpio1 2 GPIO_ACTIVE_LOW>;
-};
-
 /* PINCTRL OVERRIDES */
 &ap_fw_wp {
 	rockchip,pins = <0 13 RK_FUNC_GPIO &pcfg_pull_none>;
@@ -736,7 +750,7 @@ camera: &i2c7 {
 };
 
 &bt_host_wake_l {
-	rockchip,pins = <1 2 RK_FUNC_GPIO &pcfg_pull_up>;
+	rockchip,pins = <1 2 RK_FUNC_GPIO &pcfg_pull_none>;
 };
 
 &ec_ap_int_l {
