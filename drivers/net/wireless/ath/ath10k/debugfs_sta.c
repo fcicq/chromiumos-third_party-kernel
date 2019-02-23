@@ -892,9 +892,13 @@ void ath10k_sta_add_debugfs(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 			    &fops_peer_debug_trigger);
 
 	if (ath10k_peer_stats_enabled(ar) &&
-	    ath10k_debug_is_extd_tx_stats_enabled(ar))
+	    ath10k_debug_is_extd_tx_stats_enabled(ar)) {
 		debugfs_create_file("tx_stats", 0400, dir, sta,
 				    &fops_tx_stats);
+		debugfs_create_file("tx_success_bytes", 0444, dir, sta,
+				    &fops_tx_success_bytes);
+	}
+
 	debugfs_create_file("peer_ps_state", 0400, dir, sta,
 			    &fops_peer_ps_state);
 
@@ -907,6 +911,4 @@ void ath10k_sta_add_debugfs(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 				    sta, &fops_cfr_capture);
 	debugfs_create_file("aggr_size_per_ac", 0644, dir, sta,
 			    &fops_aggr_size_per_ac);
-	debugfs_create_file("tx_success_bytes", S_IRUGO, dir, sta,
-			    &fops_tx_success_bytes);
 }
