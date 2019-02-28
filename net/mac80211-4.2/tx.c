@@ -2519,7 +2519,7 @@ static struct sk_buff *ieee80211_build_hdr(struct ieee80211_sub_if_data *sdata,
 		     !multicast && !authorized &&
 		     (cpu_to_be16(ethertype) != sdata->control_port_protocol ||
 		      !ether_addr_equal(sdata->vif.addr, skb->data + ETH_ALEN)))) {
-#ifdef CONFIG_MAC80211_VERBOSE_DEBUG
+#if defined(CONFIG_MAC80211_VERBOSE_DEBUG) && defined(ENABLE_DROP_FRAME_LOG)
 		net_info_ratelimited("%s: dropped frame to %pM (unauthorized port)\n",
 				    sdata->name, hdr.addr1);
 #endif
