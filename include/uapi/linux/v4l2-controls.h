@@ -571,7 +571,8 @@ enum v4l2_vp8_golden_frame_sel {
 #define V4L2_CID_MPEG_VIDEO_VPX_P_FRAME_QP		(V4L2_CID_MPEG_BASE+510)
 #define V4L2_CID_MPEG_VIDEO_VPX_PROFILE			(V4L2_CID_MPEG_BASE+511)
 
-#define V4L2_CID_MPEG_VIDEO_VP8_FRAME_HDR		(V4L2_CID_MPEG_BASE+512)
+/* Control ID not existing in upstream */
+#define V4L2_CID_MPEG_VIDEO_VP8_FRAME_HDR		(V4L2_CID_MPEG_BASE+590)
 
 /*  MPEG-class control IDs specific to the CX2341x driver as defined by V4L2 */
 #define V4L2_CID_MPEG_CX2341X_BASE 				(V4L2_CTRL_CLASS_MPEG | 0x1000)

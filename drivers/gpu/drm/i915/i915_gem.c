@@ -1675,6 +1675,9 @@ i915_gem_object_is_purgeable(struct drm_i915_gem_object *obj)
 	return obj->madv == I915_MADV_DONTNEED;
 }
 
+extern void mlock_vma_page(struct page *page);
+extern unsigned int munlock_vma_page(struct page *page);
+
 static void
 i915_gem_object_put_pages_gtt(struct drm_i915_gem_object *obj)
 {
@@ -1707,6 +1710,10 @@ i915_gem_object_put_pages_gtt(struct drm_i915_gem_object *obj)
 
 		if (obj->madv == I915_MADV_WILLNEED)
 			mark_page_accessed(page);
+
+		lock_page(page);
+		munlock_vma_page(page);
+		unlock_page(page);
 
 		page_cache_release(page);
 	}
@@ -1900,6 +1907,11 @@ i915_gem_object_get_pages_gtt(struct drm_i915_gem_object *obj)
 			gfp |= __GFP_NORETRY | __GFP_NOWARN | __GFP_NO_KSWAPD;
 			gfp &= ~(__GFP_IO | __GFP_WAIT);
 		}
+
+		lock_page(page);
+		mlock_vma_page(page);
+		unlock_page(page);
+
 #ifdef CONFIG_SWIOTLB
 		if (swiotlb_nr_tbl()) {
 			st->nents++;
@@ -1934,8 +1946,12 @@ i915_gem_object_get_pages_gtt(struct drm_i915_gem_object *obj)
 
 err_pages:
 	sg_mark_end(sg);
-	for_each_sg_page(st->sgl, &sg_iter, st->nents, 0)
+	for_each_sg_page(st->sgl, &sg_iter, st->nents, 0) {
+		lock_page(page);
+		munlock_vma_page(page);
+		unlock_page(page);
 		page_cache_release(sg_page_iter_page(&sg_iter));
+	}
 	sg_free_table(st);
 	kfree(st);
 	return PTR_ERR(page);

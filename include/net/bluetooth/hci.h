@@ -876,6 +876,7 @@ struct hci_cp_sniff_subrate {
 } __packed;
 
 #define HCI_OP_SET_EVENT_MASK		0x0c01
+#define HCI_SET_EVENT_MASK_SIZE         8
 
 #define HCI_OP_RESET			0x0c03
 
@@ -1972,6 +1973,9 @@ struct hci_ev_si_security {
 	__u16    subproto;
 	__u8     incoming;
 } __packed;
+
+/* vendor events */
+#define HCI_EV_VENDOR           0xff
 
 /* ---- HCI Packet structures ---- */
 #define HCI_COMMAND_HDR_SIZE 3

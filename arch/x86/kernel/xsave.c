@@ -508,19 +508,6 @@ static void __init setup_init_fpu_buf(void)
 	xsave_state(init_xstate_buf, -1);
 }
 
-static enum { AUTO, ENABLE, DISABLE } eagerfpu = AUTO;
-static int __init eager_fpu_setup(char *s)
-{
-	if (!strcmp(s, "on"))
-		eagerfpu = ENABLE;
-	else if (!strcmp(s, "off"))
-		eagerfpu = DISABLE;
-	else if (!strcmp(s, "auto"))
-		eagerfpu = AUTO;
-	return 1;
-}
-__setup("eagerfpu=", eager_fpu_setup);
-
 /*
  * Enable and initialize the xsave feature.
  */
@@ -558,20 +545,6 @@ static void __init xstate_enable_boot_cpu(void)
 	update_regset_xstate_info(xstate_size, pcntxt_mask);
 	prepare_fx_sw_frame();
 	setup_init_fpu_buf();
-
-	/* Auto enable eagerfpu for xsaveopt */
-	if (cpu_has_xsaveopt && eagerfpu != DISABLE)
-		eagerfpu = ENABLE;
-
-	if (pcntxt_mask & XSTATE_EAGER) {
-		if (eagerfpu == DISABLE) {
-			pr_err("eagerfpu not present, disabling some xstate features: 0x%llx\n",
-					pcntxt_mask & XSTATE_EAGER);
-			pcntxt_mask &= ~XSTATE_EAGER;
-		} else {
-			eagerfpu = ENABLE;
-		}
-	}
 
 	pr_info("enabled xstate_bv 0x%llx, cntxt size 0x%x\n",
 		pcntxt_mask, xstate_size);
@@ -611,14 +584,6 @@ void eager_fpu_init(void)
 
 	clear_used_math();
 	current_thread_info()->status = 0;
-
-	if (eagerfpu == ENABLE)
-		setup_force_cpu_cap(X86_FEATURE_EAGER_FPU);
-
-	if (!cpu_has_eager_fpu) {
-		stts();
-		return;
-	}
 
 	if (boot_func) {
 		boot_func();

@@ -916,6 +916,12 @@ struct ieee80211_sub_if_data {
 	bool rc_has_mcs_mask[IEEE80211_NUM_BANDS];
 	u8  rc_rateidx_mcs_mask[IEEE80211_NUM_BANDS][IEEE80211_HT_MCS_MASK_LEN];
 
+	/* multicast and broadcast RX limit rate in Kbps */
+	u32 bc_rx_limit_rate;
+	u32 mc_rx_limit_rate;
+	/* burst size in Bytes */
+	u32 burst_size;
+
 	union {
 		struct ieee80211_if_ap ap;
 		struct ieee80211_if_wds wds;
@@ -2087,6 +2093,8 @@ void ieee80211_tdls_cancel_channel_switch(struct wiphy *wiphy,
 					  const u8 *addr);
 void ieee80211_process_tdls_channel_switch(struct ieee80211_sub_if_data *sdata,
 					   struct sk_buff *skb);
+/* Converts the skb len in Bytes to nanosec */
+s64 skblen_to_ns(u32 rate, unsigned int len);
 
 extern const struct ethtool_ops ieee80211_ethtool_ops;
 

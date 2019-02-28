@@ -1589,7 +1589,7 @@ config DMA_API_DEBUG
 
 	  If unsure, say N.
 
-config TEST_MODULE
+config TEST_LKM
 	tristate "Test module loading with 'hello world' module"
 	default n
 	depends on m
@@ -1615,14 +1615,6 @@ config TEST_USER_COPY
 	  protections.
 
 	  If unsure, say N.
-
-config TEST_MODULE
-	tristate "Test module loading with 'hello world' module"
-	depends on m
-	help
-	  This builds the "test_module" module that emits "Hello, world"
-	  on printk when loaded. It is designed to be used for basic
-	  evaluation of the module loading subsystem.
 
 config TEST_UDELAY
 	tristate "udelay test driver"
