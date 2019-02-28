@@ -1433,6 +1433,37 @@ unlock:
 	hci_dev_unlock(hdev);
 }
 
+static void hci_cc_set_event_mask(struct hci_dev *hdev, struct sk_buff *skb)
+{
+	u8 status = *((u8 *)skb->data);
+	u8 *events;
+
+	BT_DBG("%s status 0x%2.2x", hdev->name, status);
+
+	if (status) {
+		BT_ERR("Set Event mask failed! status %d", status);
+		return;
+	}
+
+	hci_dev_lock(hdev);
+	events = hci_sent_cmd_data(hdev, HCI_OP_SET_EVENT_MASK);
+	if (events)
+		memcpy(hdev->event_mask, events, sizeof(hdev->event_mask));
+	else
+		BT_ERR("Set Event mask failed! events is NULL");
+
+	BT_DBG("Event mask byte 0: 0x%02x  byte 1: 0x%02x",
+	       hdev->event_mask[0], hdev->event_mask[1]);
+	BT_DBG("Event mask byte 2: 0x%02x  byte 3: 0x%02x",
+	       hdev->event_mask[2], hdev->event_mask[3]);
+	BT_DBG("Event mask byte 4: 0x%02x  byte 5: 0x%02x",
+	       hdev->event_mask[4], hdev->event_mask[5]);
+	BT_DBG("Event mask byte 6: 0x%02x  byte 7: 0x%02x",
+	       hdev->event_mask[6], hdev->event_mask[7]);
+
+	hci_dev_unlock(hdev);
+}
+
 static void hci_cc_write_ssp_debug_mode(struct hci_dev *hdev, struct sk_buff *skb)
 {
 	u8 status = *((u8 *) skb->data);
@@ -3066,6 +3097,10 @@ static void hci_cmd_complete_evt(struct hci_dev *hdev, struct sk_buff *skb,
 		hci_cc_write_ssp_debug_mode(hdev, skb);
 		break;
 
+	case HCI_OP_SET_EVENT_MASK:
+		hci_cc_set_event_mask(hdev, skb);
+		break;
+
 	default:
 		BT_DBG("%s opcode 0x%4.4x", hdev->name, *opcode);
 		break;
@@ -3376,13 +3411,13 @@ static void hci_vendor_evt(struct hci_dev *hdev, struct sk_buff *skb)
 		case HCI_EV_INTEL_FATAL_EXCEPTION:
 		case HCI_EV_INTEL_DEBUG_EXCEPTION:
 			if (skb->len < 1) {
-				BT_INFO("Evt ID:%02X", evt_id);
+				BT_WARN("Evt ID:%02X", evt_id);
 				return;
 			}
 			b = (u8 *)skb->data;
 			for (i = 0; i < skb->len && i < HCI_MAX_EVENT_SIZE; ++i)
 				sprintf(line + strlen(line), " %02X", b[i]);
-			BT_INFO("Evt ID: %02X data:%s", evt_id, line);
+			BT_WARN("Evt ID: %02X data:%s", evt_id, line);
 			break;
 		default:
 			if (skb->len < 1) {
@@ -4711,7 +4746,8 @@ static void hci_le_conn_update_complete_evt(struct hci_dev *hdev,
 /* This function requires the caller holds hdev->lock */
 static struct hci_conn *check_pending_le_conn(struct hci_dev *hdev,
 					      bdaddr_t *addr,
-					      u8 addr_type, u8 adv_type)
+					      u8 addr_type, u8 adv_type,
+					      bdaddr_t *direct_rpa)
 {
 	struct hci_conn *conn;
 	struct hci_conn_params *params;
@@ -4762,7 +4798,8 @@ static struct hci_conn *check_pending_le_conn(struct hci_dev *hdev,
 	}
 
 	conn = hci_connect_le(hdev, addr, addr_type, BT_SECURITY_LOW,
-			      HCI_LE_AUTOCONN_TIMEOUT, HCI_ROLE_MASTER);
+			      HCI_LE_AUTOCONN_TIMEOUT, HCI_ROLE_MASTER,
+			      direct_rpa);
 	if (!IS_ERR(conn)) {
 		/* If HCI_AUTO_CONN_EXPLICIT is set, conn is already owned
 		 * by higher layer that tried to connect, if no then
@@ -4872,8 +4909,13 @@ static void process_adv_report(struct hci_dev *hdev, u8 type, bdaddr_t *bdaddr,
 		bdaddr_type = irk->addr_type;
 	}
 
-	/* Check if we have been requested to connect to this device */
-	conn = check_pending_le_conn(hdev, bdaddr, bdaddr_type, type);
+	/* Check if we have been requested to connect to this device.
+	 *
+	 * direct_addr is set only for directed advertising reports (it is NULL
+	 * for advertising reports) and is already verified to be RPA above.
+	 */
+	conn = check_pending_le_conn(hdev, bdaddr, bdaddr_type, type,
+								direct_addr);
 	if (conn && type == LE_ADV_IND) {
 		/* Store report for later inclusion by
 		 * mgmt_device_connected
@@ -5269,6 +5311,12 @@ static bool hci_get_cmd_complete(struct hci_dev *hdev, u16 opcode,
 			return false;
 		return true;
 	}
+
+	/* Check if request ended in Command Status - no way to retreive
+	 * any extra parameters in this case.
+	 */
+	if (hdr->evt == HCI_EV_CMD_STATUS)
+		return false;
 
 	if (hdr->evt != HCI_EV_CMD_COMPLETE) {
 		BT_DBG("Last event is not cmd complete (0x%2.2x)", hdr->evt);

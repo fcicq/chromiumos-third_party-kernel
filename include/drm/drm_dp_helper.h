@@ -64,6 +64,11 @@
 /* AUX CH addresses */
 /* DPCD */
 #define DP_DPCD_REV                         0x000
+# define DP_DPCD_REV_10                     0x10
+# define DP_DPCD_REV_11                     0x11
+# define DP_DPCD_REV_12                     0x12
+# define DP_DPCD_REV_13                     0x13
+# define DP_DPCD_REV_14                     0x14
 
 #define DP_MAX_LINK_RATE                    0x001
 
@@ -118,6 +123,7 @@
 # define DP_DPCD_DISPLAY_CONTROL_CAPABLE     (1 << 3) /* edp v1.2 or higher */
 
 #define DP_TRAINING_AUX_RD_INTERVAL         0x00e   /* XXX 1.2? */
+# define DP_TRAINING_AUX_RD_MASK            0x7F    /* XXX 1.2? */
 
 #define DP_ADAPTER_CAP			    0x00f   /* 1.2 */
 # define DP_FORCE_LOAD_SENSE_CAP	    (1 << 0)
@@ -182,6 +188,7 @@
 #define DP_PSR_SUPPORT                      0x070   /* XXX 1.2? */
 # define DP_PSR_IS_SUPPORTED                1
 # define DP_PSR2_IS_SUPPORTED		    2	    /* eDP 1.4 */
+# define DP_PSR2_WITH_Y_COORD_IS_SUPPORTED  3	    /* eDP 1.4a */
 
 #define DP_PSR_CAPS                         0x071   /* XXX 1.2? */
 # define DP_PSR_NO_TRAIN_ON_EXIT            1
@@ -346,6 +353,7 @@
 # define DP_PSR_FRAME_CAPTURE		    (1 << 3)
 # define DP_PSR_SELECTIVE_UPDATE	    (1 << 4)
 # define DP_PSR_IRQ_HPD_WITH_CRC_ERRORS     (1 << 5)
+# define DP_PSR_ENABLE_PSR2		    (1 << 6) /* eDP 1.4a */
 
 #define DP_ADAPTER_CTRL			    0x1a0
 # define DP_ADAPTER_CTRL_FORCE_LOAD_SENSE   (1 << 0)
@@ -576,6 +584,15 @@
 # define DP_MAX_RESYNC_FRAME_COUNT_SHIFT		0
 # define DP_LAST_ACTUAL_SYNCHRONIZATION_LATENCY_MASK	(0xf << 4)
 # define DP_LAST_ACTUAL_SYNCHRONIZATION_LATENCY_SHIFT	4
+
+#define DP_LAST_RECEIVED_PSR_SDP	    0x200a /* eDP 1.2 */
+# define DP_PSR_STATE_BIT		    (1 << 0) /* eDP 1.2 */
+# define DP_UPDATE_RFB_BIT		    (1 << 1) /* eDP 1.2 */
+# define DP_CRC_VALID_BIT		    (1 << 2) /* eDP 1.2 */
+# define DP_SU_VALID			    (1 << 3) /* eDP 1.4 */
+# define DP_FIRST_SCAN_LINE_SU_REGION	    (1 << 4) /* eDP 1.4 */
+# define DP_LAST_SCAN_LINE_SU_REGION	    (1 << 5) /* eDP 1.4 */
+# define DP_Y_COORDINATE_VALID		    (1 << 6) /* eDP 1.4a */
 
 #define DP_RECEIVER_ALPM_STATUS		    0x200b  /* eDP 1.4 */
 # define DP_ALPM_LOCK_TIMEOUT_ERROR	    (1 << 0)

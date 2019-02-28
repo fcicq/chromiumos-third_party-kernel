@@ -42,6 +42,8 @@
 #define DW_IC_SS_SCL_LCNT	0x18
 #define DW_IC_FS_SCL_HCNT	0x1c
 #define DW_IC_FS_SCL_LCNT	0x20
+#define DW_IC_HS_SCL_HCNT	0x24
+#define DW_IC_HS_SCL_LCNT	0x28
 #define DW_IC_INTR_STAT		0x2c
 #define DW_IC_INTR_MASK		0x30
 #define DW_IC_RAW_INTR_STAT	0x34
@@ -89,11 +91,19 @@
 					 DW_IC_INTR_TX_ABRT | \
 					 DW_IC_INTR_STOP_DET)
 
-#define DW_IC_STATUS_ACTIVITY	0x1
+#define DW_IC_STATUS_ACTIVITY		0x1
+#define DW_IC_STATUS_TFE		BIT(2)
+#define DW_IC_STATUS_MST_ACTIVITY	BIT(5)
+
+#define DW_IC_SDA_HOLD_RX_SHIFT		16
+#define DW_IC_SDA_HOLD_RX_MASK		GENMASK(23, DW_IC_SDA_HOLD_RX_SHIFT)
 
 #define DW_IC_ERR_TX_ABRT	0x1
 
 #define DW_IC_TAR_10BITADDR_MASTER BIT(12)
+
+#define DW_IC_COMP_PARAM_1_SPEED_MODE_HIGH	(BIT(2) | BIT(3))
+#define DW_IC_COMP_PARAM_1_SPEED_MODE_MASK	GENMASK(3, 2)
 
 /*
  * status codes
@@ -169,13 +179,13 @@ static u32 dw_readl(struct dw_i2c_dev *dev, int offset)
 {
 	u32 value;
 
-	if (dev->accessor_flags & ACCESS_16BIT)
+	if (dev->flags & ACCESS_16BIT)
 		value = readw_relaxed(dev->base + offset) |
 			(readw_relaxed(dev->base + offset + 2) << 16);
 	else
 		value = readl_relaxed(dev->base + offset);
 
-	if (dev->accessor_flags & ACCESS_SWAP)
+	if (dev->flags & ACCESS_SWAP)
 		return swab32(value);
 	else
 		return value;
@@ -183,10 +193,10 @@ static u32 dw_readl(struct dw_i2c_dev *dev, int offset)
 
 static void dw_writel(struct dw_i2c_dev *dev, u32 b, int offset)
 {
-	if (dev->accessor_flags & ACCESS_SWAP)
+	if (dev->flags & ACCESS_SWAP)
 		b = swab32(b);
 
-	if (dev->accessor_flags & ACCESS_16BIT) {
+	if (dev->flags & ACCESS_16BIT) {
 		writew_relaxed((u16)b, dev->base + offset);
 		writew_relaxed((u16)(b >> 16), dev->base + offset + 2);
 	} else {
@@ -252,10 +262,15 @@ static u32 i2c_dw_scl_lcnt(u32 ic_clk, u32 tLOW, u32 tf, int offset)
 
 static void __i2c_dw_enable(struct dw_i2c_dev *dev, bool enable)
 {
+	dw_writel(dev, enable, DW_IC_ENABLE);
+}
+
+static void __i2c_dw_enable_and_wait(struct dw_i2c_dev *dev, bool enable)
+{
 	int timeout = 100;
 
 	do {
-		dw_writel(dev, enable, DW_IC_ENABLE);
+		__i2c_dw_enable(dev, enable);
 		if ((dw_readl(dev, DW_IC_ENABLE_STATUS) & 1) == enable)
 			return;
 
@@ -271,6 +286,39 @@ static void __i2c_dw_enable(struct dw_i2c_dev *dev, bool enable)
 		 enable ? "en" : "dis");
 }
 
+static unsigned long i2c_dw_clk_rate(struct dw_i2c_dev *dev)
+{
+	/*
+	 * Clock is not necessary if we got LCNT/HCNT values directly from
+	 * the platform code.
+	 */
+	if (WARN_ON_ONCE(!dev->get_clk_rate_khz))
+		return 0;
+	return dev->get_clk_rate_khz(dev);
+}
+
+static int i2c_dw_acquire_lock(struct dw_i2c_dev *dev)
+{
+	int ret;
+
+	if (!dev->acquire_lock)
+		return 0;
+
+	ret = dev->acquire_lock(dev);
+	if (!ret)
+		return 0;
+
+	dev_err(dev->dev, "couldn't acquire bus ownership\n");
+
+	return ret;
+}
+
+static void i2c_dw_release_lock(struct dw_i2c_dev *dev)
+{
+	if (dev->release_lock)
+		dev->release_lock(dev);
+}
+
 /**
  * i2c_dw_init() - initialize the designware i2c master hardware
  * @dev: device private data
@@ -281,39 +329,33 @@ static void __i2c_dw_enable(struct dw_i2c_dev *dev, bool enable)
  */
 int i2c_dw_init(struct dw_i2c_dev *dev)
 {
-	u32 input_clock_khz;
 	u32 hcnt, lcnt;
-	u32 reg;
+	u32 reg, comp_param1;
 	u32 sda_falling_time, scl_falling_time;
 	int ret;
 
-	if (dev->acquire_lock) {
-		ret = dev->acquire_lock(dev);
-		if (ret) {
-			dev_err(dev->dev, "couldn't acquire bus ownership\n");
-			return ret;
-		}
-	}
-
-	input_clock_khz = dev->get_clk_rate_khz(dev);
+	ret = i2c_dw_acquire_lock(dev);
+	if (ret)
+		return ret;
 
 	reg = dw_readl(dev, DW_IC_COMP_TYPE);
 	if (reg == ___constant_swab32(DW_IC_COMP_TYPE_VALUE)) {
 		/* Configure register endianess access */
-		dev->accessor_flags |= ACCESS_SWAP;
+		dev->flags |= ACCESS_SWAP;
 	} else if (reg == (DW_IC_COMP_TYPE_VALUE & 0x0000ffff)) {
 		/* Configure register access mode 16bit */
-		dev->accessor_flags |= ACCESS_16BIT;
+		dev->flags |= ACCESS_16BIT;
 	} else if (reg != DW_IC_COMP_TYPE_VALUE) {
 		dev_err(dev->dev, "Unknown Synopsys component type: "
 			"0x%08x\n", reg);
-		if (dev->release_lock)
-			dev->release_lock(dev);
+		i2c_dw_release_lock(dev);
 		return -ENODEV;
 	}
 
+	comp_param1 = dw_readl(dev, DW_IC_COMP_PARAM_1);
+
 	/* Disable the adapter */
-	__i2c_dw_enable(dev, false);
+	__i2c_dw_enable_and_wait(dev, false);
 
 	/* set standard and fast speed deviders for high/low periods */
 
@@ -325,12 +367,12 @@ int i2c_dw_init(struct dw_i2c_dev *dev)
 		hcnt = dev->ss_hcnt;
 		lcnt = dev->ss_lcnt;
 	} else {
-		hcnt = i2c_dw_scl_hcnt(input_clock_khz,
+		hcnt = i2c_dw_scl_hcnt(i2c_dw_clk_rate(dev),
 					4000,	/* tHD;STA = tHIGH = 4.0 us */
 					sda_falling_time,
 					0,	/* 0: DW default, 1: Ideal */
 					0);	/* No offset */
-		lcnt = i2c_dw_scl_lcnt(input_clock_khz,
+		lcnt = i2c_dw_scl_lcnt(i2c_dw_clk_rate(dev),
 					4700,	/* tLOW = 4.7 us */
 					scl_falling_time,
 					0);	/* No offset */
@@ -339,17 +381,20 @@ int i2c_dw_init(struct dw_i2c_dev *dev)
 	dw_writel(dev, lcnt, DW_IC_SS_SCL_LCNT);
 	dev_dbg(dev->dev, "Standard-mode HCNT:LCNT = %d:%d\n", hcnt, lcnt);
 
-	/* Set SCL timing parameters for fast-mode */
-	if (dev->fs_hcnt && dev->fs_lcnt) {
+	/* Set SCL timing parameters for fast-mode or fast-mode plus */
+	if ((dev->clk_freq == 1000000) && dev->fp_hcnt && dev->fp_lcnt) {
+		hcnt = dev->fp_hcnt;
+		lcnt = dev->fp_lcnt;
+	} else if (dev->fs_hcnt && dev->fs_lcnt) {
 		hcnt = dev->fs_hcnt;
 		lcnt = dev->fs_lcnt;
 	} else {
-		hcnt = i2c_dw_scl_hcnt(input_clock_khz,
+		hcnt = i2c_dw_scl_hcnt(i2c_dw_clk_rate(dev),
 					600,	/* tHD;STA = tHIGH = 0.6 us */
 					sda_falling_time,
 					0,	/* 0: DW default, 1: Ideal */
 					0);	/* No offset */
-		lcnt = i2c_dw_scl_lcnt(input_clock_khz,
+		lcnt = i2c_dw_scl_lcnt(i2c_dw_clk_rate(dev),
 					1300,	/* tLOW = 1.3 us */
 					scl_falling_time,
 					0);	/* No offset */
@@ -358,14 +403,43 @@ int i2c_dw_init(struct dw_i2c_dev *dev)
 	dw_writel(dev, lcnt, DW_IC_FS_SCL_LCNT);
 	dev_dbg(dev->dev, "Fast-mode HCNT:LCNT = %d:%d\n", hcnt, lcnt);
 
+	if ((dev->master_cfg & DW_IC_CON_SPEED_MASK) ==
+		DW_IC_CON_SPEED_HIGH) {
+		if ((comp_param1 & DW_IC_COMP_PARAM_1_SPEED_MODE_MASK)
+			!= DW_IC_COMP_PARAM_1_SPEED_MODE_HIGH) {
+			dev_err(dev->dev, "High Speed not supported!\n");
+			dev->master_cfg &= ~DW_IC_CON_SPEED_MASK;
+			dev->master_cfg |= DW_IC_CON_SPEED_FAST;
+		} else if (dev->hs_hcnt && dev->hs_lcnt) {
+			hcnt = dev->hs_hcnt;
+			lcnt = dev->hs_lcnt;
+			dw_writel(dev, hcnt, DW_IC_HS_SCL_HCNT);
+			dw_writel(dev, lcnt, DW_IC_HS_SCL_LCNT);
+			dev_dbg(dev->dev, "HighSpeed-mode HCNT:LCNT = %d:%d\n",
+				hcnt, lcnt);
+		}
+	}
+
 	/* Configure SDA Hold Time if required */
-	if (dev->sda_hold_time) {
-		reg = dw_readl(dev, DW_IC_COMP_VERSION);
-		if (reg >= DW_IC_SDA_HOLD_MIN_VERS)
-			dw_writel(dev, dev->sda_hold_time, DW_IC_SDA_HOLD);
-		else
-			dev_warn(dev->dev,
-				"Hardware too old to adjust SDA hold time.");
+	reg = dw_readl(dev, DW_IC_COMP_VERSION);
+	if (reg >= DW_IC_SDA_HOLD_MIN_VERS) {
+		if (!dev->sda_hold_time) {
+			/* Keep previous hold time setting if no one set it */
+			dev->sda_hold_time = dw_readl(dev, DW_IC_SDA_HOLD);
+		}
+		/*
+		 * Workaround for avoiding TX arbitration lost in case I2C
+		 * slave pulls SDA down "too quickly" after falling egde of
+		 * SCL by enabling non-zero SDA RX hold. Specification says it
+		 * extends incoming SDA low to high transition while SCL is
+		 * high but it apprears to help also above issue.
+		 */
+		if (!(dev->sda_hold_time & DW_IC_SDA_HOLD_RX_MASK))
+			dev->sda_hold_time |= 1 << DW_IC_SDA_HOLD_RX_SHIFT;
+		dw_writel(dev, dev->sda_hold_time, DW_IC_SDA_HOLD);
+	} else {
+		dev_warn(dev->dev,
+			"Hardware too old to adjust SDA hold time.\n");
 	}
 
 	/* Configure Tx/Rx FIFO threshold levels */
@@ -375,8 +449,8 @@ int i2c_dw_init(struct dw_i2c_dev *dev)
 	/* configure the i2c master */
 	dw_writel(dev, dev->master_cfg , DW_IC_CON);
 
-	if (dev->release_lock)
-		dev->release_lock(dev);
+	i2c_dw_release_lock(dev);
+
 	return 0;
 }
 EXPORT_SYMBOL_GPL(i2c_dw_init);
@@ -403,27 +477,45 @@ static int i2c_dw_wait_bus_not_busy(struct dw_i2c_dev *dev)
 static void i2c_dw_xfer_init(struct dw_i2c_dev *dev)
 {
 	struct i2c_msg *msgs = dev->msgs;
-	u32 ic_con, ic_tar = 0;
+	u32 ic_tar = 0;
+	bool enabled;
 
-	/* Disable the adapter */
-	__i2c_dw_enable(dev, false);
+	enabled = dw_readl(dev, DW_IC_ENABLE_STATUS) & 1;
 
-	/* if the slave address is ten bit address, enable 10BITADDR */
-	ic_con = dw_readl(dev, DW_IC_CON);
-	if (msgs[dev->msg_write_idx].flags & I2C_M_TEN) {
-		ic_con |= DW_IC_CON_10BITADDR_MASTER;
+	if (enabled) {
+		u32 ic_status;
+
 		/*
-		 * If I2C_DYNAMIC_TAR_UPDATE is set, the 10-bit addressing
-		 * mode has to be enabled via bit 12 of IC_TAR register.
-		 * We set it always as I2C_DYNAMIC_TAR_UPDATE can't be
-		 * detected from registers.
+		 * Only disable adapter if ic_tar and ic_con can't be
+		 * dynamically updated
 		 */
-		ic_tar = DW_IC_TAR_10BITADDR_MASTER;
-	} else {
-		ic_con &= ~DW_IC_CON_10BITADDR_MASTER;
+		ic_status = dw_readl(dev, DW_IC_STATUS);
+		if (!dev->dynamic_tar_update_enabled ||
+		    (ic_status & DW_IC_STATUS_MST_ACTIVITY) ||
+		    !(ic_status & DW_IC_STATUS_TFE)) {
+			__i2c_dw_enable_and_wait(dev, false);
+			enabled = false;
+		}
 	}
 
-	dw_writel(dev, ic_con, DW_IC_CON);
+	/* if the slave address is ten bit address, enable 10BITADDR */
+	if (dev->dynamic_tar_update_enabled) {
+		/*
+		 * If I2C_DYNAMIC_TAR_UPDATE is set, the 10-bit addressing
+		 * mode has to be enabled via bit 12 of IC_TAR register,
+		 * otherwise bit 4 of IC_CON is used.
+		 */
+		if (msgs[dev->msg_write_idx].flags & I2C_M_TEN)
+			ic_tar = DW_IC_TAR_10BITADDR_MASTER;
+	} else {
+		u32 ic_con = dw_readl(dev, DW_IC_CON);
+
+		if (msgs[dev->msg_write_idx].flags & I2C_M_TEN)
+			ic_con |= DW_IC_CON_10BITADDR_MASTER;
+		else
+			ic_con &= ~DW_IC_CON_10BITADDR_MASTER;
+		dw_writel(dev, ic_con, DW_IC_CON);
+	}
 
 	/*
 	 * Set the slave (target) address and enable 10-bit addressing mode
@@ -434,8 +526,9 @@ static void i2c_dw_xfer_init(struct dw_i2c_dev *dev)
 	/* enforce disabled interrupts (due to HW issues) */
 	i2c_dw_disable_int(dev);
 
-	/* Enable the adapter */
-	__i2c_dw_enable(dev, true);
+	if (!enabled)
+		/* Enable the adapter */
+		__i2c_dw_enable_and_wait(dev, true);
 
 	/* Clear and enable interrupts */
 	dw_readl(dev, DW_IC_CLR_INTR);
@@ -462,6 +555,8 @@ i2c_dw_xfer_msg(struct dw_i2c_dev *dev)
 	intr_mask = DW_IC_INTR_DEFAULT_MASK;
 
 	for (; dev->msg_write_idx < dev->msgs_num; dev->msg_write_idx++) {
+		u32 flags = msgs[dev->msg_write_idx].flags;
+
 		/*
 		 * if target address has changed, we need to
 		 * reprogram the target address in the i2c
@@ -507,8 +602,15 @@ i2c_dw_xfer_msg(struct dw_i2c_dev *dev)
 			 * detected from the registers so we set it always
 			 * when writing/reading the last byte.
 			 */
+
+			/*
+			 * i2c-core.c always sets the buffer length of
+			 * I2C_FUNC_SMBUS_BLOCK_DATA to 1. The length will
+			 * be adjusted when receiving the first byte.
+			 * Thus we can't stop the transaction here.
+			 */
 			if (dev->msg_write_idx == dev->msgs_num - 1 &&
-			    buf_len == 1)
+			    buf_len == 1 && !(flags & I2C_M_RECV_LEN))
 				cmd |= BIT(9);
 
 			if (need_restart) {
@@ -533,7 +635,12 @@ i2c_dw_xfer_msg(struct dw_i2c_dev *dev)
 		dev->tx_buf = buf;
 		dev->tx_buf_len = buf_len;
 
-		if (buf_len > 0) {
+		/*
+		 * Because we don't know the buffer length in the
+		 * I2C_FUNC_SMBUS_BLOCK_DATA case, we can't stop
+		 * the transaction here.
+		 */
+		if (buf_len > 0 || flags & I2C_M_RECV_LEN) {
 			/* more bytes to be written */
 			dev->status |= STATUS_WRITE_IN_PROGRESS;
 			break;
@@ -552,6 +659,24 @@ i2c_dw_xfer_msg(struct dw_i2c_dev *dev)
 		intr_mask = 0;
 
 	dw_writel(dev, intr_mask,  DW_IC_INTR_MASK);
+}
+
+static u8
+i2c_dw_recv_len(struct dw_i2c_dev *dev, u8 len)
+{
+	struct i2c_msg *msgs = dev->msgs;
+	u32 flags = msgs[dev->msg_read_idx].flags;
+
+	/*
+	 * Adjust the buffer length and mask the flag
+	 * after receiving the first byte.
+	 */
+	len += (flags & I2C_CLIENT_PEC) ? 2 : 1;
+	dev->tx_buf_len = len - min_t(u8, len, dev->rx_outstanding);
+	msgs[dev->msg_read_idx].len = len;
+	msgs[dev->msg_read_idx].flags &= ~I2C_M_RECV_LEN;
+
+	return len;
 }
 
 static void
@@ -578,7 +703,15 @@ i2c_dw_read(struct dw_i2c_dev *dev)
 		rx_valid = dw_readl(dev, DW_IC_RXFLR);
 
 		for (; len > 0 && rx_valid > 0; len--, rx_valid--) {
-			*buf++ = dw_readl(dev, DW_IC_DATA_CMD);
+			u32 flags = msgs[dev->msg_read_idx].flags;
+
+			*buf = dw_readl(dev, DW_IC_DATA_CMD);
+			/* Ensure length byte is a valid value */
+			if (flags & I2C_M_RECV_LEN &&
+				*buf <= I2C_SMBUS_BLOCK_MAX && *buf > 0) {
+				len = i2c_dw_recv_len(dev, *buf);
+			}
+			buf++;
 			dev->rx_outstanding--;
 		}
 
@@ -616,7 +749,8 @@ static int i2c_dw_handle_tx_abort(struct dw_i2c_dev *dev)
 }
 
 /*
- * Prepare controller for a transaction and call i2c_dw_xfer_msg
+ * Prepare controller for a transaction and start transfer by calling
+ * i2c_dw_xfer_init()
  */
 static int
 i2c_dw_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[], int num)
@@ -626,7 +760,6 @@ i2c_dw_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[], int num)
 
 	dev_dbg(dev->dev, "%s: msgs: %d\n", __func__, num);
 
-	mutex_lock(&dev->lock);
 	pm_runtime_get_sync(dev->dev);
 
 	reinit_completion(&dev->cmd_complete);
@@ -640,13 +773,9 @@ i2c_dw_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[], int num)
 	dev->abort_source = 0;
 	dev->rx_outstanding = 0;
 
-	if (dev->acquire_lock) {
-		ret = dev->acquire_lock(dev);
-		if (ret) {
-			dev_err(dev->dev, "couldn't acquire bus ownership\n");
-			goto done_nolock;
-		}
-	}
+	ret = i2c_dw_acquire_lock(dev);
+	if (ret)
+		goto done_nolock;
 
 	ret = i2c_dw_wait_bus_not_busy(dev);
 	if (ret < 0)
@@ -663,15 +792,6 @@ i2c_dw_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[], int num)
 		ret = -ETIMEDOUT;
 		goto done;
 	}
-
-	/*
-	 * We must disable the adapter before unlocking the &dev->lock mutex
-	 * below. Otherwise the hardware might continue generating interrupts
-	 * which in turn causes a race condition with the following transfer.
-	 * Needs some more investigation if the additional interrupts are
-	 * a hardware bug or this driver doesn't handle them correctly yet.
-	 */
-	__i2c_dw_enable(dev, false);
 
 	if (dev->msg_err) {
 		ret = dev->msg_err;
@@ -697,13 +817,11 @@ i2c_dw_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[], int num)
 	ret = -EIO;
 
 done:
-	if (dev->release_lock)
-		dev->release_lock(dev);
+	i2c_dw_release_lock(dev);
 
 done_nolock:
 	pm_runtime_mark_last_busy(dev->dev);
 	pm_runtime_put_autosuspend(dev->dev);
-	mutex_unlock(&dev->lock);
 
 	return ret;
 }
@@ -816,9 +934,19 @@ static irqreturn_t i2c_dw_isr(int this_irq, void *dev_id)
 	 */
 
 tx_aborted:
-	if ((stat & (DW_IC_INTR_TX_ABRT | DW_IC_INTR_STOP_DET)) || dev->msg_err)
+	if ((stat & (DW_IC_INTR_TX_ABRT | DW_IC_INTR_STOP_DET))
+			|| dev->msg_err) {
+		/*
+		 * We must disable interruts before returning and signaling
+		 * the end of the current transfer. Otherwise the hardware
+		 * might continue generating interrupts for non-existent
+		 * transfers.
+		 */
+		i2c_dw_disable_int(dev);
+		dw_readl(dev, DW_IC_CLR_INTR);
+
 		complete(&dev->cmd_complete);
-	else if (unlikely(dev->accessor_flags & ACCESS_INTR_MASK)) {
+	} else if (unlikely(dev->flags & ACCESS_INTR_MASK)) {
 		/* workaround to trigger pending interrupt */
 		stat = dw_readl(dev, DW_IC_INTR_MASK);
 		i2c_dw_disable_int(dev);
@@ -831,7 +959,7 @@ tx_aborted:
 void i2c_dw_disable(struct dw_i2c_dev *dev)
 {
 	/* Disable controller */
-	__i2c_dw_enable(dev, false);
+	__i2c_dw_enable_and_wait(dev, false);
 
 	/* Disable all interupts */
 	dw_writel(dev, 0, DW_IC_INTR_MASK);
@@ -855,22 +983,44 @@ int i2c_dw_probe(struct dw_i2c_dev *dev)
 {
 	struct i2c_adapter *adap = &dev->adapter;
 	int r;
+	u32 reg;
 
 	init_completion(&dev->cmd_complete);
-	mutex_init(&dev->lock);
 
 	r = i2c_dw_init(dev);
 	if (r)
 		return r;
 
+	r = i2c_dw_acquire_lock(dev);
+	if (r)
+		return r;
+
+	/*
+	 * Test if dynamic TAR update is enabled in this controller by writing
+	 * to IC_10BITADDR_MASTER field in IC_CON: when it is enabled this
+	 * field is read-only so it should not succeed
+	 */
+	reg = dw_readl(dev, DW_IC_CON);
+	dw_writel(dev, reg ^ DW_IC_CON_10BITADDR_MASTER, DW_IC_CON);
+
+	if ((dw_readl(dev, DW_IC_CON) & DW_IC_CON_10BITADDR_MASTER) ==
+	    (reg & DW_IC_CON_10BITADDR_MASTER)) {
+		dev->dynamic_tar_update_enabled = true;
+		dev_dbg(dev->dev, "Dynamic TAR update enabled");
+	}
+
+	i2c_dw_release_lock(dev);
+
 	snprintf(adap->name, sizeof(adap->name),
 		 "Synopsys DesignWare I2C adapter");
+	adap->retries = 3;
 	adap->algo = &i2c_dw_algo;
 	adap->dev.parent = dev->dev;
 	i2c_set_adapdata(adap, dev);
 
 	i2c_dw_disable_int(dev);
-	r = devm_request_irq(dev->dev, dev->irq, i2c_dw_isr, IRQF_SHARED,
+	r = devm_request_irq(dev->dev, dev->irq, i2c_dw_isr,
+			     IRQF_SHARED | IRQF_COND_SUSPEND,
 			     dev_name(dev->dev), dev);
 	if (r) {
 		dev_err(dev->dev, "failure requesting irq %i: %d\n",
@@ -878,9 +1028,17 @@ int i2c_dw_probe(struct dw_i2c_dev *dev)
 		return r;
 	}
 
+	/*
+	 * Increment PM usage count during adapter registration in order to
+	 * avoid possible spurious runtime suspend when adapter device is
+	 * registered to the device core and immediate resume in case bus has
+	 * registered I2C slaves that do I2C transfers in their probe.
+	 */
+	pm_runtime_get_noresume(dev->dev);
 	r = i2c_add_numbered_adapter(adap);
 	if (r)
 		dev_err(dev->dev, "failure adding adapter: %d\n", r);
+	pm_runtime_put_noidle(dev->dev);
 
 	return r;
 }

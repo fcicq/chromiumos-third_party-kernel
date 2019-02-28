@@ -61,6 +61,7 @@ struct rt5663_priv {
 static const struct reg_sequence rt5663_patch_list[] = {
 	{ 0x002a, 0x8020 },
 	{ 0x0086, 0x0028 },
+	{ 0x0100, 0xa020 },
 };
 
 static const struct reg_default rt5663_v2_reg[] = {
@@ -567,7 +568,7 @@ static const struct reg_default rt5663_reg[] = {
 	{ 0x00fd, 0x0001 },
 	{ 0x00fe, 0x10ec },
 	{ 0x00ff, 0x6406 },
-	{ 0x0100, 0xa0a0 },
+	{ 0x0100, 0xa020 },
 	{ 0x0108, 0x4444 },
 	{ 0x0109, 0x4444 },
 	{ 0x010a, 0xaaaa },
@@ -2127,6 +2128,8 @@ static int rt5663_hp_event(struct snd_soc_dapm_widget *w,
 				0x8000);
 			snd_soc_update_bits(codec, RT5663_DEPOP_1, 0x3000,
 				0x3000);
+			snd_soc_update_bits(codec,
+				RT5663_DIG_VOL_ZCD, 0x00c0, 0x0080);
 		}
 		break;
 
@@ -2139,6 +2142,8 @@ static int rt5663_hp_event(struct snd_soc_dapm_widget *w,
 			snd_soc_update_bits(codec, RT5663_DEPOP_1, 0x3000, 0x0);
 			snd_soc_update_bits(codec, RT5663_HP_CHARGE_PUMP_1,
 				RT5663_OVCD_HP_MASK, RT5663_OVCD_HP_EN);
+			snd_soc_update_bits(codec,
+				RT5663_DIG_VOL_ZCD, 0x00c0, 0);
 		}
 		break;
 

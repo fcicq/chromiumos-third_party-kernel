@@ -8,13 +8,14 @@
 
 #include <linux/uaccess.h>
 #include <linux/ptrace.h>
+#include <asm/switch_to.h>
 
 extern int kstack_depth_to_print;
 
 struct thread_info;
 struct stacktrace_ops;
 
-typedef unsigned long (*walk_stack_t)(struct thread_info *tinfo,
+typedef unsigned long (*walk_stack_t)(struct task_struct *task,
 				      unsigned long *stack,
 				      unsigned long bp,
 				      const struct stacktrace_ops *ops,
@@ -23,13 +24,13 @@ typedef unsigned long (*walk_stack_t)(struct thread_info *tinfo,
 				      int *graph);
 
 extern unsigned long
-print_context_stack(struct thread_info *tinfo,
+print_context_stack(struct task_struct *task,
 		    unsigned long *stack, unsigned long bp,
 		    const struct stacktrace_ops *ops, void *data,
 		    unsigned long *end, int *graph);
 
 extern unsigned long
-print_context_stack_bp(struct thread_info *tinfo,
+print_context_stack_bp(struct task_struct *task,
 		       unsigned long *stack, unsigned long bp,
 		       const struct stacktrace_ops *ops, void *data,
 		       unsigned long *end, int *graph);
@@ -70,8 +71,7 @@ stack_frame(struct task_struct *task, struct pt_regs *regs)
 		return bp;
 	}
 
-	/* bp is the last reg pushed by switch_to */
-	return *(unsigned long *)task->thread.sp;
+	return ((struct inactive_task_frame *)task->thread.sp)->bp;
 }
 #else
 static inline unsigned long

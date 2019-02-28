@@ -137,6 +137,9 @@ enum qca9377_chip_id_rev {
 
 #define REG_DUMP_COUNT_QCA988X 60
 
+#define SK_PACING_SHIFT_6174 6
+#define SK_PACING_SHIFT_9377 6
+
 #define QCA988X_CAL_DATA_LEN		2116
 
 struct ath10k_fw_ie {
@@ -265,6 +268,11 @@ extern const struct ath10k_hw_values qca4019_values;
 
 void ath10k_hw_fill_survey_time(struct ath10k *ar, struct survey_info *survey,
 				u32 cc, u32 rcc, u32 cc_prev, u32 rcc_prev);
+
+int ath10k_hw_diag_fast_download(struct ath10k *ar,
+				 u32 address,
+				 const void *buffer,
+				 u32 length);
 
 #define QCA_REV_988X(ar) ((ar)->hw_rev == ATH10K_HW_QCA988X)
 #define QCA_REV_6174(ar) ((ar)->hw_rev == ATH10K_HW_QCA6174)
@@ -504,6 +512,10 @@ struct ath10k_hw_clk_params {
 #define TARGET_10_4_IPHDR_PAD_CONFIG		1
 #define TARGET_10_4_QWRAP_CONFIG		0
 
+/* Maximum number of Copy Engine's supported */
+#define CE_COUNT_MAX 12
+
+
 struct htt_rx_desc;
 
 /* Defines needed for Rx descriptor abstraction */
@@ -649,6 +661,7 @@ extern const struct ath10k_hw_clk_params qca6174_clk[];
 #define PCIE_INTR_CLR_ADDRESS			ar->regs->pcie_intr_clr_address
 #define SCRATCH_3_ADDRESS			ar->regs->scratch_3_address
 #define CPU_INTR_ADDRESS			0x0010
+#define FW_RAM_CONFIG_ADDRESS			0x0018
 
 #define CCNT_TO_MSEC(ar, x) ((x) / ar->hw_params.channel_counters_freq_hz)
 
@@ -768,5 +781,16 @@ extern const struct ath10k_hw_clk_params qca6174_clk[];
 #define RTC_SYNC_STATUS_PLL_CHANGING_LSB	5
 #define RTC_SYNC_STATUS_PLL_CHANGING_MASK	0x00000020
 /* qca6174 PLL offset/mask end */
+
+/* CPU_ADDR_MSB is a register, bit[3:0] is to specify which memory
+ * region is accessed. The memory region size is 1M.
+ * If host wants to access 0xX12345 at target, then CPU_ADDR_MSB[3:0]
+ * is 0xX.
+ * The following MACROs are defined to get the 0xX and the size limit.
+ */
+#define CPU_ADDR_MSB_REGION_MASK	GENMASK(23, 20)
+#define CPU_ADDR_MSB_REGION_VAL(X)	FIELD_GET(CPU_ADDR_MSB_REGION_MASK, X)
+#define REGION_ACCESS_SIZE_LIMIT	0x100000
+#define REGION_ACCESS_SIZE_MASK		(REGION_ACCESS_SIZE_LIMIT - 1)
 
 #endif /* _HW_H_ */

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Copyright (c) 2018 Intel Corporation.
- * Copyright (C) 2018 Google, Inc.
+ * Copyright (C) 2018 Intel Corporation.
+ * Copyright 2018 Google LLC.
  *
  * Author: Tuukka Toivonen <tuukka.toivonen@intel.com>
  * Author: Sakari Ailus <sakari.ailus@linux.intel.com>
@@ -86,9 +86,10 @@ static void ipu3_mmu_tlb_invalidate(struct ipu3_mmu *mmu)
 static void call_if_ipu3_is_powered(struct ipu3_mmu *mmu,
 				    void (*func)(struct ipu3_mmu *mmu))
 {
-	pm_runtime_get_noresume(mmu->dev);
-	if (pm_runtime_active(mmu->dev))
-		func(mmu);
+	if (!pm_runtime_get_if_in_use(mmu->dev))
+		return;
+
+	func(mmu);
 	pm_runtime_put(mmu->dev);
 }
 

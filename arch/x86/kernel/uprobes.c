@@ -290,7 +290,7 @@ static int uprobe_init_insn(struct arch_uprobe *auprobe, struct insn *insn, bool
 	insn_init(insn, auprobe->insn, sizeof(auprobe->insn), x86_64);
 	/* has the side-effect of processing the entire instruction */
 	insn_get_length(insn);
-	if (WARN_ON_ONCE(!insn_complete(insn)))
+	if (!insn_complete(insn))
 		return -ENOEXEC;
 
 	if (is_prefix_bad(insn))
@@ -516,7 +516,7 @@ struct uprobe_xol_ops {
 
 static inline int sizeof_long(void)
 {
-	return is_ia32_task() ? 4 : 8;
+	return in_ia32_syscall() ? 4 : 8;
 }
 
 static int default_pre_xol_op(struct arch_uprobe *auprobe, struct pt_regs *regs)

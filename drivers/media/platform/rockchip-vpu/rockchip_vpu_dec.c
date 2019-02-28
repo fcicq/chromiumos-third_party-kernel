@@ -158,6 +158,14 @@ static struct rockchip_vpu_control controls[] = {
 		.elem_size = sizeof(struct v4l2_ctrl_vp9_entropy),
 		.can_store = true,
 	},
+	{
+		.id = V4L2_CID_MPEG_VIDEO_VP9_PROFILE,
+		.type = V4L2_CTRL_TYPE_MENU,
+		.minimum = V4L2_MPEG_VIDEO_VP9_PROFILE_0,
+		.maximum = V4L2_MPEG_VIDEO_VP9_PROFILE_0,
+		.default_value = V4L2_MPEG_VIDEO_VP9_PROFILE_0,
+		.menu_skip_mask = 0,
+	},
 };
 
 static inline void *get_ctrl_ptr(struct rockchip_vpu_ctx *ctx, unsigned id)
@@ -840,6 +848,7 @@ static int rockchip_vpu_dec_s_ctrl(struct v4l2_ctrl *ctrl)
 	case V4L2_CID_MPEG_VIDEO_VP9_DECODE_PARAM:
 	case V4L2_CID_MPEG_VIDEO_VP9_FRAME_HDR:
 	case V4L2_CID_MPEG_VIDEO_VP9_ENTROPY:
+	case V4L2_CID_MPEG_VIDEO_VP9_PROFILE:
 		/* These controls are used directly. */
 		break;
 

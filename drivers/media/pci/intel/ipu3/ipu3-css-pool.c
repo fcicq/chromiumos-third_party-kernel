@@ -3,50 +3,46 @@
 
 #include <linux/device.h>
 
+#include "ipu3.h"
 #include "ipu3-css-pool.h"
 #include "ipu3-dmamap.h"
 
-int ipu3_css_dma_buffer_resize(struct device *dev, struct ipu3_css_map *map,
-			       size_t size)
+int ipu3_css_dma_buffer_resize(struct imgu_device *imgu,
+			       struct ipu3_css_map *map, size_t size)
 {
 	if (map->size < size && map->vaddr) {
-		dev_warn(dev, "dma buffer is resized from %zu to %zu",
+		dev_warn(&imgu->pci_dev->dev, "dma buf resized from %zu to %zu",
 			 map->size, size);
 
-		ipu3_dmamap_free(dev, map);
-		if (!ipu3_dmamap_alloc(dev, map, size))
+		ipu3_dmamap_free(imgu, map);
+		if (!ipu3_dmamap_alloc(imgu, map, size))
 			return -ENOMEM;
 	}
 
 	return 0;
 }
 
-void ipu3_css_pool_cleanup(struct device *dev, struct ipu3_css_pool *pool)
+void ipu3_css_pool_cleanup(struct imgu_device *imgu, struct ipu3_css_pool *pool)
 {
 	unsigned int i;
 
 	for (i = 0; i < IPU3_CSS_POOL_SIZE; i++)
-		ipu3_dmamap_free(dev, &pool->entry[i].param);
+		ipu3_dmamap_free(imgu, &pool->entry[i].param);
 }
 
-int ipu3_css_pool_init(struct device *dev, struct ipu3_css_pool *pool,
+int ipu3_css_pool_init(struct imgu_device *imgu, struct ipu3_css_pool *pool,
 		       size_t size)
 {
 	unsigned int i;
 
 	for (i = 0; i < IPU3_CSS_POOL_SIZE; i++) {
-		/*
-		 * entry[i].framenum is initialized to INT_MIN so that
-		 * ipu3_css_pool_check() can treat it as usesable slot.
-		 */
-		pool->entry[i].framenum = INT_MIN;
-
+		pool->entry[i].valid = false;
 		if (size == 0) {
 			pool->entry[i].param.vaddr = NULL;
 			continue;
 		}
 
-		if (!ipu3_dmamap_alloc(dev, &pool->entry[i].param, size))
+		if (!ipu3_dmamap_alloc(imgu, &pool->entry[i].param, size))
 			goto fail;
 	}
 
@@ -55,52 +51,20 @@ int ipu3_css_pool_init(struct device *dev, struct ipu3_css_pool *pool,
 	return 0;
 
 fail:
-	ipu3_css_pool_cleanup(dev, pool);
+	ipu3_css_pool_cleanup(imgu, pool);
 	return -ENOMEM;
 }
 
 /*
- * Check that the following call to pool_get succeeds.
- * Return negative on error.
+ * Allocate a new parameter via recycling the oldest entry in the pool.
  */
-static int ipu3_css_pool_check(struct ipu3_css_pool *pool, long framenum)
+void ipu3_css_pool_get(struct ipu3_css_pool *pool)
 {
 	/* Get the oldest entry */
-	int n = (pool->last + 1) % IPU3_CSS_POOL_SIZE;
-	long diff = framenum - pool->entry[n].framenum;
+	u32 n = (pool->last + 1) % IPU3_CSS_POOL_SIZE;
 
-	/* if framenum wraps around and becomes smaller than entry n */
-	if (diff < 0)
-		diff += LONG_MAX;
-
-	/*
-	 * pool->entry[n].framenum stores the frame number where that
-	 * entry was allocated. If that was allocated more than POOL_SIZE
-	 * frames back, it is old enough that we know it is no more in
-	 * use by firmware.
-	 */
-	if (diff > IPU3_CSS_POOL_SIZE)
-		return n;
-
-	return -ENOSPC;
-}
-
-/*
- * Allocate a new parameter from pool at frame number `framenum'.
- * Release the oldest entry in the pool to make space for the new entry.
- * Return negative on error.
- */
-int ipu3_css_pool_get(struct ipu3_css_pool *pool, long framenum)
-{
-	int n = ipu3_css_pool_check(pool, framenum);
-
-	if (n < 0)
-		return n;
-
-	pool->entry[n].framenum = framenum;
+	pool->entry[n].valid = true;
 	pool->last = n;
-
-	return n;
 }
 
 /*
@@ -108,13 +72,18 @@ int ipu3_css_pool_get(struct ipu3_css_pool *pool, long framenum)
  */
 void ipu3_css_pool_put(struct ipu3_css_pool *pool)
 {
-	pool->entry[pool->last].framenum = INT_MIN;
+	pool->entry[pool->last].valid = false;
 	pool->last = (pool->last + IPU3_CSS_POOL_SIZE - 1) % IPU3_CSS_POOL_SIZE;
 }
 
-/*
- * Return the nth entry from last, if that entry has no frame stored,
- * return a null map instead to indicate frame not available for the entry.
+/**
+ * ipu3_css_pool_last - Retrieve the nth pool entry from last
+ *
+ * @pool: a pointer to &struct ipu3_css_pool.
+ * @n: the distance to the last index.
+ *
+ * Returns:
+ *  The nth entry from last or null map to indicate no frame stored.
  */
 const struct ipu3_css_map *
 ipu3_css_pool_last(struct ipu3_css_pool *pool, unsigned int n)
@@ -124,7 +93,7 @@ ipu3_css_pool_last(struct ipu3_css_pool *pool, unsigned int n)
 
 	WARN_ON(n >= IPU3_CSS_POOL_SIZE);
 
-	if (pool->entry[i].framenum < 0)
+	if (!pool->entry[i].valid)
 		return &null_map;
 
 	return &pool->entry[i].param;

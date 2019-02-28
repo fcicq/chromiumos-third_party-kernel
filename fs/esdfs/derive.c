@@ -75,12 +75,14 @@ void esdfs_derive_perms(struct dentry *dentry)
 	bool is_root;
 	int ret;
 	kuid_t appid;
+	struct qstr q_Download = QSTR_LITERAL("Download");
 	struct qstr q_Android = QSTR_LITERAL("Android");
 	struct qstr q_data = QSTR_LITERAL("data");
 	struct qstr q_obb = QSTR_LITERAL("obb");
 	struct qstr q_media = QSTR_LITERAL("media");
 	struct qstr q_cache = QSTR_LITERAL("cache");
 	struct qstr q_user = QSTR_LITERAL("user");
+	struct esdfs_inode_info *parent_i = ESDFS_I(dentry->d_parent->d_inode);
 
 	spin_lock(&dentry->d_lock);
 	is_root = IS_ROOT(dentry);
@@ -89,9 +91,10 @@ void esdfs_derive_perms(struct dentry *dentry)
 		return;
 
 	/* Inherit from the parent to start */
-	inode_i->tree = ESDFS_I(dentry->d_parent->d_inode)->tree;
-	inode_i->userid = ESDFS_I(dentry->d_parent->d_inode)->userid;
-	inode_i->appid = ESDFS_I(dentry->d_parent->d_inode)->appid;
+	inode_i->tree = parent_i->tree;
+	inode_i->userid = parent_i->userid;
+	inode_i->appid = parent_i->appid;
+	inode_i->under_obb = parent_i->under_obb;
 
 	/*
 	 * ESDFS_TREE_MEDIA* are intentionally dead ends.
@@ -106,20 +109,24 @@ void esdfs_derive_perms(struct dentry *dentry)
 
 	case ESDFS_TREE_ROOT:
 		inode_i->tree = ESDFS_TREE_MEDIA;
-		if (qstr_case_eq(&dentry->d_name, &q_Android))
+		if (qstr_case_eq(&dentry->d_name, &q_Download))
+			inode_i->tree = ESDFS_TREE_DOWNLOAD;
+		else if (qstr_case_eq(&dentry->d_name, &q_Android))
 			inode_i->tree = ESDFS_TREE_ANDROID;
 		break;
 
 	case ESDFS_TREE_ANDROID:
-		if (qstr_case_eq(&dentry->d_name, &q_data))
+		if (qstr_case_eq(&dentry->d_name, &q_data)) {
 			inode_i->tree = ESDFS_TREE_ANDROID_DATA;
-		else if (qstr_case_eq(&dentry->d_name, &q_obb))
+		} else if (qstr_case_eq(&dentry->d_name, &q_obb)) {
 			inode_i->tree = ESDFS_TREE_ANDROID_OBB;
-		else if (qstr_case_eq(&dentry->d_name, &q_media))
+			inode_i->under_obb = true;
+		} else if (qstr_case_eq(&dentry->d_name, &q_media)) {
 			inode_i->tree = ESDFS_TREE_ANDROID_MEDIA;
-		else if (ESDFS_RESTRICT_PERMS(ESDFS_SB(dentry->d_sb)) &&
-			 qstr_case_eq(&dentry->d_name, &q_user))
+		} else if (ESDFS_RESTRICT_PERMS(ESDFS_SB(dentry->d_sb)) &&
+			 qstr_case_eq(&dentry->d_name, &q_user)) {
 			inode_i->tree = ESDFS_TREE_ANDROID_USER;
+		}
 		break;
 
 	case ESDFS_TREE_ANDROID_DATA:
@@ -194,6 +201,7 @@ void esdfs_set_derived_perms(struct inode *inode)
 		}
 		break;
 
+	case ESDFS_TREE_DOWNLOAD:
 	case ESDFS_TREE_ANDROID:
 	case ESDFS_TREE_ANDROID_DATA:
 	case ESDFS_TREE_ANDROID_OBB:
@@ -237,7 +245,7 @@ static int lookup_link_source(struct dentry *dentry, struct dentry *parent)
 
 	esdfs_get_lower_path(parent, &lower_parent_path);
 
-	/* Check if the stub user profile obb is there. */
+	/* Check if the stub user profile folder is there. */
 	err = esdfs_lookup_nocase(&lower_parent_path, &dentry->d_name,
 					&lower_path);
 	/* Remember it to handle renames and removal. */
@@ -247,6 +255,27 @@ static int lookup_link_source(struct dentry *dentry, struct dentry *parent)
 	esdfs_put_lower_path(parent, &lower_parent_path);
 
 	return err;
+}
+
+int esdfs_is_dl_lookup(struct dentry *dentry, struct dentry *parent)
+{
+	struct esdfs_sb_info *sbi = ESDFS_SB(parent->d_sb);
+	struct esdfs_inode_info *parent_i = ESDFS_I(parent->d_inode);
+	/*
+	 * Return 1 if this is the Download directory:
+	 * The test for download checks:
+	 * 1. The parent is the mount root.
+	 * 2. The directory is named 'Download'.
+	 * 3. The stub for the directory exists.
+	 */
+	if (test_opt(sbi, SPECIAL_DOWNLOAD) &&
+			parent_i->tree == ESDFS_TREE_ROOT &&
+			ESDFS_DENTRY_NEEDS_DL_LINK(dentry) &&
+			lookup_link_source(dentry, parent) == 0) {
+		return 1;
+	}
+
+	return 0;
 }
 
 int esdfs_derived_lookup(struct dentry *dentry, struct dentry **parent)
@@ -283,6 +312,7 @@ int esdfs_derived_lookup(struct dentry *dentry, struct dentry **parent)
 		if (ESDFS_INODE_CAN_LINK((*parent)->d_inode))
 			*parent = dget(sbi->obb_parent);
 	}
+
 	return 0;
 }
 
@@ -297,7 +327,10 @@ int esdfs_derived_revalidate(struct dentry *dentry, struct dentry *parent)
 	    ESDFS_DENTRY_NEEDS_LINK(dentry) &&
 	    !ESDFS_DENTRY_IS_LINKED(dentry))
 		return -ESTALE;
-
+	if (ESDFS_I(parent->d_inode)->tree == ESDFS_TREE_ROOT &&
+	    ESDFS_DENTRY_NEEDS_DL_LINK(dentry) &&
+	    !ESDFS_DENTRY_IS_LINKED(dentry))
+		return -ESTALE;
 	return 0;
 }
 
@@ -334,6 +367,7 @@ int esdfs_check_derived_permission(struct inode *inode, int mask)
 	 */
 	if ((!test_opt(ESDFS_SB(inode->i_sb), DERIVE_UNIFIED) ||
 	     (ESDFS_I(inode)->tree != ESDFS_TREE_ANDROID &&
+	      ESDFS_I(inode)->tree != ESDFS_TREE_DOWNLOAD &&
 	      ESDFS_I(inode)->tree != ESDFS_TREE_ANDROID_DATA &&
 	      ESDFS_I(inode)->tree != ESDFS_TREE_ANDROID_OBB &&
 	      ESDFS_I(inode)->tree != ESDFS_TREE_ANDROID_MEDIA &&
@@ -367,7 +401,14 @@ static kuid_t esdfs_get_derived_lower_uid(struct esdfs_sb_info *sbi,
 	int perm;
 
 	perm = info->tree;
+	if (info->under_obb)
+		perm = ESDFS_TREE_ANDROID_OBB;
+
 	switch (perm) {
+	case ESDFS_TREE_DOWNLOAD:
+		if (test_opt(sbi, SPECIAL_DOWNLOAD))
+			return make_kuid(&sbi->dl_ns,
+					 sbi->lower_dl_perms.raw_uid);
 	case ESDFS_TREE_ROOT:
 	case ESDFS_TREE_MEDIA:
 	case ESDFS_TREE_ANDROID:
@@ -396,7 +437,14 @@ static kgid_t esdfs_get_derived_lower_gid(struct esdfs_sb_info *sbi,
 
 	upper_uid = esdfs_i_uid_read(&info->vfs_inode);
 	perm = info->tree;
+	if (info->under_obb)
+		perm = ESDFS_TREE_ANDROID_OBB;
+
 	switch (perm) {
+	case ESDFS_TREE_DOWNLOAD:
+		if (test_opt(sbi, SPECIAL_DOWNLOAD))
+			return make_kgid(&sbi->dl_ns,
+					 sbi->lower_dl_perms.raw_gid);
 	case ESDFS_TREE_ROOT:
 	case ESDFS_TREE_MEDIA:
 	case ESDFS_TREE_ANDROID:
@@ -544,7 +592,7 @@ int esdfs_derive_mkdir_contents(struct dentry *dir_dentry)
 	/* Now create the lower file. */
 	mode = S_IFREG;
 	lower_parent_dentry = lock_parent(lower_dentry);
-	esdfs_set_lower_mode(ESDFS_SB(dir_dentry->d_sb), &mode);
+	esdfs_set_lower_mode(ESDFS_SB(dir_dentry->d_sb), inode_i, &mode);
 	err = vfs_create(lower_dir_path.dentry->d_inode, lower_dentry, mode,
 			 true);
 	unlock_dir(lower_parent_dentry);

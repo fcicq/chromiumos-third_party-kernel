@@ -29,15 +29,20 @@
 
 void common(void) {
 	BLANK();
-	OFFSET(TI_flags, thread_info, flags);
-	OFFSET(TI_status, thread_info, status);
-	OFFSET(TI_addr_limit, thread_info, addr_limit);
+	OFFSET(TASK_threadsp, task_struct, thread.sp);
+#ifdef CONFIG_CC_STACKPROTECTOR
+	OFFSET(TASK_stack_canary, task_struct, stack_canary);
+#endif
+
+	BLANK();
+	OFFSET(TASK_TI_flags, task_struct, thread_info.flags);
+	OFFSET(TASK_addr_limit, task_struct, thread.addr_limit);
 #ifdef CONFIG_ALT_SYSCALL
-	OFFSET(TI_nr_syscalls, thread_info, nr_syscalls);
-	OFFSET(TI_sys_call_table, thread_info, sys_call_table);
+	OFFSET(TASK_TI_nr_syscalls, task_struct, thread_info.nr_syscalls);
+	OFFSET(TASK_TI_sys_call_table, task_struct, thread_info.sys_call_table);
 # ifdef CONFIG_IA32_EMULATION
-	OFFSET(TI_ia32_nr_syscalls, thread_info, ia32_nr_syscalls);
-	OFFSET(TI_ia32_sys_call_table, thread_info, ia32_sys_call_table);
+	OFFSET(TASK_TI_ia32_nr_syscalls, task_struct, thread_info.ia32_nr_syscalls);
+	OFFSET(TASK_TI_ia32_sys_call_table, task_struct, thread_info.ia32_sys_call_table);
 # endif
 #endif
 

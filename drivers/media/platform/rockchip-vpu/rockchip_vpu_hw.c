@@ -103,10 +103,11 @@ int rockchip_vpu_init(struct rockchip_vpu_ctx *ctx)
 
 	ctx->hw.codec_ops = &ctx->dev->variant->mode_ops[codec_mode];
 
-	return ctx->hw.codec_ops->init(ctx);
+	return ctx->hw.codec_ops->init ? ctx->hw.codec_ops->init(ctx) : 0;
 }
 
 void rockchip_vpu_deinit(struct rockchip_vpu_ctx *ctx)
 {
-	ctx->hw.codec_ops->exit(ctx);
+	if (ctx->hw.codec_ops->exit)
+		ctx->hw.codec_ops->exit(ctx);
 }

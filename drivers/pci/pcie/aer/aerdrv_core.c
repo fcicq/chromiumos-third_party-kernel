@@ -724,6 +724,8 @@ static void aer_isr_one_error(struct pcie_device *p_device,
 {
 	struct aer_err_info *e_info;
 
+	pci_rootport_aer_stats_incr(p_device->port, e_src);
+
 	/* struct aer_err_info might be big, so we allocate it with slab */
 	e_info = kmalloc(sizeof(struct aer_err_info), GFP_KERNEL);
 	if (!e_info) {

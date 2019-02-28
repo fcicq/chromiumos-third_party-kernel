@@ -489,6 +489,13 @@
 	};
 
 	/* END REGULATORS */
+	ap_rtc_clk: ap-rtc-clk {
+		compatible = "fixed-clock";
+		clock-frequency = <32768>;
+		clock-output-names = "xin32k";
+		#clock-cells = <0>;
+	};
+
 	firmware: firmware {
 		chromeos {
 			pinctrl-names = "default";

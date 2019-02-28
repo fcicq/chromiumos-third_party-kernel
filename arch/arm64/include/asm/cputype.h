@@ -32,12 +32,6 @@
 #define MPIDR_AFFINITY_LEVEL(mpidr, level) \
 	((mpidr >> MPIDR_LEVEL_SHIFT(level)) & MPIDR_LEVEL_MASK)
 
-#define read_cpuid(reg) ({						\
-	u64 __val;							\
-	asm("mrs	%0, " #reg : "=r" (__val));			\
-	__val;								\
-})
-
 #define MIDR_REVISION_MASK	0xf
 #define MIDR_REVISION(midr)	((midr) & MIDR_REVISION_MASK)
 #define MIDR_PARTNUM_SHIFT	4
@@ -107,6 +101,14 @@
 #define MIDR_THUNDERX	MIDR_CPU_MODEL(ARM_CPU_IMP_CAVIUM, CAVIUM_CPU_PART_THUNDERX)
 
 #ifndef __ASSEMBLY__
+
+#include <asm/sysreg.h>
+
+#define read_cpuid(reg) ({						\
+	u64 __val;							\
+	asm("mrs_s	%0, " __stringify(SYS_ ## reg) : "=r" (__val));	\
+	__val;								\
+})
 
 /*
  * The CPU ID never changes at run time, so we might as well tell the

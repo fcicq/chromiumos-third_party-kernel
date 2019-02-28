@@ -16,6 +16,8 @@
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 
+#define DRV_NAME "cros-ec-i2c-tunnel"
+
 #define I2C_MAX_RETRIES 3
 
 /**
@@ -356,7 +358,7 @@ static int ec_i2c_probe(struct platform_device *pdev)
 	bus->dev = dev;
 
 	bus->adap.owner = THIS_MODULE;
-	strlcpy(bus->adap.name, "cros-ec-i2c-tunnel", sizeof(bus->adap.name));
+	strlcpy(bus->adap.name, DRV_NAME, sizeof(bus->adap.name));
 	bus->adap.algo = &ec_i2c_algorithm;
 	bus->adap.algo_data = bus;
 	bus->adap.dev.parent = &pdev->dev;
@@ -387,7 +389,7 @@ static int ec_i2c_remove(struct platform_device *dev)
 
 #ifdef CONFIG_OF
 static const struct of_device_id cros_ec_i2c_of_match[] = {
-	{ .compatible = "google,cros-ec-i2c-tunnel" },
+	{ .compatible = "google," DRV_NAME },
 	{},
 };
 MODULE_DEVICE_TABLE(of, cros_ec_i2c_of_match);
@@ -397,7 +399,7 @@ static struct platform_driver ec_i2c_tunnel_driver = {
 	.probe = ec_i2c_probe,
 	.remove = ec_i2c_remove,
 	.driver = {
-		.name = "cros-ec-i2c-tunnel",
+		.name = DRV_NAME,
 		.of_match_table = of_match_ptr(cros_ec_i2c_of_match),
 	},
 };
@@ -416,4 +418,4 @@ module_exit(ec_i2c_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("EC I2C tunnel driver");
-MODULE_ALIAS("platform:cros-ec-i2c-tunnel");
+MODULE_ALIAS("platform:" DRV_NAME);

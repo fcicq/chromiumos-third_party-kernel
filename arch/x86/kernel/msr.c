@@ -41,7 +41,7 @@
 #include <linux/gfp.h>
 #include <linux/ratelimit.h>
 
-#include <asm/processor.h>
+#include <asm/cpufeature.h>
 #include <asm/msr.h>
 
 static struct class *msr_class;

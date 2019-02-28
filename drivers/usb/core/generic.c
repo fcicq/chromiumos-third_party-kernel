@@ -19,6 +19,7 @@
 
 #include <linux/usb.h>
 #include <linux/usb/hcd.h>
+#include <linux/gpio/consumer.h>
 #include "usb.h"
 
 static inline const char *plural(int n)
@@ -225,7 +226,7 @@ static int generic_suspend(struct usb_device *udev, pm_message_t msg)
 static int generic_resume(struct usb_device *udev, pm_message_t msg)
 {
 	int rc;
-
+	struct gpio_desc *reset_gpio;
 	/* Normal USB devices resume/reset through their upstream port.
 	 * Root hubs don't have upstream ports to resume or reset,
 	 * so we have to start up their downstream HC-to-USB
@@ -235,6 +236,25 @@ static int generic_resume(struct usb_device *udev, pm_message_t msg)
 		rc = hcd_bus_resume(udev, msg);
 	else
 		rc = usb_port_resume(udev, msg);
+
+	/* During system suspend-resume flow, it's observed that sometimes
+	 * USB protocol tranascation error's with BT controller. For Ex:-
+	 * USB GET STATUS transaction fails with error -110. When error -110
+	 * (-ETIMEDOUT) is encountered during resume and device is an Intel
+	 * Bluetooth device(VendorId=0x8087,DeviceClass=0xe0), yank it off the
+	 * USB bus by toggling the W_DISABLE#2 pin attached to the platform in
+	 * order to recover the device.
+	 */
+	if (rc < 0 && udev->descriptor.idVendor == 0x8087 &&
+	    udev->descriptor.bDeviceClass == 0xe0) {
+		reset_gpio = (struct gpio_desc *) dev_get_drvdata(&udev->dev);
+		if (!IS_ERR_OR_NULL(reset_gpio)) {
+			dev_dbg(&udev->dev, "Reset Intel Bluetooth device\n");
+			gpiod_set_value_cansleep(reset_gpio, 1);
+			msleep(100);
+			gpiod_set_value_cansleep(reset_gpio, 0);
+		}
+	}
 	return rc;
 }
 

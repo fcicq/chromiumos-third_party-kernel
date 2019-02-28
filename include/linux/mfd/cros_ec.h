@@ -168,7 +168,8 @@ struct cros_ec_device {
 			struct cros_ec_command *msg);
 	struct power_supply *charger;
 	struct mutex lock;
-	bool mkbp_event_supported;
+	/* 0 == not supported, otherwise it supports version x - 1 */
+	u8 mkbp_event_supported;
 	struct blocking_notifier_head event_notifier;
 	struct ec_response_get_next_event_v1 event_data;
 	int event_size;
@@ -297,6 +298,17 @@ int cros_ec_cmd_xfer_status(struct cros_ec_device *ec_dev,
 			    struct cros_ec_command *msg);
 
 /**
+ * cros_ec_check_features - Test for the presence of EC features
+ *
+ * Call this function to test whether the ChromeOS EC supports a feature.
+ *
+ * @ec_dev: EC device
+ * @msg: One of ec_feature_code values
+ * @return: 1 if supported, if not
+ */
+int cros_ec_check_features(struct cros_ec_dev *ec, int feature);
+
+/**
  * cros_ec_remove - Remove a ChromeOS EC
  *
  * Call this to deregister a ChromeOS EC, then clean up any private data.
@@ -331,7 +343,6 @@ extern struct attribute_group cros_ec_pd_attr_group;
 extern struct attribute_group cros_ec_lightbar_attr_group;
 extern struct attribute_group cros_ec_vbc_attr_group;
 extern struct attribute_group cros_usb_pd_charger_attr_group;
-extern struct attribute_group cros_ec_usb_attr_group;
 
 /**
  * cros_ec_get_next_event - Retrieve the EC event.

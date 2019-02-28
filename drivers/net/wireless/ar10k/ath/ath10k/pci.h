@@ -235,6 +235,11 @@ struct ath10k_pci {
 
 	const struct ath10k_bus_ops *bus_ops;
 
+	/* chip specific methods for converting target CPU virtual address
+	 * space to CE address space
+	 */
+	u32 (*targ_cpu_to_ce_addr)(struct ath10k *ar, u32 addr);
+
 	/* Keep this entry in the last, memory for struct ath10k_ahb is
 	 * allocated (ahb support enabled case) in the continuation of
 	 * this struct.
@@ -258,7 +263,8 @@ static inline struct ath10k_pci *ath10k_pci_priv(struct ath10k *ar)
 #define CDC_WAR_DATA_CE     4
 
 /* Wait up to this many Ms for a Diagnostic Access CE operation to complete */
-#define DIAG_ACCESS_CE_TIMEOUT_MS 10
+#define DIAG_ACCESS_CE_TIMEOUT_US 10000 /* 10 ms */
+#define DIAG_ACCESS_CE_WAIT_US	50
 
 void ath10k_pci_write32(struct ath10k *ar, u32 offset, u32 value);
 void ath10k_pci_soc_write32(struct ath10k *ar, u32 addr, u32 val);

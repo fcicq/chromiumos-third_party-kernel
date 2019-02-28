@@ -4,7 +4,7 @@
 #ifndef __IPU3_TABLES_H
 #define __IPU3_TABLES_H
 
-#include <uapi/linux/intel-ipu3.h>
+#include "ipu3-abi.h"
 
 #define IMGU_BDS_GRANULARITY		32	/* Downscaling granularity */
 #define IMGU_BDS_MIN_SF_INV		IMGU_BDS_GRANULARITY
@@ -20,9 +20,9 @@
 #define IMGU_GDC_LUT_LEN		256
 
 struct ipu3_css_bds_config {
-	struct ipu3_uapi_bds_phase_arr hor_phase_arr;
-	struct ipu3_uapi_bds_phase_arr ver_phase_arr;
-	struct ipu3_uapi_bds_ptrn_arr ptrn_arr;
+	struct imgu_abi_bds_phase_arr hor_phase_arr;
+	struct imgu_abi_bds_phase_arr ver_phase_arr;
+	struct imgu_abi_bds_ptrn_arr ptrn_arr;
 	u16 sample_patrn_length;
 	u8 hor_ds_en;
 	u8 ver_ds_en;
@@ -56,7 +56,7 @@ extern const struct ipu3_uapi_yuvp2_tcc_gain_pcwl_lut_static_config
 						ipu3_css_tcc_gain_pcwl_lut;
 extern const struct ipu3_uapi_yuvp2_tcc_r_sqr_lut_static_config
 						ipu3_css_tcc_r_sqr_lut;
-extern const struct ipu3_uapi_anr_config ipu3_css_anr_defaults;
+extern const struct imgu_abi_anr_config ipu3_css_anr_defaults;
 extern const struct ipu3_uapi_awb_fr_config_s ipu3_css_awb_fr_defaults;
 extern const struct ipu3_uapi_ae_grid_config ipu3_css_ae_grid_defaults;
 extern const struct ipu3_uapi_ae_ccm ipu3_css_ae_ccm_defaults;
