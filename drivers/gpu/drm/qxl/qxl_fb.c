@@ -165,6 +165,8 @@ static void qxl_dirty_update(struct qxl_fbdev *qfbdev,
 	schedule_work(&qdev->fb_work);
 }
 
+#ifdef CONFIG_DRM_FBDEV_EMULATION
+
 static void qxl_deferred_io(struct fb_info *info,
 			    struct list_head *pagelist)
 {
@@ -189,7 +191,6 @@ static void qxl_deferred_io(struct fb_info *info,
 	}
 };
 
-#ifdef CONFIG_DRM_FBDEV_EMULATION
 static struct fb_deferred_io qxl_defio = {
 	.delay		= QXL_DIRTY_DELAY,
 	.deferred_io	= qxl_deferred_io,
