@@ -45,6 +45,7 @@ static void rk3399_vpu_jpege_set_buffers(struct rockchip_vpu_dev *vpu,
 	struct vb2_buffer *buf;
 	dma_addr_t dst_dma, src_dma[3];
 	u32 dst_size;
+	int i;
 
 	vpu_debug_enter();
 
@@ -56,19 +57,13 @@ static void rk3399_vpu_jpege_set_buffers(struct rockchip_vpu_dev *vpu,
 	vepu_write_relaxed(vpu, dst_size, VEPU_REG_STR_BUF_LIMIT);
 
 	buf = &ctx->run.src->b.vb2_buf;
-	if (pix_fmt->num_planes == 1) {
-		src_dma[0] = vb2_dma_contig_plane_dma_addr(buf, 0);
-		/* single plane formats we supported are all interlaced */
-		src_dma[1] = src_dma[2] = src_dma[0];
-	} else if (pix_fmt->num_planes == 2) {
-		src_dma[0] = vb2_dma_contig_plane_dma_addr(buf, 0);
-		src_dma[1] = src_dma[2] = vb2_dma_contig_plane_dma_addr(buf, 1);
-	} else if (pix_fmt->num_planes == 3) {
-		src_dma[0] = vb2_dma_contig_plane_dma_addr(buf, 0);
-		src_dma[1] = vb2_dma_contig_plane_dma_addr(buf, 1);
-		src_dma[2] = vb2_dma_contig_plane_dma_addr(buf, 2);
+	for (i = 0; i < ARRAY_SIZE(src_dma); i++) {
+		if (i < pix_fmt->num_planes)
+			src_dma[i] = vb2_dma_contig_plane_dma_addr(buf, i) +
+				ctx->run.src->b.vb2_buf.planes[i].data_offset;
+		else
+			src_dma[i] = src_dma[i-1];
 	}
-
 	vepu_write_relaxed(vpu, src_dma[0], VEPU_REG_ADDR_IN_LUMA);
 	vepu_write_relaxed(vpu, src_dma[1], VEPU_REG_ADDR_IN_CB);
 	vepu_write_relaxed(vpu, src_dma[2], VEPU_REG_ADDR_IN_CR);
