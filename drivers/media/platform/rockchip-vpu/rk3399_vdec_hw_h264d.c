@@ -616,6 +616,9 @@ void rk3399_vdec_h264d_run(struct rockchip_vpu_ctx *ctx)
 
 	schedule_delayed_work(&vpu->watchdog_work, msecs_to_jiffies(2000));
 
+	vdpu_write(vpu, 1, RKVDEC_REG_PREF_LUMA_CACHE_COMMAND);
+	vdpu_write(vpu, 1, RKVDEC_REG_PREF_CHR_CACHE_COMMAND);
+
 	/* Start decoding! */
 	vdpu_write(vpu, RKVDEC_INTERRUPT_DEC_E
 			   | RKVDEC_CONFIG_DEC_CLK_GATE_E,
