@@ -2787,6 +2787,82 @@ static const struct file_operations fops_reset_htt_stats = {
 	.llseek = default_llseek,
 };
 
+static ssize_t ath10k_write_burst_dur(struct file *file,
+				      const char __user *user_buf,
+				      size_t count, loff_t *ppos)
+{
+	struct ath10k *ar = file->private_data;
+	u32 dur[4];
+	int ret;
+	int ac;
+	char buf[128];
+
+	simple_write_to_buffer(buf, sizeof(buf) - 1, ppos, user_buf, count);
+
+	/* make sure that buf is null terminated */
+	buf[sizeof(buf) - 1] = 0;
+
+	ret = sscanf(buf, "%u %u %u %u", &dur[0], &dur[1], &dur[2], &dur[3]);
+
+	if (!ret)
+		return -EINVAL;
+
+	mutex_lock(&ar->conf_mutex);
+
+	if (ar->state != ATH10K_STATE_ON &&
+	    ar->state != ATH10K_STATE_RESTARTED) {
+		ret = -ENETDOWN;
+		goto exit;
+	}
+
+	for (ac = 0; ac < 4; ac++) {
+		if (dur[ac] < MIN_BURST_DUR || dur[ac] > MAX_BURST_DUR) {
+			ret = -EINVAL;
+			goto exit;
+		}
+
+		ret = ath10k_wmi_pdev_set_param(ar,
+						ar->wmi.pdev_param->aggr_burst,
+						(SM(ac, ATH10K_AGGR_BURST_AC) |
+						 SM(dur[ac],
+						    ATH10K_AGGR_BURST_DUR)));
+		if (ret) {
+			ath10k_warn(ar, "failed to set aggr burst duration for ac %d: %d\n",
+				    ac, ret);
+			goto exit;
+		}
+		ar->debug.burst_dur[ac] = dur[ac];
+	}
+
+	ret = count;
+
+exit:
+	mutex_unlock(&ar->conf_mutex);
+	return ret;
+}
+
+static ssize_t ath10k_read_burst_dur(struct file *file, char __user *user_buf,
+				     size_t count, loff_t *ppos)
+{
+	struct ath10k *ar = file->private_data;
+	int len = 0;
+	char buf[128];
+
+	len = scnprintf(buf, sizeof(buf) - len, "%u %u %u %u\n",
+			ar->debug.burst_dur[0], ar->debug.burst_dur[1],
+			ar->debug.burst_dur[2], ar->debug.burst_dur[3]);
+
+	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
+}
+
+static const struct file_operations fops_burst_dur = {
+	.read = ath10k_read_burst_dur,
+	.write = ath10k_write_burst_dur,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+	.llseek = default_llseek,
+};
+
 int ath10k_debug_create(struct ath10k *ar)
 {
 	size_t tx_delay_stats_size;
@@ -3289,6 +3365,9 @@ int ath10k_debug_register(struct ath10k *ar)
 
 	debugfs_create_file("warm_hw_reset", 0600, ar->debug.debugfs_phy, ar,
 			    &fops_warm_hw_reset);
+
+	debugfs_create_file("burst_dur", 0600, ar->debug.debugfs_phy, ar,
+			    &fops_burst_dur);
 
 	debugfs_create_file("ps_state_enable", 0600, ar->debug.debugfs_phy, ar,
 			    &fops_ps_state_enable);
