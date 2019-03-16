@@ -93,6 +93,15 @@ __printf(2, 3) void ath10k_info(struct ath10k *ar, const char *fmt, ...);
 __printf(2, 3) void ath10k_err(struct ath10k *ar, const char *fmt, ...);
 __printf(2, 3) void ath10k_warn(struct ath10k *ar, const char *fmt, ...);
 
+#define ATH10K_AGGR_BURST_AC_MASK  0xff000000
+#define ATH10K_AGGR_BURST_AC_LSB   24
+#define ATH10K_AGGR_BURST_DUR_MASK 0x00ffffff
+#define ATH10K_AGGR_BURST_DUR_LSB  0
+
+/* burst duration in usec */
+#define MIN_BURST_DUR 0
+#define MAX_BURST_DUR 8000
+
 void ath10k_debug_print_hwfw_info(struct ath10k *ar);
 void ath10k_debug_print_board_info(struct ath10k *ar);
 void ath10k_debug_print_boot_info(struct ath10k *ar);
