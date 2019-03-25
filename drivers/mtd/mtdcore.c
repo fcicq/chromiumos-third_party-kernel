@@ -231,6 +231,28 @@ static ssize_t mtd_name_show(struct device *dev,
 }
 static DEVICE_ATTR(name, S_IRUGO, mtd_name_show, NULL);
 
+static ssize_t mtd_flashname_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct mtd_info *mtd = dev_get_drvdata(dev);
+
+	if (!mtd->flashname)
+		return 0;
+	return snprintf(buf, PAGE_SIZE, "%s\n", mtd->flashname);
+}
+static DEVICE_ATTR(flashname, S_IRUGO, mtd_flashname_show, NULL);
+
+static ssize_t mtd_id_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct mtd_info *mtd = dev_get_drvdata(dev);
+
+	if (!mtd->id)
+		return 0;
+	return snprintf(buf, PAGE_SIZE, "%*phN\n", mtd->id_size, mtd->id);
+}
+static DEVICE_ATTR(id, S_IRUGO, mtd_id_show, NULL);
+
 static ssize_t mtd_ecc_strength_show(struct device *dev,
 				     struct device_attribute *attr, char *buf)
 {
@@ -329,6 +351,8 @@ static struct attribute *mtd_attrs[] = {
 	&dev_attr_oobsize.attr,
 	&dev_attr_numeraseregions.attr,
 	&dev_attr_name.attr,
+	&dev_attr_flashname.attr,
+	&dev_attr_id.attr,
 	&dev_attr_ecc_strength.attr,
 	&dev_attr_ecc_step_size.attr,
 	&dev_attr_corrected_bits.attr,

@@ -219,6 +219,9 @@ struct mtd_info {
 	u_char type;
 	uint32_t flags;
 	uint64_t size;	 // Total size of the MTD
+	const char *flashname; /* The underlying flash name */
+	const char *id; /* The ID of the flash */
+	int id_size; /* Number of bytes of id array */
 
 	/* "Major" erase size for the device. Naïve users may take this
 	 * to be the only erase size available, or may use the more detailed

@@ -2807,6 +2807,9 @@ int spi_nor_scan(struct spi_nor *nor, const char *name,
 
 	if (!mtd->name)
 		mtd->name = dev_name(dev);
+	mtd->flashname = info->name;
+	mtd->id = info->id;
+	mtd->id_size = info->id_len;
 	mtd->priv = nor;
 	mtd->type = MTD_NORFLASH;
 	mtd->writesize = 1;
