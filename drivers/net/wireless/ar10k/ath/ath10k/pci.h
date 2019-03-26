@@ -188,6 +188,8 @@ struct ath10k_pci {
 	/* For protecting ce_diag */
 	struct mutex ce_diag_mutex;
 
+	struct work_struct dump_work;
+
 	/* FIXME: document what this really protects */
 	spinlock_t ce_lock;
 
