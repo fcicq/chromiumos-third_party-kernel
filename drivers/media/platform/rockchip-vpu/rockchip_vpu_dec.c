@@ -339,6 +339,29 @@ static void calculate_plane_sizes(const struct rockchip_vpu_fmt *src_fmt,
 	}
 }
 
+static void adjust_dst_sizes(struct rockchip_vpu_ctx *ctx,
+			    struct v4l2_pix_format_mplane *pix_fmt_mp)
+{
+	/* Limit to hardware min/max. */
+	pix_fmt_mp->width = clamp(pix_fmt_mp->width,
+			ctx->vpu_src_fmt->frmsize.min_width,
+			ctx->vpu_src_fmt->frmsize.max_width);
+	pix_fmt_mp->height = clamp(pix_fmt_mp->height,
+			ctx->vpu_src_fmt->frmsize.min_height,
+			ctx->vpu_src_fmt->frmsize.max_height);
+
+	/* Round up to macroblocks. */
+	if (ctx->vpu_src_fmt->fourcc == V4L2_PIX_FMT_VP9_FRAME) {
+		pix_fmt_mp->width = round_up(pix_fmt_mp->width, SB_DIM);
+		pix_fmt_mp->height =
+			round_up(pix_fmt_mp->height, SB_DIM);
+	} else {
+		pix_fmt_mp->width = round_up(pix_fmt_mp->width, MB_DIM);
+		pix_fmt_mp->height =
+			round_up(pix_fmt_mp->height, MB_DIM);
+	}
+}
+
 static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 {
 	struct rockchip_vpu_dev *dev = video_drvdata(file);
@@ -381,25 +404,7 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 			return -EINVAL;
 		}
 
-		/* Limit to hardware min/max. */
-		pix_fmt_mp->width = clamp(pix_fmt_mp->width,
-				ctx->vpu_src_fmt->frmsize.min_width,
-				ctx->vpu_src_fmt->frmsize.max_width);
-		pix_fmt_mp->height = clamp(pix_fmt_mp->height,
-				ctx->vpu_src_fmt->frmsize.min_height,
-				ctx->vpu_src_fmt->frmsize.max_height);
-
-		/* Round up to macroblocks. */
-		if (ctx->vpu_src_fmt->fourcc == V4L2_PIX_FMT_VP9_FRAME) {
-			pix_fmt_mp->width = round_up(pix_fmt_mp->width, SB_DIM);
-			pix_fmt_mp->height =
-				round_up(pix_fmt_mp->height, SB_DIM);
-		} else {
-			pix_fmt_mp->width = round_up(pix_fmt_mp->width, MB_DIM);
-			pix_fmt_mp->height =
-				round_up(pix_fmt_mp->height, MB_DIM);
-		}
-
+		adjust_dst_sizes(ctx, pix_fmt_mp);
 		/* Fill in remaining fields. */
 		calculate_plane_sizes(ctx->vpu_src_fmt, ctx->vpu_dst_fmt,
 				      pix_fmt_mp);
@@ -425,11 +430,12 @@ static void reset_dst_fmt(struct rockchip_vpu_ctx *ctx)
 
 	memset(dst_fmt, 0, sizeof(*dst_fmt));
 
-	dst_fmt->width = vpu_src_fmt->frmsize.min_width;
-	dst_fmt->height = vpu_src_fmt->frmsize.min_height;
+	dst_fmt->width = ctx->src_fmt.width;
+	dst_fmt->height = ctx->src_fmt.height;
 	dst_fmt->pixelformat = ctx->vpu_dst_fmt->fourcc;
 	dst_fmt->num_planes = ctx->vpu_dst_fmt->num_planes;
 
+	adjust_dst_sizes(ctx, dst_fmt);
 	calculate_plane_sizes(vpu_src_fmt, ctx->vpu_dst_fmt, dst_fmt);
 }
 
