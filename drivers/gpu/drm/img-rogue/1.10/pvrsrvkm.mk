@@ -153,8 +153,11 @@ pvrsrvkm_1_10-$(CONFIG_DRM_POWERVR_ROGUE_PDUMP) += \
  main.o
 ifneq ($(CONFIG_DRM_POWERVR_ROGUE_PDUMP),y)
 pvrsrvkm_1_10-y += \
- pvr_sync2.o \
- sync_native_server.o
+ pvr_sync_file.o \
+ pvr_counting_timeline.o \
+ pvr_sw_fence.o \
+ pvr_fence.o \
+ dma_fence_sync_native_server.o
 endif
 pvrsrvkm_1_10-$(CONFIG_ARM)   += osfunc_arm.o
 pvrsrvkm_1_10-$(CONFIG_ARM64) += osfunc_arm64.o

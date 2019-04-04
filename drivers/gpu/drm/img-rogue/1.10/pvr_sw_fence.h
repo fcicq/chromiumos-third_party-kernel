@@ -2,7 +2,6 @@
 /* vi: set ts=8 sw=8 sts=8: */
 /*************************************************************************/ /*!
 @File
-@Title          PowerVR Linux fence compatibility header
 @Codingstyle    LinuxKernel
 @Copyright      Copyright (c) Imagination Technologies Ltd. All Rights Reserved
 @License        Dual MIT/GPLv2
@@ -43,48 +42,21 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */ /**************************************************************************/
 
-#if !defined(__PVR_LINUX_FENCE_H__)
-#define __PVR_LINUX_FENCE_H__
+#if !defined(__PVR_SW_FENCES_H__)
+#define __PVR_SW_FENCES_H__
 
-#include <linux/version.h>
+#include "pvr_linux_fence.h"
 
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)) && \
-	(!defined(CHROMIUMOS_KERNEL) || (LINUX_VERSION_CODE < KERNEL_VERSION(3, 18, 0)))
-#include <linux/fence.h>
-#else
-#include <linux/dma-fence.h>
-#endif
+struct pvr_sw_fence_context;
 
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)) && \
-	(!defined(CHROMIUMOS_KERNEL) || (LINUX_VERSION_CODE < KERNEL_VERSION(3, 18, 0)))
-/* Structures */
-#define	dma_fence fence
-#define	dma_fence_cb fence_cb
-#define	dma_fence_ops fence_ops
+struct pvr_sw_fence_context *pvr_sw_fence_context_create(const char *name,
+				const char *driver_name);
+void pvr_sw_fence_context_destroy(struct pvr_sw_fence_context *fence_context);
+struct dma_fence *pvr_sw_fence_create(struct pvr_sw_fence_context *
+				      fence_context);
 
-/* Defines and Enums */
-#define DMA_FENCE_FLAG_ENABLE_SIGNAL_BIT FENCE_FLAG_ENABLE_SIGNAL_BIT
-#define DMA_FENCE_FLAG_SIGNALED_BIT FENCE_FLAG_SIGNALED_BIT
-#define DMA_FENCE_FLAG_USER_BITS FENCE_FLAG_USER_BITS
+const char *pvr_sw_fence_context_name(struct pvr_sw_fence_context *fctx);
+void pvr_sw_fence_context_value_str(struct pvr_sw_fence_context *fctx,
+				    char *str, int size);
 
-#define DMA_FENCE_ERR FENCE_ERR
-#define	DMA_FENCE_TRACE FENCE_TRACE
-#define DMA_FENCE_WARN FENCE_WARN
-
-/* Functions */
-#define dma_fence_add_callback fence_add_callback
-#define dma_fence_context_alloc fence_context_alloc
-#define dma_fence_default_wait fence_default_wait
-#define dma_fence_is_signaled fence_is_signaled
-#define dma_fence_free fence_free 
-#define dma_fence_get fence_get 
-#define dma_fence_get_rcu fence_get_rcu 
-#define dma_fence_init fence_init 
-#define dma_fence_put fence_put 
-#define dma_fence_signal fence_signal 
-#define dma_fence_wait fence_wait
-#define dma_fence_wait_timeout fence_wait_timeout
-
-#endif
-
-#endif /* !defined(__PVR_LINUX_FENCE_H__) */
+#endif /* !defined(__PVR_SW_FENCES_H__) */
