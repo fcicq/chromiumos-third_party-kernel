@@ -284,6 +284,45 @@ static int vidioc_g_fmt(struct file *file, void *priv, struct v4l2_format *f)
 	return 0;
 }
 
+static void adjust_dst_sizes(struct v4l2_pix_format_mplane *pix_fmt_mp,
+			     const struct rk3288_vpu_fmt *fmt)
+{
+	unsigned int mb_width, mb_height;
+	int i;
+
+	/* Limit to hardware min/max. */
+	pix_fmt_mp->width = clamp(pix_fmt_mp->width,
+			RK3288_DEC_MIN_WIDTH, RK3288_DEC_MAX_WIDTH);
+	pix_fmt_mp->height = clamp(pix_fmt_mp->height,
+			RK3288_DEC_MIN_HEIGHT, RK3288_DEC_MAX_HEIGHT);
+
+	/* Round up to macroblocks. */
+	pix_fmt_mp->width = round_up(pix_fmt_mp->width, MB_DIM);
+	pix_fmt_mp->height = round_up(pix_fmt_mp->height, MB_DIM);
+
+	mb_width = MB_WIDTH(pix_fmt_mp->width);
+	mb_height = MB_HEIGHT(pix_fmt_mp->height);
+
+	vpu_debug(0, "CAPTURE codec mode: %d\n", fmt->codec_mode);
+	vpu_debug(0, "fmt - w: %d, h: %d, mb - w: %d, h: %d\n",
+		  pix_fmt_mp->width, pix_fmt_mp->height,
+		  mb_width, mb_height);
+
+	for (i = 0; i < fmt->num_planes; ++i) {
+		pix_fmt_mp->plane_fmt[i].bytesperline =
+			mb_width * MB_DIM * fmt->depth[i] / 8;
+		pix_fmt_mp->plane_fmt[i].sizeimage =
+			pix_fmt_mp->plane_fmt[i].bytesperline
+			* mb_height * MB_DIM;
+		/*
+		 * All of multiplanar formats we support have chroma
+		 * planes subsampled by 2.
+		 */
+		if (i != 0)
+			pix_fmt_mp->plane_fmt[i].sizeimage /= 2;
+	}
+}
+
 static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 {
 	struct rk3288_vpu_fmt *fmt;
@@ -301,6 +340,10 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 			vpu_err("failed to try output format\n");
 			return -EINVAL;
 		}
+
+		/* Round up to macroblocks. */
+		pix_fmt_mp->width = round_up(pix_fmt_mp->width, MB_DIM);
+		pix_fmt_mp->height = round_up(pix_fmt_mp->height, MB_DIM);
 
 		if (pix_fmt_mp->plane_fmt[0].sizeimage == 0) {
 			vpu_err("sizeimage of output format must be given\n");
@@ -324,15 +367,7 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 			return -EINVAL;
 		}
 
-		/* Limit to hardware min/max. */
-		pix_fmt_mp->width = clamp(pix_fmt_mp->width,
-				RK3288_DEC_MIN_WIDTH, RK3288_DEC_MAX_WIDTH);
-		pix_fmt_mp->height = clamp(pix_fmt_mp->height,
-				RK3288_DEC_MIN_HEIGHT, RK3288_DEC_MAX_HEIGHT);
-
-		/* Round up to macroblocks. */
-		pix_fmt_mp->width = round_up(pix_fmt_mp->width, MB_DIM);
-		pix_fmt_mp->height = round_up(pix_fmt_mp->height, MB_DIM);
+		adjust_dst_sizes(pix_fmt_mp, fmt);
 		break;
 
 	default:
@@ -349,10 +384,8 @@ static int vidioc_s_fmt(struct file *file, void *priv, struct v4l2_format *f)
 {
 	struct v4l2_pix_format_mplane *pix_fmt_mp = &f->fmt.pix_mp;
 	struct rk3288_vpu_ctx *ctx = fh_to_ctx(priv);
-	unsigned int mb_width, mb_height;
 	struct rk3288_vpu_fmt *fmt;
 	int ret = 0;
-	int i;
 
 	vpu_debug_enter();
 
@@ -380,6 +413,14 @@ static int vidioc_s_fmt(struct file *file, void *priv, struct v4l2_format *f)
 
 		ctx->vpu_src_fmt = find_format(pix_fmt_mp->pixelformat, true);
 		ctx->src_fmt = *pix_fmt_mp;
+
+		/*
+		 * Setting resolution on the OUTPUT queue affects the CAPTURE
+		 * queue as well.
+		 */
+		ctx->dst_fmt.width = pix_fmt_mp->width;
+		ctx->dst_fmt.height = pix_fmt_mp->height;
+		adjust_dst_sizes(&ctx->dst_fmt, ctx->vpu_dst_fmt);
 		break;
 
 	case V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE:
@@ -409,29 +450,6 @@ static int vidioc_s_fmt(struct file *file, void *priv, struct v4l2_format *f)
 
 		fmt = find_format(pix_fmt_mp->pixelformat, false);
 		ctx->vpu_dst_fmt = fmt;
-
-		mb_width = MB_WIDTH(pix_fmt_mp->width);
-		mb_height = MB_HEIGHT(pix_fmt_mp->height);
-
-		vpu_debug(0, "CAPTURE codec mode: %d\n", fmt->codec_mode);
-		vpu_debug(0, "fmt - w: %d, h: %d, mb - w: %d, h: %d\n",
-			  pix_fmt_mp->width, pix_fmt_mp->height,
-			  mb_width, mb_height);
-
-		for (i = 0; i < fmt->num_planes; ++i) {
-			pix_fmt_mp->plane_fmt[i].bytesperline =
-				mb_width * MB_DIM * fmt->depth[i] / 8;
-			pix_fmt_mp->plane_fmt[i].sizeimage =
-				pix_fmt_mp->plane_fmt[i].bytesperline
-				* mb_height * MB_DIM;
-			/*
-			 * All of multiplanar formats we support have chroma
-			 * planes subsampled by 2.
-			 */
-			if (i != 0)
-				pix_fmt_mp->plane_fmt[i].sizeimage /= 2;
-		}
-
 		ctx->dst_fmt = *pix_fmt_mp;
 		break;
 
