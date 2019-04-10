@@ -16,60 +16,64 @@
 
 /**
  * struct sync_merge_data - data passed to merge ioctl
- * @fd2:	file descriptor of second fence
  * @name:	name of new fence
+ * @fd2:	file descriptor of second fence
  * @fence:	returns the fd of the new fence to userspace
+ * @flags:	merge_data flags
+ * @pad:	padding for 64-bit alignment, should always be zero
  */
 struct sync_merge_data {
-	__s32	fd2; /* fd of second fence */
-	char	name[32]; /* name of new fence */
-	__s32	fence; /* fd on newly created fence */
+	char	name[32];
+	__s32	fd2;
+	__s32	fence;
+	__u32	flags;
+	__u32	pad;
 };
 
 /**
- * struct sync_pt_info - detailed sync_pt information
- * @len:		length of sync_pt_info including any driver_data
+ * struct sync_fence_info - detailed fence information
  * @obj_name:		name of parent sync_timeline
- * @driver_name:	name of driver implementing the parent
- * @status:		status of the sync_pt 0:active 1:signaled <0:error
+* @driver_name:	name of driver implementing the parent
+* @status:		status of the fence 0:active 1:signaled <0:error
+ * @flags:		fence_info flags
  * @timestamp_ns:	timestamp of status change in nanoseconds
- * @driver_data:	any driver dependent data
  */
-struct sync_pt_info {
-	__u32	len;
+struct sync_fence_info {
 	char	obj_name[32];
 	char	driver_name[32];
 	__s32	status;
+	__u32	flags;
 	__u64	timestamp_ns;
-
-	__u8	driver_data[0];
 };
 
 /**
- * struct sync_fence_info_data - data returned from fence info ioctl
- * @len:	ioctl caller writes the size of the buffer its passing in.
- *		ioctl returns length of sync_fence_data returned to userspace
- *		including pt_info.
+ * struct sync_file_info - data returned from fence info ioctl
  * @name:	name of fence
  * @status:	status of fence. 1: signaled 0:active <0:error
- * @pt_info:	a sync_pt_info struct for every sync_pt in the fence
+ * @flags:	sync_file_info flags
+ * @num_fences	number of fences in the sync_file
+ * @pad:	padding for 64-bit alignment, should always be zero
+ * @sync_fence_info: pointer to array of structs sync_fence_info with all
+ *		 fences in the sync_file
  */
-struct sync_fence_info_data {
-	__u32	len;
+struct sync_file_info {
 	char	name[32];
 	__s32	status;
+	__u32	flags;
+	__u32	num_fences;
+	__u32	pad;
 
-	__u8	pt_info[0];
+	__u64	sync_fence_info;
 };
 
 #define SYNC_IOC_MAGIC		'>'
 
 /**
- * DOC: SYNC_IOC_WAIT - wait for a fence to signal
- *
- * pass timeout in milliseconds.  Waits indefinitely timeout < 0.
+ * Opcodes  0, 1 and 2 were burned during a API change to avoid users of the
+ * old API to get weird errors when trying to handling sync_files. The API
+ * change happened during the de-stage of the Sync Framework when there was
+ * no upstream users available.
  */
-#define SYNC_IOC_WAIT		_IOW(SYNC_IOC_MAGIC, 0, __s32)
 
 /**
  * DOC: SYNC_IOC_MERGE - merge two fences
@@ -78,20 +82,19 @@ struct sync_fence_info_data {
  * the sync_pts in both the calling fd and sync_merge_data.fd2.  Returns the
  * new fence's fd in sync_merge_data.fence
  */
-#define SYNC_IOC_MERGE		_IOWR(SYNC_IOC_MAGIC, 1, struct sync_merge_data)
+#define SYNC_IOC_MERGE		_IOWR(SYNC_IOC_MAGIC, 3, struct sync_merge_data)
 
 /**
  * DOC: SYNC_IOC_FENCE_INFO - get detailed information on a fence
  *
- * Takes a struct sync_fence_info_data with extra space allocated for pt_info.
+ * Takes a struct sync_file_info_data with extra space allocated for pt_info.
  * Caller should write the size of the buffer into len.  On return, len is
- * updated to reflect the total size of the sync_fence_info_data including
+ * updated to reflect the total size of the sync_file_info_data including
  * pt_info.
  *
  * pt_info is a buffer containing sync_pt_infos for every sync_pt in the fence.
  * To iterate over the sync_pt_infos, use the sync_pt_info.len field.
  */
-#define SYNC_IOC_FENCE_INFO	_IOWR(SYNC_IOC_MAGIC, 2,\
-	struct sync_fence_info_data)
+#define SYNC_IOC_FILE_INFO	_IOWR(SYNC_IOC_MAGIC, 4, struct sync_file_info)
 
 #endif /* _UAPI_LINUX_SYNC_H */
