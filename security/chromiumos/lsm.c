@@ -681,12 +681,12 @@ void chromiumos_setuid_policy_warning(kuid_t parent, kuid_t child)
 	     __kuid_val(child));
 }
 
-int chromiumos_check_uid_transition(kuid_t parent, kuid_t child)
+bool chromiumos_uid_transition_allowed(kuid_t parent, kuid_t child)
 {
 	if (chromiumos_check_setuid_policy_hashtable_key_value(parent, child))
-		return 0;
+		return true;
 	chromiumos_setuid_policy_warning(parent, child);
-	return -1;
+	return false;
 }
 
 /*
@@ -714,8 +714,9 @@ int chromiumos_security_task_fix_setuid(struct cred *new,
 		 */
 		if (!uid_eq(old->uid, new->uid) &&
 			!uid_eq(old->euid, new->uid)) {
-			return chromiumos_check_uid_transition(old->uid,
-								new->uid);
+			if (!chromiumos_uid_transition_allowed(old->uid,
+								new->uid))
+				return -EPERM;
 		}
 		/*
 		 * Users for which setuid restrictions exist can only set the
@@ -726,8 +727,9 @@ int chromiumos_security_task_fix_setuid(struct cred *new,
 		if (!uid_eq(old->uid, new->euid) &&
 			!uid_eq(old->euid, new->euid) &&
 			!uid_eq(old->suid, new->euid)) {
-			return chromiumos_check_uid_transition(old->euid,
-								new->euid);
+			if (!chromiumos_uid_transition_allowed(old->euid,
+								new->euid))
+				return -EPERM;
 		}
 		break;
 	case LSM_SETID_ID:
@@ -737,12 +739,14 @@ int chromiumos_security_task_fix_setuid(struct cred *new,
 		 * policy allows the transition.
 		 */
 		if (!uid_eq(old->uid, new->uid)) {
-			return chromiumos_check_uid_transition(old->uid,
-								new->uid);
+			if (!chromiumos_uid_transition_allowed(old->uid,
+								new->uid))
+				return -EPERM;
 		}
 		if (!uid_eq(old->suid, new->suid)) {
-			return chromiumos_check_uid_transition(old->suid,
-								new->suid);
+			if (!chromiumos_uid_transition_allowed(old->suid,
+								new->suid))
+				return -EPERM;
 		}
 		break;
 	case LSM_SETID_RES:
@@ -756,20 +760,23 @@ int chromiumos_security_task_fix_setuid(struct cred *new,
 		if (!uid_eq(new->uid, old->uid) &&
 			!uid_eq(new->uid, old->euid) &&
 			!uid_eq(new->uid, old->suid)) {
-			return chromiumos_check_uid_transition(old->uid,
-								new->uid);
+			if (!chromiumos_uid_transition_allowed(old->uid,
+								new->uid))
+				return -EPERM;
 		}
 		if (!uid_eq(new->euid, old->uid) &&
 			!uid_eq(new->euid, old->euid) &&
 			!uid_eq(new->euid, old->suid)) {
-			return chromiumos_check_uid_transition(old->euid,
-								new->euid);
+			if (!chromiumos_uid_transition_allowed(old->euid,
+								new->euid))
+				return -EPERM;
 		}
 		if (!uid_eq(new->suid, old->uid) &&
 			!uid_eq(new->suid, old->euid) &&
 			!uid_eq(new->suid, old->suid)) {
-			return chromiumos_check_uid_transition(old->suid,
-								new->suid);
+			if (!chromiumos_uid_transition_allowed(old->suid,
+								new->suid))
+				return -EPERM;
 		}
 		break;
 	case LSM_SETID_FS:
@@ -783,8 +790,9 @@ int chromiumos_security_task_fix_setuid(struct cred *new,
 			!uid_eq(new->fsuid, old->euid)  &&
 			!uid_eq(new->fsuid, old->suid) &&
 			!uid_eq(new->fsuid, old->fsuid)) {
-			return chromiumos_check_uid_transition(old->fsuid,
-								new->fsuid);
+			if (!chromiumos_uid_transition_allowed(old->fsuid,
+								new->fsuid))
+				return -EPERM;
 		}
 		break;
 	}
