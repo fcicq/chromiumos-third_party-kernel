@@ -1137,8 +1137,8 @@ static const struct rk3288_vpu_run_ops rk3288_vpu_dec_run_ops = {
 
 int rk3288_vpu_dec_init(struct rk3288_vpu_ctx *ctx)
 {
-	ctx->vpu_src_fmt = find_format(DEF_SRC_FMT_DEC, false);
-	ctx->vpu_dst_fmt = find_format(DEF_DST_FMT_DEC, true);
+	ctx->vpu_src_fmt = find_format(DEF_SRC_FMT_DEC, true);
+	ctx->vpu_dst_fmt = find_format(DEF_DST_FMT_DEC, false);
 
 	ctx->run_ops = &rk3288_vpu_dec_run_ops;
 
