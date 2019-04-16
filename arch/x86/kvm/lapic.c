@@ -1209,7 +1209,7 @@ static void apic_timer_expired(struct kvm_lapic *apic)
 	if (waitqueue_active(q))
 		wake_up_interruptible(q);
 
-	if (apic_lvtt_tscdeadline(apic))
+	if (apic_lvtt_tscdeadline(apic) || ktimer->hv_timer_in_use)
 		ktimer->expired_tscdeadline = ktimer->tscdeadline;
 }
 
