@@ -81,7 +81,6 @@ static irqreturn_t cr50_spi_irq_handler(int dummy, void *dev_id)
 {
 	struct cr50_spi_phy *phy = dev_id;
 
-	phy->irq_confirmed = true;
 	complete(&phy->tpm_ready);
 
 	return IRQ_HANDLED;
