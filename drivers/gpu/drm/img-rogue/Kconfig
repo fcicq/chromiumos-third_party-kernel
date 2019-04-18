@@ -3,7 +3,7 @@ config DRM_POWERVR_ROGUE_1_10
 	depends on ARM || ARM64 || X86 || METAG || MIPS
 	depends on HAS_IOMEM
 	depends on DRM
-	depends on SYNC
+	depends on SYNC_FILE
 	select DRM_KMS_HELPER
 	select GPU_TRACEPOINTS
 	select PM_DEVFREQ

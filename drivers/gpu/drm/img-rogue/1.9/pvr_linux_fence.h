@@ -49,14 +49,14 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <linux/version.h>
 
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)) && \
-	(!defined(CHROMIUMOS_KERNEL) || (LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0)))
+	(!defined(CHROMIUMOS_KERNEL) || (LINUX_VERSION_CODE < KERNEL_VERSION(3, 18, 0)))
 #include <linux/fence.h>
 #else
 #include <linux/dma-fence.h>
 #endif
 
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)) && \
-	(!defined(CHROMIUMOS_KERNEL) || (LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0)))
+	(!defined(CHROMIUMOS_KERNEL) || (LINUX_VERSION_CODE < KERNEL_VERSION(3, 18, 0)))
 /* Structures */
 #define	dma_fence fence
 #define	dma_fence_cb fence_cb
