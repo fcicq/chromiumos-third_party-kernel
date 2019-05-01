@@ -1131,7 +1131,7 @@ struct ieee80211_local {
 
 	struct fq fq;
 	struct codel_vars *cvars;
-	struct codel_params cparams;
+	struct codel_params cparams[IEEE80211_NUM_TIDS];
 
 	const struct ieee80211_ops *ops;
 

@@ -78,7 +78,7 @@ static ssize_t aqm_read(struct file *file,
 {
 	struct ieee80211_local *local = file->private_data;
 	struct fq *fq = &local->fq;
-	char buf[200];
+	char buf[500];
 	int len = 0;
 
 	spin_lock_bh(&local->fq.lock);
@@ -94,7 +94,9 @@ static ssize_t aqm_read(struct file *file,
 			"R fq_memory_usage %u\n"
 			"RW fq_memory_limit %u\n"
 			"RW fq_limit %u\n"
-			"RW fq_quantum %u\n",
+			"RW fq_quantum %u\n"
+			"RW fq_target %u, %u, %u, %u, %u, %u, %u, %u\n"
+			"RW fq_interval %u, %u, %u, %u, %u, %u, %u, %u\n",
 			fq->flows_cnt,
 			fq->backlog,
 			fq->overlimit,
@@ -103,7 +105,15 @@ static ssize_t aqm_read(struct file *file,
 			fq->memory_usage,
 			fq->memory_limit,
 			fq->limit,
-			fq->quantum);
+			fq->quantum,
+			local->cparams[0].target, local->cparams[1].target,
+			local->cparams[2].target, local->cparams[3].target,
+			local->cparams[4].target, local->cparams[5].target,
+			local->cparams[6].target, local->cparams[7].target,
+			local->cparams[0].interval, local->cparams[1].interval,
+			local->cparams[2].interval, local->cparams[3].interval,
+			local->cparams[4].interval, local->cparams[5].interval,
+			local->cparams[6].interval, local->cparams[7].interval);
 
 	rcu_read_unlock();
 	spin_unlock_bh(&local->fq.lock);
@@ -117,8 +127,9 @@ static ssize_t aqm_write(struct file *file,
 			 loff_t *ppos)
 {
 	struct ieee80211_local *local = file->private_data;
-	char buf[100];
+	char buf[500];
 	size_t len;
+	u32 tid, tmp;
 
 	if (count > sizeof(buf))
 		return -EINVAL;
@@ -131,16 +142,24 @@ static ssize_t aqm_write(struct file *file,
 	if (len > 0 && buf[len-1] == '\n')
 		buf[len-1] = 0;
 
-	if (sscanf(buf, "fq_limit %u", &local->fq.limit) == 1)
+	if (sscanf(buf, "fq_limit %u", &local->fq.limit) == 1) {
 		return count;
-	else if (sscanf(buf, "fq_memory_limit %u", &local->fq.memory_limit) == 1)
+	} else if (sscanf(buf, "fq_memory_limit %u", &local->fq.memory_limit)
+		   == 1) {
 		return count;
-	else if (sscanf(buf, "fq_quantum %u", &local->fq.quantum) == 1)
+	} else if (sscanf(buf, "fq_quantum %u", &local->fq.quantum) == 1) {
 		return count;
-	else if (sscanf(buf, "fq_interval %u", &local->cparams.interval) == 1)
+	} else if (sscanf(buf, "fq_interval %u %u", &tid, &tmp) == 2) {
+		if (tid >= IEEE80211_NUM_TIDS)
+			return -EINVAL;
+		local->cparams[tid].interval = tmp;
 		return count;
-	else if (sscanf(buf, "fq_target %u", &local->cparams.target) == 1)
+	} else if (sscanf(buf, "fq_target %u %u", &tid, &tmp) == 2) {
+		if (tid >= IEEE80211_NUM_TIDS)
+			return -EINVAL;
+		local->cparams[tid].target = tmp;
 		return count;
+	}
 
 	return -EINVAL;
 }

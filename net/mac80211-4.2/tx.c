@@ -1337,10 +1337,12 @@ static struct sk_buff *fq_tin_dequeue_func(struct fq *fq,
 	struct codel_vars *cvars;
 	struct codel_params *cparams;
 	struct codel_stats *cstats;
+	int tid;
 
 	local = container_of(fq, struct ieee80211_local, fq);
 	txqi = container_of(tin, struct txq_info, tin);
-	cparams = &local->cparams;
+	tid = txqi->txq.tid;
+	cparams = &local->cparams[tid];
 	cstats = &txqi->cstats;
 
 	if (flow == &txqi->def_flow)
@@ -1439,10 +1441,12 @@ int ieee80211_txq_setup_flows(struct ieee80211_local *local)
 	if (ret)
 		return ret;
 
-	codel_params_init(&local->cparams);
-	local->cparams.interval = MS2TIME(100);
-	local->cparams.target = MS2TIME(20);
-	local->cparams.ecn = true;
+	for (i = 0; i < IEEE80211_NUM_TIDS; i++) {
+		codel_params_init(&local->cparams[i]);
+		local->cparams[i].interval = MS2TIME(100);
+		local->cparams[i].target = MS2TIME(20);
+		local->cparams[i].ecn = true;
+	}
 
 	local->cvars = kcalloc(fq->flows_cnt, sizeof(local->cvars[0]),
 			       GFP_KERNEL);
