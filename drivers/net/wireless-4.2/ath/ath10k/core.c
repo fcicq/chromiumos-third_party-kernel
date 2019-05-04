@@ -2232,6 +2232,23 @@ void ath10k_core_unregister(struct ath10k *ar)
 }
 EXPORT_SYMBOL(ath10k_core_unregister);
 
+void ath10k_init_atf(struct ath10k *ar)
+{
+	int i;
+
+	ar->airtime_inflight_max = IEEE80211_ATF_AIRTIME_MAX;
+	ar->atf_release_limit = IEEE80211_ATF_AIRTIME_TARGET;
+	ar->atf_enabled = false;
+	ar->atf_sch_interval = 200000; /* in us */
+	ar->atf_next_interval = codel_get_time() + ar->atf_sch_interval;
+	for (i = 0; i < IEEE80211_NUM_TIDS; i++)  {
+		ar->atf_txq_limit_max[i] = IEEE80211_ATF_TXQ_AIRTIME_MAX;
+		ar->atf_txq_limit_min[i] = IEEE80211_ATF_TXQ_AIRTIME_MIN;
+		ar->atf_quantum[i] = IEEE80211_ATF_QUANTUM;
+		ar->atf_quantum_mesh[i] = IEEE80211_ATF_QUANTUM * 2;
+	}
+}
+
 struct ath10k *ath10k_core_create(size_t priv_size, struct device *dev,
 				  enum ath10k_bus bus,
 				  enum ath10k_hw_rev hw_rev,
@@ -2322,18 +2339,10 @@ struct ath10k *ath10k_core_create(size_t priv_size, struct device *dev,
 	INIT_WORK(&ar->register_work, ath10k_core_register_work);
 	INIT_WORK(&ar->restart_work, ath10k_core_restart);
 
+	ath10k_init_atf(ar);
 	ret = ath10k_debug_create(ar);
 	if (ret)
 		goto err_free_aux_wq;
-	ar->airtime_inflight_max = IEEE80211_ATF_AIRTIME_MAX;
-	ar->atf_release_limit = IEEE80211_ATF_AIRTIME_TARGET;
-	ar->atf_txq_limit_max = IEEE80211_ATF_TXQ_AIRTIME_MAX;
-	ar->atf_txq_limit_min = IEEE80211_ATF_TXQ_AIRTIME_MIN;
-	ar->atf_quantum = IEEE80211_ATF_QUANTUM;
-	ar->atf_quantum_mesh = IEEE80211_ATF_QUANTUM * 2;
-	ar->atf_enabled = false;
-	ar->atf_sch_interval = 200000; /* in us */
-	ar->atf_next_interval = codel_get_time() + ar->atf_sch_interval;
 	return ar;
 
 err_free_aux_wq:

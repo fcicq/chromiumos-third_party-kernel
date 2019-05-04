@@ -2052,204 +2052,110 @@ static const struct file_operations fops_atf_enable = {
 	.llseek = default_llseek,
 };
 
-static ssize_t ath10k_write_atf_threshold(struct file *file,
-					  const char __user *user_buf,
-					  size_t count, loff_t *ppos)
+static ssize_t ath10k_write_atf_param(struct file *file,
+				      const char __user *user_buf,
+				      size_t count, loff_t *ppos)
 {
 	struct ath10k *ar = file->private_data;
-	int ret;
-	u32 threshold;
+	int ret, len;
+	char buf[500];
+	u32 temp, tid;
 
-	if (kstrtou32_from_user(user_buf, count, 0, &threshold))
+	if (count > sizeof(buf))
 		return -EINVAL;
+
+	if (copy_from_user(buf, user_buf, count))
+		return -EFAULT;
+
+	buf[sizeof(buf) - 1] = '\0';
+	len = strlen(buf);
+
+	if (len > 0 && buf[len - 1] == '\n')
+		buf[len - 1] = 0;
+
+	ret = count;
 	mutex_lock(&ar->conf_mutex);
 	spin_lock_bh(&ar->txqs_lock);
-	if (ar->airtime_inflight_max == threshold) {
-		ret = count;
+
+	if (sscanf(buf, "interval %u", &temp) == 1) {
+		ar->atf_sch_interval =  temp;
 		goto exit;
+	} else if (sscanf(buf, "max_inflight_airtime %u", &temp) == 1) {
+		ar->airtime_inflight_max = temp;
+		goto exit;
+	} else if (sscanf(buf, "release_limit %u", &temp) == 1) {
+		ar->atf_release_limit = temp;
+		goto exit;
+	} else if (sscanf(buf, "quantum %u %u", &tid, &temp) == 2) {
+		if (tid < IEEE80211_NUM_TIDS)
+			ar->atf_quantum[tid] =  temp;
+		goto exit;
+	} else if (sscanf(buf, "quantum_mesh %u %u", &tid, &temp) == 2) {
+		if (tid < IEEE80211_NUM_TIDS)
+			ar->atf_quantum_mesh[tid] = temp;
+		goto exit;
+	} else if (sscanf(buf, "txq_limit_min %u %u", &tid, &temp) == 2) {
+		if (tid < IEEE80211_NUM_TIDS)
+			ar->atf_txq_limit_min[tid] = temp;
+		goto exit;
+	} else if (sscanf(buf, "txq_limit_max %u %u", &tid, &temp) == 2) {
+		if (tid < IEEE80211_NUM_TIDS)
+			ar->atf_txq_limit_max[tid] = temp;
+		goto exit;
+	} else {
+		ret = -EINVAL;
 	}
 
-	ar->airtime_inflight_max = threshold;
-	ret = count;
 exit:
 	spin_unlock_bh(&ar->txqs_lock);
 	mutex_unlock(&ar->conf_mutex);
 	return ret;
 }
 
-static ssize_t ath10k_read_atf_threshold(struct file *file,
-					 char __user *user_buf,
+static ssize_t ath10k_read_atf_param(struct file *file,
+				     char __user *user_buf,
 					 size_t count, loff_t *ppos)
 {
 	struct ath10k *ar = file->private_data;
 	int len = 0;
-	char buf[32];
+	char buf[500];
 
-	len = scnprintf(buf, sizeof(buf) - len, "%d\n",
-			ar->airtime_inflight_max);
-
-	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
-}
-
-static const struct file_operations fops_atf_threshold = {
-	.read = ath10k_read_atf_threshold,
-	.write = ath10k_write_atf_threshold,
-	.open = simple_open,
-	.owner = THIS_MODULE,
-	.llseek = default_llseek,
-};
-
-static ssize_t ath10k_write_atf_release_limit(struct file *file,
-					      const char __user *user_buf,
-					      size_t count, loff_t *ppos)
-{
-	struct ath10k *ar = file->private_data;
-	int ret;
-	u32 max;
-
-	if (kstrtou32_from_user(user_buf, count, 0, &max))
-		return -EINVAL;
 	mutex_lock(&ar->conf_mutex);
-	spin_lock_bh(&ar->txqs_lock);
-	if (ar->atf_release_limit == max) {
-		ret = count;
-		goto exit;
-	}
+	len = scnprintf(buf, sizeof(buf),
+			"interval %u\n"
+			"max_inflight_airtime %u\n"
+			"release_limit %u\n"
+			"quantum %u %u %u %u %u %u %u %u\n"
+			"quantum_mesh %u %u %u %u %u %u %u %u\n"
+			"txq_limit_min %u %u %u %u %u %u %u %u\n"
+			"txq_limit_max %u %u %u %u %u %u %u %u\n",
+			ar->atf_sch_interval,
+			ar->airtime_inflight_max,
+			ar->atf_release_limit,
+			ar->atf_quantum[0], ar->atf_quantum[1],
+			ar->atf_quantum[2], ar->atf_quantum[3],
+			ar->atf_quantum[4], ar->atf_quantum[5],
+			ar->atf_quantum[6], ar->atf_quantum[7],
+			ar->atf_quantum_mesh[0], ar->atf_quantum_mesh[1],
+			ar->atf_quantum_mesh[2], ar->atf_quantum_mesh[3],
+			ar->atf_quantum_mesh[4], ar->atf_quantum_mesh[5],
+			ar->atf_quantum_mesh[6], ar->atf_quantum_mesh[7],
+			ar->atf_txq_limit_min[0], ar->atf_txq_limit_min[1],
+			ar->atf_txq_limit_min[2], ar->atf_txq_limit_min[3],
+			ar->atf_txq_limit_min[4], ar->atf_txq_limit_min[5],
+			ar->atf_txq_limit_min[6], ar->atf_txq_limit_min[7],
+			ar->atf_txq_limit_max[0], ar->atf_txq_limit_max[1],
+			ar->atf_txq_limit_max[2], ar->atf_txq_limit_max[3],
+			ar->atf_txq_limit_max[4], ar->atf_txq_limit_max[5],
+			ar->atf_txq_limit_max[6], ar->atf_txq_limit_max[7]);
 
-	ar->atf_release_limit = max;
-	ret = count;
-exit:
-	spin_unlock_bh(&ar->txqs_lock);
 	mutex_unlock(&ar->conf_mutex);
-	return ret;
-}
-
-static ssize_t ath10k_read_atf_release_limit(struct file *file,
-					     char __user *user_buf,
-					     size_t count, loff_t *ppos)
-{
-	struct ath10k *ar = file->private_data;
-	int len = 0;
-	char buf[32];
-
-	len = scnprintf(buf, sizeof(buf) - len, "%d\n",
-			ar->atf_release_limit);
-
 	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
 }
 
-static const struct file_operations fops_atf_release_limit = {
-	.read = ath10k_read_atf_release_limit,
-	.write = ath10k_write_atf_release_limit,
-	.open = simple_open,
-	.owner = THIS_MODULE,
-	.llseek = default_llseek,
-};
-
-static ssize_t ath10k_write_atf_txq_limit_min(struct file *file,
-					      const char __user *user_buf,
-					      size_t count, loff_t *ppos)
-{
-	struct ath10k *ar = file->private_data;
-	u32 val;
-
-	if (kstrtou32_from_user(user_buf, count, 0, &val))
-		return -EINVAL;
-	mutex_lock(&ar->conf_mutex);
-	ar->atf_txq_limit_min = val;
-	mutex_unlock(&ar->conf_mutex);
-	return count;
-}
-
-static ssize_t ath10k_read_atf_txq_limit_min(struct file *file,
-					     char __user *user_buf,
-					     size_t count, loff_t *ppos)
-{
-	struct ath10k *ar = file->private_data;
-	int len = 0;
-	char buf[32];
-
-	len = scnprintf(buf, sizeof(buf) - len, "%d\n",
-			ar->atf_txq_limit_min);
-
-	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
-}
-
-static const struct file_operations fops_atf_txq_limit_min = {
-	.read = ath10k_read_atf_txq_limit_min,
-	.write = ath10k_write_atf_txq_limit_min,
-	.open = simple_open,
-	.owner = THIS_MODULE,
-	.llseek = default_llseek,
-};
-
-static ssize_t ath10k_write_atf_txq_limit_max(struct file *file,
-					      const char __user *user_buf,
-					      size_t count, loff_t *ppos)
-{
-	struct ath10k *ar = file->private_data;
-	u32 val;
-
-	if (kstrtou32_from_user(user_buf, count, 0, &val))
-		return -EINVAL;
-	mutex_lock(&ar->conf_mutex);
-	ar->atf_txq_limit_max = val;
-	mutex_unlock(&ar->conf_mutex);
-	return count;
-}
-
-static ssize_t ath10k_read_atf_txq_limit_max(struct file *file,
-					     char __user *user_buf,
-					     size_t count, loff_t *ppos)
-{
-	struct ath10k *ar = file->private_data;
-	int len = 0;
-	char buf[32];
-
-	len = scnprintf(buf, sizeof(buf) - len, "%d\n",
-			ar->atf_txq_limit_max);
-	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
-}
-
-static const struct file_operations fops_atf_txq_limit_max = {
-	.read = ath10k_read_atf_txq_limit_max,
-	.write = ath10k_write_atf_txq_limit_max,
-	.open = simple_open,
-	.owner = THIS_MODULE,
-	.llseek = default_llseek,
-};
-
-static ssize_t ath10k_write_atf_interval(struct file *file,
-					 const char __user *user_buf,
-					 size_t count, loff_t *ppos)
-{
-	struct ath10k *ar = file->private_data;
-	u32 val;
-
-	if (kstrtou32_from_user(user_buf, count, 0, &val))
-		return -EINVAL;
-	mutex_lock(&ar->conf_mutex);
-	ar->atf_sch_interval = val;
-	mutex_unlock(&ar->conf_mutex);
-	return count;
-}
-
-static ssize_t ath10k_read_atf_interval(struct file *file,
-					char __user *user_buf,
-					size_t count, loff_t *ppos)
-{
-	struct ath10k *ar = file->private_data;
-	int len = 0;
-	char buf[32];
-
-	len = scnprintf(buf, sizeof(buf) - len, "%d\n",
-			ar->atf_sch_interval);
-	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
-}
-
-static const struct file_operations fops_atf_interval = {
-	.read = ath10k_read_atf_interval,
-	.write = ath10k_write_atf_interval,
+static const struct file_operations fops_atf_param = {
+	.read = ath10k_read_atf_param,
+	.write = ath10k_write_atf_param,
 	.open = simple_open,
 	.owner = THIS_MODULE,
 	.llseek = default_llseek,
@@ -2301,78 +2207,6 @@ static ssize_t ath10k_read_atf_stats(struct file *file,
 
 static const struct file_operations fops_atf_stats = {
 	.read = ath10k_read_atf_stats,
-	.open = simple_open,
-	.owner = THIS_MODULE,
-	.llseek = default_llseek,
-};
-
-static ssize_t ath10k_write_atf_quantum(struct file *file,
-					const char __user *user_buf,
-					size_t count, loff_t *ppos)
-{
-	struct ath10k *ar = file->private_data;
-	u32 val;
-
-	if (kstrtou32_from_user(user_buf, count, 0, &val))
-		return -EINVAL;
-	mutex_lock(&ar->conf_mutex);
-	ar->atf_quantum = val;
-	mutex_unlock(&ar->conf_mutex);
-	return count;
-}
-
-static ssize_t ath10k_read_atf_quantum(struct file *file,
-				       char __user *user_buf,
-				       size_t count, loff_t *ppos)
-{
-	struct ath10k *ar = file->private_data;
-	int len = 0;
-	char buf[32];
-
-	len = scnprintf(buf, sizeof(buf) - len, "%d\n",
-			ar->atf_quantum);
-	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
-}
-
-static const struct file_operations fops_atf_quantum = {
-	.read = ath10k_read_atf_quantum,
-	.write = ath10k_write_atf_quantum,
-	.open = simple_open,
-	.owner = THIS_MODULE,
-	.llseek = default_llseek,
-};
-
-static ssize_t ath10k_write_atf_quantum_mesh(struct file *file,
-					     const char __user *user_buf,
-					     size_t count, loff_t *ppos)
-{
-	struct ath10k *ar = file->private_data;
-	u32 val;
-
-	if (kstrtou32_from_user(user_buf, count, 0, &val))
-		return -EINVAL;
-	mutex_lock(&ar->conf_mutex);
-	ar->atf_quantum_mesh = val;
-	mutex_unlock(&ar->conf_mutex);
-	return count;
-}
-
-static ssize_t ath10k_read_atf_quantum_mesh(struct file *file,
-					    char __user *user_buf,
-					    size_t count, loff_t *ppos)
-{
-	struct ath10k *ar = file->private_data;
-	int len = 0;
-	char buf[32];
-
-	len = scnprintf(buf, sizeof(buf) - len, "%d\n",
-			ar->atf_quantum_mesh);
-	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
-}
-
-static const struct file_operations fops_atf_quantum_mesh = {
-	.read = ath10k_read_atf_quantum_mesh,
-	.write = ath10k_write_atf_quantum_mesh,
 	.open = simple_open,
 	.owner = THIS_MODULE,
 	.llseek = default_llseek,
@@ -3738,29 +3572,11 @@ int ath10k_debug_register(struct ath10k *ar)
 	debugfs_create_file("atf_enable", 0600,
 			    ar->debug.debugfs_phy, ar, &fops_atf_enable);
 
-	debugfs_create_file("atf_airtime_threshold", 0600,
-			    ar->debug.debugfs_phy, ar, &fops_atf_threshold);
-
-	debugfs_create_file("atf_interval", 0600,
-			    ar->debug.debugfs_phy, ar, &fops_atf_interval);
-
-	debugfs_create_file("atf_release_limit", 0600,
-			    ar->debug.debugfs_phy, ar, &fops_atf_release_limit);
-
-	debugfs_create_file("atf_txq_limit_min", 0600,
-			    ar->debug.debugfs_phy, ar, &fops_atf_txq_limit_min);
-
-	debugfs_create_file("atf_txq_limit_max", 0600,
-			    ar->debug.debugfs_phy, ar, &fops_atf_txq_limit_max);
+	debugfs_create_file("atf_param", 0600,
+			    ar->debug.debugfs_phy, ar, &fops_atf_param);
 
 	debugfs_create_file("atf_stats", 0600, ar->debug.debugfs_phy, ar,
 			    &fops_atf_stats);
-
-	debugfs_create_file("atf_quantum", 0600,
-			    ar->debug.debugfs_phy, ar, &fops_atf_quantum);
-
-	debugfs_create_file("atf_quantum_mesh", 0600,
-			    ar->debug.debugfs_phy, ar, &fops_atf_quantum_mesh);
 
 	debugfs_create_file("tpc_stats_final", S_IRUSR,
 			    ar->debug.debugfs_phy, ar, &fops_tpc_stats_final);

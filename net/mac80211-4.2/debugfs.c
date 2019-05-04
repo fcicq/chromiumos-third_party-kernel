@@ -118,7 +118,8 @@ static ssize_t aqm_read(struct file *file,
 	rcu_read_unlock();
 	spin_unlock_bh(&local->fq.lock);
 
-	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
+	return simple_read_from_buffer(user_buf, count, ppos,
+				       buf, len);
 }
 
 static ssize_t aqm_write(struct file *file,

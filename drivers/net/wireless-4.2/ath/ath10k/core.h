@@ -1130,10 +1130,10 @@ struct ath10k {
 	u32	atf_bytes_send;
 	u32	atf_bytes_send_last_interval;
 	u32	atf_max_num_pending_tx;
-	u32	atf_txq_limit_min;
-	u32	atf_txq_limit_max;
-	u32	atf_quantum;
-	u32	atf_quantum_mesh;
+	u32	atf_txq_limit_min[IEEE80211_NUM_TIDS];
+	u32	atf_txq_limit_max[IEEE80211_NUM_TIDS];
+	u32	atf_quantum[IEEE80211_NUM_TIDS];
+	u32	atf_quantum_mesh[IEEE80211_NUM_TIDS];
 	u32	cfr_enable;
 	struct rchan *rfs_cfr_capture;
 
