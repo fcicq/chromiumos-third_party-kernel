@@ -13262,6 +13262,12 @@ static void intel_begin_crtc_commit(struct drm_crtc *crtc,
 		intel_atomic_get_new_crtc_state(old_intel_state, intel_crtc);
 	bool modeset = needs_modeset(&intel_cstate->base);
 
+	if (dev_priv->psr.active) {
+		uint32_t psr_status = I915_READ(EDP_PSR_STATUS);
+		if (psr_status & EDP_PSR_STATUS_STATE_SRDENT)
+			intel_wait_for_vblank(dev_priv, PIPE_A);
+	}
+
 	/* Perform vblank evasion around commit operation */
 	intel_pipe_update_start(intel_cstate);
 
