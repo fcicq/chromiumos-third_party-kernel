@@ -138,6 +138,7 @@ PVRSRVBridgeDevmemPDumpBitmap(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto DevmemPDumpBitmap_exit;
 				}
+				((IMG_CHAR *)uiFileNameInt)[(PVRSRV_PDUMP_MAX_FILENAME_SIZE * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 
 	/* Lock over handle lookup. */
@@ -284,6 +285,7 @@ PVRSRVBridgePVRSRVPDumpComment(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto PVRSRVPDumpComment_exit;
 				}
+				((IMG_CHAR *)uiCommentInt)[(PVRSRV_PDUMP_MAX_COMMENT_SIZE * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 
 

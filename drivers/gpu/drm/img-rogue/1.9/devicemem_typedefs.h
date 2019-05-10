@@ -132,5 +132,10 @@ typedef enum Resize {
  * over-allocation is desired. */
 #define DEVMEM_NO_PRE_ALLOCATE_MULTIPLIER 1
 
+/* Defines the max length for PMR, MemDesc, Device memory
+ * History and RI debug annotations stored in memory, including
+ * the null terminator. */
+#define DEVMEM_ANNOTATION_MAX_LEN (PVR_ANNOTATION_MAX_LEN + 1)
+
 #endif /* #ifndef DEVICEMEM_TYPEDEFS_H */
 

@@ -92,6 +92,12 @@ PVRSRVBridgeRGXTDMCreateTransferContext(IMG_UINT32 ui32DispatchTableEntry,
 			(psRGXTDMCreateTransferContextIN->ui32FrameworkCmdize * sizeof(IMG_BYTE)) +
 			0;
 
+		if (psRGXTDMCreateTransferContextIN->ui32FrameworkCmdize > RGXFWIF_RF_CMD_SIZE)
+		{
+			psRGXTDMCreateTransferContextOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXTDMCreateTransferContext_exit;
+		}
+
 	{
 		PVRSRV_DEVICE_NODE *psDeviceNode = OSGetDevData(psConnection);
 
@@ -372,6 +378,36 @@ PVRSRVBridgeRGXTDMSubmitTransfer(IMG_UINT32 ui32DispatchTableEntry,
 			(psRGXTDMSubmitTransferIN->ui32SyncPMRCount * sizeof(IMG_HANDLE)) +
 			0;
 
+		if (psRGXTDMSubmitTransferIN->ui32ClientFenceCount > PVRSRV_MAX_SYNC_PRIMS)
+		{
+			psRGXTDMSubmitTransferOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXTDMSubmitTransfer_exit;
+		}
+
+		if (psRGXTDMSubmitTransferIN->ui32ClientUpdateCount > PVRSRV_MAX_SYNC_PRIMS)
+		{
+			psRGXTDMSubmitTransferOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXTDMSubmitTransfer_exit;
+		}
+
+		if (psRGXTDMSubmitTransferIN->ui32ServerSyncCount > PVRSRV_MAX_SYNC_PRIMS)
+		{
+			psRGXTDMSubmitTransferOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXTDMSubmitTransfer_exit;
+		}
+
+		if (psRGXTDMSubmitTransferIN->ui32CommandSize > RGXFWIF_DM_INDEPENDENT_KICK_CMD_SIZE)
+		{
+			psRGXTDMSubmitTransferOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXTDMSubmitTransfer_exit;
+		}
+
+		if (psRGXTDMSubmitTransferIN->ui32SyncPMRCount > PVRSRV_MAX_SYNC_PRIMS)
+		{
+			psRGXTDMSubmitTransferOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXTDMSubmitTransfer_exit;
+		}
+
 	{
 		PVRSRV_DEVICE_NODE *psDeviceNode = OSGetDevData(psConnection);
 
@@ -565,6 +601,7 @@ PVRSRVBridgeRGXTDMSubmitTransfer(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto RGXTDMSubmitTransfer_exit;
 				}
+				((IMG_CHAR *)uiUpdateFenceNameInt)[(32 * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 	if (psRGXTDMSubmitTransferIN->ui32CommandSize != 0)
 	{

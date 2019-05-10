@@ -47,6 +47,8 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "img_defs.h"
 
 #include "srvcore.h"
+#include "proc_stats.h"
+#include "rgx_fwif_alignchecks.h"
 
 
 #include "common_srvcore_bridge.h"
@@ -594,6 +596,12 @@ PVRSRVBridgeAlignmentCheck(IMG_UINT32 ui32DispatchTableEntry,
 			(psAlignmentCheckIN->ui32AlignChecksSize * sizeof(IMG_UINT32)) +
 			0;
 
+		if (psAlignmentCheckIN->ui32AlignChecksSize > RGXFW_ALIGN_CHECKS_UM_MAX)
+		{
+			psAlignmentCheckOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto AlignmentCheck_exit;
+		}
+
 
 
 
@@ -792,6 +800,15 @@ PVRSRVBridgeFindProcessMemStats(IMG_UINT32 ui32DispatchTableEntry,
 	IMG_UINT32 ui32BufferSize = 
 			(psFindProcessMemStatsIN->ui32ArrSize * sizeof(IMG_UINT32)) +
 			0;
+
+
+		if (psFindProcessMemStatsIN->ui32ArrSize > PVRSRV_PROCESS_STAT_TYPE_COUNT)
+		{
+			psFindProcessMemStatsOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto FindProcessMemStats_exit;
+		}
+
+
 
 
 	PVR_UNREFERENCED_PARAMETER(psConnection);
