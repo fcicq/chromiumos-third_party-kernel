@@ -91,6 +91,11 @@ PVRSRVBridgeRGXCreateComputeContext(IMG_UINT32 ui32DispatchTableEntry,
 	IMG_UINT32 ui32BufferSize = 
 			(psRGXCreateComputeContextIN->ui32FrameworkCmdize * sizeof(IMG_BYTE)) +
 			0;
+	if (psRGXCreateComputeContextIN->ui32FrameworkCmdize > RGXFWIF_RF_CMD_SIZE)
+	{
+		psRGXCreateComputeContextOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+		goto RGXCreateComputeContext_exit;
+	}
 
 	{
 		PVRSRV_DEVICE_NODE *psDeviceNode = OSGetDevData(psConnection);
@@ -363,9 +368,33 @@ PVRSRVBridgeRGXKickCDM(IMG_UINT32 ui32DispatchTableEntry,
 			(psRGXKickCDMIN->ui32ServerSyncCount * sizeof(IMG_UINT32)) +
 			(psRGXKickCDMIN->ui32ServerSyncCount * sizeof(SERVER_SYNC_PRIMITIVE *)) +
 			(psRGXKickCDMIN->ui32ServerSyncCount * sizeof(IMG_HANDLE)) +
-			(32 * sizeof(IMG_CHAR)) +
+			(PVRSRV_SYNC_NAME_LENGTH * sizeof(IMG_CHAR)) +
 			(psRGXKickCDMIN->ui32CmdSize * sizeof(IMG_BYTE)) +
 			0;
+
+		if (psRGXKickCDMIN->ui32ClientFenceCount > PVRSRV_MAX_SYNC_PRIMS)
+		{
+			psRGXKickCDMOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXKickCDM_exit;
+		}
+
+		if (psRGXKickCDMIN->ui32ClientUpdateCount > PVRSRV_MAX_SYNC_PRIMS)
+		{
+			psRGXKickCDMOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXKickCDM_exit;
+		}
+
+		if (psRGXKickCDMIN->ui32ServerSyncCount > PVRSRV_MAX_SYNC_PRIMS)
+		{
+			psRGXKickCDMOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXKickCDM_exit;
+		}
+
+		if (psRGXKickCDMIN->ui32CmdSize > RGXFWIF_DM_INDEPENDENT_KICK_CMD_SIZE)
+		{
+			psRGXKickCDMOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXKickCDM_exit;
+		}
 
 	{
 		PVRSRV_DEVICE_NODE *psDeviceNode = OSGetDevData(psConnection);
@@ -548,18 +577,19 @@ PVRSRVBridgeRGXKickCDM(IMG_UINT32 ui32DispatchTableEntry,
 	
 	{
 		uiUpdateFenceNameInt = (IMG_CHAR*)(((IMG_UINT8 *)pArrayArgsBuffer) + ui32NextOffset);
-		ui32NextOffset += 32 * sizeof(IMG_CHAR);
+		ui32NextOffset += PVRSRV_SYNC_NAME_LENGTH * sizeof(IMG_CHAR);
 	}
 
 			/* Copy the data over */
-			if (32 * sizeof(IMG_CHAR) > 0)
+			if (PVRSRV_SYNC_NAME_LENGTH * sizeof(IMG_CHAR) > 0)
 			{
-				if ( OSCopyFromUser(NULL, uiUpdateFenceNameInt, (const void __user *) psRGXKickCDMIN->puiUpdateFenceName, 32 * sizeof(IMG_CHAR)) != PVRSRV_OK )
+				if (OSCopyFromUser(NULL, uiUpdateFenceNameInt, (const void __user *) psRGXKickCDMIN->puiUpdateFenceName, PVRSRV_SYNC_NAME_LENGTH * sizeof(IMG_CHAR)) != PVRSRV_OK )
 				{
 					psRGXKickCDMOUT->eError = PVRSRV_ERROR_INVALID_PARAMS;
 
 					goto RGXKickCDM_exit;
 				}
+				((IMG_CHAR *)uiUpdateFenceNameInt)[(PVRSRV_SYNC_NAME_LENGTH * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 	if (psRGXKickCDMIN->ui32CmdSize != 0)
 	{

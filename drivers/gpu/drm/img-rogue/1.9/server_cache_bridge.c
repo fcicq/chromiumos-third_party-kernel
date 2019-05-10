@@ -98,6 +98,12 @@ PVRSRVBridgeCacheOpQueue(IMG_UINT32 ui32DispatchTableEntry,
 			(psCacheOpQueueIN->ui32NumCacheOps * sizeof(PVRSRV_CACHE_OP)) +
 			0;
 
+		if (psCacheOpQueueIN->ui32NumCacheOps > CACHE_BATCH_MAX)
+		{
+			psCacheOpQueueOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto CacheOpQueue_exit;
+		}
+
 
 
 

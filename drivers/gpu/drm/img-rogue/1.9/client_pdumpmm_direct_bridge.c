@@ -52,6 +52,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "devicemem_server.h"
 #include "pmr.h"
 #include "physmem.h"
+#include "pdump_physmem.h"
 
 
 IMG_INTERNAL PVRSRV_ERROR IMG_CALLCONV BridgePMRPDumpLoadMem(IMG_HANDLE hBridge,
