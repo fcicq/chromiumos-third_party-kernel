@@ -1249,6 +1249,12 @@ PVRSRVBridgeRGXCreateRenderContext(IMG_UINT32 ui32DispatchTableEntry,
 			(psRGXCreateRenderContextIN->ui32FrameworkCmdize * sizeof(IMG_BYTE)) +
 			0;
 
+		if (psRGXCreateRenderContextIN->ui32FrameworkCmdize > RGXFWIF_RF_CMD_SIZE)
+		{
+			psRGXCreateRenderContextOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXCreateRenderContext_exit;
+		}
+
 
 
 
@@ -1541,6 +1547,66 @@ PVRSRVBridgeRGXKickTA3D(IMG_UINT32 ui32DispatchTableEntry,
 			(psRGXKickTA3DIN->ui32SyncPMRCount * sizeof(PMR *)) +
 			(psRGXKickTA3DIN->ui32SyncPMRCount * sizeof(IMG_HANDLE)) +
 			0;
+
+		if (psRGXKickTA3DIN->ui32ClientTAFenceCount > PVRSRV_MAX_SYNC_PRIMS)
+		{
+			psRGXKickTA3DOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXKickTA3D_exit;
+		}
+
+		if (psRGXKickTA3DIN->ui32ClientTAUpdateCount > PVRSRV_MAX_SYNC_PRIMS)
+		{
+			psRGXKickTA3DOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXKickTA3D_exit;
+		}
+
+		if (psRGXKickTA3DIN->ui32ServerTASyncPrims > PVRSRV_MAX_SYNC_PRIMS)
+		{
+			psRGXKickTA3DOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXKickTA3D_exit;
+		}
+
+		if (psRGXKickTA3DIN->ui32Client3DFenceCount > PVRSRV_MAX_SYNC_PRIMS)
+		{
+			psRGXKickTA3DOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXKickTA3D_exit;
+		}
+
+		if (psRGXKickTA3DIN->ui32Client3DUpdateCount > PVRSRV_MAX_SYNC_PRIMS)
+		{
+			psRGXKickTA3DOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXKickTA3D_exit;
+		}
+
+		if (psRGXKickTA3DIN->ui32Server3DSyncPrims > PVRSRV_MAX_SYNC_PRIMS)
+		{
+			psRGXKickTA3DOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXKickTA3D_exit;
+		}
+
+		if (psRGXKickTA3DIN->ui32TACmdSize > RGXFWIF_DM_INDEPENDENT_KICK_CMD_SIZE)
+		{
+			psRGXKickTA3DOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXKickTA3D_exit;
+		}
+
+		if (psRGXKickTA3DIN->ui323DPRCmdSize > RGXFWIF_DM_INDEPENDENT_KICK_CMD_SIZE)
+		{
+			psRGXKickTA3DOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXKickTA3D_exit;
+		}
+
+		if (psRGXKickTA3DIN->ui323DCmdSize > RGXFWIF_DM_INDEPENDENT_KICK_CMD_SIZE)
+		{
+			psRGXKickTA3DOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXKickTA3D_exit;
+		}
+
+		if (psRGXKickTA3DIN->ui32SyncPMRCount > PVRSRV_MAX_SYNC_PRIMS)
+		{
+			psRGXKickTA3DOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXKickTA3D_exit;
+		}
 
 
 
@@ -1857,6 +1923,7 @@ PVRSRVBridgeRGXKickTA3D(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto RGXKickTA3D_exit;
 				}
+				((IMG_CHAR *)uiUpdateFenceNameInt)[(32 * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 	if (psRGXKickTA3DIN->ui32TACmdSize != 0)
 	{

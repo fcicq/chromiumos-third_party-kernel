@@ -55,6 +55,10 @@ typedef int32_t PVRSRV_TIMELINE;
  */
 #define PVRSRV_SYNC_NAME_LENGTH 32
 
+#define SYNC_FB_FILE_STRING_MAX		256
+#define SYNC_FB_MODULE_STRING_LEN_MAX	(32)
+#define	SYNC_FB_DESC_STRING_LEN_MAX		(32)
+
 /*! Possible states for a PVRSRV_FENCE */
 typedef enum
 {

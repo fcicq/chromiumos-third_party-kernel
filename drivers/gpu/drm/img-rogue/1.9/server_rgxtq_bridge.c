@@ -47,6 +47,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "img_defs.h"
 
 #include "rgxtransfer.h"
+#include "rgx_tq_shared.h"
 
 
 #include "common_rgxtq_bridge.h"
@@ -90,6 +91,12 @@ PVRSRVBridgeRGXCreateTransferContext(IMG_UINT32 ui32DispatchTableEntry,
 	IMG_UINT32 ui32BufferSize = 
 			(psRGXCreateTransferContextIN->ui32FrameworkCmdize * sizeof(IMG_BYTE)) +
 			0;
+
+		if (psRGXCreateTransferContextIN->ui32FrameworkCmdize > RGXFWIF_RF_CMD_SIZE)
+		{
+			psRGXCreateTransferContextOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXCreateTransferContext_exit;
+		}
 
 
 
@@ -366,6 +373,18 @@ PVRSRVBridgeRGXSubmitTransfer(IMG_UINT32 ui32DispatchTableEntry,
 	}
 
 
+		if (psRGXSubmitTransferIN->ui32PrepareCount > TQ_MAX_PREPARES_PER_SUBMIT)
+		{
+			psRGXSubmitTransferOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXSubmitTransfer_exit;
+		}
+
+		if (psRGXSubmitTransferIN->ui32SyncPMRCount > PVRSRV_MAX_SYNC_PRIMS)
+		{
+			psRGXSubmitTransferOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXSubmitTransfer_exit;
+		}
+
 
 
 
@@ -526,6 +545,7 @@ PVRSRVBridgeRGXSubmitTransfer(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto RGXSubmitTransfer_exit;
 				}
+				((IMG_CHAR *)uiUpdateFenceNameInt)[(32 * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 	if (psRGXSubmitTransferIN->ui32PrepareCount != 0)
 	{
@@ -637,6 +657,12 @@ PVRSRVBridgeRGXSubmitTransfer(IMG_UINT32 ui32DispatchTableEntry,
 		IMG_UINT32 i;
 		for (i=0;i<psRGXSubmitTransferIN->ui32PrepareCount;i++)
 		{
+			if (ui32ClientFenceCountInt[i] > PVRSRV_MAX_SYNC_PRIMS)
+			{
+				psRGXSubmitTransferOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+				goto RGXSubmitTransfer_exit;
+			}
+
 			/* Assigning each psFenceUFOSyncPrimBlockInt to the right offset in the pool buffer (this is the second dimension) */
 			psFenceUFOSyncPrimBlockInt[i] = (SYNC_PRIMITIVE_BLOCK **)(((IMG_UINT8 *)pArrayArgsBuffer2) + ui32NextOffset2);
 			ui32NextOffset2 += ui32ClientFenceCountInt[i] * sizeof(SYNC_PRIMITIVE_BLOCK *);
@@ -670,6 +696,12 @@ PVRSRVBridgeRGXSubmitTransfer(IMG_UINT32 ui32DispatchTableEntry,
 		IMG_UINT32 i;
 		for (i=0;i<psRGXSubmitTransferIN->ui32PrepareCount;i++)
 		{
+			if (ui32ClientUpdateCountInt[i] > PVRSRV_MAX_SYNC_PRIMS)
+			{
+				psRGXSubmitTransferOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+				goto RGXSubmitTransfer_exit;
+			}
+
 			/* Assigning each psUpdateUFOSyncPrimBlockInt to the right offset in the pool buffer (this is the second dimension) */
 			psUpdateUFOSyncPrimBlockInt[i] = (SYNC_PRIMITIVE_BLOCK **)(((IMG_UINT8 *)pArrayArgsBuffer2) + ui32NextOffset2);
 			ui32NextOffset2 += ui32ClientUpdateCountInt[i] * sizeof(SYNC_PRIMITIVE_BLOCK *);
@@ -703,6 +735,12 @@ PVRSRVBridgeRGXSubmitTransfer(IMG_UINT32 ui32DispatchTableEntry,
 		IMG_UINT32 i;
 		for (i=0;i<psRGXSubmitTransferIN->ui32PrepareCount;i++)
 		{
+			if (ui32ServerSyncCountInt[i] > PVRSRV_MAX_SYNC_PRIMS)
+			{
+				psRGXSubmitTransferOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+				goto RGXSubmitTransfer_exit;
+			}
+
 			/* Assigning each ui32ServerSyncFlagsInt to the right offset in the pool buffer (this is the second dimension) */
 			ui32ServerSyncFlagsInt[i] = (IMG_UINT32*)(((IMG_UINT8 *)pArrayArgsBuffer2) + ui32NextOffset2);
 			ui32NextOffset2 += ui32ServerSyncCountInt[i] * sizeof(IMG_UINT32);
@@ -726,6 +764,12 @@ PVRSRVBridgeRGXSubmitTransfer(IMG_UINT32 ui32DispatchTableEntry,
 		IMG_UINT32 i;
 		for (i=0;i<psRGXSubmitTransferIN->ui32PrepareCount;i++)
 		{
+			if (ui32CommandSizeInt[i] > RGXFWIF_DM_INDEPENDENT_KICK_CMD_SIZE)
+			{
+				psRGXSubmitTransferOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+				goto RGXSubmitTransfer_exit;
+			}
+
 			/* Assigning each ui8FWCommandInt to the right offset in the pool buffer (this is the second dimension) */
 			ui8FWCommandInt[i] = (IMG_UINT8*)(((IMG_UINT8 *)pArrayArgsBuffer2) + ui32NextOffset2);
 			ui32NextOffset2 += ui32CommandSizeInt[i] * sizeof(IMG_UINT8);

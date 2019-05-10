@@ -142,6 +142,15 @@ PVRSRVBridgeSyncRecordAdd(IMG_UINT32 ui32DispatchTableEntry,
 			(psSyncRecordAddIN->ui32ClassNameSize * sizeof(IMG_CHAR)) +
 			0;
 
+		if (psSyncRecordAddIN->ui32ClassNameSize > SYNC_MAX_CLASS_NAME_LEN)
+		{
+			psSyncRecordAddOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto SyncRecordAdd_exit;
+		}
+
+
+
+
 
 
 
@@ -189,6 +198,7 @@ PVRSRVBridgeSyncRecordAdd(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto SyncRecordAdd_exit;
 				}
+				((IMG_CHAR *)uiClassNameInt)[(psSyncRecordAddIN->ui32ClassNameSize * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 
 	/* Lock over handle lookup. */
