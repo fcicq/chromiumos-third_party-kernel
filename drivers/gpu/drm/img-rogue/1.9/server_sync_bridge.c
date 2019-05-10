@@ -408,6 +408,15 @@ PVRSRVBridgeServerSyncAlloc(IMG_UINT32 ui32DispatchTableEntry,
 			(psServerSyncAllocIN->ui32ClassNameSize * sizeof(IMG_CHAR)) +
 			0;
 
+		if (psServerSyncAllocIN->ui32ClassNameSize > SYNC_MAX_CLASS_NAME_LEN)
+		{
+			psServerSyncAllocOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto ServerSyncAlloc_exit;
+		}
+
+
+
+
 
 
 
@@ -455,6 +464,7 @@ PVRSRVBridgeServerSyncAlloc(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto ServerSyncAlloc_exit;
 				}
+				((IMG_CHAR *)uiClassNameInt)[(psServerSyncAllocIN->ui32ClassNameSize * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 
 
@@ -675,6 +685,15 @@ PVRSRVBridgeServerSyncGetStatus(IMG_UINT32 ui32DispatchTableEntry,
 			(psServerSyncGetStatusIN->ui32SyncCount * sizeof(IMG_UINT32)) +
 			(psServerSyncGetStatusIN->ui32SyncCount * sizeof(IMG_UINT32)) +
 			0;
+
+		if (psServerSyncGetStatusIN->ui32SyncCount > PVRSRV_MAX_SYNC_PRIMS)
+		{
+			psServerSyncGetStatusOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto ServerSyncGetStatus_exit;
+		}
+
+
+
 
 
 
@@ -916,6 +935,27 @@ PVRSRVBridgeSyncPrimOpCreate(IMG_UINT32 ui32DispatchTableEntry,
 			(psSyncPrimOpCreateIN->ui32ServerSyncCount * sizeof(SERVER_SYNC_PRIMITIVE *)) +
 			(psSyncPrimOpCreateIN->ui32ServerSyncCount * sizeof(IMG_HANDLE)) +
 			0;
+
+		if (psSyncPrimOpCreateIN->ui32SyncBlockCount > PVRSRV_MAX_SYNC_PRIMS)
+		{
+			psSyncPrimOpCreateOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto SyncPrimOpCreate_exit;
+		}
+
+		if (psSyncPrimOpCreateIN->ui32ClientSyncCount > PVRSRV_MAX_SYNC_PRIMS)
+		{
+			psSyncPrimOpCreateOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto SyncPrimOpCreate_exit;
+		}
+
+		if (psSyncPrimOpCreateIN->ui32ServerSyncCount > PVRSRV_MAX_SYNC_PRIMS)
+		{
+			psSyncPrimOpCreateOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto SyncPrimOpCreate_exit;
+		}
+
+
+
 
 
 
@@ -1218,6 +1258,21 @@ PVRSRVBridgeSyncPrimOpTake(IMG_UINT32 ui32DispatchTableEntry,
 			(psSyncPrimOpTakeIN->ui32ClientSyncCount * sizeof(IMG_UINT32)) +
 			(psSyncPrimOpTakeIN->ui32ServerSyncCount * sizeof(IMG_UINT32)) +
 			0;
+
+		if (psSyncPrimOpTakeIN->ui32ClientSyncCount > PVRSRV_MAX_SYNC_PRIMS)
+		{
+			psSyncPrimOpTakeOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto SyncPrimOpTake_exit;
+		}
+
+		if (psSyncPrimOpTakeIN->ui32ServerSyncCount > PVRSRV_MAX_SYNC_PRIMS)
+		{
+			psSyncPrimOpTakeOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto SyncPrimOpTake_exit;
+		}
+
+
+
 
 
 
@@ -2004,6 +2059,15 @@ PVRSRVBridgeSyncAllocEvent(IMG_UINT32 ui32DispatchTableEntry,
 			(psSyncAllocEventIN->ui32ClassNameSize * sizeof(IMG_CHAR)) +
 			0;
 
+		if (psSyncAllocEventIN->ui32ClassNameSize > SYNC_MAX_CLASS_NAME_LEN)
+		{
+			psSyncAllocEventOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto SyncAllocEvent_exit;
+		}
+
+
+
+
 
 
 
@@ -2051,6 +2115,7 @@ PVRSRVBridgeSyncAllocEvent(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto SyncAllocEvent_exit;
 				}
+				((IMG_CHAR *)uiClassNameInt)[(psSyncAllocEventIN->ui32ClassNameSize * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 
 

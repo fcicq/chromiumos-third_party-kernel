@@ -57,6 +57,9 @@ typedef IMG_HANDLE PVRSRVTL_SD;
 /*! Maximum stream name length including the null byte */
 #define PRVSRVTL_MAX_STREAM_NAME_SIZE	40U
 
+/*! Maximum number of streams expected to exist */
+#define PVRSRVTL_MAX_DISCOVERABLE_STREAMS_BUFFER (32*PRVSRVTL_MAX_STREAM_NAME_SIZE)
+
 /*! Packet lengths are always rounded up to a multiple of 8 bytes */
 #define PVRSRVTL_PACKET_ALIGNMENT		8U
 #define PVRSRVTL_ALIGN(x) 				((x+PVRSRVTL_PACKET_ALIGNMENT-1) & ~(PVRSRVTL_PACKET_ALIGNMENT-1))

@@ -45,6 +45,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 /* Module specific includes */
 #include "devicemem_typedefs.h"
+#include "htbuffer_types.h"
 
 #include "htbserver.h"
 
