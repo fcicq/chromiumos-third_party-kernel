@@ -2366,6 +2366,15 @@ static int btusb_setup_intel_new(struct hci_dev *hdev)
 
 	BT_INFO("%s: Firmware loaded in %llu usecs", hdev->name, duration);
 
+	/* Once Firmware download is complete, Bulk endpoints will not be
+	 * used until the Bluetooth controller boots with operational
+	 * firmware. If we have the Bulk URBs scheduled when Intel Bluetooth
+	 * controller switches from bootloader to operational firmware, we
+	 * observe Bus Turn-around timeouts for Bulk IN tokens. So, to prevent
+	 * such error condition, kill the URBs scheduled on Bulk endpoint.
+	 */
+	usb_kill_anchored_urbs(&data->bulk_anchor);
+
 done:
 	release_firmware(fw);
 
@@ -2430,6 +2439,18 @@ done:
 	 * and thus no need to fail the setup.
 	 */
 	btintel_set_event_mask(hdev, false);
+
+	/* As the Intel bluetooth controller has now booted in operational
+	 * mode, re-program the URBs for BULK IN endpoint
+	 */
+	if (test_bit(BTUSB_BULK_RUNNING, &data->flags)) {
+		err = btusb_submit_bulk_urb(hdev, GFP_NOIO);
+		if (err < 0) {
+			clear_bit(BTUSB_BULK_RUNNING, &data->flags);
+			return err;
+		}
+		btusb_submit_bulk_urb(hdev, GFP_NOIO);
+	}
 
 	/* Read the Intel version information after loading the FW  */
 	err = btintel_read_version(hdev, &ver);
