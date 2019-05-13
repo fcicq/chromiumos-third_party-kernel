@@ -51,6 +51,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "devicemem_heapcfg.h"
 #include "physmem.h"
 #include "physmem_tdsecbuf.h"
+#include "devicemem_utils.h"
 
 
 #include "common_mm_bridge.h"
@@ -929,6 +930,18 @@ PVRSRVBridgePhysmemNewRamBackedPMR(IMG_UINT32 ui32DispatchTableEntry,
 			(psPhysmemNewRamBackedPMRIN->ui32AnnotationLength * sizeof(IMG_CHAR)) +
 			0;
 
+		if (psPhysmemNewRamBackedPMRIN->ui32NumPhysChunks > PMR_MAX_SUPPORTED_PAGE_COUNT)
+		{
+			psPhysmemNewRamBackedPMROUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto PhysmemNewRamBackedPMR_exit;
+		}
+
+		if (psPhysmemNewRamBackedPMRIN->ui32AnnotationLength > DEVMEM_ANNOTATION_MAX_LEN)
+		{
+			psPhysmemNewRamBackedPMROUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto PhysmemNewRamBackedPMR_exit;
+		}
+
 
 
 
@@ -992,6 +1005,7 @@ PVRSRVBridgePhysmemNewRamBackedPMR(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto PhysmemNewRamBackedPMR_exit;
 				}
+		((IMG_CHAR *)uiAnnotationInt)[(psPhysmemNewRamBackedPMRIN->ui32AnnotationLength * sizeof(IMG_CHAR))-1]	= '\0';
 			}
 
 
@@ -1087,6 +1101,18 @@ PVRSRVBridgePhysmemNewRamBackedLockedPMR(IMG_UINT32 ui32DispatchTableEntry,
 			(psPhysmemNewRamBackedLockedPMRIN->ui32AnnotationLength * sizeof(IMG_CHAR)) +
 			0;
 
+		if (psPhysmemNewRamBackedLockedPMRIN->ui32NumVirtChunks > PMR_MAX_SUPPORTED_PAGE_COUNT)
+		{
+			psPhysmemNewRamBackedLockedPMROUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto PhysmemNewRamBackedLockedPMR_exit;
+		}
+
+		if (psPhysmemNewRamBackedLockedPMRIN->ui32AnnotationLength > DEVMEM_ANNOTATION_MAX_LEN)
+		{
+			psPhysmemNewRamBackedLockedPMROUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto PhysmemNewRamBackedLockedPMR_exit;
+		}
+
 
 
 
@@ -1150,6 +1176,7 @@ PVRSRVBridgePhysmemNewRamBackedLockedPMR(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto PhysmemNewRamBackedLockedPMR_exit;
 				}
+				((IMG_CHAR *)uiAnnotationInt)[(psPhysmemNewRamBackedLockedPMRIN->ui32AnnotationLength * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 
 
@@ -2372,6 +2399,18 @@ PVRSRVBridgeChangeSparseMem(IMG_UINT32 ui32DispatchTableEntry,
 			(psChangeSparseMemIN->ui32FreePageCount * sizeof(IMG_UINT32)) +
 			0;
 
+		if (psChangeSparseMemIN->ui32AllocPageCount > PMR_MAX_SUPPORTED_PAGE_COUNT)
+		{
+			psChangeSparseMemOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto ChangeSparseMem_exit;
+		}
+
+		if (psChangeSparseMemIN->ui32FreePageCount > PMR_MAX_SUPPORTED_PAGE_COUNT)
+		{
+			psChangeSparseMemOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto ChangeSparseMem_exit;
+		}
+
 
 
 
@@ -2870,6 +2909,12 @@ PVRSRVBridgeHeapCfgHeapConfigName(IMG_UINT32 ui32DispatchTableEntry,
 			0;
 
 
+		if (psHeapCfgHeapConfigNameIN->ui32HeapConfigNameBufSz > DEVMEM_HEAPNAME_MAXLENGTH)
+		{
+			psHeapCfgHeapConfigNameOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto HeapCfgHeapConfigName_exit;
+		}
+
 
 	psHeapCfgHeapConfigNameOUT->puiHeapConfigName = psHeapCfgHeapConfigNameIN->puiHeapConfigName;
 
@@ -2967,6 +3012,12 @@ PVRSRVBridgeHeapCfgHeapDetails(IMG_UINT32 ui32DispatchTableEntry,
 			(psHeapCfgHeapDetailsIN->ui32HeapNameBufSz * sizeof(IMG_CHAR)) +
 			0;
 
+
+		if (psHeapCfgHeapDetailsIN->ui32HeapNameBufSz > DEVMEM_HEAPNAME_MAXLENGTH)
+		{
+			psHeapCfgHeapDetailsOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto HeapCfgHeapDetails_exit;
+		}
 
 
 	psHeapCfgHeapDetailsOUT->puiHeapNameOut = psHeapCfgHeapDetailsIN->puiHeapNameOut;

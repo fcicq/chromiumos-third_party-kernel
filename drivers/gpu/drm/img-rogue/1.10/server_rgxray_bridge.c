@@ -765,6 +765,7 @@ PVRSRVBridgeRGXKickRS(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto RGXKickRS_exit;
 				}
+				((IMG_CHAR *)uiUpdateFenceNameInt)[(32 * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 	if (psRGXKickRSIN->ui32CmdSize != 0)
 	{
@@ -1263,6 +1264,7 @@ PVRSRVBridgeRGXKickVRDM(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto RGXKickVRDM_exit;
 				}
+				((IMG_CHAR *)uiUpdateFenceNameInt)[(32 * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 	if (psRGXKickVRDMIN->ui32CmdSize != 0)
 	{

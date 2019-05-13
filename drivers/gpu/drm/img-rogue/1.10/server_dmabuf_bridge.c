@@ -91,6 +91,12 @@ PVRSRVBridgePhysmemImportDmaBuf(IMG_UINT32 ui32DispatchTableEntry,
 			(psPhysmemImportDmaBufIN->ui32NameSize * sizeof(IMG_CHAR)) +
 			0;
 
+		if (psPhysmemImportDmaBufIN->ui32NameSize > DEVMEM_ANNOTATION_MAX_LEN)
+		{
+			psPhysmemImportDmaBufOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto PhysmemImportDmaBuf_exit;
+		}
+
 
 
 
@@ -138,6 +144,7 @@ PVRSRVBridgePhysmemImportDmaBuf(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto PhysmemImportDmaBuf_exit;
 				}
+				((IMG_CHAR *)uiNameInt)[(psPhysmemImportDmaBufIN->ui32NameSize * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 
 
@@ -300,6 +307,18 @@ PVRSRVBridgePhysmemImportSparseDmaBuf(IMG_UINT32 ui32DispatchTableEntry,
 			(psPhysmemImportSparseDmaBufIN->ui32NameSize * sizeof(IMG_CHAR)) +
 			0;
 
+		if (psPhysmemImportSparseDmaBufIN->ui32NumPhysChunks > PMR_MAX_SUPPORTED_PAGE_COUNT)
+		{
+			psPhysmemImportSparseDmaBufOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto PhysmemImportSparseDmaBuf_exit;
+		}
+
+		if (psPhysmemImportSparseDmaBufIN->ui32NameSize > DEVMEM_ANNOTATION_MAX_LEN)
+		{
+			psPhysmemImportSparseDmaBufOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto PhysmemImportSparseDmaBuf_exit;
+		}
+
 
 
 
@@ -363,6 +382,7 @@ PVRSRVBridgePhysmemImportSparseDmaBuf(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto PhysmemImportSparseDmaBuf_exit;
 				}
+				((IMG_CHAR *)uiNameInt)[(psPhysmemImportSparseDmaBufIN->ui32NameSize * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 
 

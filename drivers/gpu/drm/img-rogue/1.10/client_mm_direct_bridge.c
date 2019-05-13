@@ -53,6 +53,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "devicemem_heapcfg.h"
 #include "physmem.h"
 #include "physmem_tdsecbuf.h"
+#include "devicemem_utils.h"
 
 
 IMG_INTERNAL PVRSRV_ERROR IMG_CALLCONV BridgePMRExportPMR(IMG_HANDLE hBridge,
