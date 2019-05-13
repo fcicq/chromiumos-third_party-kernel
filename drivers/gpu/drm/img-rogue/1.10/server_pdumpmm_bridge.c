@@ -48,6 +48,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "devicemem_server.h"
 #include "pmr.h"
 #include "physmem.h"
+#include "pdump_physmem.h"
 
 
 #include "common_pdumpmm_bridge.h"
@@ -313,6 +314,12 @@ PVRSRVBridgePMRPDumpSaveToFile(IMG_UINT32 ui32DispatchTableEntry,
 			(psPMRPDumpSaveToFileIN->ui32ArraySize * sizeof(IMG_CHAR)) +
 			0;
 
+		if (psPMRPDumpSaveToFileIN->ui32ArraySize > PVRSRV_PDUMP_MAX_FILENAME_SIZE)
+		{
+			psPMRPDumpSaveToFileOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto PMRPDumpSaveToFile_exit;
+		}
+
 
 
 
@@ -360,6 +367,7 @@ PVRSRVBridgePMRPDumpSaveToFile(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto PMRPDumpSaveToFile_exit;
 				}
+				((IMG_CHAR *)uiFileNameInt)[(psPMRPDumpSaveToFileIN->ui32ArraySize * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 
 	/* Lock over handle lookup. */
@@ -454,6 +462,18 @@ PVRSRVBridgePMRPDumpSymbolicAddr(IMG_UINT32 ui32DispatchTableEntry,
 			(psPMRPDumpSymbolicAddrIN->ui32SymbolicAddrLen * sizeof(IMG_CHAR)) +
 			0;
 
+
+		if (psPMRPDumpSymbolicAddrIN->ui32MemspaceNameLen > PHYSMEM_PDUMP_MEMSPACE_MAX_LENGTH)
+		{
+			psPMRPDumpSymbolicAddrOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto PMRPDumpSymbolicAddr_exit;
+		}
+
+		if (psPMRPDumpSymbolicAddrIN->ui32SymbolicAddrLen > PHYSMEM_PDUMP_SYMNAME_MAX_LENGTH)
+		{
+			psPMRPDumpSymbolicAddrOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto PMRPDumpSymbolicAddr_exit;
+		}
 
 
 	psPMRPDumpSymbolicAddrOUT->puiMemspaceName = psPMRPDumpSymbolicAddrIN->puiMemspaceName;
@@ -764,6 +784,12 @@ PVRSRVBridgeDevmemIntPDumpSaveToFileVirtual(IMG_UINT32 ui32DispatchTableEntry,
 			(psDevmemIntPDumpSaveToFileVirtualIN->ui32ArraySize * sizeof(IMG_CHAR)) +
 			0;
 
+		if (psDevmemIntPDumpSaveToFileVirtualIN->ui32ArraySize > PVRSRV_PDUMP_MAX_FILENAME_SIZE)
+		{
+			psDevmemIntPDumpSaveToFileVirtualOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto DevmemIntPDumpSaveToFileVirtual_exit;
+		}
+
 
 
 
@@ -811,6 +837,7 @@ PVRSRVBridgeDevmemIntPDumpSaveToFileVirtual(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto DevmemIntPDumpSaveToFileVirtual_exit;
 				}
+				((IMG_CHAR *)uiFileNameInt)[(psDevmemIntPDumpSaveToFileVirtualIN->ui32ArraySize * sizeof(IMG_CHAR))-1]	= '\0';
 			}
 
 	/* Lock over handle lookup. */
