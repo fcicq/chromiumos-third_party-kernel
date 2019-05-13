@@ -162,6 +162,12 @@ PVRSRVBridgeRIWriteMEMDESCEntry(IMG_UINT32 ui32DispatchTableEntry,
 			(psRIWriteMEMDESCEntryIN->ui32TextBSize * sizeof(IMG_CHAR)) +
 			0;
 
+		if (psRIWriteMEMDESCEntryIN->ui32TextBSize > DEVMEM_ANNOTATION_MAX_LEN)
+		{
+			psRIWriteMEMDESCEntryOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RIWriteMEMDESCEntry_exit;
+		}
+
 
 
 
@@ -209,6 +215,7 @@ PVRSRVBridgeRIWriteMEMDESCEntry(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto RIWriteMEMDESCEntry_exit;
 				}
+				((IMG_CHAR *)uiTextBInt)[(psRIWriteMEMDESCEntryIN->ui32TextBSize * sizeof(IMG_CHAR))-1]	 = '\0';
 			}
 
 	/* Lock over handle lookup. */
@@ -337,6 +344,12 @@ PVRSRVBridgeRIWriteProcListEntry(IMG_UINT32 ui32DispatchTableEntry,
 			(psRIWriteProcListEntryIN->ui32TextBSize * sizeof(IMG_CHAR)) +
 			0;
 
+		if (psRIWriteProcListEntryIN->ui32TextBSize > DEVMEM_ANNOTATION_MAX_LEN)
+		{
+			psRIWriteProcListEntryOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RIWriteProcListEntry_exit;
+		}
+
 
 
 
@@ -384,6 +397,7 @@ PVRSRVBridgeRIWriteProcListEntry(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto RIWriteProcListEntry_exit;
 				}
+				((IMG_CHAR *)uiTextBInt)[(psRIWriteProcListEntryIN->ui32TextBSize * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 
 

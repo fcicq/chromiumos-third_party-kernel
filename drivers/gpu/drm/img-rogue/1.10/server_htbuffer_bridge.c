@@ -140,6 +140,7 @@ PVRSRVBridgeHTBConfigure(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto HTBConfigure_exit;
 				}
+				((IMG_CHAR *)uiNameInt)[(psHTBConfigureIN->ui32NameSize * sizeof(IMG_CHAR))-1]	= '\0';
 			}
 
 
@@ -191,6 +192,12 @@ PVRSRVBridgeHTBControl(IMG_UINT32 ui32DispatchTableEntry,
 	IMG_UINT32 ui32BufferSize = 
 			(psHTBControlIN->ui32NumGroups * sizeof(IMG_UINT32)) +
 			0;
+
+		if (psHTBControlIN->ui32NumGroups > HTB_FLAG_NUM_EL)
+		{
+			psHTBControlOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto HTBControl_exit;
+		}
 
 
 	PVR_UNREFERENCED_PARAMETER(psConnection);
@@ -291,6 +298,12 @@ PVRSRVBridgeHTBLog(IMG_UINT32 ui32DispatchTableEntry,
 	IMG_UINT32 ui32BufferSize = 
 			(psHTBLogIN->ui32NumArgs * sizeof(IMG_UINT32)) +
 			0;
+
+		if (psHTBLogIN->ui32NumArgs > HTB_LOG_MAX_PARAMS)
+		{
+			psHTBLogOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto HTBLog_exit;
+		}
 
 
 	PVR_UNREFERENCED_PARAMETER(psConnection);

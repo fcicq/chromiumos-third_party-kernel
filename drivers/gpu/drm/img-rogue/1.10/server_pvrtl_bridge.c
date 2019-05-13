@@ -139,6 +139,7 @@ PVRSRVBridgeTLOpenStream(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto TLOpenStream_exit;
 				}
+				((IMG_CHAR *)uiNameInt)[(PRVSRVTL_MAX_STREAM_NAME_SIZE * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 
 
@@ -465,6 +466,12 @@ PVRSRVBridgeTLDiscoverStreams(IMG_UINT32 ui32DispatchTableEntry,
 			0;
 
 
+		if (psTLDiscoverStreamsIN->ui32Size > PVRSRVTL_MAX_DISCOVERABLE_STREAMS_BUFFER)
+		{
+			psTLDiscoverStreamsOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto TLDiscoverStreams_exit;
+		}
+
 	PVR_UNREFERENCED_PARAMETER(psConnection);
 
 	psTLDiscoverStreamsOUT->puiStreams = psTLDiscoverStreamsIN->puiStreams;
@@ -513,6 +520,7 @@ PVRSRVBridgeTLDiscoverStreams(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto TLDiscoverStreams_exit;
 				}
+				((IMG_CHAR *)uiNamePatternInt)[(PRVSRVTL_MAX_STREAM_NAME_SIZE * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 	if (psTLDiscoverStreamsIN->ui32Size != 0)
 	{
@@ -726,6 +734,12 @@ PVRSRVBridgeTLWriteData(IMG_UINT32 ui32DispatchTableEntry,
 	IMG_UINT32 ui32BufferSize = 
 			(psTLWriteDataIN->ui32Size * sizeof(IMG_BYTE)) +
 			0;
+
+		if (psTLWriteDataIN->ui32Size > PVRSRVTL_MAX_PACKET_SIZE)
+		{
+			psTLWriteDataOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto TLWriteData_exit;
+		}
 
 
 
