@@ -55,6 +55,10 @@ extern "C" {
 #define PVRSRV_FENCE_FLAG_SUPPRESS_HWP_PKT (1U << 0)
 #define PVRSRV_FENCE_FLAG_CTX_ATOMIC       (1U << 1)
 
+#define SYNC_FB_FILE_STRING_MAX		256
+#define SYNC_FB_MODULE_STRING_LEN_MAX	(32)
+#define	SYNC_FB_DESC_STRING_LEN_MAX		(32)
+
 /*! Possible states for a PVRSRV_FENCE */
 typedef enum
 {

@@ -55,6 +55,16 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "devicemem_typedefs.h"
 
 /*
+ * This is a generic limit imposed on any DM (TA,3D,CDM,TDM,2D,TRANSFER)
+ * command passed through the bridge.
+ * Just across the bridge in the server, any incoming kick command size is
+ * checked against this maximum limit.
+ * In case the incoming command size is larger than the specified limit,
+ * the bridge call is retired with error.
+ */
+#define RGXFWIF_DM_INDEPENDENT_KICK_CMD_SIZE	(1024)
+
+/*
  * Firmware binary block unit in bytes.
  * Raw data stored in FW binary will be aligned on this size.
  */

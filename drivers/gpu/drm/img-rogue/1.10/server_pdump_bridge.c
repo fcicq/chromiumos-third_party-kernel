@@ -139,6 +139,7 @@ PVRSRVBridgeDevmemPDumpBitmap(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto DevmemPDumpBitmap_exit;
 				}
+				((IMG_CHAR *)uiFileNameInt)[(PVRSRV_PDUMP_MAX_FILENAME_SIZE * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 
 	/* Lock over handle lookup. */
@@ -238,6 +239,12 @@ PVRSRVBridgePDumpImageDescriptor(IMG_UINT32 ui32DispatchTableEntry,
 			(4 * sizeof(IMG_UINT32)) +
 			0;
 
+		if (psPDumpImageDescriptorIN->ui32StringSize > PVRSRV_PDUMP_MAX_FILENAME_SIZE)
+		{
+			psPDumpImageDescriptorOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto PDumpImageDescriptor_exit;
+		}
+
 
 
 
@@ -285,6 +292,7 @@ PVRSRVBridgePDumpImageDescriptor(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto PDumpImageDescriptor_exit;
 				}
+				((IMG_CHAR *)uiFileNameInt)[(psPDumpImageDescriptorIN->ui32StringSize * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 	
 	{
@@ -449,6 +457,7 @@ PVRSRVBridgePVRSRVPDumpComment(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto PVRSRVPDumpComment_exit;
 				}
+				((IMG_CHAR *)uiCommentInt)[(PVRSRV_PDUMP_MAX_COMMENT_SIZE * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 
 

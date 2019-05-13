@@ -120,6 +120,12 @@ PVRSRVBridgeRGXConfigEnableHWPerfCounters(IMG_UINT32 ui32DispatchTableEntry,
 			(psRGXConfigEnableHWPerfCountersIN->ui32ArrayLen * sizeof(RGX_HWPERF_CONFIG_CNTBLK)) +
 			0;
 
+		if (psRGXConfigEnableHWPerfCountersIN->ui32ArrayLen > RGX_HWPERF_MAX_DEFINED_BLKS)
+		{
+			psRGXConfigEnableHWPerfCountersOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXConfigEnableHWPerfCounters_exit;
+		}
+
 
 
 
@@ -214,6 +220,12 @@ PVRSRVBridgeRGXCtrlHWPerfCounters(IMG_UINT32 ui32DispatchTableEntry,
 	IMG_UINT32 ui32BufferSize = 
 			(psRGXCtrlHWPerfCountersIN->ui32ArrayLen * sizeof(IMG_UINT16)) +
 			0;
+
+		if (psRGXCtrlHWPerfCountersIN->ui32ArrayLen > RGX_HWPERF_MAX_DEFINED_BLKS)
+		{
+			psRGXCtrlHWPerfCountersOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXCtrlHWPerfCounters_exit;
+		}
 
 
 
@@ -310,6 +322,12 @@ PVRSRVBridgeRGXConfigCustomCounters(IMG_UINT32 ui32DispatchTableEntry,
 	IMG_UINT32 ui32BufferSize = 
 			(psRGXConfigCustomCountersIN->ui16NumCustomCounters * sizeof(IMG_UINT32)) +
 			0;
+
+		if (psRGXConfigCustomCountersIN->ui16NumCustomCounters > RGX_HWPERF_MAX_CUSTOM_CNTRS)
+		{
+			psRGXConfigCustomCountersOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXConfigCustomCounters_exit;
+		}
 
 
 

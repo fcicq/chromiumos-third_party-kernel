@@ -140,6 +140,7 @@ PVRSRVBridgeDevicememHistoryMap(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto DevicememHistoryMap_exit;
 				}
+				((IMG_CHAR *)uiTextInt)[(DEVMEM_ANNOTATION_MAX_LEN * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 
 	/* Lock over handle lookup. */
@@ -281,6 +282,7 @@ PVRSRVBridgeDevicememHistoryUnmap(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto DevicememHistoryUnmap_exit;
 				}
+				((IMG_CHAR *)uiTextInt)[(DEVMEM_ANNOTATION_MAX_LEN * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 
 	/* Lock over handle lookup. */
@@ -421,6 +423,7 @@ PVRSRVBridgeDevicememHistoryMapVRange(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto DevicememHistoryMapVRange_exit;
 				}
+				((IMG_CHAR *)uiTextInt)[(DEVMEM_ANNOTATION_MAX_LEN * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 
 
@@ -523,6 +526,7 @@ PVRSRVBridgeDevicememHistoryUnmapVRange(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto DevicememHistoryUnmapVRange_exit;
 				}
+				((IMG_CHAR *)uiTextInt)[(DEVMEM_ANNOTATION_MAX_LEN * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 
 
@@ -630,6 +634,7 @@ PVRSRVBridgeDevicememHistorySparseChange(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto DevicememHistorySparseChange_exit;
 				}
+				((IMG_CHAR *)uiTextInt)[(DEVMEM_ANNOTATION_MAX_LEN * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 	if (psDevicememHistorySparseChangeIN->ui32AllocPageCount != 0)
 	{

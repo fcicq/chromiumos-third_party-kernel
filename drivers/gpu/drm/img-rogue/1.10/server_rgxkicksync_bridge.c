@@ -270,6 +270,24 @@ PVRSRVBridgeRGXKickSync(IMG_UINT32 ui32DispatchTableEntry,
 			(32 * sizeof(IMG_CHAR)) +
 			0;
 
+		if (psRGXKickSyncIN->ui32ClientFenceCount > PVRSRV_MAX_SYNC_PRIMS)
+		{
+			psRGXKickSyncOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXKickSync_exit;
+		}
+
+		if (psRGXKickSyncIN->ui32ClientUpdateCount > PVRSRV_MAX_SYNC_PRIMS)
+		{
+			psRGXKickSyncOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXKickSync_exit;
+		}
+
+		if (psRGXKickSyncIN->ui32ServerSyncCount > PVRSRV_MAX_SYNC_PRIMS)
+		{
+			psRGXKickSyncOUT->eError = PVRSRV_ERROR_BRIDGE_ARRAY_SIZE_TOO_BIG;
+			goto RGXKickSync_exit;
+		}
+
 
 
 
@@ -451,6 +469,7 @@ PVRSRVBridgeRGXKickSync(IMG_UINT32 ui32DispatchTableEntry,
 
 					goto RGXKickSync_exit;
 				}
+				((IMG_CHAR *)uiUpdateFenceNameInt)[(32 * sizeof(IMG_CHAR))-1]  = '\0';
 			}
 
 	/* Lock over handle lookup. */
