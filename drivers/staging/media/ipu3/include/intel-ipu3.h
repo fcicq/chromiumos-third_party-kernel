@@ -2817,11 +2817,7 @@ struct ipu3_uapi_params {
 	struct ipu3_uapi_obgrid_param obgrid_param;
 } __packed;
 
-/* custom ctrl to set pipe mode */
 #define V4L2_CID_INTEL_IPU3_BASE (V4L2_CID_USER_BASE + 0x10a0)
 #define V4L2_CID_INTEL_IPU3_MODE (V4L2_CID_INTEL_IPU3_BASE + 1)
-enum ipu3_running_mode {
-	IPU3_RUNNING_MODE_VIDEO = 0,
-	IPU3_RUNNING_MODE_STILL = 1,
-};
+
 #endif
