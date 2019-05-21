@@ -508,37 +508,43 @@ struct mem_size_stats {
 	unsigned long swap;
 	unsigned long nonlinear;
 	u64 pss;
+	u64 pss_anon;
+	u64 pss_file;
+	u64 pss_shmem;
 };
 
 static void smaps_account(struct mem_size_stats *mss, struct page *page,
 		unsigned long size, bool young, bool dirty)
 {
 	int mapcount;
-
-	if (PageAnon(page))
-		mss->anonymous += size;
+	u64 pss_delta;
 
 	mss->resident += size;
 	/* Accumulate the size in pages that have been accessed. */
 	if (young || PageReferenced(page))
 		mss->referenced += size;
 	mapcount = page_mapcount(page);
+	pss_delta = (u64)size << PSS_SHIFT;
 	if (mapcount >= 2) {
-		u64 pss_delta;
-
 		if (dirty || PageDirty(page))
 			mss->shared_dirty += size;
 		else
 			mss->shared_clean += size;
-		pss_delta = (u64)size << PSS_SHIFT;
 		do_div(pss_delta, mapcount);
-		mss->pss += pss_delta;
 	} else {
 		if (dirty || PageDirty(page))
 			mss->private_dirty += size;
 		else
 			mss->private_clean += size;
-		mss->pss += (u64)size << PSS_SHIFT;
+	}
+	mss->pss += pss_delta;
+	if (PageAnon(page)) {
+		mss->anonymous += size;
+		mss->pss_anon += pss_delta;
+	} else if (PageSwapBacked(page)) {
+		mss->pss_shmem += pss_delta;
+	} else {
+		mss->pss_file += pss_delta;
 	}
 }
 
@@ -566,10 +572,8 @@ static void smaps_pte_entry(pte_t *pte, unsigned long addr,
 
 	if (!page)
 		return;
-
 	if (page->index != pgoff)
 		mss->nonlinear += PAGE_SIZE;
-
 	smaps_account(mss, page, PAGE_SIZE, pte_young(*pte), pte_dirty(*pte));
 }
 
@@ -749,6 +753,9 @@ static void add_smaps_sum(struct mem_size_stats *mss,
 {
 	mss_sum->resident += mss->resident;
 	mss_sum->pss += mss->pss;
+	mss_sum->pss_anon += mss->pss_anon;
+	mss_sum->pss_file += mss->pss_file;
+	mss_sum->pss_shmem += mss->pss_shmem;
 	mss_sum->shared_clean += mss->shared_clean;
 	mss_sum->shared_dirty += mss->shared_dirty;
 	mss_sum->private_clean += mss->private_clean;
@@ -795,6 +802,9 @@ static int totmaps_proc_show(struct seq_file *m, void *data)
 	seq_printf(m,
 		   "Rss:            %8lu kB\n"
 		   "Pss:            %8lu kB\n"
+		   "Pss_Anon:       %8lu kB\n"
+		   "Pss_File:       %8lu kB\n"
+		   "Pss_Shmem:      %8lu kB\n"
 		   "Shared_Clean:   %8lu kB\n"
 		   "Shared_Dirty:   %8lu kB\n"
 		   "Private_Clean:  %8lu kB\n"
@@ -805,6 +815,9 @@ static int totmaps_proc_show(struct seq_file *m, void *data)
 		   "Swap:           %8lu kB\n",
 		   mss_sum->resident >> 10,
 		   (unsigned long)(mss_sum->pss >> (10 + PSS_SHIFT)),
+		   (unsigned long)(mss_sum->pss_anon >> (10 + PSS_SHIFT)),
+		   (unsigned long)(mss_sum->pss_file >> (10 + PSS_SHIFT)),
+		   (unsigned long)(mss_sum->pss_shmem >> (10 + PSS_SHIFT)),
 		   mss_sum->shared_clean  >> 10,
 		   mss_sum->shared_dirty  >> 10,
 		   mss_sum->private_clean >> 10,
