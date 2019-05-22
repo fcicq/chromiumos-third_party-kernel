@@ -512,6 +512,7 @@ static void imgu_video_nodes_exit(struct imgu_device *imgu)
 	imgu->vb2_alloc_ctx = NULL;
 	for (i = 0; i < IMGU_MAX_PIPE_NUM; i++)
 		imgu_dummybufs_cleanup(imgu, i);
+
 	imgu_v4l2_unregister(imgu);
 }
 

@@ -848,11 +848,11 @@ static int imgu_css_osys_calc_frame_and_stripe_params(
  * stripes, scaler luma and chrome parameters
  */
 static int imgu_css_osys_calc(struct imgu_css *css, unsigned int pipe,
-			       unsigned int stripes,
-			       struct imgu_abi_osys_config *osys,
-			       struct imgu_css_scaler_info *scaler_luma,
-			       struct imgu_css_scaler_info *scaler_chroma,
-			       struct imgu_abi_stripes block_stripes[])
+			      unsigned int stripes,
+			      struct imgu_abi_osys_config *osys,
+			      struct imgu_css_scaler_info *scaler_luma,
+			      struct imgu_css_scaler_info *scaler_chroma,
+			      struct imgu_abi_stripes block_stripes[])
 {
 	struct imgu_css_frame_params frame_params[IMGU_ABI_OSYS_PINS];
 	struct imgu_css_stripe_params stripe_params[IPU3_UAPI_MAX_STRIPES];
@@ -867,8 +867,7 @@ static int imgu_css_osys_calc(struct imgu_css *css, unsigned int pipe,
 						       scaler_luma,
 						       scaler_chroma,
 						       frame_params,
-						       stripe_params,
-						       pipe))
+						       stripe_params, pipe))
 		return -EINVAL;
 
 	/* Output formatter system parameters */
@@ -1731,7 +1730,7 @@ static void imgu_css_grid_end_calc(struct ipu3_uapi_grid_config *grid_cfg)
 /****************** config computation *****************************/
 
 static int imgu_css_cfg_acc_stripe(struct imgu_css *css, unsigned int pipe,
-				    struct imgu_abi_acc_param *acc)
+				   struct imgu_abi_acc_param *acc)
 {
 	struct imgu_css_pipe *css_pipe = &css->pipes[pipe];
 	const struct imgu_fw_info *bi =
@@ -1746,7 +1745,7 @@ static int imgu_css_cfg_acc_stripe(struct imgu_css *css, unsigned int pipe,
 	/* acc_param: osys_config */
 
 	if (imgu_css_osys_calc(css, pipe, stripes, &acc->osys, &scaler_luma,
-			   &scaler_chroma, acc->stripe.block_stripes))
+			       &scaler_chroma, acc->stripe.block_stripes))
 		return -EINVAL;
 
 	/* acc_param: stripe data */
@@ -2522,8 +2521,7 @@ int imgu_css_cfg_acc(struct imgu_css *css, unsigned int pipe,
 
 	if (use && use->acc_af) {
 		/* Take values from user */
-		acc->af.config.filter_config =
-				acc_user->af.config.filter_config;
+		acc->af.config.filter_config = acc_user->af.config.filter_config;
 		acc->af.config.grid_cfg = acc_user->af.config.grid_cfg;
 	} else if (acc_old) {
 		/* Use old value */
