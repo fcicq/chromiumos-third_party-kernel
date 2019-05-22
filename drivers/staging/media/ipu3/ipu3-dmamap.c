@@ -91,7 +91,9 @@ static struct page **imgu_dmamap_alloc_buffer(size_t size,
  * @map: struct to store mapping variables
  * @len: size required
  *
- * Return KVA on success or NULL on failure
+ * Returns:
+ *  KVA on success
+ *  %NULL on failure
  */
 void *imgu_dmamap_alloc(struct imgu_device *imgu, struct imgu_css_map *map,
 			size_t len)

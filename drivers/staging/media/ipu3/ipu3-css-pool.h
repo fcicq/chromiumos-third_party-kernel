@@ -16,7 +16,7 @@ struct imgu_device;
  * @vaddr:		kernel virtual address.
  * @daddr:		iova dma address to access IPU3.
  * @vma:		private, a pointer to &struct vm_struct,
- * 			used for imgu_dmamap_free.
+ *			used for imgu_dmamap_free.
  */
 struct imgu_css_map {
 	size_t size;
@@ -30,7 +30,7 @@ struct imgu_css_map {
  *
  * @entry:		array with IPU3_CSS_POOL_SIZE elements.
  * @entry.param:	a &struct imgu_css_map for storing the mem mapping.
- * @entry.valid:	used to mark if the entry has vaid data.
+ * @entry.valid:	used to mark if the entry has valid data.
  * @last:		write pointer, initialized to IPU3_CSS_POOL_SIZE.
  */
 struct imgu_css_pool {

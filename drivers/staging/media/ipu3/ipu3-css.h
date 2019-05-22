@@ -108,7 +108,7 @@ struct imgu_css_pipe {
 	struct v4l2_rect rect[IPU3_CSS_RECTS];
 
 	bool vf_output_en;
-
+	/* Protect access to queue[IPU3_CSS_QUEUES] */
 	spinlock_t qlock;
 
 	/* Data structures shared with IMGU and driver, always allocated */
