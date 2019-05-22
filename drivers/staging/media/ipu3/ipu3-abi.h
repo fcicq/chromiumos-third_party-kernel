@@ -1527,9 +1527,9 @@ struct imgu_abi_blob_info {
 	u32 bss_size;			/* Size of bss section
 					 * Dynamic data filled by loader
 					 */
-	u64 code __attribute__((aligned(8)));	/* Code section absolute pointer */
+	u64 code __aligned(8);	/* Code section absolute pointer */
 					/* within fw, code = icache + text */
-	u64 data __attribute__((aligned(8)));	/* Data section absolute pointer */
+	u64 data __aligned(8);	/* Data section absolute pointer */
 					/* within fw, data = data + bss */
 } __packed;
 
@@ -1636,7 +1636,7 @@ struct imgu_abi_isp_param_segments {
 } __packed;
 
 struct imgu_abi_binary_info {
-	u32 id __attribute__((aligned(8)));		/* IMGU_ABI_BINARY_ID_* */
+	u32 id __aligned(8);		/* IMGU_ABI_BINARY_ID_* */
 	struct imgu_abi_binary_pipeline_info pipeline;
 	struct imgu_abi_binary_input_info input;
 	struct imgu_abi_binary_output_info output;
@@ -1986,7 +1986,7 @@ struct imgu_abi_buffer {
 	 * uint64_t does not exist on SP/ISP.
 	 * Size of the struct is checked by sp.hive.c.
 	 */
-	u64 cookie_ptr __attribute__((aligned(8)));
+	u64 cookie_ptr __aligned(8);
 	u64 kernel_ptr;
 	struct imgu_abi_time_meas timing_data;
 	u32 isys_eof_clock_tick;
