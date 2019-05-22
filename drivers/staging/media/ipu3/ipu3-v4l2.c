@@ -17,13 +17,21 @@
 
 static int imgu_subdev_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 {
+	struct imgu_v4l2_subdev *imgu_sd = container_of(sd,
+							struct imgu_v4l2_subdev,
+							subdev);
+	struct imgu_device *imgu = v4l2_get_subdevdata(sd);
+	struct imgu_media_pipe *imgu_pipe = &imgu->imgu_pipe[imgu_sd->pipe];
 	struct v4l2_rect try_crop = {
 		.top = 0,
 		.left = 0,
-		.width = 1920,
-		.height = 1080,
 	};
 	unsigned int i;
+
+	try_crop.width =
+		imgu_pipe->nodes[IMGU_NODE_IN].vdev_fmt.fmt.pix_mp.width;
+	try_crop.height =
+		imgu_pipe->nodes[IMGU_NODE_IN].vdev_fmt.fmt.pix_mp.height;
 
 	/* Initialize try_fmt */
 	for (i = 0; i < IMGU_NODE_NUM; i++) {
@@ -32,8 +40,7 @@ static int imgu_subdev_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 
 		try_fmt->width = try_crop.width;
 		try_fmt->height = try_crop.height;
-		try_fmt->code = MEDIA_BUS_FMT_FIXED;
-		try_fmt->colorspace = V4L2_COLORSPACE_RAW;
+		try_fmt->code = imgu_pipe->nodes[i].pad_fmt.code;
 		try_fmt->field = V4L2_FIELD_NONE;
 	}
 
@@ -1344,11 +1351,12 @@ int imgu_v4l2_register(struct imgu_device *imgu)
 		 "%s", dev_name(&imgu->pci_dev->dev));
 	imgu->media_dev.driver_version = LINUX_VERSION_CODE;
 	imgu->media_dev.hw_revision = 0;
+
 	r = media_device_register(&imgu->media_dev);
 	if (r) {
 		dev_err(&imgu->pci_dev->dev,
 			"failed to register media device (%d)\n", r);
-		return r;
+		goto fail_subdevs;
 	}
 
 	/* Set up v4l2 device */
@@ -1386,7 +1394,6 @@ fail_v4l2_dev:
 
 	return r;
 }
-EXPORT_SYMBOL_GPL(imgu_v4l2_register);
 
 int imgu_v4l2_unregister(struct imgu_device *imgu)
 {
@@ -1396,7 +1403,6 @@ int imgu_v4l2_unregister(struct imgu_device *imgu)
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(imgu_v4l2_unregister);
 
 void imgu_v4l2_buffer_done(struct vb2_buffer *vb,
 			   enum vb2_buffer_state state)
@@ -1407,4 +1413,3 @@ void imgu_v4l2_buffer_done(struct vb2_buffer *vb,
 	list_del(&b->list);
 	vb2_buffer_done(&b->vbb.vb2_buf, state);
 }
-EXPORT_SYMBOL_GPL(imgu_v4l2_buffer_done);
