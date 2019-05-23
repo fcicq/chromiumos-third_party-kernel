@@ -296,10 +296,8 @@ enum oom_scan_t oom_scan_process_thread(struct oom_control *oc,
 		if (!is_sysrq_oom(oc)) {
 			if (time_after(jiffies,
 				       last_victim + msecs_to_jiffies(100))) {
-				pr_warn("Task %s:%d refused to die (killer %s:%d:%d, nvcsw=%lu, nivcsw=%lu)\n",
-					task->comm, task->pid, current->comm,
-					current->pid, current->tgid,
-					current->nvcsw, current->nivcsw);
+				pr_warn("Task %s:%d refused to die\n",
+					task->comm, task->pid);
 				if (task->state != TASK_RUNNING) {
 					sched_show_task(task);
 					return OOM_SCAN_CONTINUE;
