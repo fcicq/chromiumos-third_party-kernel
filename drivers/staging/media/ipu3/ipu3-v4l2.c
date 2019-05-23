@@ -807,16 +807,29 @@ static int imgu_vidioc_s_fmt(struct file *file, void *fh, struct v4l2_format *f)
 	return imgu_fmt(imgu, node->pipe, node->id, f, false);
 }
 
+struct imgu_meta_fmt {
+	__u32 fourcc;
+	char *name;
+};
+
+/* From drivers/media/v4l2-core/v4l2-ioctl.c */
+static const struct imgu_meta_fmt meta_fmts[] = {
+	{ V4L2_META_FMT_IPU3_PARAMS, "IPU3 processing parameters" },
+	{ V4L2_META_FMT_IPU3_STAT_3A, "IPU3 3A statistics" },
+};
+
 static int imgu_meta_enum_format(struct file *file, void *fh,
-				 struct v4l2_fmtdesc *f)
+				 struct v4l2_fmtdesc *fmt)
 {
 	struct imgu_video_device *node = file_to_intel_imgu_node(file);
+	unsigned int i = fmt->type == V4L2_BUF_TYPE_META_OUTPUT ? 0 : 1;
 
 	/* Each node is dedicated to only one meta format */
-	if (f->index > 0 || f->type != node->vbq.type)
+	if (fmt->index > 0 || fmt->type != node->vbq.type)
 		return -EINVAL;
 
-	f->pixelformat = node->vdev_fmt.fmt.meta.dataformat;
+	strscpy(fmt->description, meta_fmts[i].name, sizeof(fmt->description));
+	fmt->pixelformat = meta_fmts[i].fourcc;
 
 	return 0;
 }
