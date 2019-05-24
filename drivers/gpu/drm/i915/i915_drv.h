@@ -336,7 +336,7 @@ struct drm_i915_file_private {
 
 	struct intel_rps_client {
 		struct list_head link;
-		atomic_t boosts;
+		unsigned boosts;
 	} rps;
 
 	unsigned int bsd_engine;
@@ -1093,10 +1093,13 @@ struct intel_gen6_power_mgmt {
 	int last_adj;
 	enum { LOW_POWER, BETWEEN, HIGH_POWER } power;
 
+	spinlock_t client_lock;
+	struct list_head clients;
+	bool client_boost;
+
 	bool enabled;
 	struct delayed_work autoenable_work;
-	atomic_t num_waiters;
-	atomic_t boosts;
+	unsigned boosts;
 
 	/* manual wa residency calculations */
 	struct intel_rps_ei ei;
