@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Copyright (C) 2017 Intel Corporation
- * Copyright 2017 Google LLC.
+ * Copyright (C) 2017 - 2018 Intel Corporation
+ * Copyright 2017 Google LLC
  *
  * Based on Intel IPU4 driver.
  *
