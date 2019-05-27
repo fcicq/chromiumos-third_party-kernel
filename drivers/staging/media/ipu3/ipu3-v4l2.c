@@ -277,7 +277,6 @@ static int imgu_link_setup(struct media_entity *entity,
 	unsigned int pipe = imgu_sd->pipe;
 	u32 pad = local->index;
 
-	WARN_ON(entity->type != MEDIA_ENT_T_V4L2_SUBDEV);
 	WARN_ON(pad >= IMGU_NODE_NUM);
 
 	dev_dbg(&imgu->pci_dev->dev, "pipe %u pad %u is %s", pipe, pad,
