@@ -6,32 +6,15 @@
 
 #include <linux/types.h>
 
-/********************* Key Acronyms *************************/
-/*
- * ACC - Accelerator cluster
- * ANR - Adaptive noise reduction
- * AWB_FR- Auto white balance filter response statistics
- * BNR - Bayer noise reduction parameters
- * BDS - Bayer downscaler parameters
- * CCM - Color correction matrix coefficients
- * CDS - Chroma down sample
- * CHNR - Chroma noise reduction
- * CSC - Color space conversion
- * DM - De-mosaic
- * IEFd - Image enhancement filter directed
- * Obgrid - Optical black level compensation
- * OSYS - Output system configuration
- * ROI - Region of interest
- * SHD - Lens shading correction table
- * TCC - Total color correction
- * YDS - Y down sampling
- * YTM - Y-tone mapping
- */
+/* from /drivers/staging/media/ipu3/include/videodev2.h */
 
-/*
- * IPU3 DMA operations require buffers to be aligned at
- * 32 byte boundaries
- */
+/* Vendor specific - used for IPU3 camera sub-system */
+#define V4L2_META_FMT_IPU3_PARAMS	v4l2_fourcc('i', 'p', '3', 'p') /* IPU3 processing parameters */
+#define V4L2_META_FMT_IPU3_STAT_3A	v4l2_fourcc('i', 'p', '3', 's') /* IPU3 3A statistics */
+
+/* from include/uapi/linux/v4l2-controls.h */
+#define V4L2_CID_INTEL_IPU3_BASE	(V4L2_CID_USER_BASE + 0x10c0)
+#define V4L2_CID_INTEL_IPU3_MODE	(V4L2_CID_INTEL_IPU3_BASE + 1)
 
 /******************* ipu3_uapi_stats_3a *******************/
 
@@ -90,22 +73,17 @@ struct ipu3_uapi_grid_config {
 #define IPU3_UAPI_AWB_MAX_BUFFER_SIZE \
 	(IPU3_UAPI_AWB_MAX_SETS * \
 	 (IPU3_UAPI_AWB_SET_SIZE + IPU3_UAPI_AWB_SPARE_FOR_BUBBLES))
-/**
- * struct ipu3_uapi_awb_meta_data - AWB meta data
- *
- * @meta_data_buffer:	Average values for each color channel
- */
-struct ipu3_uapi_awb_meta_data {
-	__u8 meta_data_buffer[IPU3_UAPI_AWB_MAX_BUFFER_SIZE];
-} __packed;
+
 
 /**
  * struct ipu3_uapi_awb_raw_buffer - AWB raw buffer
  *
- * @meta_data: buffer to hold auto white balance meta data.
+ * @meta_data: buffer to hold auto white balance meta data which is
+ *		the average values for each color channel.
  */
 struct ipu3_uapi_awb_raw_buffer {
-	struct ipu3_uapi_awb_meta_data meta_data;
+	__u8 meta_data[IPU3_UAPI_AWB_MAX_BUFFER_SIZE]
+		__attribute__((aligned(32)));
 } __packed;
 
 /**
@@ -142,13 +120,13 @@ struct ipu3_uapi_awb_config {
 #define IPU3_UAPI_AE_WEIGHTS				96
 
 /**
- * struct ipu3_uapi_ae_raw_buffer - AE global weighted histogram
- *
- * @vals: Sum of IPU3_UAPI_AE_COLORS in cell
- *
- * Each histogram contains IPU3_UAPI_AE_BINS bins. Each bin has 24 bit unsigned
- * for counting the number of the pixel.
- */
+ + * struct ipu3_uapi_ae_raw_buffer - AE global weighted histogram
+ + *
+ + * @vals: Sum of IPU3_UAPI_AE_COLORS in cell
+ + *
+ + * Each histogram contains IPU3_UAPI_AE_BINS bins. Each bin has 24 bit unsigned
+ + * for counting the number of the pixel.
+ + */
 struct ipu3_uapi_ae_raw_buffer {
 	__u32 vals[IPU3_UAPI_AE_BINS * IPU3_UAPI_AE_COLORS];
 } __packed;
@@ -167,10 +145,12 @@ struct ipu3_uapi_ae_raw_buffer_aligned {
  *
  * @width: Grid horizontal dimensions. Value: [16, 32], default 16.
  * @height: Grid vertical dimensions. Value: [16, 24], default 16.
- * @block_width_log2: Log2 of the width of the grid cell, 2^3 = 16.
- * @block_height_log2: Log2 of the height of the grid cell, 2^3 = 16.
- * @__reserved0: reserved
- * @ae_en: 0: does not write to meta-data array, 1: write normally.
+ * @block_width_log2: Log2 of the width of the grid cell, value: [3, 7].
+ * @block_height_log2: Log2 of the height of the grid cell, value: [3, 7].
+ *			default is 3 (cell size 8x8), 4 cell per grid.
+ * @reserved0: reserved
+ * @ae_en: 0: does not write to &ipu3_uapi_ae_raw_buffer_aligned array,
+ *		1: write normally.
  * @rst_hist_array: write 1 to trigger histogram array reset.
  * @done_rst_hist_array: flag for histogram array reset done.
  * @x_start: X value of top left corner of ROI, default 0.
@@ -187,7 +167,7 @@ struct ipu3_uapi_ae_grid_config {
 	__u8 height;
 	__u8 block_width_log2:4;
 	__u8 block_height_log2:4;
-	__u8 __reserved0:5;
+	__u8 reserved0:5;
 	__u8 ae_en:1;
 	__u8 rst_hist_array:1;
 	__u8 done_rst_hist_array:1;
@@ -265,7 +245,7 @@ struct ipu3_uapi_ae_ccm {
 struct ipu3_uapi_ae_config {
 	struct ipu3_uapi_ae_grid_config grid_cfg __attribute__((aligned(32)));
 	struct ipu3_uapi_ae_weight_elem weights[
-						IPU3_UAPI_AE_WEIGHTS] __attribute__((aligned(32)));
+			IPU3_UAPI_AE_WEIGHTS] __attribute__((aligned(32)));
 	struct ipu3_uapi_ae_ccm ae_ccm __attribute__((aligned(32)));
 } __packed;
 
@@ -321,14 +301,14 @@ struct ipu3_uapi_ae_config {
  * @y_calc.y_gen_rate_gb:	Contribution ratio Gb for Y
  * @nf:	The shift right value that should be applied during the Y1/Y2 filter to
  *	make sure the total memory needed is 2 bytes per grid cell.
- * @nf.__reserved0:	reserved
+ * @nf.reserved0:	reserved
  * @nf.y1_nf:	Normalization factor for the convolution coeffs of y1,
  *		should be log2 of the sum of the abs values of the filter
  *		coeffs, default 7 (2^7 = 128).
- * @nf.__reserved1:	reserved
+ * @nf.reserved1:	reserved
  * @nf.y2_nf:	Normalization factor for y2, should be log2 of the sum of the
  *		abs values of the filter coeffs.
- * @nf.__reserved2:	reserved
+ * @nf.reserved2:	reserved
  */
 struct ipu3_uapi_af_filter_config {
 	struct {
@@ -381,11 +361,11 @@ struct ipu3_uapi_af_filter_config {
 	} y_calc;
 
 	struct {
-		__u32 __reserved0:8;
+		__u32 reserved0:8;
 		__u32 y1_nf:4;
-		__u32 __reserved1:4;
+		__u32 reserved1:4;
 		__u32 y2_nf:4;
-		__u32 __reserved2:12;
+		__u32 reserved2:12;
 	} nf;
 } __packed;
 
@@ -401,23 +381,14 @@ struct ipu3_uapi_af_filter_config {
 	 IPU3_UAPI_MAX_STRIPES)
 
 /**
- * struct ipu3_uapi_af_meta_data - AF meta data
+ * struct ipu3_uapi_af_raw_buffer - AF meta data
  *
  * @y_table:	Each color component will be convolved separately with filter1
  *		and filter2 and the result will be summed out and averaged for
  *		each cell.
  */
-struct ipu3_uapi_af_meta_data {
-	__u8 y_table[IPU3_UAPI_AF_Y_TABLE_MAX_SIZE] __attribute__((aligned(32)));
-} __packed;
-
-/**
- * struct ipu3_uapi_af_raw_buffer - AF raw buffer
- *
- * @meta_data: raw buffer &ipu3_uapi_af_meta_data for auto focus meta data.
- */
 struct ipu3_uapi_af_raw_buffer {
-	struct ipu3_uapi_af_meta_data meta_data __attribute__((aligned(32)));
+	__u8 y_table[IPU3_UAPI_AF_Y_TABLE_MAX_SIZE] __attribute__((aligned(32)));
 } __packed;
 
 /**
@@ -435,15 +406,6 @@ struct ipu3_uapi_af_config_s {
 	struct ipu3_uapi_grid_config grid_cfg __attribute__((aligned(32)));
 } __packed;
 
-/**
- * struct ipu3_uapi_af_config - AF config wrapper
- *
- * @config: config for auto focus as defined by &ipu3_uapi_af_config_s
- */
-struct ipu3_uapi_af_config {
-	struct ipu3_uapi_af_config_s config;
-} __packed;
-
 #define IPU3_UAPI_AWB_FR_MAX_SETS			24
 #define IPU3_UAPI_AWB_FR_MD_ITEM_SIZE			8
 #define IPU3_UAPI_AWB_FR_BAYER_TBL_SIZE			256
@@ -458,19 +420,11 @@ struct ipu3_uapi_af_config {
 /**
  * struct ipu3_uapi_awb_fr_meta_data - AWB filter response meta data
  *
- * @bayer_table: Statistics output on the grid after convolving with 1D filter.
- */
-struct ipu3_uapi_awb_fr_meta_data {
-	__u8 bayer_table[IPU3_UAPI_AWB_FR_BAYER_TABLE_MAX_SIZE] __attribute__((aligned(32)));
-} __packed;
-
-/**
- * struct ipu3_uapi_awb_fr_raw_buffer - AWB filter response raw buffer
- *
- * @meta_data: See &ipu3_uapi_awb_fr_meta_data.
+ * @meta_data: Statistics output on the grid after convolving with 1D filter.
  */
 struct ipu3_uapi_awb_fr_raw_buffer {
-	struct ipu3_uapi_awb_fr_meta_data meta_data;
+	__u8 meta_data[IPU3_UAPI_AWB_FR_BAYER_TABLE_MAX_SIZE]
+		__attribute__((aligned(32)));
 } __packed;
 
 /**
@@ -481,31 +435,22 @@ struct ipu3_uapi_awb_fr_raw_buffer {
  *			coefficients defaults { 0, 0, 0, 0, 0, 128 }.
  *			Applied on whole image for each Bayer channel separately
  *			by a weighted sum of its 11x1 neighbors.
- * @__reserved1:	reserved
+ * @reserved1:	reserved
  * @bayer_sign:	sign of filter coefficients, default 0.
  * @bayer_nf:	normalization factor for the convolution coeffs, to make sure
  *		total memory needed is within pre-determined range.
  *		NF should be the log2 of the sum of the abs values of the
  *		filter coeffs, range [7, 14], default 7.
- * @__reserved2:	reserved
+ * @reserved2:	reserved
  */
 struct ipu3_uapi_awb_fr_config_s {
 	struct ipu3_uapi_grid_config grid_cfg;
 	__u8 bayer_coeff[6];
-	__u16 __reserved1;
+	__u16 reserved1;
 	__u32 bayer_sign;
 	__u8 bayer_nf;
-	__u8 __reserved2[3];
+	__u8 reserved2[3];
 } __attribute__((aligned(32))) __packed;
-
-/**
- * struct ipu3_uapi_awb_fr_config - AWB filter response config wrapper
- *
- * @config:	See &ipu3_uapi_awb_fr_config_s.
- */
-struct ipu3_uapi_awb_fr_config {
-	struct ipu3_uapi_awb_fr_config_s config;
-} __packed;
 
 /**
  * struct ipu3_uapi_4a_config - 4A config
@@ -536,7 +481,7 @@ struct ipu3_uapi_4a_config {
  * @padding1: padding bytes.
  * @size_of_set: set size.
  * @padding2: padding bytes.
- * @bubble_size: is the amount of padding in the bubble expressed in “sets”.
+ * @bubble_size: is the amount of padding in the bubble expressed in "sets".
  * @padding3: padding bytes.
  */
 struct ipu3_uapi_bubble_info {
@@ -596,7 +541,7 @@ struct ipu3_uapi_ff_status {
  * @stats_3a_status: 3a statistics status set in &ipu3_uapi_ff_status
  */
 struct ipu3_uapi_stats_3a {
-	struct ipu3_uapi_awb_raw_buffer awb_raw_buffer __attribute__((aligned(32)));
+	struct ipu3_uapi_awb_raw_buffer awb_raw_buffer;
 	struct ipu3_uapi_ae_raw_buffer_aligned
 			ae_raw_buffer[IPU3_UAPI_MAX_STRIPES];
 	struct ipu3_uapi_af_raw_buffer af_raw_buffer;
@@ -646,7 +591,7 @@ struct ipu3_uapi_stats_3a {
  * @b:	white balance gain for B channel.
  * @gb:	white balance gain for Gb channel.
  *
- * Precision u3.13, range [0, 8]. White balance correction is done by applying
+ * Precision u3.13, range [0, 8). White balance correction is done by applying
  * a multiplicative gain to each color channels prior to BNR.
  */
 struct ipu3_uapi_bnr_static_config_wb_gains_config {
@@ -680,15 +625,15 @@ struct ipu3_uapi_bnr_static_config_wb_gains_thr_config {
  *				coefficients that controls noise threshold
  *
  * @cf:	Free coefficient for threshold calculation, range [0, 8191], default 0.
- * @__reserved0:	reserved
+ * @reserved0:	reserved
  * @cg:	Gain coefficient for threshold calculation, [0, 31], default 8.
  * @ci:	Intensity coefficient for threshold calculation. range [0, 0x1f]
  *	default 6.
  * 	format: u3.2 (3 most significant bits represent whole number,
  *	2 least significant bits represent the fractional part
  *	with each count representing 0.25)
- *	e.g 6 in binary format is 00110, that translates to 1.5
- * @__reserved1:	reserved
+ *	e.g. 6 in binary format is 00110, that translates to 1.5
+ * @reserved1:	reserved
  * @r_nf:	Normalization shift value for r^2 calculation, range [12, 20]
  *		where r is a radius of pixel [row, col] from centor of sensor.
  *		default 14.
@@ -697,10 +642,10 @@ struct ipu3_uapi_bnr_static_config_wb_gains_thr_config {
  */
 struct ipu3_uapi_bnr_static_config_thr_coeffs_config {
 	__u32 cf:13;
-	__u32 __reserved0:3;
+	__u32 reserved0:3;
 	__u32 cg:5;
 	__u32 ci:5;
-	__u32 __reserved1:1;
+	__u32 reserved1:1;
 	__u32 r_nf:5;
 } __packed;
 
@@ -726,18 +671,18 @@ struct ipu3_uapi_bnr_static_config_thr_ctrl_shd_config {
  * struct ipu3_uapi_bnr_static_config_opt_center_config - Optical center config
  *
  * @x_reset:	Reset value of X (col start - X center). Precision s12.0.
- * @__reserved0:	reserved
+ * @reserved0:	reserved
  * @y_reset:	Reset value of Y (row start - Y center). Precision s12.0.
- * @__reserved2:	reserved
+ * @reserved2:	reserved
  *
  * Distance from corner to optical center for NM adaptation due to shading
  * correction (should be calculated based on shading tables)
  */
 struct ipu3_uapi_bnr_static_config_opt_center_config {
 	__s32 x_reset:13;
-	__u32 __reserved0:3;
+	__u32 reserved0:3;
 	__s32 y_reset:13;
-	__u32 __reserved2:3;
+	__u32 reserved2:3;
 } __packed;
 
 /**
@@ -758,31 +703,31 @@ struct ipu3_uapi_bnr_static_config_lut_config {
  *			defect pixel can be from its neighbors. Threshold is
  *			dependent on de-noise threshold calculated by algorithm.
  *			Range [4, 31], default 4.
- * @__reserved0:	reserved
+ * @reserved0:	reserved
  * @defect_mode:	Mode of addressed defect pixels,
- *			0 – single defect pixel is expected,
+ *			0 - single defect pixel is expected,
  *			1 - 2 adjacent defect pixels are expected, default 1.
  * @bp_gain:	Defines how 2nd derivation that passes through a defect pixel
  *		is different from 2nd derivations that pass through
  *		neighbor pixels. u4.2, range [0, 256], default 8.
- * @__reserved1:	reserved
+ * @reserved1:	reserved
  * @w0_coeff:	Blending coefficient of defect pixel correction.
  *		Precision u4, range [0, 8], default 8.
- * @__reserved2:	reserved
+ * @reserved2:	reserved
  * @w1_coeff:	Enable influence of incorrect defect pixel correction to be
  *		avoided. Precision u4, range [1, 8], default 8.
- * @__reserved3:	reserved
+ * @reserved3:	reserved
  */
 struct ipu3_uapi_bnr_static_config_bp_ctrl_config {
 	__u32 bp_thr_gain:5;
-	__u32 __reserved0:2;
+	__u32 reserved0:2;
 	__u32 defect_mode:1;
 	__u32 bp_gain:6;
-	__u32 __reserved1:18;
+	__u32 reserved1:18;
 	__u32 w0_coeff:4;
-	__u32 __reserved2:4;
+	__u32 reserved2:4;
 	__u32 w1_coeff:4;
-	__u32 __reserved3:20;
+	__u32 reserved3:20;
 } __packed;
 
 /**
@@ -797,30 +742,30 @@ struct ipu3_uapi_bnr_static_config_bp_ctrl_config {
  *		format: u0.4 (no / zero bits represent whole number,
  *		4 bits represent the fractional part
  *		with each count representing 0.0625)
- *		e.g 0xf translates to 0.0625x15 = 0.9375
+ *		e.g. 0xf translates to 0.0625x15 = 0.9375
  *
- * @__reserved0:	reserved
+ * @reserved0:	reserved
  * @max_inf:	Maximum increase of peripheral or diagonal element influence
  *		relative to the pre-defined value range: [0x5, 0xa]
- * @__reserved1:	reserved
+ * @reserved1:	reserved
  * @gd_enable:	Green disparity enable control, 0 - disable, 1 - enable.
  * @bpc_enable:	Bad pixel correction enable control, 0 - disable, 1 - enable.
  * @bnr_enable:	Bayer noise removal enable control, 0 - disable, 1 - enable.
  * @ff_enable:	Fixed function enable, 0 - disable, 1 - enable.
- * @__reserved2:	reserved
+ * @reserved2:	reserved
  */
 struct ipu3_uapi_bnr_static_config_dn_detect_ctrl_config {
 	__u32 alpha:4;
 	__u32 beta:4;
 	__u32 gamma:4;
-	__u32 __reserved0:4;
+	__u32 reserved0:4;
 	__u32 max_inf:4;
-	__u32 __reserved1:7;
+	__u32 reserved1:7;
 	__u32 gd_enable:1;
 	__u32 bpc_enable:1;
 	__u32 bnr_enable:1;
 	__u32 ff_enable:1;
-	__u32 __reserved2:1;
+	__u32 reserved2:1;
 } __packed;
 
 /**
@@ -882,19 +827,19 @@ struct ipu3_uapi_bnr_static_config {
  *
  * @gd_red:	Shading gain coeff for gr disparity level in bright red region.
  *		Precision u0.6, default 4(0.0625).
- * @__reserved0:	reserved
+ * @reserved0:	reserved
  * @gd_green:	Shading gain coeff for gr disparity level in bright green
  *		region. Precision u0.6, default 4(0.0625).
- * @__reserved1:	reserved
+ * @reserved1:	reserved
  * @gd_blue:	Shading gain coeff for gr disparity level in bright blue region.
  *		Precision u0.6, default 4(0.0625).
- * @__reserved2:	reserved
+ * @reserved2:	reserved
  * @gd_black:	Maximal green disparity level in dark region (stronger disparity
  *		assumed to be image detail). Precision u14, default 80.
- * @__reserved3:	reserved
+ * @reserved3:	reserved
  * @gd_shading:	Change maximal green disparity level according to square
  *		distance from image center.
- * @__reserved4:	reserved
+ * @reserved4:	reserved
  * @gd_support:	Lower bound for the number of second green color pixels in
  *		current pixel neighborhood with less than threshold difference
  *		from it.
@@ -902,23 +847,23 @@ struct ipu3_uapi_bnr_static_config {
  * The shading gain coeff of red, green, blue and black are used to calculate
  * threshold given a pixel's color value and its coordinates in the image.
  *
- * @__reserved5:	reserved
+ * @reserved5:	reserved
  * @gd_clip:	Turn green disparity clip on/off, [0, 1], default 1.
  * @gd_central_weight:	Central pixel weight in 9 pixels weighted sum.
  */
 struct ipu3_uapi_bnr_static_config_green_disparity {
 	__u32 gd_red:6;
-	__u32 __reserved0:2;
+	__u32 reserved0:2;
 	__u32 gd_green:6;
-	__u32 __reserved1:2;
+	__u32 reserved1:2;
 	__u32 gd_blue:6;
-	__u32 __reserved2:10;
+	__u32 reserved2:10;
 	__u32 gd_black:14;
-	__u32 __reserved3:2;
+	__u32 reserved3:2;
 	__u32 gd_shading:7;
-	__u32 __reserved4:1;
+	__u32 reserved4:1;
 	__u32 gd_support:2;
-	__u32 __reserved5:1;
+	__u32 reserved5:1;
 	__u32 gd_clip:1;
 	__u32 gd_central_weight:4;
 } __packed;
@@ -929,26 +874,27 @@ struct ipu3_uapi_bnr_static_config_green_disparity {
  * @dm_en:	de-mosaic enable.
  * @ch_ar_en:	Checker artifacts removal enable flag. Default 0.
  * @fcc_en:	False color correction (FCC) enable flag. Default 0.
- * @__reserved0:	reserved
+ * @reserved0:	reserved
  * @frame_width:	do not care
  * @gamma_sc:	Sharpening coefficient (coefficient of 2-d derivation of
  *		complementary color in Hamilton-Adams interpolation).
  *		u5, range [0, 31], default 8.
- * @__reserved1:	reserved
+ * @reserved1:	reserved
  * @lc_ctrl:	Parameter that controls weights of Chroma Homogeneity metric
  *		in calculation of final homogeneity metric.
  *		u5, range [0, 31], default 7.
- * @__reserved2:	reserved
+ * @reserved2:	reserved
  * @cr_param1:	First parameter that defines Checker artifact removal
- *		feature gain.Precision u5, range [0, 31], default 8.
- * @__reserved3:	reserved
+ *		feature gain. Precision u5, range [0, 31], default 8.
+ * @reserved3:	reserved
  * @cr_param2:	Second parameter that defines Checker artifact removal
  *		feature gain. Precision u5, range [0, 31], default 8.
- * @__reserved4:	reserved
+ * @reserved4:	reserved
  * @coring_param:	Defines power of false color correction operation.
  *			low for preserving edge colors, high for preserving gray
- *			edge artifacts. u1.4, range [0, 1.9375], default 4(0.25).
- * @__reserved5:	reserved
+ *			edge artifacts.
+ *			Precision u1.4, range [0, 1.9375], default 4 (0.25).
+ * @reserved5:	reserved
  *
  * The demosaic fixed function block is responsible to covert Bayer(mosaiced)
  * images into color images based on demosaicing algorithm.
@@ -957,20 +903,20 @@ struct ipu3_uapi_dm_config {
 	__u32 dm_en:1;
 	__u32 ch_ar_en:1;
 	__u32 fcc_en:1;
-	__u32 __reserved0:13;
+	__u32 reserved0:13;
 	__u32 frame_width:16;
 
 	__u32 gamma_sc:5;
-	__u32 __reserved1:3;
+	__u32 reserved1:3;
 	__u32 lc_ctrl:5;
-	__u32 __reserved2:3;
+	__u32 reserved2:3;
 	__u32 cr_param1:5;
-	__u32 __reserved3:3;
+	__u32 reserved3:3;
 	__u32 cr_param2:5;
-	__u32 __reserved4:3;
+	__u32 reserved4:3;
 
 	__u32 coring_param:5;
-	__u32 __reserved5:27;
+	__u32 reserved5:27;
 } __packed;
 
 /**
@@ -1016,11 +962,11 @@ struct ipu3_uapi_ccm_mat_config {
  * struct ipu3_uapi_gamma_corr_ctrl - Gamma correction
  *
  * @enable: gamma correction enable.
- * @__reserved: reserved
+ * @reserved: reserved
  */
 struct ipu3_uapi_gamma_corr_ctrl {
 	__u32 enable:1;
-	__u32 __reserved:31;
+	__u32 reserved:31;
 } __packed;
 
 /**
@@ -1051,22 +997,28 @@ struct ipu3_uapi_gamma_config {
 /**
  * struct ipu3_uapi_csc_mat_config - Color space conversion matrix config
  *
- * @coeff_c11:	Conversion matrix value, format s0.14, range [-1, 1], default 1.
- * @coeff_c12:	Conversion matrix value, format s0.14, range [-1, 1], default 0.
- * @coeff_c13:	Conversion matrix value, format s0.14, range [-1, 1], default 0.
- * @coeff_b1:	Bias 3x1 coefficient, s13,0 range [-8191, 8181], default 0.
- * @coeff_c21:	Conversion matrix value, format s0.14, range [-1, 1], default 0.
- * @coeff_c22:	Conversion matrix value, format s0.14, range [-1, 1], default 1.
- * @coeff_c23:	Conversion matrix value, format s0.14, range [-1, 1], default 0.
- * @coeff_b2:	Bias 3x1 coefficient, s13,0 range [-8191, 8181], default 0.
- * @coeff_c31:	Conversion matrix value, format s0.14, range [-1, 1], default 0.
- * @coeff_c32:	Conversion matrix value, format s0.14, range [-1, 1], default 0.
- * @coeff_c33:	Conversion matrix value, format s0.14, range [-1, 1], default 1.
- * @coeff_b3:	Bias 3x1 coefficient, s13,0 range [-8191, 8181], default 0.
+ * @coeff_c11:	Conversion matrix value, format s0.14, range [-16384, 16383].
+ * @coeff_c12:	Conversion matrix value, format s0.14, range [-8192, 8191].
+ * @coeff_c13:	Conversion matrix value, format s0.14, range [-16384, 16383].
+ * @coeff_b1:	Bias 3x1 coefficient, s13.0 range [-8192, 8191].
+ * @coeff_c21:	Conversion matrix value, format s0.14, range [-16384, 16383].
+ * @coeff_c22:	Conversion matrix value, format s0.14, range [-8192, 8191].
+ * @coeff_c23:	Conversion matrix value, format s0.14, range [-16384, 16383].
+ * @coeff_b2:	Bias 3x1 coefficient, s13.0 range [-8192, 8191].
+ * @coeff_c31:	Conversion matrix value, format s0.14, range [-16384, 16383].
+ * @coeff_c32:	Conversion matrix value, format s0.14, range [-8192, 8191].
+ * @coeff_c33:	Conversion matrix value, format s0.14, range [-16384, 16383].
+ * @coeff_b3:	Bias 3x1 coefficient, s13.0 range [-8192, 8191].
  *
  * To transform each pixel from RGB to YUV (Y - brightness/luminance,
  * UV -chroma) by applying the pixel's values by a 3x3 matrix and adding an
- * optional bias 3x1 vector.
+ * optional bias 3x1 vector. Here are the default values for the matrix:
+ *
+ *	4898,   9617,  1867, 0,
+ *	-2410, -4732,  7143, 0,
+ *	10076, -8437, -1638, 0,
+ *
+ *	(i.e. for real number 0.299, 0.299 * 2^14 becomes 4898.)
  */
 struct ipu3_uapi_csc_mat_config {
 	__s16 coeff_c11;
@@ -1101,10 +1053,10 @@ struct ipu3_uapi_csc_mat_config {
  *
  * @ds_nf:	Normalization factor for Chroma output downscaling filter,
  *		range 0,4, default 2.
- * @__reserved0:	reserved
+ * @reserved0:	reserved
  * @csc_en:	Color space conversion enable
  * @uv_bin_output:	0: output YUV 4.2.0, 1: output YUV 4.2.2(default).
- * @__reserved1:	reserved
+ * @reserved1:	reserved
  */
 struct ipu3_uapi_cds_params {
 	__u32 ds_c00:2;
@@ -1116,10 +1068,10 @@ struct ipu3_uapi_cds_params {
 	__u32 ds_c12:2;
 	__u32 ds_c13:2;
 	__u32 ds_nf:5;
-	__u32 __reserved0:3;
+	__u32 reserved0:3;
 	__u32 csc_en:1;
 	__u32 uv_bin_output:1;
-	__u32 __reserved1:6;
+	__u32 reserved1:6;
 } __packed;
 
 /**
@@ -1129,25 +1081,25 @@ struct ipu3_uapi_cds_params {
  * @height:	Grid vertical dimensions, u8, [8, 128], default 56
  * @block_width_log2:	Log2 of the width of the grid cell in pixel count
  *			u4, [0, 15], default value 5.
- * @__reserved0:	reserved
+ * @reserved0:	reserved
  * @block_height_log2:	Log2 of the height of the grid cell in pixel count
  *			u4, [0, 15], default value 6.
- * @__reserved1:	reserved
+ * @reserved1:	reserved
  * @grid_height_per_slice:	SHD_MAX_CELLS_PER_SET/width.
  *				(with SHD_MAX_CELLS_PER_SET = 146).
  * @x_start:	X value of top left corner of sensor relative to ROI
- *		u12, [-4096, 0]. default 0, only negative values.
+ *		s13, [-4096, 0], default 0, only negative values.
  * @y_start:	Y value of top left corner of sensor relative to ROI
- *		u12, [-4096, 0]. default 0, only negative values.
+ *		s13, [-4096, 0], default 0, only negative values.
  */
 struct ipu3_uapi_shd_grid_config {
 	/* reg 0 */
 	__u8 width;
 	__u8 height;
 	__u8 block_width_log2:3;
-	__u8 __reserved0:1;
+	__u8 reserved0:1;
 	__u8 block_height_log2:3;
-	__u8 __reserved1:1;
+	__u8 reserved1:1;
 	__u8 grid_height_per_slice;
 	/* reg 1 */
 	__s16 x_start;
@@ -1164,7 +1116,7 @@ struct ipu3_uapi_shd_grid_config {
  *		0x0 - gain factor [1, 5], means no shift interpolated value.
  *		0x1 - gain factor [1, 9], means shift interpolated by 1.
  *		0x2 - gain factor [1, 17], means shift interpolated by 2.
- * @__reserved: reserved
+ * @reserved: reserved
  *
  * Correction is performed by multiplying a gain factor for each of the 4 Bayer
  * channels as a function of the pixel location in the sensor.
@@ -1173,7 +1125,7 @@ struct ipu3_uapi_shd_general_config {
 	__u32 init_set_vrt_offst_ul:8;
 	__u32 shd_enable:1;
 	__u32 gain_factor:2;
-	__u32 __reserved:21;
+	__u32 reserved:21;
 } __packed;
 
 /**
@@ -1212,11 +1164,11 @@ struct ipu3_uapi_shd_config_static {
  * @sets.r_and_gr: Red and GreenR Lookup table.
  * @sets.r_and_gr.r: Red shading factor.
  * @sets.r_and_gr.gr: GreenR shading factor.
- * @sets.__reserved1: reserved
+ * @sets.reserved1: reserved
  * @sets.gb_and_b: GreenB and Blue Lookup table.
  * @sets.gb_and_b.gb: GreenB shading factor.
  * @sets.gb_and_b.b: Blue shading factor.
- * @sets.__reserved2: reserved
+ * @sets.reserved2: reserved
  *
  * Map to shading correction LUT register set.
  */
@@ -1226,12 +1178,12 @@ struct ipu3_uapi_shd_lut {
 			__u16 r;
 			__u16 gr;
 		} r_and_gr[IPU3_UAPI_SHD_MAX_CELLS_PER_SET];
-		__u8 __reserved1[24];
+		__u8 reserved1[24];
 		struct {
 			__u16 gb;
 			__u16 b;
 		} gb_and_b[IPU3_UAPI_SHD_MAX_CELLS_PER_SET];
-		__u8 __reserved2[24];
+		__u8 reserved2[24];
 	} sets[IPU3_UAPI_SHD_MAX_CFG_SETS];
 } __packed;
 
@@ -1254,7 +1206,7 @@ struct ipu3_uapi_shd_config {
  * @x0:		X0 point of Config Unit, u9.0, default 0.
  * @x1:		X1 point of Config Unit, u9.0, default 0.
  * @a01:	Slope A of Config Unit, s4.4, default 0.
- * @b01:	Always 0.
+ * @b01:	Slope B, always 0.
  *
  * Calculate weight for blending directed and non-directed denoise elements
  *
@@ -1262,12 +1214,17 @@ struct ipu3_uapi_shd_config {
  * Each instance of Config Unit needs X coordinate of n points and
  * slope A factor between points calculated by driver based on calibration
  * parameters.
+ *
+ * All CU inputs are unsigned, they will be converted to signed when written
+ * to register, i.e. a01 will be written to 9 bit register in s4.4 format.
+ * This applies to &ipu3_uapi_iefd_cux6_ed, &ipu3_uapi_iefd_cux2_1,
+ * &ipu3_uapi_iefd_cux2_1, &ipu3_uapi_iefd_cux4 and &ipu3_uapi_iefd_cux6_rad.
  */
 struct ipu3_uapi_iefd_cux2 {
 	__u32 x0:9;
 	__u32 x1:9;
 	__u32 a01:9;
-	__u32 b01:5;	/* NOTE: hardcoded to zero */
+	__u32 b01:5;
 } __packed;
 
 /**
@@ -1277,54 +1234,54 @@ struct ipu3_uapi_iefd_cux2 {
  * @x0:	X coordinate of point 0, u9.0, default 0.
  * @x1:	X coordinate of point 1, u9.0, default 0.
  * @x2:	X coordinate of point 2, u9.0, default 0.
- * @__reserved0:	reserved
+ * @reserved0:	reserved
  * @x3:	X coordinate of point 3, u9.0, default 0.
  * @x4:	X coordinate of point 4, u9.0, default 0.
  * @x5:	X coordinate of point 5, u9.0, default 0.
- * @__reserved1:	reserved
+ * @reserved1:	reserved
  * @a01:	slope A points 01, s4.4, default 0.
  * @a12:	slope A points 12, s4.4, default 0.
  * @a23:	slope A points 23, s4.4, default 0.
- * @__reserved2:	reserved
+ * @reserved2:	reserved
  * @a34:	slope A points 34, s4.4, default 0.
  * @a45:	slope A points 45, s4.4, default 0.
- * @__reserved3:	reserved
+ * @reserved3:	reserved
  * @b01:	slope B points 01, s4.4, default 0.
  * @b12:	slope B points 12, s4.4, default 0.
  * @b23:	slope B points 23, s4.4, default 0.
- * @__reserved4:	reserved
+ * @reserved4:	reserved
  * @b34:	slope B points 34, s4.4, default 0.
  * @b45:	slope B points 45, s4.4, default 0.
- * @__reserved5:	reserved
+ * @reserved5:	reserved.
  */
 struct ipu3_uapi_iefd_cux6_ed {
 	__u32 x0:9;
 	__u32 x1:9;
 	__u32 x2:9;
-	__u32 __reserved0:5;
+	__u32 reserved0:5;
 
 	__u32 x3:9;
 	__u32 x4:9;
 	__u32 x5:9;
-	__u32 __reserved1:5;
+	__u32 reserved1:5;
 
 	__u32 a01:9;
 	__u32 a12:9;
 	__u32 a23:9;
-	__u32 __reserved2:5;
+	__u32 reserved2:5;
 
 	__u32 a34:9;
 	__u32 a45:9;
-	__u32 __reserved3:14;
+	__u32 reserved3:14;
 
 	__u32 b01:9;
 	__u32 b12:9;
 	__u32 b23:9;
-	__u32 __reserved4:5;
+	__u32 reserved4:5;
 
 	__u32 b34:9;
 	__u32 b45:9;
-	__u32 __reserved5:14;
+	__u32 reserved5:14;
 } __packed;
 
 /**
@@ -1333,18 +1290,18 @@ struct ipu3_uapi_iefd_cux6_ed {
  * @x0: X0 point of Config Unit, u9.0, default 0.
  * @x1: X1 point of Config Unit, u9.0, default 0.
  * @a01: Slope A of Config Unit, s4.4, default 0.
- * @__reserved1: reserved
+ * @reserved1: reserved
  * @b01: offset B0 of Config Unit, u7.0, default 0.
- * @__reserved2: reserved
+ * @reserved2: reserved
  */
 struct ipu3_uapi_iefd_cux2_1 {
 	__u32 x0:9;
 	__u32 x1:9;
 	__u32 a01:9;
-	__u32 __reserved1:5;
+	__u32 reserved1:5;
 
 	__u32 b01:8;
-	__u32 __reserved2:24;
+	__u32 reserved2:24;
 } __packed;
 
 /**
@@ -1354,36 +1311,36 @@ struct ipu3_uapi_iefd_cux2_1 {
  * @x0:	X0 point of Config Unit, u9.0, default 0.
  * @x1:	X1 point of Config Unit, u9.0, default 0.
  * @x2:	X2 point of Config Unit, u9.0, default 0.
- * @__reserved0:	reserved
+ * @reserved0:	reserved
  * @x3:	X3 point of Config Unit, u9.0, default 0.
  * @a01:	Slope A0 of Config Unit, s4.4, default 0.
  * @a12:	Slope A1 of Config Unit, s4.4, default 0.
- * @__reserved1:	reserved
+ * @reserved1:	reserved
  * @a23:	Slope A2 of Config Unit, s4.4, default 0.
  * @b01:	Offset B0 of Config Unit, s7.0, default 0.
  * @b12:	Offset B1 of Config Unit, s7.0, default 0.
- * @__reserved2:	reserved
+ * @reserved2:	reserved
  * @b23:	Offset B2 of Config Unit, s7.0, default 0.
- * @__reserved3: reserved
+ * @reserved3: reserved
  */
 struct ipu3_uapi_iefd_cux4 {
 	__u32 x0:9;
 	__u32 x1:9;
 	__u32 x2:9;
-	__u32 __reserved0:5;
+	__u32 reserved0:5;
 
 	__u32 x3:9;
 	__u32 a01:9;
 	__u32 a12:9;
-	__u32 __reserved1:5;
+	__u32 reserved1:5;
 
 	__u32 a23:9;
 	__u32 b01:8;
 	__u32 b12:8;
-	__u32 __reserved2:7;
+	__u32 reserved2:7;
 
 	__u32 b23:8;
-	__u32 __reserved3:24;
+	__u32 reserved3:24;
 } __packed;
 
 /**
@@ -1395,20 +1352,20 @@ struct ipu3_uapi_iefd_cux4 {
  * @x3:	x3 points of Config Unit radial, u8.0
  * @x4:	x4 points of Config Unit radial, u8.0
  * @x5:	x5 points of Config Unit radial, u8.0
- * @__reserved1: reserved
+ * @reserved1: reserved
  * @a01:	Slope A of Config Unit radial, s7.8
  * @a12:	Slope A of Config Unit radial, s7.8
  * @a23:	Slope A of Config Unit radial, s7.8
  * @a34:	Slope A of Config Unit radial, s7.8
  * @a45:	Slope A of Config Unit radial, s7.8
- * @__reserved2: reserved
+ * @reserved2: reserved
  * @b01:	Slope B of Config Unit radial, s9.0
  * @b12:	Slope B of Config Unit radial, s9.0
  * @b23:	Slope B of Config Unit radial, s9.0
- * @__reserved4: reserved
+ * @reserved4: reserved
  * @b34:	Slope B of Config Unit radial, s9.0
  * @b45:	Slope B of Config Unit radial, s9.0
- * @__reserved5: reserved
+ * @reserved5: reserved
  */
 struct ipu3_uapi_iefd_cux6_rad {
 	__u32 x0:8;
@@ -1418,7 +1375,7 @@ struct ipu3_uapi_iefd_cux6_rad {
 
 	__u32 x4:8;
 	__u32 x5:8;
-	__u32 __reserved1:16;
+	__u32 reserved1:16;
 
 	__u32 a01:16;
 	__u32 a12:16;
@@ -1427,16 +1384,16 @@ struct ipu3_uapi_iefd_cux6_rad {
 	__u32 a34:16;
 
 	__u32 a45:16;
-	__u32 __reserved2:16;
+	__u32 reserved2:16;
 
 	__u32 b01:10;
 	__u32 b12:10;
 	__u32 b23:10;
-	__u32 __reserved4:2;
+	__u32 reserved4:2;
 
 	__u32 b34:10;
 	__u32 b45:10;
-	__u32 __reserved5:12;
+	__u32 reserved5:12;
 } __packed;
 
 /**
@@ -1473,28 +1430,29 @@ struct ipu3_uapi_yuvp1_iefd_cfg_units {
 /**
  * struct ipu3_uapi_yuvp1_iefd_config_s - IEFd config
  *
- * @horver_diag_coeff: Gradiant compensation, coefficient that compensates for
- *		       different distance for vertical / horizontal and diagonal
- *		       * gradient calculation (~1/sqrt(2)).
- * @__reserved0: reserved
+ * @horver_diag_coeff: Gradient compensation. Compared with vertical /
+ *		       horizontal (0 / 90 degree), coefficient of diagonal (45 /
+ *		       135 degree) direction should be corrected by approx.
+ *		       1/sqrt(2).
+ * @reserved0: reserved
  * @clamp_stitch: Slope to stitch between clamped and unclamped edge values
- * @__reserved1: reserved
+ * @reserved1: reserved
  * @direct_metric_update: Update coeff for direction metric
- * @__reserved2: reserved
+ * @reserved2: reserved
  * @ed_horver_diag_coeff: Radial Coefficient that compensates for
  *			  different distance for vertical/horizontal and
- *			  diagonal gradient calculation (~1/sqrt(2))
- * @__reserved3: reserved
+ *			  diagonal gradient calculation (approx. 1/sqrt(2))
+ * @reserved3: reserved
  */
 struct ipu3_uapi_yuvp1_iefd_config_s {
 	__u32 horver_diag_coeff:7;
-	__u32 __reserved0:1;
+	__u32 reserved0:1;
 	__u32 clamp_stitch:6;
-	__u32 __reserved1:2;
+	__u32 reserved1:2;
 	__u32 direct_metric_update:5;
-	__u32 __reserved2:3;
+	__u32 reserved2:3;
 	__u32 ed_horver_diag_coeff:7;
-	__u32 __reserved3:1;
+	__u32 reserved3:1;
 } __packed;
 
 /**
@@ -1505,7 +1463,7 @@ struct ipu3_uapi_yuvp1_iefd_config_s {
  * @direct_smooth_en:	Enable directional smooth
  * @rad_en:	Enable radial update
  * @vssnlm_en:	Enable VSSNLM output filter
- * @__reserved:	reserved
+ * @reserved:	reserved
  */
 struct ipu3_uapi_yuvp1_iefd_control {
 	__u32 iefd_en:1;
@@ -1513,52 +1471,52 @@ struct ipu3_uapi_yuvp1_iefd_control {
 	__u32 direct_smooth_en:1;
 	__u32 rad_en:1;
 	__u32 vssnlm_en:1;
-	__u32 __reserved:27;
+	__u32 reserved:27;
 } __packed;
 
 /**
  * struct ipu3_uapi_sharp_cfg - Sharpening config
  *
  * @nega_lmt_txt: Sharpening limit for negative overshoots for texture.
- * @__reserved0: reserved
+ * @reserved0: reserved
  * @posi_lmt_txt: Sharpening limit for positive overshoots for texture.
- * @__reserved1: reserved
+ * @reserved1: reserved
  * @nega_lmt_dir: Sharpening limit for negative overshoots for direction (edge).
- * @__reserved2: reserved
+ * @reserved2: reserved
  * @posi_lmt_dir: Sharpening limit for positive overshoots for direction (edge).
- * @__reserved3: reserved
+ * @reserved3: reserved
  *
  * Fixed point type u13.0, range [0, 8191].
  */
 struct ipu3_uapi_sharp_cfg {
 	__u32 nega_lmt_txt:13;
-	__u32 __reserved0:19;
+	__u32 reserved0:19;
 	__u32 posi_lmt_txt:13;
-	__u32 __reserved1:19;
+	__u32 reserved1:19;
 	__u32 nega_lmt_dir:13;
-	__u32 __reserved2:19;
+	__u32 reserved2:19;
 	__u32 posi_lmt_dir:13;
-	__u32 __reserved3:19;
+	__u32 reserved3:19;
 } __packed;
 
 /**
  * struct struct ipu3_uapi_far_w - Sharpening config for far sub-group
  *
  * @dir_shrp:	Weight of wide direct sharpening, u1.6, range [0, 64], default 64.
- * @__reserved0:	reserved
+ * @reserved0:	reserved
  * @dir_dns:	Weight of wide direct denoising, u1.6, range [0, 64], default 0.
- * @__reserved1:	reserved
+ * @reserved1:	reserved
  * @ndir_dns_powr:	Power of non-direct denoising,
  *			Precision u1.6, range [0, 64], default 64.
- * @__reserved2:	reserved
+ * @reserved2:	reserved
  */
 struct ipu3_uapi_far_w {
 	__u32 dir_shrp:7;
-	__u32 __reserved0:1;
+	__u32 reserved0:1;
 	__u32 dir_dns:7;
-	__u32 __reserved1:1;
+	__u32 reserved1:1;
 	__u32 ndir_dns_powr:7;
-	__u32 __reserved2:9;
+	__u32 reserved2:9;
 } __packed;
 
 /**
@@ -1566,16 +1524,16 @@ struct ipu3_uapi_far_w {
  *
  * @unsharp_weight: Unsharp mask blending weight.
  *		    u1.6, range [0, 64], default 16.
- *		    0 – disabled, 64 - use only unsharp.
- * @__reserved0: reserved
+ *		    0 - disabled, 64 - use only unsharp.
+ * @reserved0: reserved
  * @unsharp_amount: Unsharp mask amount, u4.5, range [0, 511], default 0.
- * @__reserved1: reserved
+ * @reserved1: reserved
  */
 struct ipu3_uapi_unsharp_cfg {
 	__u32 unsharp_weight:7;
-	__u32 __reserved0:1;
+	__u32 reserved0:1;
 	__u32 unsharp_amount:9;
-	__u32 __reserved1:15;
+	__u32 reserved1:15;
 } __packed;
 
 /**
@@ -1600,7 +1558,7 @@ struct ipu3_uapi_yuvp1_iefd_shrp_cfg {
  * @c00: Coeff11, s0.8, range [-255, 255], default 1.
  * @c01: Coeff12, s0.8, range [-255, 255], default 5.
  * @c02: Coeff13, s0.8, range [-255, 255], default 9.
- * @__reserved: reserved
+ * @reserved: reserved
  *
  * Configurable registers for common sharpening support.
  */
@@ -1608,7 +1566,7 @@ struct ipu3_uapi_unsharp_coef0 {
 	__u32 c00:9;
 	__u32 c01:9;
 	__u32 c02:9;
-	__u32 __reserved:5;
+	__u32 reserved:5;
 } __packed;
 
 /**
@@ -1617,13 +1575,13 @@ struct ipu3_uapi_unsharp_coef0 {
  * @c11: Coeff22, s0.8, range [-255, 255], default 29.
  * @c12: Coeff23, s0.8, range [-255, 255], default 55.
  * @c22: Coeff33, s0.8, range [-255, 255], default 96.
- * @__reserved: reserved
+ * @reserved: reserved
  */
 struct ipu3_uapi_unsharp_coef1 {
 	__u32 c11:9;
 	__u32 c12:9;
 	__u32 c22:9;
-	__u32 __reserved:5;
+	__u32 reserved:5;
 } __packed;
 
 /**
@@ -1641,52 +1599,53 @@ struct ipu3_uapi_yuvp1_iefd_unshrp_cfg {
  * struct ipu3_uapi_radial_reset_xy - Radial coordinate reset
  *
  * @x:	Radial reset of x coordinate. Precision s12, [-4095, 4095], default 0.
- * @__reserved0:	reserved
+ * @reserved0:	reserved
  * @y:	Radial center y coordinate. Precision s12, [-4095, 4095], default 0.
- * @__reserved1:	reserved
+ * @reserved1:	reserved
  */
 struct ipu3_uapi_radial_reset_xy {
 	__s32 x:13;
-	__u32 __reserved0:3;
+	__u32 reserved0:3;
 	__s32 y:13;
-	__u32 __reserved1:3;
+	__u32 reserved1:3;
 } __packed;
 
 /**
  * struct ipu3_uapi_radial_reset_x2 - Radial X^2 reset
  *
  * @x2:	Radial reset of x^2 coordinate. Precision u24, default 0.
- * @__reserved:	reserved
+ * @reserved:	reserved
  */
 struct ipu3_uapi_radial_reset_x2 {
 	__u32 x2:24;
-	__u32 __reserved:8;
+	__u32 reserved:8;
 } __packed;
 
 /**
  * struct ipu3_uapi_radial_reset_y2 - Radial Y^2 reset
  *
  * @y2:	Radial reset of y^2 coordinate. Precision u24, default 0.
- * @__reserved:	reserved
+ * @reserved:	reserved
  */
 struct ipu3_uapi_radial_reset_y2 {
 	__u32 y2:24;
-	__u32 __reserved:8;
+	__u32 reserved:8;
 } __packed;
 
 /**
  * struct ipu3_uapi_radial_cfg - Radial config
  *
  * @rad_nf: Radial. R^2 normalization factor is scale down by 2^ - (15 + scale)
- * @__reserved0: reserved
- * @rad_inv_r2: Radial R^-2 normelized to (0.5..1), Prec' u7, range [0, 127].
- * @__reserved1: reserved
+ * @reserved0: reserved
+ * @rad_inv_r2: Radial R^-2 normelized to (0.5..1).
+ *		Precision u7, range [0, 127].
+ * @reserved1: reserved
  */
 struct ipu3_uapi_radial_cfg {
 	__u32 rad_nf:4;
-	__u32 __reserved0:4;
+	__u32 reserved0:4;
 	__u32 rad_inv_r2:7;
-	__u32 __reserved1:17;
+	__u32 reserved1:17;
 } __packed;
 
 /**
@@ -1698,57 +1657,57 @@ struct ipu3_uapi_radial_cfg {
  *			 default 0.
  * @rad_ndir_far_dns_power: power of non-direct sharpening, u1.6, range [0, 64],
  *			 default 0.
- * @__reserved: reserved
+ * @reserved: reserved
  */
 struct ipu3_uapi_rad_far_w {
 	__u32 rad_dir_far_sharp_w:8;
 	__u32 rad_dir_far_dns_w:8;
 	__u32 rad_ndir_far_dns_power:8;
-	__u32 __reserved:8;
+	__u32 reserved:8;
 } __packed;
 
 /**
  * struct ipu3_uapi_cu_cfg0 - Radius Config Unit cfg0 register
  *
  * @cu6_pow: Power of CU6. Power of non-direct sharpening, u3.4.
- * @__reserved0: reserved
+ * @reserved0: reserved
  * @cu_unsharp_pow: Power of unsharp mask, u2.4.
- * @__reserved1: reserved
+ * @reserved1: reserved
  * @rad_cu6_pow: Radial/corner CU6. Directed sharpening power, u3.4.
- * @__reserved2: reserved
+ * @reserved2: reserved
  * @rad_cu_unsharp_pow: Radial power of unsharp mask, u2.4.
- * @__reserved3: reserved
+ * @reserved3: reserved
  */
 struct ipu3_uapi_cu_cfg0 {
 	__u32 cu6_pow:7;
-	__u32 __reserved0:1;
+	__u32 reserved0:1;
 	__u32 cu_unsharp_pow:7;
-	__u32 __reserved1:1;
+	__u32 reserved1:1;
 	__u32 rad_cu6_pow:7;
-	__u32 __reserved2:1;
+	__u32 reserved2:1;
 	__u32 rad_cu_unsharp_pow:6;
-	__u32 __reserved3:2;
+	__u32 reserved3:2;
 } __packed;
 
 /**
  * struct ipu3_uapi_cu_cfg1 - Radius Config Unit cfg1 register
  *
  * @rad_cu6_x1: X1 point of Config Unit 6, precision u9.0.
- * @__reserved0: reserved
+ * @reserved0: reserved
  * @rad_cu_unsharp_x1: X1 point for Config Unit unsharp for radial/corner point
  *			precision u9.0.
- * @__reserved1: reserved
+ * @reserved1: reserved
  */
 struct ipu3_uapi_cu_cfg1 {
 	__u32 rad_cu6_x1:9;
-	__u32 __reserved0:1;
+	__u32 reserved0:1;
 	__u32 rad_cu_unsharp_x1:9;
-	__u32 __reserved1:13;
+	__u32 reserved1:13;
 } __packed;
 
 /**
  * struct ipu3_uapi_yuvp1_iefd_rad_cfg - IEFd parameters changed radially over
- *					 the picture plain.
+ *					 the picture plane.
  *
  * @reset_xy: reset xy value in radial calculation. &ipu3_uapi_radial_reset_xy
  * @reset_x2: reset x square value in radial calculation. See struct
@@ -1778,32 +1737,32 @@ struct ipu3_uapi_yuvp1_iefd_rad_cfg {
  * @vs_x0: Vssnlm LUT x0, precision u8, range [0, 255], default 16.
  * @vs_x1: Vssnlm LUT x1, precision u8, range [0, 255], default 32.
  * @vs_x2: Vssnlm LUT x2, precision u8, range [0, 255], default 64.
- * @__reserved2: reserved
+ * @reserved2: reserved
  */
 struct ipu3_uapi_vss_lut_x {
 	__u32 vs_x0:8;
 	__u32 vs_x1:8;
 	__u32 vs_x2:8;
-	__u32 __reserved2:8;
+	__u32 reserved2:8;
 } __packed;
 
 /**
  * struct ipu3_uapi_vss_lut_y - Vssnlm LUT y0/y1/y2
  *
  * @vs_y1: Vssnlm LUT y1, precision u4, range [0, 8], default 1.
- * @__reserved0: reserved
+ * @reserved0: reserved
  * @vs_y2: Vssnlm LUT y2, precision u4, range [0, 8], default 3.
- * @__reserved1: reserved
+ * @reserved1: reserved
  * @vs_y3: Vssnlm LUT y3, precision u4, range [0, 8], default 8.
- * @__reserved2: reserved
+ * @reserved2: reserved
  */
 struct ipu3_uapi_vss_lut_y {
 	__u32 vs_y1:4;
-	__u32 __reserved0:4;
+	__u32 reserved0:4;
 	__u32 vs_y2:4;
-	__u32 __reserved1:4;
+	__u32 reserved1:4;
 	__u32 vs_y3:4;
-	__u32 __reserved2:12;
+	__u32 reserved2:12;
 } __packed;
 
 /**
@@ -1858,10 +1817,10 @@ struct ipu3_uapi_yuvp1_iefd_config {
  *		2 - divide by 4
  *		3 - divide by 8
  *		4 - divide by 16
- * @__reserved0: reserved
+ * @reserved0: reserved
  * @bin_output: Down sampling on Luma channel in two optional modes
  *		0 - Bin output 4.2.0 (default), 1 output 4.2.2.
- * @__reserved1: reserved
+ * @reserved1: reserved
  */
 struct ipu3_uapi_yuvp1_yds_config {
 	__u32 c00:2;
@@ -1873,9 +1832,9 @@ struct ipu3_uapi_yuvp1_yds_config {
 	__u32 c12:2;
 	__u32 c13:2;
 	__u32 norm_factor:5;
-	__u32 __reserved0:4;
+	__u32 reserved0:4;
 	__u32 bin_output:1;
-	__u32 __reserved1:6;
+	__u32 reserved1:6;
 } __packed;
 
 /* Chroma Noise Reduction */
@@ -1885,31 +1844,31 @@ struct ipu3_uapi_yuvp1_yds_config {
  *
  * @enable: enable/disable chroma noise reduction
  * @yuv_mode: 0 - YUV420, 1 - YUV422
- * @__reserved0: reserved
+ * @reserved0: reserved
  * @col_size: number of columns in the frame, max width is 2560
- * @__reserved1: reserved
+ * @reserved1: reserved
  */
 struct ipu3_uapi_yuvp1_chnr_enable_config {
 	__u32 enable:1;
 	__u32 yuv_mode:1;
-	__u32 __reserved0:14;
+	__u32 reserved0:14;
 	__u32 col_size:12;
-	__u32 __reserved1:4;
+	__u32 reserved1:4;
 } __packed;
 
 /**
  * struct ipu3_uapi_yuvp1_chnr_coring_config - Coring thresholds for UV
  *
  * @u: U coring level, u0.13, range [0.0, 1.0], default 0.0
- * @__reserved0: reserved
+ * @reserved0: reserved
  * @v: V coring level, u0.13, range [0.0, 1.0], default 0.0
- * @__reserved1: reserved
+ * @reserved1: reserved
  */
 struct ipu3_uapi_yuvp1_chnr_coring_config {
 	__u32 u:13;
-	__u32 __reserved0:3;
+	__u32 reserved0:3;
 	__u32 v:13;
-	__u32 __reserved1:3;
+	__u32 reserved1:3;
 } __packed;
 
 /**
@@ -1920,43 +1879,43 @@ struct ipu3_uapi_yuvp1_chnr_coring_config {
  * @vy: Sensitivity of horizontal edge of Y, default 100
  * @vu: Sensitivity of horizontal edge of U, default 100
  * @vv: Sensitivity of horizontal edge of V, default 100
- * @__reserved0: reserved
+ * @reserved0: reserved
  * @hy: Sensitivity of vertical edge of Y, default 50
  * @hu: Sensitivity of vertical edge of U, default 50
  * @hv: Sensitivity of vertical edge of V, default 50
- * @__reserved1: reserved
+ * @reserved1: reserved
  */
 struct ipu3_uapi_yuvp1_chnr_sense_gain_config {
 	__u32 vy:8;
 	__u32 vu:8;
 	__u32 vv:8;
-	__u32 __reserved0:8;
+	__u32 reserved0:8;
 
 	__u32 hy:8;
 	__u32 hu:8;
 	__u32 hv:8;
-	__u32 __reserved1:8;
+	__u32 reserved1:8;
 } __packed;
 
 /**
  * struct ipu3_uapi_yuvp1_chnr_iir_fir_config - Chroma IIR/FIR filter config
  *
  * @fir_0h: Value of center tap in horizontal FIR, range [0, 32], default 8.
- * @__reserved0: reserved
+ * @reserved0: reserved
  * @fir_1h: Value of distance 1 in horizontal FIR, range [0, 32], default 12.
- * @__reserved1: reserved
+ * @reserved1: reserved
  * @fir_2h: Value of distance 2 tap in horizontal FIR, range [0, 32], default 0.
  * @dalpha_clip_val: weight for previous row in IIR, range [1, 256], default 0.
- * @__reserved2: reserved
+ * @reserved2: reserved
  */
 struct ipu3_uapi_yuvp1_chnr_iir_fir_config {
 	__u32 fir_0h:6;
-	__u32 __reserved0:2;
+	__u32 reserved0:2;
 	__u32 fir_1h:6;
-	__u32 __reserved1:2;
+	__u32 reserved1:2;
 	__u32 fir_2h:6;
 	__u32 dalpha_clip_val:9;
-	__u32 __reserved2:1;
+	__u32 reserved2:1;
 } __packed;
 
 /**
@@ -1985,20 +1944,20 @@ struct ipu3_uapi_yuvp1_chnr_config {
  *					       filter coefficients
  *
  * @a_diag: Smoothing diagonal coefficient, u5.0.
- * @__reserved0: reserved
+ * @reserved0: reserved
  * @a_periph: Image smoothing perpherial, u5.0.
- * @__reserved1: reserved
+ * @reserved1: reserved
  * @a_cent: Image Smoothing center coefficient, u5.0.
- * @__reserved2: reserved
+ * @reserved2: reserved
  * @enable: 0: Y_EE_NR disabled, output = input; 1: Y_EE_NR enabled.
  */
 struct ipu3_uapi_yuvp1_y_ee_nr_lpf_config {
 	__u32 a_diag:5;
-	__u32 __reserved0:3;
+	__u32 reserved0:3;
 	__u32 a_periph:5;
-	__u32 __reserved1:3;
+	__u32 reserved1:3;
 	__u32 a_cent:5;
-	__u32 __reserved2:9;
+	__u32 reserved2:9;
 	__u32 enable:1;
 } __packed;
 
@@ -2007,25 +1966,25 @@ struct ipu3_uapi_yuvp1_y_ee_nr_lpf_config {
  *					noise reduction sensitivity gains
  *
  * @edge_sense_0: Sensitivity of edge in dark area. u13.0, default 8191.
- * @__reserved0: reserved
+ * @reserved0: reserved
  * @delta_edge_sense: Difference in the sensitivity of edges between
  *		      the bright and dark areas. u13.0, default 0.
- * @__reserved1: reserved
+ * @reserved1: reserved
  * @corner_sense_0: Sensitivity of corner in dark area. u13.0, default 0.
- * @__reserved2: reserved
+ * @reserved2: reserved
  * @delta_corner_sense: Difference in the sensitivity of corners between
  *			the bright and dark areas. u13.0, default 8191.
- * @__reserved3: reserved
+ * @reserved3: reserved
  */
 struct ipu3_uapi_yuvp1_y_ee_nr_sense_config {
 	__u32 edge_sense_0:13;
-	__u32 __reserved0:3;
+	__u32 reserved0:3;
 	__u32 delta_edge_sense:13;
-	__u32 __reserved1:3;
+	__u32 reserved1:3;
 	__u32 corner_sense_0:13;
-	__u32 __reserved2:3;
+	__u32 reserved2:3;
 	__u32 delta_corner_sense:13;
-	__u32 __reserved3:3;
+	__u32 reserved3:3;
 } __packed;
 
 /**
@@ -2033,25 +1992,25 @@ struct ipu3_uapi_yuvp1_y_ee_nr_sense_config {
  *						noise reduction gain config
  *
  * @gain_pos_0: Gain for positive edge in dark area. u5.0, [0, 16], default 2.
- * @__reserved0: reserved
+ * @reserved0: reserved
  * @delta_gain_posi: Difference in the gain of edges between the bright and
  *		     dark areas for positive edges. u5.0, [0, 16], default 0.
- * @__reserved1: reserved
+ * @reserved1: reserved
  * @gain_neg_0: Gain for negative edge in dark area. u5.0, [0, 16], default 8.
- * @__reserved2: reserved
+ * @reserved2: reserved
  * @delta_gain_neg: Difference in the gain of edges between the bright and
  *		    dark areas for negative edges. u5.0, [0, 16], default 0.
- * @__reserved3: reserved
+ * @reserved3: reserved
  */
 struct ipu3_uapi_yuvp1_y_ee_nr_gain_config {
 	__u32 gain_pos_0:5;
-	__u32 __reserved0:3;
+	__u32 reserved0:3;
 	__u32 delta_gain_posi:5;
-	__u32 __reserved1:3;
+	__u32 reserved1:3;
 	__u32 gain_neg_0:5;
-	__u32 __reserved2:3;
+	__u32 reserved2:3;
 	__u32 delta_gain_neg:5;
-	__u32 __reserved3:3;
+	__u32 reserved3:3;
 } __packed;
 
 /**
@@ -2060,28 +2019,28 @@ struct ipu3_uapi_yuvp1_y_ee_nr_gain_config {
  *
  * @clip_pos_0: Limit of positive edge in dark area
  *		u5, value [0, 16], default 8.
- * @__reserved0: reserved
+ * @reserved0: reserved
  * @delta_clip_posi: Difference in the limit of edges between the bright
  *		     and dark areas for positive edges.
  *		     u5, value [0, 16], default 8.
- * @__reserved1: reserved
+ * @reserved1: reserved
  * @clip_neg_0: Limit of negative edge in dark area
  *		u5, value [0, 16], default 8.
- * @__reserved2: reserved
+ * @reserved2: reserved
  * @delta_clip_neg: Difference in the limit of edges between the bright
  *		    and dark areas for negative edges.
  *		    u5, value [0, 16], default 8.
- * @__reserved3: reserved
+ * @reserved3: reserved
  */
 struct ipu3_uapi_yuvp1_y_ee_nr_clip_config {
 	__u32 clip_pos_0:5;
-	__u32 __reserved0:3;
+	__u32 reserved0:3;
 	__u32 delta_clip_posi:5;
-	__u32 __reserved1:3;
+	__u32 reserved1:3;
 	__u32 clip_neg_0:5;
-	__u32 __reserved2:3;
+	__u32 reserved2:3;
 	__u32 delta_clip_neg:5;
-	__u32 __reserved3:3;
+	__u32 reserved3:3;
 } __packed;
 
 /**
@@ -2089,27 +2048,27 @@ struct ipu3_uapi_yuvp1_y_ee_nr_clip_config {
  *						noise reduction fringe config
  *
  * @gain_exp: Common exponent of gains, u4, [0, 8], default 2.
- * @__reserved0: reserved
+ * @reserved0: reserved
  * @min_edge: Threshold for edge and smooth stitching, u13.
- * @__reserved1: reserved
+ * @reserved1: reserved
  * @lin_seg_param: Power of LinSeg, u4.
- * @__reserved2: reserved
+ * @reserved2: reserved
  * @t1: Parameter for enabling/disabling the edge enhancement, u1.0, [0, 1],
  *	default 1.
  * @t2: Parameter for enabling/disabling the smoothing, u1.0, [0, 1],
  *	default 1.
- * @__reserved3: reserved
+ * @reserved3: reserved
  */
 struct ipu3_uapi_yuvp1_y_ee_nr_frng_config {
 	__u32 gain_exp:4;
-	__u32 __reserved0:28;
+	__u32 reserved0:28;
 	__u32 min_edge:13;
-	__u32 __reserved1:3;
+	__u32 reserved1:3;
 	__u32 lin_seg_param:4;
-	__u32 __reserved2:4;
+	__u32 reserved2:4;
 	__u32 t1:1;
 	__u32 t2:1;
-	__u32 __reserved3:6;
+	__u32 reserved3:6;
 } __packed;
 
 /**
@@ -2119,7 +2078,7 @@ struct ipu3_uapi_yuvp1_y_ee_nr_frng_config {
  * @diag_disc_g: Coefficient that prioritize diagonal edge direction on
  *		 horizontal or vertical for final enhancement.
  *		 u4.0, [1, 15], default 1.
- * @__reserved0: reserved
+ * @reserved0: reserved
  * @hvw_hor: Weight of horizontal/vertical edge enhancement for hv edge.
  *		u2.2, [1, 15], default 4.
  * @dw_hor: Weight of diagonal edge enhancement for hv edge.
@@ -2128,16 +2087,16 @@ struct ipu3_uapi_yuvp1_y_ee_nr_frng_config {
  *		u2.2, [1, 15], default 1.
  * @dw_diag: Weight of diagonal edge enhancement for diagonal edge.
  *		u2.2, [1, 15], default 4.
- * @__reserved1: reserved
+ * @reserved1: reserved
  */
 struct ipu3_uapi_yuvp1_y_ee_nr_diag_config {
 	__u32 diag_disc_g:4;
-	__u32 __reserved0:4;
+	__u32 reserved0:4;
 	__u32 hvw_hor:4;
 	__u32 dw_hor:4;
 	__u32 hvw_diag:4;
 	__u32 dw_diag:4;
-	__u32 __reserved1:8;
+	__u32 reserved1:8;
 } __packed;
 
 /**
@@ -2145,27 +2104,27 @@ struct ipu3_uapi_yuvp1_y_ee_nr_diag_config {
  *		noise reduction false color correction (FCC) coring config
  *
  * @pos_0: Gain for positive edge in dark, u13.0, [0, 16], default 0.
- * @__reserved0: reserved
+ * @reserved0: reserved
  * @pos_delta: Gain for positive edge in bright, value: pos_0 + pos_delta <=16
  *		u13.0, default 0.
- * @__reserved1: reserved
+ * @reserved1: reserved
  * @neg_0: Gain for negative edge in dark area, u13.0, range [0, 16], default 0.
- * @__reserved2: reserved
+ * @reserved2: reserved
  * @neg_delta: Gain for negative edge in bright area. neg_0 + neg_delta <=16
  *		u13.0, default 0.
- * @__reserved3: reserved
+ * @reserved3: reserved
  *
  * Coring is a simple soft thresholding technique.
  */
 struct ipu3_uapi_yuvp1_y_ee_nr_fc_coring_config {
 	__u32 pos_0:13;
-	__u32 __reserved0:3;
+	__u32 reserved0:3;
 	__u32 pos_delta:13;
-	__u32 __reserved1:3;
+	__u32 reserved1:3;
 	__u32 neg_0:13;
-	__u32 __reserved2:3;
+	__u32 reserved2:3;
 	__u32 neg_delta:13;
-	__u32 __reserved3:3;
+	__u32 reserved3:3;
 } __packed;
 
 /**
@@ -2196,25 +2155,25 @@ struct ipu3_uapi_yuvp1_y_ee_nr_config {
  * struct ipu3_uapi_yuvp2_tcc_gen_control_static_config - Total color correction
  *				general control config
  *
- * @en:	0 – TCC disabled. Output = input 1 – TCC enabled.
+ * @en:	0 - TCC disabled. Output = input 1 - TCC enabled.
  * @blend_shift:	blend shift, Range[3, 4], default NA.
  * @gain_according_to_y_only:	0: Gain is calculated according to YUV,
  *				1: Gain is calculated according to Y only
- * @__reserved0: reserved
+ * @reserved0: reserved
  * @gamma:	Final blending coefficients. Values[-16, 16], default NA.
- * @__reserved1: reserved
+ * @reserved1: reserved
  * @delta:	Final blending coefficients. Values[-16, 16], default NA.
- * @__reserved2: reserved
+ * @reserved2: reserved
  */
 struct ipu3_uapi_yuvp2_tcc_gen_control_static_config {
 	__u32 en:1;
 	__u32 blend_shift:3;
 	__u32 gain_according_to_y_only:1;
-	__u32 __reserved0:11;
+	__u32 reserved0:11;
 	__s32 gamma:5;
-	__u32 __reserved1:3;
+	__u32 reserved1:3;
 	__s32 delta:5;
-	__u32 __reserved2:3;
+	__u32 reserved2:3;
 } __packed;
 
 /**
@@ -2222,23 +2181,23 @@ struct ipu3_uapi_yuvp2_tcc_gen_control_static_config {
  *				multi-axis color control (MACC) config
  *
  * @a: a coefficient for 2x2 MACC conversion matrix.
- * @__reserved0: reserved
+ * @reserved0: reserved
  * @b: b coefficient  2x2 MACC conversion matrix.
- * @__reserved1: reserved
+ * @reserved1: reserved
  * @c: c coefficient for 2x2 MACC conversion matrix.
- * @__reserved2: reserved
+ * @reserved2: reserved
  * @d: d coefficient for 2x2 MACC conversion matrix.
- * @__reserved3: reserved
+ * @reserved3: reserved
  */
 struct ipu3_uapi_yuvp2_tcc_macc_elem_static_config {
 	__s32 a:12;
-	__u32 __reserved0:4;
+	__u32 reserved0:4;
 	__s32 b:12;
-	__u32 __reserved1:4;
+	__u32 reserved1:4;
 	__s32 c:12;
-	__u32 __reserved2:4;
+	__u32 reserved2:4;
 	__s32 d:12;
-	__u32 __reserved3:4;
+	__u32 reserved3:4;
 } __packed;
 
 /**
@@ -2336,13 +2295,13 @@ struct ipu3_uapi_anr_beta {
 } __packed;
 
 /*
- * struct ipu3_uapi_anr_plain_color - Advanced noise reduction plain color with
- *				      4x4 matrix
+ * struct ipu3_uapi_anr_plane_color - Advanced noise reduction per plane R, Gr,
+ *				      Gb and B register settings
  *
  * Tunable parameters that are subject to modification according to the
  * total gain used.
  */
-struct ipu3_uapi_anr_plain_color {
+struct ipu3_uapi_anr_plane_color {
 	__u16 reg_w_gr[16];
 	__u16 reg_w_r[16];
 	__u16 reg_w_b[16];
@@ -2354,8 +2313,8 @@ struct ipu3_uapi_anr_plain_color {
  *
  * @enable: advanced noise reduction enabled.
  * @adaptive_treshhold_en: On IPU3, adaptive threshold is always enabled.
- * @__reserved1: reserved
- * @__reserved2: reserved
+ * @reserved1: reserved
+ * @reserved2: reserved
  * @alpha: using following defaults:
  *		13, 13, 13, 13, 0, 0, 0, 0
  *		11, 11, 11, 11, 0, 0, 0, 0
@@ -2373,13 +2332,13 @@ struct ipu3_uapi_anr_plain_color {
  *					1355 1379 1402 1425 1448]
  * @xreset: Reset value of X for r^2 calculation Value: col_start-X_center
  *	Constraint: Xreset + FrameWdith=4095 Xreset= -4095, default -1632.
- * @__reserved3: reserved
+ * @reserved3: reserved
  * @yreset: Reset value of Y for r^2 calculation Value: row_start-Y_center
  *	 Constraint: Yreset + FrameHeight=4095 Yreset= -4095, default -1224.
- * @__reserved4: reserved
+ * @reserved4: reserved
  * @x_sqr_reset: Reset value of X^2 for r^2 calculation Value = (Xreset)^2
  * @r_normfactor: Normalization factor for R. Default 14.
- * @__reserved5: reserved
+ * @reserved5: reserved
  * @y_sqr_reset: Reset value of Y^2 for r^2 calculation Value = (Yreset)^2
  * @gain_scale: Parameter describing shading gain as a function of distance
  *		from the image center.
@@ -2389,23 +2348,23 @@ struct ipu3_uapi_anr_transform_config {
 	__u32 enable:1;			/* 0 or 1, disabled or enabled */
 	__u32 adaptive_treshhold_en:1;	/* On IPU3, always enabled */
 
-	__u32 __reserved1:30;
-	__u8 __reserved2[44];
+	__u32 reserved1:30;
+	__u8 reserved2[44];
 
 	struct ipu3_uapi_anr_alpha alpha[3];
 	struct ipu3_uapi_anr_beta beta[3];
-	struct ipu3_uapi_anr_plain_color color[3];
+	struct ipu3_uapi_anr_plane_color color[3];
 
 	__u16 sqrt_lut[IPU3_UAPI_ANR_LUT_SIZE];	/* 11 bits per element */
 
 	__s16 xreset:13;
-	__u16 __reserved3:3;
+	__u16 reserved3:3;
 	__s16 yreset:13;
-	__u16 __reserved4:3;
+	__u16 reserved4:3;
 
 	__u32 x_sqr_reset:24;
 	__u32 r_normfactor:5;
-	__u32 __reserved5:3;
+	__u32 reserved5:3;
 
 	__u32 y_sqr_reset:24;
 	__u32 gain_scale:8;
@@ -2417,20 +2376,20 @@ struct ipu3_uapi_anr_transform_config {
  * @entry0: pyramid LUT entry0, range [0x0, 0x3f]
  * @entry1: pyramid LUT entry1, range [0x0, 0x3f]
  * @entry2: pyramid LUT entry2, range [0x0, 0x3f]
- * @__reserved: reserved
+ * @reserved: reserved
  */
 struct ipu3_uapi_anr_stitch_pyramid {
 	__u32 entry0:6;
 	__u32 entry1:6;
 	__u32 entry2:6;
-	__u32 __reserved:14;
+	__u32 reserved:14;
 } __packed;
 
 /**
  * struct ipu3_uapi_anr_stitch_config - ANR stitch config
  *
  * @anr_stitch_en: enable stitch. Enabled with 1.
- * @__reserved: reserved
+ * @reserved: reserved
  * @pyramid: pyramid table as defined by &ipu3_uapi_anr_stitch_pyramid
  *		default values:
  *		{ 1, 3, 5 }, { 7, 7, 5 }, { 3, 1, 3 },
@@ -2443,7 +2402,7 @@ struct ipu3_uapi_anr_stitch_pyramid {
  */
 struct ipu3_uapi_anr_stitch_config {
 	__u32 anr_stitch_en;
-	__u8 __reserved[44];
+	__u8 reserved[44];
 	struct ipu3_uapi_anr_stitch_pyramid pyramid[IPU3_UAPI_ANR_PYRAMID_SIZE];
 } __packed;
 
@@ -2462,7 +2421,7 @@ struct ipu3_uapi_anr_config {
 /**
  * struct ipu3_uapi_acc_param - Accelerator cluster parameters
  *
- * ACC refers to the HW cluster containing all Fixed Functions(FFs). Each FF
+ * ACC refers to the HW cluster containing all Fixed Functions (FFs). Each FF
  * implements a specific algorithm.
  *
  * @bnr:	parameters for bayer noise reduction static config. See
@@ -2483,11 +2442,11 @@ struct ipu3_uapi_anr_config {
  *		&ipu3_uapi_yuvp1_y_ee_nr_config
  * @yds:	y down scaler config. See &ipu3_uapi_yuvp1_yds_config
  * @chnr:	chroma noise reduction config. See &ipu3_uapi_yuvp1_chnr_config
- * @__reserved1: reserved
+ * @reserved1: reserved
  * @yds2:	y channel down scaler config. See &ipu3_uapi_yuvp1_yds_config
  * @tcc:	total color correction config as defined in struct
  *		&ipu3_uapi_yuvp2_tcc_static_config
- * @__reserved2: reserved
+ * @reserved2: reserved
  * @anr:	advanced noise reduction config.See &ipu3_uapi_anr_config
  * @awb_fr:	AWB filter response config. See ipu3_uapi_awb_fr_config
  * @ae:	auto exposure config  As specified by &ipu3_uapi_ae_config
@@ -2513,9 +2472,9 @@ struct ipu3_uapi_acc_param {
 	struct ipu3_uapi_yuvp1_yds_config yds2 __attribute__((aligned(32)));
 	struct ipu3_uapi_yuvp2_tcc_static_config tcc __attribute__((aligned(32)));
 	struct ipu3_uapi_anr_config anr;
-	struct ipu3_uapi_awb_fr_config awb_fr;
+	struct ipu3_uapi_awb_fr_config_s awb_fr;
 	struct ipu3_uapi_ae_config ae;
-	struct ipu3_uapi_af_config af;
+	struct ipu3_uapi_af_config_s af;
 	struct ipu3_uapi_awb_config awb;
 } __packed;
 
@@ -2526,8 +2485,8 @@ struct ipu3_uapi_acc_param {
  * @lin_lutlow_r: linearization look-up table for R channel interpolation.
  * @lin_lutlow_b: linearization look-up table for B channel interpolation.
  * @lin_lutlow_gb: linearization look-up table for GB channel interpolation.
- *			lin_lutlow_gr / lin_lutlow_gr / lin_lutlow_gr /
- *			lin_lutlow_gr <= LIN_MAX_VALUE - 1.
+ *			lin_lutlow_gr / lin_lutlow_r / lin_lutlow_b /
+ *			lin_lutlow_gb <= LIN_MAX_VALUE - 1.
  * @lin_lutdif_gr:	lin_lutlow_gr[i+1] - lin_lutlow_gr[i].
  * @lin_lutdif_r:	lin_lutlow_r[i+1] - lin_lutlow_r[i].
  * @lin_lutdif_b:	lin_lutlow_b[i+1] - lin_lutlow_b[i].
@@ -2551,17 +2510,17 @@ struct ipu3_uapi_isp_lin_vmem_params {
  *					   memory parameters
  *
  * @slope: slope setting in interpolation curve for temporal noise reduction.
- * @__reserved1: reserved
+ * @reserved1: reserved
  * @sigma: knee point setting in interpolation curve for temporal
  *	   noise reduction.
- * @__reserved2: reserved
+ * @reserved2: reserved
  */
 struct ipu3_uapi_isp_tnr3_vmem_params {
 	__u16 slope[IPU3_UAPI_ISP_TNR3_VMEM_LEN];
-	__u16 __reserved1[IPU3_UAPI_ISP_VEC_ELEMS
+	__u16 reserved1[IPU3_UAPI_ISP_VEC_ELEMS
 						- IPU3_UAPI_ISP_TNR3_VMEM_LEN];
 	__u16 sigma[IPU3_UAPI_ISP_TNR3_VMEM_LEN];
-	__u16 __reserved2[IPU3_UAPI_ISP_VEC_ELEMS
+	__u16 reserved2[IPU3_UAPI_ISP_VEC_ELEMS
 						- IPU3_UAPI_ISP_TNR3_VMEM_LEN];
 } __packed;
 
@@ -2696,7 +2655,7 @@ struct ipu3_uapi_obgrid_param {
  *
  * @gdc: 0 = no update, 1 = update.
  * @obgrid: 0 = no update, 1 = update.
- * @__reserved1: Not used.
+ * @reserved1: Not used.
  * @acc_bnr: 0 = no update, 1 = update.
  * @acc_green_disparity: 0 = no update, 1 = update.
  * @acc_dm: 0 = no update, 1 = update.
@@ -2705,7 +2664,7 @@ struct ipu3_uapi_obgrid_param {
  * @acc_csc: 0 = no update, 1 = update.
  * @acc_cds: 0 = no update, 1 = update.
  * @acc_shd: 0 = no update, 1 = update.
- * @__reserved2: Not used.
+ * @reserved2: Not used.
  * @acc_iefd: 0 = no update, 1 = update.
  * @acc_yds_c0: 0 = no update, 1 = update.
  * @acc_chnr_c0: 0 = no update, 1 = update.
@@ -2723,20 +2682,20 @@ struct ipu3_uapi_obgrid_param {
  * @acc_af: 0 = no update, 1 = update.
  * @acc_awb: 0 = no update, 1 = update.
  * @__acc_osys: 0 = no update, 1 = update.
- * @__reserved3: Not used.
+ * @reserved3: Not used.
  * @lin_vmem_params: 0 = no update, 1 = update.
  * @tnr3_vmem_params: 0 = no update, 1 = update.
  * @xnr3_vmem_params: 0 = no update, 1 = update.
  * @tnr3_dmem_params: 0 = no update, 1 = update.
  * @xnr3_dmem_params: 0 = no update, 1 = update.
- * @__reserved4: Not used.
+ * @reserved4: Not used.
  * @obgrid_param: 0 = no update, 1 = update.
- * @__reserved5: Not used.
+ * @reserved5: Not used.
  */
 struct ipu3_uapi_flags {
 	__u32 gdc:1;
 	__u32 obgrid:1;
-	__u32 __reserved1:30;
+	__u32 reserved1:30;
 
 	__u32 acc_bnr:1;
 	__u32 acc_green_disparity:1;
@@ -2746,7 +2705,7 @@ struct ipu3_uapi_flags {
 	__u32 acc_csc:1;
 	__u32 acc_cds:1;
 	__u32 acc_shd:1;
-	__u32 __reserved2:2;
+	__u32 reserved2:2;
 	__u32 acc_iefd:1;
 	__u32 acc_yds_c0:1;
 	__u32 acc_chnr_c0:1;
@@ -2763,16 +2722,16 @@ struct ipu3_uapi_flags {
 	__u32 acc_ae:1;
 	__u32 acc_af:1;
 	__u32 acc_awb:1;
-	__u32 __reserved3:4;
+	__u32 reserved3:4;
 
 	__u32 lin_vmem_params:1;
 	__u32 tnr3_vmem_params:1;
 	__u32 xnr3_vmem_params:1;
 	__u32 tnr3_dmem_params:1;
 	__u32 xnr3_dmem_params:1;
-	__u32 __reserved4:1;
+	__u32 reserved4:1;
 	__u32 obgrid_param:1;
-	__u32 __reserved5:25;
+	__u32 reserved5:25;
 } __packed;
 
 /**
@@ -2817,7 +2776,4 @@ struct ipu3_uapi_params {
 	struct ipu3_uapi_obgrid_param obgrid_param;
 } __packed;
 
-#define V4L2_CID_INTEL_IPU3_BASE (V4L2_CID_USER_BASE + 0x10a0)
-#define V4L2_CID_INTEL_IPU3_MODE (V4L2_CID_INTEL_IPU3_BASE + 1)
-
-#endif
+#endif /* __IPU3_UAPI_H */

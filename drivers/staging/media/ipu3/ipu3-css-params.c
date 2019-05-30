@@ -2372,7 +2372,7 @@ int imgu_css_cfg_acc(struct imgu_css *css, unsigned int pipe,
 
 	if (use && use->acc_awb_fr) {
 		/* Take values from user */
-		acc->awb_fr.config = acc_user->awb_fr.config;
+		acc->awb_fr.config = acc_user->awb_fr;
 	} else if (acc_old) {
 		/* Use old value */
 		acc->awb_fr.config = acc_old->awb_fr.config;
@@ -2521,8 +2521,8 @@ int imgu_css_cfg_acc(struct imgu_css *css, unsigned int pipe,
 
 	if (use && use->acc_af) {
 		/* Take values from user */
-		acc->af.config.filter_config = acc_user->af.config.filter_config;
-		acc->af.config.grid_cfg = acc_user->af.config.grid_cfg;
+		acc->af.config.filter_config = acc_user->af.filter_config;
+		acc->af.config.grid_cfg = acc_user->af.grid_cfg;
 	} else if (acc_old) {
 		/* Use old value */
 		acc->af.config = acc_old->af.config;
