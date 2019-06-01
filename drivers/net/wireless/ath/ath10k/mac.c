@@ -4112,6 +4112,9 @@ static u16 ath10k_mac_update_airtime(struct ath10k *ar,
 	}
 	spin_unlock_bh(&ar->data_lock);
 
+	ieee80211_sta_register_pending_airtime(txq->sta, txq->tid, airtime,
+					       false);
+	ieee80211_sta_register_airtime(txq->sta, txq->tid, airtime, 0);
 	return airtime;
 }
 
