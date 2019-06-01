@@ -1138,6 +1138,9 @@ struct ieee80211_local {
 	u16 schedule_round[IEEE80211_NUM_ACS];
 
 	u16 airtime_flags;
+	unsigned long txq_airtime_limit[IEEE80211_NUM_ACS];
+	u32 fw_tx_airtime_limit;
+	atomic_t fw_tx_pending_airtime;
 
 	const struct ieee80211_ops *ops;
 

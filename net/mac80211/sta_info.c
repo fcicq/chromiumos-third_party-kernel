@@ -416,6 +416,8 @@ struct sta_info *sta_info_alloc(struct ieee80211_sub_if_data *sdata,
 		skb_queue_head_init(&sta->ps_tx_buf[i]);
 		skb_queue_head_init(&sta->tx_filtered[i]);
 		atomic_long_set(&sta->airtime[i].deficit, sta->airtime_weight);
+		atomic_long_set(&sta->airtime[i].tx_pending, 0);
+		sta->airtime[i].txq_airtime_limit = local->txq_airtime_limit[i];
 	}
 
 	for (i = 0; i < IEEE80211_NUM_TIDS; i++)
@@ -1859,6 +1861,26 @@ void ieee80211_sta_register_airtime(struct ieee80211_sta *pubsta, u8 tid,
 	atomic_long_sub(airtime, &sta->airtime[ac].deficit);
 }
 EXPORT_SYMBOL(ieee80211_sta_register_airtime);
+
+void ieee80211_sta_register_pending_airtime(struct ieee80211_sta *pubsta,
+					    u8 tid, u32 tx_airtime,
+					    bool tx_completed)
+{
+	u8 ac = ieee80211_ac_from_tid(tid);
+	struct sta_info *sta = container_of(pubsta, struct sta_info, sta);
+	struct ieee80211_local *local = sta->local;
+
+	if (tx_completed) {
+		atomic_long_sub(tx_airtime,
+				&sta->airtime[ac].tx_pending);
+		atomic_sub(tx_airtime, &local->fw_tx_pending_airtime);
+	} else {
+		atomic_long_add(tx_airtime,
+				&sta->airtime[ac].tx_pending);
+		atomic_add(tx_airtime, &local->fw_tx_pending_airtime);
+	}
+}
+EXPORT_SYMBOL(ieee80211_sta_register_pending_airtime);
 
 int sta_info_move_state(struct sta_info *sta,
 			enum ieee80211_sta_state new_state)

@@ -2287,6 +2287,12 @@ enum wiphy_params_flags {
 
 #define IEEE80211_DEFAULT_AIRTIME_WEIGHT	256
 
+/* The per TXQ firmware queue limit in airtime */
+#define IEEE80211_DEFAULT_TXQ_AIRTIME_LIMIT	4000
+
+/* The firmware's transmit queue size limit in airtime */
+#define IEEE80211_DEFAULT_FW_AIRTIME_LIMIT	20000
+
 /**
  * struct cfg80211_pmksa - PMK Security Association
  *

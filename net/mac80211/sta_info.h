@@ -130,11 +130,15 @@ enum ieee80211_agg_stop_reason {
 /* Debugfs flags to enable/disable use of RX/TX airtime in scheduler */
 #define AIRTIME_USE_TX		BIT(0)
 #define AIRTIME_USE_RX		BIT(1)
+#define AIRTIME_USE_Q_LIMIT	BIT(2)
 
 struct airtime_info {
 	atomic_long_t tx_airtime;
 	atomic_long_t rx_airtime;
 	atomic_long_t deficit;
+	/* Estimated airtime for frames pending in the tx queue */
+	atomic_long_t tx_pending;
+	unsigned long txq_airtime_limit;
 };
 
 /**

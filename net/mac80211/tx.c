@@ -3629,7 +3629,8 @@ struct ieee80211_txq *ieee80211_next_txq(struct ieee80211_hw *hw, u8 ac)
 {
 	struct ieee80211_local *local = hw_to_local(hw);
 	struct ieee80211_txq *ret = NULL;
-	struct txq_info *txqi = NULL;
+	struct txq_info *txqi = NULL, *head = NULL;
+	s64 deficit;
 
 	spin_lock_bh(&local->active_txq_lock[ac]);
 
@@ -3640,13 +3641,22 @@ struct ieee80211_txq *ieee80211_next_txq(struct ieee80211_hw *hw, u8 ac)
 	if (!txqi)
 		goto out;
 
+	if (txqi == head)
+		goto out;
+
+	if (!head)
+		head = txqi;
+
 	if (txqi->txq.sta) {
 		struct sta_info *sta = container_of(txqi->txq.sta,
 						struct sta_info, sta);
 
-		if (atomic_long_read(&sta->airtime[txqi->txq.ac].deficit) < 0) {
+		deficit = atomic_long_read(&sta->airtime[txqi->txq.ac].deficit);
+		if (deficit < 0)
 			atomic_long_add(sta->airtime_weight,
 					&sta->airtime[txqi->txq.ac].deficit);
+		if (deficit < 0 ||
+		    !ieee80211_txq_airtime_limit_check(hw, &txqi->txq)) {
 			list_move_tail(&txqi->schedule_order,
 				       &local->active_txqs[txqi->txq.ac]);
 			goto begin;
@@ -3699,6 +3709,34 @@ void __ieee80211_schedule_txq(struct ieee80211_hw *hw,
 }
 EXPORT_SYMBOL(__ieee80211_schedule_txq);
 
+bool ieee80211_txq_airtime_limit_check(struct ieee80211_hw *hw,
+				       struct ieee80211_txq *txq)
+{
+	struct sta_info *sta;
+	struct ieee80211_local *local = hw_to_local(hw);
+	long txq_pending;
+	int  total_pending;
+
+	if (!(local->airtime_flags & AIRTIME_USE_Q_LIMIT))
+		return true;
+
+	if (!txq->sta)
+		return true;
+
+	sta = container_of(txq->sta, struct sta_info, sta);
+	total_pending = atomic_read(&local->fw_tx_pending_airtime);
+	txq_pending = atomic_long_read(&sta->airtime[txq->ac].tx_pending);
+	if (total_pending < local->fw_tx_airtime_limit &&
+	    txq_pending < local->fw_tx_airtime_limit / 2)
+		return true;
+
+	if (txq_pending > sta->airtime[txq->ac].txq_airtime_limit)
+		return false;
+	else
+		return true;
+}
+EXPORT_SYMBOL(ieee80211_txq_airtime_limit_check);
+
 bool ieee80211_txq_may_transmit(struct ieee80211_hw *hw,
 				struct ieee80211_txq *txq)
 {
@@ -3706,6 +3744,7 @@ bool ieee80211_txq_may_transmit(struct ieee80211_hw *hw,
 	struct txq_info *iter, *tmp, *txqi = to_txq_info(txq);
 	struct sta_info *sta;
 	u8 ac = txq->ac;
+	long	deficit;
 
 	spin_lock_bh(&local->active_txq_lock[ac]);
 
@@ -3733,11 +3772,13 @@ bool ieee80211_txq_may_transmit(struct ieee80211_hw *hw,
 	}
 
 	sta = container_of(txqi->txq.sta, struct sta_info, sta);
-	if (atomic_long_read(&sta->airtime[ac].deficit) >= 0)
+	deficit = atomic_long_read(&sta->airtime[ac].deficit);
+	if (deficit >= 0 && ieee80211_txq_airtime_limit_check(hw, &txqi->txq))
 		goto out;
 
-	atomic_long_add(sta->airtime_weight,
-			&sta->airtime[ac].deficit);
+	if (deficit < 0)
+		atomic_long_add(sta->airtime_weight,
+				&sta->airtime[ac].deficit);
 	list_move_tail(&txqi->schedule_order, &local->active_txqs[ac]);
 	spin_unlock_bh(&local->active_txq_lock[ac]);
 
