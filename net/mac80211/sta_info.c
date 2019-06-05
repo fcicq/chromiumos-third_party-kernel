@@ -415,7 +415,7 @@ struct sta_info *sta_info_alloc(struct ieee80211_sub_if_data *sdata,
 	for (i = 0; i < IEEE80211_NUM_ACS; i++) {
 		skb_queue_head_init(&sta->ps_tx_buf[i]);
 		skb_queue_head_init(&sta->tx_filtered[i]);
-		sta->airtime[i].deficit = sta->airtime_weight;
+		atomic_long_set(&sta->airtime[i].deficit, sta->airtime_weight);
 	}
 
 	for (i = 0; i < IEEE80211_NUM_TIDS; i++)
@@ -1846,7 +1846,6 @@ void ieee80211_sta_register_airtime(struct ieee80211_sta *pubsta, u8 tid,
 				    u32 tx_airtime, u32 rx_airtime)
 {
 	struct sta_info *sta = container_of(pubsta, struct sta_info, sta);
-	struct ieee80211_local *local = sta->sdata->local;
 	u8 ac = ieee80211_ac_from_tid(tid);
 	u32 airtime = 0;
 
@@ -1855,11 +1854,9 @@ void ieee80211_sta_register_airtime(struct ieee80211_sta *pubsta, u8 tid,
 	if (sta->local->airtime_flags & AIRTIME_USE_RX)
 		airtime += rx_airtime;
 
-	spin_lock_bh(&local->active_txq_lock[ac]);
-	sta->airtime[ac].tx_airtime += tx_airtime;
-	sta->airtime[ac].rx_airtime += rx_airtime;
-	sta->airtime[ac].deficit -= airtime;
-	spin_unlock_bh(&local->active_txq_lock[ac]);
+	atomic_long_add(tx_airtime, &sta->airtime[ac].tx_airtime);
+	atomic_long_add(rx_airtime, &sta->airtime[ac].rx_airtime);
+	atomic_long_sub(airtime, &sta->airtime[ac].deficit);
 }
 EXPORT_SYMBOL(ieee80211_sta_register_airtime);
 
@@ -2207,13 +2204,15 @@ void sta_set_sinfo(struct sta_info *sta, struct station_info *sinfo)
 
 	if (!(sinfo->filled & BIT_ULL(NL80211_STA_INFO_RX_DURATION))) {
 		for (ac = 0; ac < IEEE80211_NUM_ACS; ac++)
-			sinfo->rx_duration += sta->airtime[ac].rx_airtime;
+			sinfo->rx_duration +=
+				atomic_long_read(&sta->airtime[ac].rx_airtime);
 		sinfo->filled |= BIT_ULL(NL80211_STA_INFO_RX_DURATION);
 	}
 
 	if (!(sinfo->filled & BIT_ULL(NL80211_STA_INFO_TX_DURATION))) {
 		for (ac = 0; ac < IEEE80211_NUM_ACS; ac++)
-			sinfo->tx_duration += sta->airtime[ac].tx_airtime;
+			sinfo->tx_duration +=
+				atomic_long_read(&sta->airtime[ac].tx_airtime);
 		sinfo->filled |= BIT_ULL(NL80211_STA_INFO_TX_DURATION);
 	}
 

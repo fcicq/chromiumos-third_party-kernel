@@ -196,7 +196,6 @@ static ssize_t sta_airtime_read(struct file *file, char __user *userbuf,
 				size_t count, loff_t *ppos)
 {
 	struct sta_info *sta = file->private_data;
-	struct ieee80211_local *local = sta->sdata->local;
 	size_t bufsz = 200;
 	char *buf = kzalloc(bufsz, GFP_KERNEL), *p = buf;
 	u64 rx_airtime = 0, tx_airtime = 0;
@@ -208,11 +207,9 @@ static ssize_t sta_airtime_read(struct file *file, char __user *userbuf,
 		return -ENOMEM;
 
 	for (ac = 0; ac < IEEE80211_NUM_ACS; ac++) {
-		spin_lock_bh(&local->active_txq_lock[ac]);
-		rx_airtime += sta->airtime[ac].rx_airtime;
-		tx_airtime += sta->airtime[ac].tx_airtime;
-		deficit[ac] = sta->airtime[ac].deficit;
-		spin_unlock_bh(&local->active_txq_lock[ac]);
+		rx_airtime += atomic_long_read(&sta->airtime[ac].rx_airtime);
+		tx_airtime += atomic_long_read(&sta->airtime[ac].tx_airtime);
+		deficit[ac] = atomic_long_read(&sta->airtime[ac].deficit);
 	}
 
 	p += scnprintf(p, bufsz + buf - p,
@@ -235,15 +232,12 @@ static ssize_t sta_airtime_write(struct file *file, const char __user *userbuf,
 				 size_t count, loff_t *ppos)
 {
 	struct sta_info *sta = file->private_data;
-	struct ieee80211_local *local = sta->sdata->local;
 	int ac;
 
 	for (ac = 0; ac < IEEE80211_NUM_ACS; ac++) {
-		spin_lock_bh(&local->active_txq_lock[ac]);
-		sta->airtime[ac].rx_airtime = 0;
-		sta->airtime[ac].tx_airtime = 0;
-		sta->airtime[ac].deficit = sta->airtime_weight;
-		spin_unlock_bh(&local->active_txq_lock[ac]);
+		atomic_long_set(&sta->airtime[ac].rx_airtime, 0);
+		atomic_long_set(&sta->airtime[ac].tx_airtime, 0);
+		atomic_long_set(&sta->airtime[ac].deficit, sta->airtime_weight);
 	}
 
 	return count;

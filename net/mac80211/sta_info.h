@@ -132,9 +132,9 @@ enum ieee80211_agg_stop_reason {
 #define AIRTIME_USE_RX		BIT(1)
 
 struct airtime_info {
-	u64 rx_airtime;
-	u64 tx_airtime;
-	s64 deficit;
+	atomic_long_t tx_airtime;
+	atomic_long_t rx_airtime;
+	atomic_long_t deficit;
 };
 
 /**
