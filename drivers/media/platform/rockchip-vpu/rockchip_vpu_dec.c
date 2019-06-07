@@ -159,6 +159,14 @@ static struct rockchip_vpu_control controls[] = {
 		.can_store = true,
 	},
 	{
+		.id = V4L2_CID_MPEG_VIDEO_H264_PROFILE,
+		.type = V4L2_CTRL_TYPE_MENU,
+		.minimum = V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE,
+		.maximum = V4L2_MPEG_VIDEO_H264_PROFILE_HIGH,
+		.default_value = V4L2_MPEG_VIDEO_H264_PROFILE_MAIN,
+		.menu_skip_mask = BIT(V4L2_MPEG_VIDEO_H264_PROFILE_EXTENDED),
+	},
+	{
 		.id = V4L2_CID_MPEG_VIDEO_VP9_PROFILE,
 		.type = V4L2_CTRL_TYPE_MENU,
 		.minimum = V4L2_MPEG_VIDEO_VP9_PROFILE_0,
@@ -823,6 +831,7 @@ static int rockchip_vpu_dec_s_ctrl(struct v4l2_ctrl *ctrl)
 	case V4L2_CID_MPEG_VIDEO_H264_PPS:
 	case V4L2_CID_MPEG_VIDEO_H264_SCALING_MATRIX:
 	case V4L2_CID_MPEG_VIDEO_H264_SLICE_PARAM:
+	case V4L2_CID_MPEG_VIDEO_H264_PROFILE:
 	case V4L2_CID_MPEG_VIDEO_VP8_FRAME_HDR:
 	case V4L2_CID_MPEG_VIDEO_VP9_DECODE_PARAM:
 	case V4L2_CID_MPEG_VIDEO_VP9_FRAME_HDR:
