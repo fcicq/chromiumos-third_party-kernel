@@ -586,7 +586,7 @@ struct ath10k_debug {
 
 	struct ath10k_fw_crash_data *fw_crash_data;
 	struct dentry *debugfs_smartant;
-	struct ath10k_tx_delay_stats *tx_delay_stats[IEEE80211_NUM_ACS];
+	struct ath10k_tx_delay_stats *tx_delay_stats[IEEE80211_NUM_TIDS];
 };
 
 enum ath10k_state {
