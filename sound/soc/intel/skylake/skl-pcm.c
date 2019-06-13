@@ -32,6 +32,8 @@
 #define HDA_STEREO 2
 #define HDA_QUAD 4
 
+#define IS_BXT(pci) ((pci)->vendor == 0x8086 && (pci)->device == 0x5a98)
+
 static struct snd_pcm_hardware azx_pcm_hw = {
 	.info =			(SNDRV_PCM_INFO_MMAP |
 				 SNDRV_PCM_INFO_INTERLEAVED |
@@ -217,6 +219,7 @@ static int skl_get_format(struct snd_pcm_substream *substream,
 static int skl_pcm_prepare(struct snd_pcm_substream *substream,
 		struct snd_soc_dai *dai)
 {
+	struct hdac_ext_bus *ebus = dev_get_drvdata(dai->dev);
 	struct hdac_ext_stream *stream = get_hdac_ext_stream(substream);
 	struct skl *skl = get_skl_ctx(dai->dev);
 	unsigned int format_val;
@@ -241,7 +244,18 @@ static int skl_pcm_prepare(struct snd_pcm_substream *substream,
 	if (err < 0)
 		return err;
 
-	err = snd_hdac_stream_setup(hdac_stream(stream));
+	/*
+	 * The recommended SDxFMT programming sequence for BXT
+	 * platforms is to couple the stream before writing the format
+	 */
+	if (IS_BXT(skl->pci)) {
+		snd_hdac_ext_stream_decouple(ebus, stream, false);
+		err = snd_hdac_stream_setup(hdac_stream(stream));
+		snd_hdac_ext_stream_decouple(ebus, stream, true);
+	} else {
+		err = snd_hdac_stream_setup(hdac_stream(stream));
+	}
+
 	if (err < 0)
 		return err;
 
