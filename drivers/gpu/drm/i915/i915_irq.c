@@ -1081,9 +1081,14 @@ static void gen6_pm_rps_work(struct work_struct *work)
 
 	/* Make sure we didn't queue anything we're not going to process. */
 	WARN_ON(pm_iir & ~dev_priv->pm_rps_events);
-
+	/*
+	 * FIXME: This is temporary change to improve power consumption
+	 * in hangouts use case. (See: b/130638275)
+	 */
+	/*
 	if ((pm_iir & dev_priv->pm_rps_events) == 0 && !client_boost)
 		return;
+	*/
 
 	mutex_lock(&dev_priv->rps.hw_lock);
 
