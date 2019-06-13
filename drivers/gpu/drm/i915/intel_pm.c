@@ -5468,6 +5468,11 @@ void gen6_rps_boost(struct drm_i915_gem_request *rq,
 	if (!i915->rps.enabled)
 		return;
 	boost = false;
+	/*
+	 * FIXME: This is temporary change to improve power consumption
+	 * in hangouts use case. (See: b/130638275)
+	 */
+	/*
 	spin_lock_irq(&rq->lock);
 	if (!rq->waitboost && !i915_gem_request_completed(rq)) {
 		atomic_inc(&i915->rps.num_waiters);
@@ -5475,6 +5480,7 @@ void gen6_rps_boost(struct drm_i915_gem_request *rq,
 		boost = true;
 	}
 	spin_unlock_irq(&rq->lock);
+	*/
 	if (!boost)
 		return;
 
