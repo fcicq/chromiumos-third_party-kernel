@@ -3070,6 +3070,9 @@ static int btusb_probe(struct usb_interface *intf,
 
 	usb_set_intfdata(intf, data);
 
+	hdev->controller_id.idVendor = id->idVendor;
+	hdev->controller_id.idProduct = id->idProduct;
+
 	return 0;
 }
 
