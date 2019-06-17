@@ -41,6 +41,7 @@
 #include <linux/kthread.h>
 #include <linux/freezer.h>
 #include <linux/memcontrol.h>
+#include <linux/page_idle.h>
 #include <linux/delayacct.h>
 #include <linux/sysctl.h>
 #include <linux/oom.h>
@@ -1305,12 +1306,15 @@ unsigned long reclaim_pages(struct list_head *page_list)
 
 	list_for_each_entry(page, page_list, lru) {
 		ClearPageActive(page);
+		test_and_clear_page_young(page);
 		/* XXX: It could be multiple node in other config */
 		WARN_ON_ONCE(pgdat != page_zone(page)->zone_pgdat);
 		if (!page_is_file_cache(page))
-			nr_isolated[0][page_zone_id(page)]++;
+			nr_isolated[0][page_zone_id(page)] +=
+				hpage_nr_pages(page);
 		else
-			nr_isolated[1][page_zone_id(page)]++;
+			nr_isolated[1][page_zone_id(page)] +=
+				hpage_nr_pages(page);
 	}
 
 	for (i = 0; i < MAX_NR_ZONES; i++) {
