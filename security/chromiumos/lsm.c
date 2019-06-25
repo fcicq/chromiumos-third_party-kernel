@@ -111,9 +111,9 @@ static void report(const char *origin, struct path *path, char *operation)
 	kfree(alloced);
 }
 
-int chromiumos_security_sb_mount(const char *dev_name, struct path *path,
-				 const char *type, unsigned long flags,
-				 void *data)
+static int chromiumos_security_sb_mount(const char *dev_name, struct path *path,
+					const char *type, unsigned long flags,
+					void *data)
 {
 #ifdef CONFIG_SECURITY_CHROMIUMOS_NO_SYMLINK_MOUNT
 	if (nameidata_get_total_link_count()) {
@@ -304,30 +304,6 @@ static int chromiumos_add_sb_nosymfollow_hashtable(struct super_block *sb)
 	return 0;
 }
 
-/* Flush all entries from hash table. */
-void chromiumos_flush_sb_nosymfollow_hashtable(void)
-{
-	struct sb_entry *entry;
-	struct hlist_node *hlist_node;
-	unsigned int bkt_loop_cursor;
-	HLIST_HEAD(free_list);
-
-	/*
-	 * Could probably use hash_for_each_rcu here instead, but this should
-	 * be fine as well.
-	 */
-	spin_lock(&sb_nosymfollow_hashtable_spinlock);
-	hash_for_each_safe(sb_nosymfollow_hashtable, bkt_loop_cursor,
-			   hlist_node, entry, next) {
-		hash_del_rcu(&entry->next);
-		hlist_add_head(&entry->dlist, &free_list);
-	}
-	spin_unlock(&sb_nosymfollow_hashtable_spinlock);
-	synchronize_rcu();
-	hlist_for_each_entry_safe(entry, hlist_node, &free_list, dlist)
-		kfree(entry);
-}
-
 /* Remove entry from hash table. */
 static void chromiumos_remove_sb_nosymfollow_hashtable(struct super_block *sb)
 {
@@ -356,7 +332,7 @@ static void chromiumos_remove_sb_nosymfollow_hashtable(struct super_block *sb)
 	}
 }
 
-void chromiumos_security_sb_free(struct super_block *sb)
+static void chromiumos_security_sb_free(struct super_block *sb)
 {
 	/*
 	 * When unmounting the filesystem we were using for module
@@ -369,7 +345,7 @@ void chromiumos_security_sb_free(struct super_block *sb)
 	}
 }
 
-int chromiumos_security_sb_umount(struct vfsmount *mnt, int flags)
+static int chromiumos_security_sb_umount(struct vfsmount *mnt, int flags)
 {
 	/* If mnt->mnt_sb is in nosymfollow hashtable, remove it. */
 	chromiumos_remove_sb_nosymfollow_hashtable(mnt->mnt_sb);
@@ -427,12 +403,13 @@ static int check_pinning(const char *origin, struct file *file)
 	return 0;
 }
 
-int chromiumos_security_load_module(struct file *file)
+static int chromiumos_security_load_module(struct file *file)
 {
 	return check_pinning("init_module", file);
 }
 
-int chromiumos_security_load_firmware(struct file *file, char *buf, size_t size)
+static int chromiumos_security_load_firmware(struct file *file, char *buf,
+					     size_t size)
 {
 	return check_pinning("request_firmware", file);
 }
@@ -500,7 +477,7 @@ static int chromiumos_security_file_open(
 	return policy == CHROMIUMOS_INODE_POLICY_BLOCK ? -EACCES : 0;
 }
 
-bool chromiumos_check_setuid_policy_hashtable_key(kuid_t parent)
+static bool chromiumos_check_setuid_policy_hashtable_key(kuid_t parent)
 {
 	struct entry *entry;
 
@@ -524,8 +501,8 @@ bool chromiumos_check_setuid_policy_hashtable_key(kuid_t parent)
 	return false;
 }
 
-bool chromiumos_check_setuid_policy_hashtable_key_value(kuid_t parent,
-							kuid_t child)
+static bool chromiumos_check_setuid_policy_hashtable_key_value(kuid_t parent,
+							       kuid_t child)
 {
 	struct entry *entry;
 
@@ -550,7 +527,7 @@ bool chromiumos_check_setuid_policy_hashtable_key_value(kuid_t parent,
 	return false;
 }
 
-bool setuid_syscall(int num)
+static bool setuid_syscall(int num)
 {
 #ifdef CONFIG_X86_64
 	if (!(num == __NR_setreuid ||
@@ -582,10 +559,9 @@ bool setuid_syscall(int num)
 	return true;
 }
 
-int chromiumos_security_capable(const struct cred *cred,
-				struct user_namespace *ns,
-				int cap,
-				int audit)
+static int chromiumos_security_capable(const struct cred *cred,
+				       struct user_namespace *ns,
+				       int cap, int audit)
 {
 	/* The current->mm check will fail if this is a kernel thread. */
 	if (!disable_process_management_policies &&
@@ -626,7 +602,7 @@ int chromiumos_security_capable(const struct cred *cred,
  * The "nosymfollow" option will be stripped from the mount string if it is
  * encountered.
  */
-int chromiumos_sb_copy_data(char *orig, char *copy)
+static int chromiumos_sb_copy_data(char *orig, char *copy)
 {
 	char *orig_copy;
 	char *orig_copy_cur;
@@ -673,7 +649,7 @@ int chromiumos_sb_copy_data(char *orig, char *copy)
  * kernel warning reports collected by the crash reporter, so we have some
  * insight regarding failures that need addressing.
  */
-void chromiumos_setuid_policy_warning(kuid_t parent, kuid_t child)
+static void chromiumos_setuid_policy_warning(kuid_t parent, kuid_t child)
 {
 	WARN(1,
 	     "UID %u is restricted to using certain whitelisted UIDs for process management, and %u is not in the whitelist.\n",
@@ -681,7 +657,7 @@ void chromiumos_setuid_policy_warning(kuid_t parent, kuid_t child)
 	     __kuid_val(child));
 }
 
-bool chromiumos_uid_transition_allowed(kuid_t parent, kuid_t child)
+static bool chromiumos_uid_transition_allowed(kuid_t parent, kuid_t child)
 {
 	if (chromiumos_check_setuid_policy_hashtable_key_value(parent, child))
 		return true;
@@ -694,8 +670,8 @@ bool chromiumos_uid_transition_allowed(kuid_t parent, kuid_t child)
  * use user under new cred struct, or the UID transition is allowed (by Linux
  * set*uid rules) even without CAP_SETUID.
  */
-int chromiumos_security_task_fix_setuid(struct cred *new,
-					const struct cred *old, int flags)
+static int chromiumos_security_task_fix_setuid(struct cred *new,
+					       const struct cred *old, int flags)
 {
 	/*
 	 * Do nothing if feature is turned off by kernel compile flag or there
@@ -814,7 +790,8 @@ static void *search_buffer(void *haystack, size_t haystacklen,
 	return NULL;
 }
 
-int chromiumos_sb_kern_mount(struct super_block *sb, int flags, void *data)
+static int chromiumos_sb_kern_mount(struct super_block *sb, int flags,
+				    void *data)
 {
 	int ret;
 	char search_str[10] = "\0nosymflw";
