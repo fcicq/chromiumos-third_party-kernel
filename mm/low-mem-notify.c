@@ -49,7 +49,6 @@ unsigned int low_mem_ram_vs_swap_weight = 4;
 DEFINE_RATELIMIT_STATE(low_mem_logging_ratelimit, 1 * HZ, 1);
 
 unsigned long low_mem_lowest_seen_anon_mem;
-const unsigned long low_mem_anon_mem_delta = 10 * MB / PAGE_SIZE;
 static struct kernfs_node *low_mem_available_dirent;
 
 struct low_mem_notify_file_info {
