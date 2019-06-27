@@ -7207,13 +7207,16 @@ static int ath10k_conf_tx(struct ieee80211_hw *hw,
 	p->cwmin = params->cw_min;
 	p->cwmax = params->cw_max;
 	p->aifs = params->aifs;
+	p->no_ack = params->noack;
 
 	/*
 	 * The channel time duration programmed in the HW is in absolute
 	 * microseconds, while mac80211 gives the txop in units of
 	 * 32 microseconds.
 	 */
-	p->txop = params->txop * 32;
+	if (params->txop != 0xffff) {
+		p->txop = params->txop * 32;
+	}
 
 	if (ar->wmi.ops->gen_vdev_wmm_conf) {
 		ret = ath10k_wmi_vdev_wmm_conf(ar, arvif->vdev_id,

@@ -310,6 +310,61 @@ static ssize_t ieee80211_if_parse_smps(struct ieee80211_sub_if_data *sdata,
 }
 IEEE80211_IF_FILE_RW(smps);
 
+static ssize_t
+ieee80211_if_parse_wmm_param(struct ieee80211_sub_if_data *sdata,
+			     const char *user_buf, int count)
+{
+	struct ieee80211_local *local = sdata->local;
+	char buf[100];
+	size_t len;
+	u32 ac, cwmin, cwmax, aifs, noack;
+	struct ieee80211_tx_queue_params params;
+
+	if (count > (sizeof(buf) - 1))
+		count = sizeof(buf) - 1;
+
+	memcpy(buf, user_buf, count);
+
+	buf[sizeof(buf) - 1] = '\0';
+	len = strlen(buf);
+	if (len > 0 && buf[len - 1] == '\n')
+		buf[len - 1] = 0;
+
+	if (sscanf(buf, "ac %d cwmin %d cwmax %d aifs %d noack %d", &ac, &cwmin,
+		   &cwmax, &aifs, &noack) != 5) {
+		sdata_err(sdata,
+			  "wmm_param: failed to get param");
+		return -EINVAL;
+	}
+
+	params.cw_min = cwmin;
+	params.cw_max = cwmax;
+	params.aifs = aifs;
+	params.noack = noack;
+	params.txop = 0xffff;
+
+	switch (ac) {
+	case 0:
+		ac = IEEE80211_AC_BE;
+		break;
+	case 1:
+		ac = IEEE80211_AC_BK;
+		break;
+	case 2:
+		ac = IEEE80211_AC_VI;
+		break;
+	case 3:
+		ac = IEEE80211_AC_VO;
+		break;
+	}
+
+	drv_conf_tx(local, sdata, ac, &params);
+
+	return count;
+}
+
+IEEE80211_IF_FILE_W(wmm_param);
+
 static ssize_t ieee80211_if_parse_tkip_mic_test(
 	struct ieee80211_sub_if_data *sdata, const char *buf, int buflen)
 {
@@ -742,6 +797,7 @@ static void add_sta_files(struct ieee80211_sub_if_data *sdata)
 	DEBUGFS_ADD_MODE(uapsd_queues, 0600);
 	DEBUGFS_ADD_MODE(uapsd_max_sp_len, 0600);
 	DEBUGFS_ADD_MODE(tdls_wider_bw, 0600);
+	DEBUGFS_ADD_MODE(wmm_param, 0200);
 }
 
 static void add_ap_files(struct ieee80211_sub_if_data *sdata)
@@ -753,6 +809,7 @@ static void add_ap_files(struct ieee80211_sub_if_data *sdata)
 	DEBUGFS_ADD(num_buffered_multicast);
 	DEBUGFS_ADD_MODE(tkip_mic_test, 0200);
 	DEBUGFS_ADD_MODE(multicast_to_unicast, 0600);
+	DEBUGFS_ADD_MODE(wmm_param, 0200);
 }
 
 static void add_vlan_files(struct ieee80211_sub_if_data *sdata)
@@ -778,6 +835,7 @@ static void add_mesh_files(struct ieee80211_sub_if_data *sdata)
 {
 	DEBUGFS_ADD_MODE(tsf, 0600);
 	DEBUGFS_ADD_MODE(estab_plinks, 0400);
+	DEBUGFS_ADD_MODE(wmm_param, 0200);
 }
 
 static void add_mesh_stats(struct ieee80211_sub_if_data *sdata)
