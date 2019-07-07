@@ -489,7 +489,7 @@ struct rx_rate_limit {
  * @last_seq_ctrl: last received seq/frag number from this STA (per TID
  *	plus one for non-QoS frames)
  * @tid_seq: per-TID sequence numbers for sending to this STA
- * @airtime: per-AC struct airtime_info describing airtime statistics for this
+ * @airtime: per-TID struct airtime_info describing airtime statistics for this
  *	station
  * @airtime_weight: station weight for airtime fairness calculation purposes
  * @ampdu_mlme: A-MPDU state machine state
@@ -602,7 +602,7 @@ struct sta_info {
 
 	u16 tid_seq[IEEE80211_QOS_CTL_TID_MASK + 1];
 
-	struct airtime_info airtime[IEEE80211_NUM_ACS];
+	struct airtime_info airtime[IEEE80211_NUM_TIDS];
 	u16 airtime_weight;
 
 	/*
@@ -635,7 +635,7 @@ struct sta_info {
 	enum ieee80211_smps_mode known_smps_mode;
 	const struct ieee80211_cipher_scheme *cipher_scheme;
 
-	struct codel_params cparams;
+	struct codel_params cparams[IEEE80211_NUM_TIDS];
 
 	u8 reserved_tid;
 

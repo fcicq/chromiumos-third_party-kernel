@@ -647,9 +647,11 @@ struct ieee80211_hw *ieee80211_alloc_hw_nm(size_t priv_data_len,
 	for (i = 0; i < IEEE80211_NUM_ACS; i++) {
 		INIT_LIST_HEAD(&local->active_txqs[i]);
 		spin_lock_init(&local->active_txq_lock[i]);
+	}
+
+	for (i = 0; i < IEEE80211_NUM_TIDS; i++)
 		local->txq_airtime_limit[i] =
 			IEEE80211_DEFAULT_TXQ_AIRTIME_LIMIT;
-	}
 
 	local->airtime_flags =
 		AIRTIME_USE_TX | AIRTIME_USE_RX | AIRTIME_USE_Q_LIMIT;

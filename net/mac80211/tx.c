@@ -1333,19 +1333,22 @@ static struct sk_buff *fq_tin_dequeue_func(struct fq *fq,
 	struct codel_vars *cvars;
 	struct codel_params *cparams;
 	struct codel_stats *cstats;
+	int tid;
 
 	local = container_of(fq, struct ieee80211_local, fq);
 	txqi = container_of(tin, struct txq_info, tin);
 	cstats = &txqi->cstats;
 
+	tid = txqi->txq.tid;
 	if (txqi->txq.sta) {
 		struct sta_info *sta = container_of(txqi->txq.sta,
 						    struct sta_info, sta);
-		cparams = &sta->cparams;
+		cparams = &sta->cparams[tid];
 	} else {
-		cparams = &local->cparams;
+		cparams = &local->cparams[tid];
 	}
 
+	cstats = &txqi->cstats;
 	if (flow == &txqi->def_flow)
 		cvars = &txqi->def_cvars;
 	else
@@ -1504,10 +1507,12 @@ int ieee80211_txq_setup_flows(struct ieee80211_local *local)
 	if (!supp_vht)
 		fq->memory_limit = 4 << 20; /* 4 Mbytes */
 
-	codel_params_init(&local->cparams);
-	local->cparams.interval = MS2TIME(100);
-	local->cparams.target = MS2TIME(20);
-	local->cparams.ecn = true;
+	for (i = 0; i < IEEE80211_NUM_TIDS; i++) {
+		codel_params_init(&local->cparams[i]);
+		local->cparams[i].interval = MS2TIME(100);
+		local->cparams[i].target = MS2TIME(20);
+		local->cparams[i].ecn = true;
+	}
 
 	local->cvars = kcalloc(fq->flows_cnt, sizeof(local->cvars[0]),
 			       GFP_KERNEL);
@@ -3631,6 +3636,7 @@ struct ieee80211_txq *ieee80211_next_txq(struct ieee80211_hw *hw, u8 ac)
 	struct ieee80211_txq *ret = NULL;
 	struct txq_info *txqi = NULL, *head = NULL;
 	s64 deficit;
+	u8 tid;
 
 	spin_lock_bh(&local->active_txq_lock[ac]);
 
@@ -3651,10 +3657,11 @@ struct ieee80211_txq *ieee80211_next_txq(struct ieee80211_hw *hw, u8 ac)
 		struct sta_info *sta = container_of(txqi->txq.sta,
 						struct sta_info, sta);
 
-		deficit = atomic_long_read(&sta->airtime[txqi->txq.ac].deficit);
+		tid = txqi->txq.tid;
+		deficit = atomic_long_read(&sta->airtime[tid].deficit);
 		if (deficit < 0)
 			atomic_long_add(sta->airtime_weight,
-					&sta->airtime[txqi->txq.ac].deficit);
+					&sta->airtime[tid].deficit);
 		if (deficit < 0 ||
 		    !ieee80211_txq_airtime_limit_check(hw, &txqi->txq)) {
 			list_move_tail(&txqi->schedule_order,
@@ -3725,12 +3732,12 @@ bool ieee80211_txq_airtime_limit_check(struct ieee80211_hw *hw,
 
 	sta = container_of(txq->sta, struct sta_info, sta);
 	total_pending = atomic_read(&local->fw_tx_pending_airtime);
-	txq_pending = atomic_long_read(&sta->airtime[txq->ac].tx_pending);
+	txq_pending = atomic_long_read(&sta->airtime[txq->tid].tx_pending);
 	if (total_pending < local->fw_tx_airtime_limit &&
 	    txq_pending < local->fw_tx_airtime_limit / 2)
 		return true;
 
-	if (txq_pending > sta->airtime[txq->ac].txq_airtime_limit)
+	if (txq_pending > sta->airtime[txq->tid].txq_airtime_limit)
 		return false;
 	else
 		return true;
@@ -3744,6 +3751,7 @@ bool ieee80211_txq_may_transmit(struct ieee80211_hw *hw,
 	struct txq_info *iter, *tmp, *txqi = to_txq_info(txq);
 	struct sta_info *sta;
 	u8 ac = txq->ac;
+	u8 tid = txq->tid;
 	long	deficit;
 
 	spin_lock_bh(&local->active_txq_lock[ac]);
@@ -3765,20 +3773,20 @@ bool ieee80211_txq_may_transmit(struct ieee80211_hw *hw,
 			continue;
 		}
 		sta = container_of(iter->txq.sta, struct sta_info, sta);
-		if (atomic_long_read(&sta->airtime[ac].deficit) < 0)
+		if (atomic_long_read(&sta->airtime[tid].deficit) < 0)
 			atomic_long_add(sta->airtime_weight,
-					&sta->airtime[ac].deficit);
+					&sta->airtime[tid].deficit);
 		list_move_tail(&iter->schedule_order, &local->active_txqs[ac]);
 	}
 
 	sta = container_of(txqi->txq.sta, struct sta_info, sta);
-	deficit = atomic_long_read(&sta->airtime[ac].deficit);
+	deficit = atomic_long_read(&sta->airtime[tid].deficit);
 	if (deficit >= 0 && ieee80211_txq_airtime_limit_check(hw, &txqi->txq))
 		goto out;
 
 	if (deficit < 0)
 		atomic_long_add(sta->airtime_weight,
-				&sta->airtime[ac].deficit);
+				&sta->airtime[tid].deficit);
 	list_move_tail(&txqi->schedule_order, &local->active_txqs[ac]);
 	spin_unlock_bh(&local->active_txq_lock[ac]);
 

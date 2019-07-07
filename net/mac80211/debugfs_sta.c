@@ -151,13 +151,15 @@ static ssize_t sta_aqm_read(struct file *file, char __user *userbuf,
 
 	spin_lock_bh(&local->fq.lock);
 	rcu_read_lock();
-
-	p += scnprintf(p,
+	p += scnprintf(p, bufsz + buf - p, "tid target interval ecn\n");
+	for (i = 0; i < IEEE80211_NUM_TIDS; i++) {
+		p += scnprintf(p,
 		       bufsz+buf-p,
-		       "target %uus interval %uus ecn %s\n",
-		       codel_time_to_us(sta->cparams.target),
-		       codel_time_to_us(sta->cparams.interval),
-		       sta->cparams.ecn ? "yes" : "no");
+		       "%u %uus %uus %s\n", i,
+		       codel_time_to_us(sta->cparams[i].target),
+		       codel_time_to_us(sta->cparams[i].interval),
+		       sta->cparams[i].ecn ? "yes" : "no");
+	}
 	p += scnprintf(p,
 		       bufsz+buf-p,
 		       "tid ac backlog-bytes backlog-packets new-flows drops marks overlimit collisions tx-bytes tx-packets flags\n");
@@ -196,35 +198,40 @@ static ssize_t sta_airtime_read(struct file *file, char __user *userbuf,
 				size_t count, loff_t *ppos)
 {
 	struct sta_info *sta = file->private_data;
-	size_t bufsz = 400;
+	size_t bufsz = 600;
 	char *buf = kzalloc(bufsz, GFP_KERNEL), *p = buf;
 	u64 rx_airtime = 0, tx_airtime = 0;
-	s64 deficit[IEEE80211_NUM_ACS];
-	s64 q_depth[IEEE80211_NUM_ACS];
-	s64 q_limit[IEEE80211_NUM_ACS];
+	s64 deficit[IEEE80211_NUM_TIDS];
+	s64 q_depth[IEEE80211_NUM_TIDS];
+	s64 q_limit[IEEE80211_NUM_TIDS];
 	ssize_t rv;
-	int ac;
+	int tid;
 
 	if (!buf)
 		return -ENOMEM;
 
-	for (ac = 0; ac < IEEE80211_NUM_ACS; ac++) {
-		rx_airtime += atomic_long_read(&sta->airtime[ac].rx_airtime);
-		tx_airtime += atomic_long_read(&sta->airtime[ac].tx_airtime);
-		deficit[ac] = atomic_long_read(&sta->airtime[ac].deficit);
-		q_limit[ac] = sta->airtime[ac].txq_airtime_limit;
-		q_depth[ac] = atomic_long_read(&sta->airtime[ac].tx_pending);
+	for (tid = 0; tid < IEEE80211_NUM_TIDS; tid++) {
+		rx_airtime += atomic_long_read(&sta->airtime[tid].rx_airtime);
+		tx_airtime += atomic_long_read(&sta->airtime[tid].tx_airtime);
+		deficit[tid] = atomic_long_read(&sta->airtime[tid].deficit);
+		q_limit[tid] = sta->airtime[tid].txq_airtime_limit;
+		q_depth[tid] = atomic_long_read(&sta->airtime[tid].tx_pending);
 	}
 
 	p += scnprintf(p, bufsz + buf - p,
-		"RX: %llu us\nTX: %llu us\nWeight: %u\n"
-		"Deficit: VO: %lld us VI: %lld us BE: %lld us BK: %lld us\n"
-		"Q limit: VO: %lld us VI: %lld us BE: %lld us BK: %lld us\n"
-		"Q depth: VO: %lld us VI: %lld us BE: %lld us BK: %lld us\n",
-		rx_airtime, tx_airtime, sta->airtime_weight,
-		deficit[0], deficit[1], deficit[2], deficit[3],
-		q_limit[0], q_limit[1], q_limit[2], q_limit[3],
-		q_depth[0], q_depth[1], q_depth[2], q_depth[3]);
+		"RX: %llu us\nTX: %llu us\nWeight: %u\n",
+		rx_airtime, tx_airtime, sta->airtime_weight);
+
+	p += scnprintf(p, bufsz + buf - p,
+		"TID:\t Deficit:\tQueue Limit:\t Queue Depth:\n");
+	for (tid = 0; tid < IEEE80211_NUM_TIDS; tid++) {
+		p += scnprintf(p, bufsz + buf - p,
+			       "%d\t %lld\t %llu\t\t %llu\n",
+			       tid,
+			       deficit[tid],
+			       q_limit[tid],
+			       q_depth[tid]);
+	}
 
 	rv = simple_read_from_buffer(userbuf, count, ppos, buf, p - buf);
 	kfree(buf);
@@ -235,7 +242,8 @@ static ssize_t sta_airtime_write(struct file *file, const char __user *userbuf,
 				 size_t count, loff_t *ppos)
 {
 	struct sta_info *sta = file->private_data;
-	int ac, q_limit;
+	int tid, q_limit;
+
 	char _buf[100] = {}, *buf = _buf;
 
 	if (count > sizeof(_buf))
@@ -245,18 +253,18 @@ static ssize_t sta_airtime_write(struct file *file, const char __user *userbuf,
 		return -EFAULT;
 
 	buf[sizeof(_buf) - 1] = '\0';
-	if (sscanf(buf, "queue limit %u %u", &ac, &q_limit) == 2) {
-		if (ac < IEEE80211_NUM_ACS)
-			sta->airtime[ac].txq_airtime_limit = q_limit;
+	if (sscanf(buf, "queue limit %u %u", &tid, &q_limit) == 2) {
+		if (tid < IEEE80211_NUM_TIDS)
+			sta->airtime[tid].txq_airtime_limit = q_limit;
 	}
 
-	for (ac = 0; ac < IEEE80211_NUM_ACS; ac++) {
-		atomic_long_set(&sta->airtime[ac].rx_airtime, 0);
-		atomic_long_set(&sta->airtime[ac].tx_airtime, 0);
-		atomic_long_set(&sta->airtime[ac].deficit, sta->airtime_weight);
+	for (tid = 0; tid < IEEE80211_NUM_TIDS; tid++) {
+		atomic_long_set(&sta->airtime[tid].rx_airtime, 0);
+		atomic_long_set(&sta->airtime[tid].tx_airtime, 0);
+		atomic_long_set(&sta->airtime[tid].deficit,
+				sta->airtime_weight);
 	}
 	return count;
-
 }
 STA_OPS_RW(airtime);
 

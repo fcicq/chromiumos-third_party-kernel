@@ -1130,7 +1130,7 @@ struct ieee80211_local {
 
 	struct fq fq;
 	struct codel_vars *cvars;
-	struct codel_params cparams;
+	struct codel_params cparams[IEEE80211_NUM_TIDS];
 
 	/* protects active_txqs and txqi->schedule_order */
 	spinlock_t active_txq_lock[IEEE80211_NUM_ACS];
@@ -1138,7 +1138,7 @@ struct ieee80211_local {
 	u16 schedule_round[IEEE80211_NUM_ACS];
 
 	u16 airtime_flags;
-	unsigned long txq_airtime_limit[IEEE80211_NUM_ACS];
+	unsigned long txq_airtime_limit[IEEE80211_NUM_TIDS];
 	u32 fw_tx_airtime_limit;
 	atomic_t fw_tx_pending_airtime;
 
