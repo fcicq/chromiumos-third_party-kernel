@@ -1165,6 +1165,7 @@ struct ath10k {
 	struct work_struct radar_confirmation_work;
 
 	const unsigned int *debug_mask;
+	u32	atf_max_num_pending_tx;
 	/* must be last */
 	u8 drv_priv[0] __aligned(sizeof(void *));
 };
