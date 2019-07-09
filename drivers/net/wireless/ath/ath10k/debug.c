@@ -2849,8 +2849,8 @@ static ssize_t ath10k_tx_delay_stats_dump(struct file *file,
 		return -ENOMEM;
 
 	len += scnprintf(buf + len, buf_len - len,
-			 "Frames pending in driver: %d\n",
-			 ar->htt.num_pending_tx);
+			 "Frames pending in driver: %d, max: %d\n",
+			 ar->htt.num_pending_tx, ar->atf_max_num_pending_tx);
 
 	for (ac = 0; ac < IEEE80211_NUM_ACS; ac++) {
 		stats =  ar->debug.tx_delay_stats[ac];
@@ -2898,6 +2898,7 @@ static ssize_t ath10k_tx_delay_stats_clear(struct file *file,
 
 	memset(ar->debug.tx_delay_stats[0], 0,
 	       sizeof(struct ath10k_tx_delay_stats) * IEEE80211_NUM_ACS);
+	ar->atf_max_num_pending_tx = 0;
 	return count;
 }
 

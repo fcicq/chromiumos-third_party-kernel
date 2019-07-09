@@ -3827,6 +3827,9 @@ static int ath10k_mac_tx(struct ath10k *ar,
 		return ret;
 	}
 
+	if (ar->htt.num_pending_tx > ar->atf_max_num_pending_tx)
+		ar->atf_max_num_pending_tx = ar->htt.num_pending_tx;
+
 	return 0;
 }
 
