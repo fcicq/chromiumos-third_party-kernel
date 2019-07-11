@@ -41,9 +41,31 @@ void rtw_phy_cfg_rf(struct rtw_dev *rtwdev, const struct rtw_table *tbl,
 		    u32 addr, u32 data);
 void rtw_phy_init_tx_power(struct rtw_dev *rtwdev);
 void rtw_phy_load_tables(struct rtw_dev *rtwdev);
+u8
+rtw_phy_get_tx_power_index(struct rtw_dev *rtwdev, u8 rf_path, u8 rate,
+			   enum rtw_bandwidth bandwidth, u8 channel, u8 regd);
 void rtw_phy_set_tx_power_level(struct rtw_dev *rtwdev, u8 channel);
 void rtw_phy_tx_power_by_rate_config(struct rtw_hal *hal);
 void rtw_phy_tx_power_limit_config(struct rtw_hal *hal);
+void rtw_phy_pwrtrack_avg(struct rtw_dev *rtwdev, u8 thermal, u8 path);
+bool rtw_phy_pwrtrack_thermal_changed(struct rtw_dev *rtwdev, u8 thermal,
+				      u8 path);
+u8 rtw_phy_pwrtrack_get_delta(struct rtw_dev *rtwdev, u8 path);
+s8 rtw_phy_pwrtrack_get_pwridx(struct rtw_dev *rtwdev,
+			       struct rtw_swing_table *swing_table,
+			       u8 tbl_path, u8 therm_path, u8 delta);
+bool rtw_phy_pwrtrack_need_iqk(struct rtw_dev *rtwdev);
+void rtw_phy_config_swing_table(struct rtw_dev *rtwdev,
+				struct rtw_swing_table *swing_table);
+
+struct rtw_txpwr_lmt_cfg_pair {
+	u8 regd;
+	u8 band;
+	u8 bw;
+	u8 rs;
+	u8 ch;
+	s8 txpwr_lmt;
+};
 
 #define RTW_DECL_TABLE_PHY_COND_CORE(name, cfg, path)	\
 const struct rtw_table name ## _tbl = {			\
@@ -136,5 +158,7 @@ rtw_get_tx_power_params(struct rtw_dev *rtwdev, u8 path,
 #define MASKBYTE2HIGHNIBBLE	0x00f00000
 #define MASKBYTE3LOWNIBBLE	0x0f000000
 #define	MASKL3BYTES		0x00ffffff
+
+#define CCK_FA_AVG_RESET 0xffffffff
 
 #endif

@@ -126,6 +126,8 @@
 /* IMR 3 */
 #define IMR_H2CDOK		BIT(16)
 
+#define AVG_AMPDU_SIZE		16
+
 /* one element is reserved to know if the ring is closed */
 static inline int avail_desc(u32 wp, u32 rp, u32 len)
 {
@@ -186,6 +188,7 @@ struct rtw_pci {
 	spinlock_t irq_lock;
 	u32 irq_mask[4];
 	bool irq_enabled;
+	bool msi_enabled;
 
 	u16 rx_tag;
 	struct rtw_pci_tx_ring tx_rings[RTK_MAX_TX_QUEUE_NUM];

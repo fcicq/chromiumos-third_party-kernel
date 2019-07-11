@@ -27,8 +27,6 @@ void rtw_tx_stats(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 			rtwvif = (struct rtw_vif *)vif->drv_priv;
 			rtwvif->stats.tx_unicast += skb->len;
 			rtwvif->stats.tx_cnt++;
-			if (rtwvif->stats.tx_cnt > RTW_LPS_THRESHOLD)
-				rtw_leave_lps_irqsafe(rtwdev, rtwvif);
 		}
 	}
 }
@@ -58,6 +56,7 @@ void rtw_tx_fill_tx_desc(struct rtw_tx_pkt_info *pkt_info, struct sk_buff *skb)
 	SET_TX_DESC_DATA_SHORT(txdesc, pkt_info->short_gi);
 	SET_TX_DESC_SPE_RPT(txdesc, pkt_info->report);
 	SET_TX_DESC_SW_DEFINE(txdesc, pkt_info->sn);
+	SET_TX_DESC_USE_RTS(txdesc, pkt_info->rts);
 }
 EXPORT_SYMBOL(rtw_tx_fill_tx_desc);
 
@@ -260,6 +259,9 @@ static void rtw_tx_data_pkt_info_update(struct rtw_dev *rtwdev,
 		ampdu_density = get_tx_ampdu_density(sta);
 	}
 
+	if (info->control.use_rts)
+		pkt_info->rts = true;
+
 	if (sta->vht_cap.vht_supported)
 		rate = get_highest_vht_tx_rate(rtwdev, sta);
 	else if (sta->ht_cap.ht_supported)
@@ -364,4 +366,156 @@ void rtw_rsvd_page_pkt_info_update(struct rtw_dev *rtwdev,
 	pkt_info->offset = chip->tx_pkt_desc_sz;
 	pkt_info->qsel = TX_DESC_QSEL_MGMT;
 	pkt_info->ls = true;
+}
+
+void rtw_tx(struct rtw_dev *rtwdev,
+	    struct ieee80211_tx_control *control,
+	    struct sk_buff *skb)
+{
+	struct rtw_tx_pkt_info pkt_info = {0};
+
+	rtw_tx_pkt_info_update(rtwdev, &pkt_info, control, skb);
+	if (rtw_hci_tx(rtwdev, &pkt_info, skb))
+		goto out;
+
+	return;
+
+out:
+	ieee80211_free_txskb(rtwdev->hw, skb);
+}
+
+static void rtw_txq_check_agg(struct rtw_dev *rtwdev,
+			      struct rtw_txq *rtwtxq,
+			      struct sk_buff *skb)
+{
+	struct ieee80211_txq *txq = rtwtxq_to_txq(rtwtxq);
+	struct ieee80211_tx_info *info;
+	struct rtw_sta_info *si;
+
+	if (test_bit(RTW_TXQ_AMPDU, &rtwtxq->flags)) {
+		info = IEEE80211_SKB_CB(skb);
+		info->flags |= IEEE80211_TX_CTL_AMPDU;
+		return;
+	}
+
+	if (skb_get_queue_mapping(skb) == IEEE80211_AC_VO)
+		return;
+
+	if (test_bit(RTW_TXQ_BLOCK_BA, &rtwtxq->flags))
+		return;
+
+	if (unlikely(skb->protocol == cpu_to_be16(ETH_P_PAE)))
+		return;
+
+	if (!txq->sta)
+		return;
+
+	si = (struct rtw_sta_info *)txq->sta->drv_priv;
+	set_bit(txq->tid, si->tid_ba);
+
+	ieee80211_queue_work(rtwdev->hw, &rtwdev->ba_work);
+}
+
+static bool rtw_txq_dequeue(struct rtw_dev *rtwdev,
+			    struct rtw_txq *rtwtxq)
+{
+	struct ieee80211_txq *txq = rtwtxq_to_txq(rtwtxq);
+	struct ieee80211_tx_control control;
+	struct sk_buff *skb;
+
+	rcu_read_lock();
+
+	skb = ieee80211_tx_dequeue(rtwdev->hw, txq);
+	if (!skb) {
+		rcu_read_unlock();
+		return false;
+	}
+
+	rtw_txq_check_agg(rtwdev, rtwtxq, skb);
+
+	control.sta = txq->sta;
+	rtw_tx(rtwdev, &control, skb);
+	rtwtxq->last_push = jiffies;
+
+	rcu_read_unlock();
+
+	return true;
+}
+
+void rtw_txq_drain(struct rtw_dev *rtwdev, struct rtw_txq *rtwtxq)
+{
+	while (rtw_txq_dequeue(rtwdev, rtwtxq))
+		; /* nothing to do now */
+}
+
+void rtw_txq_push(struct rtw_dev *rtwdev,
+		  struct rtw_txq *rtwtxq, int frames)
+{
+	int i;
+
+	for (i = 0; i < frames; i++)
+		if (!rtw_txq_dequeue(rtwdev, rtwtxq))
+			break;
+}
+
+void rtw_txq_schedule(struct rtw_dev *rtwdev, struct rtw_txq *rtwtxq)
+{
+	int frames;
+	bool empty = true;
+
+	spin_lock_bh(&rtwdev->txq_lock);
+
+	frames = rtw_hci_pull_txq(rtwdev, rtwtxq, &empty);
+
+	/* has frames remain in txq, make sure txq get served in 50 usecs */
+	if (!empty && list_empty(&rtwtxq->list)) {
+		list_add_tail(&rtwtxq->list, &rtwdev->txqs);
+		mod_timer(&rtwtxq->timer, jiffies + usecs_to_jiffies(50));
+	}
+
+	rtw_txq_push(rtwdev, rtwtxq, frames);
+
+	spin_unlock_bh(&rtwdev->txq_lock);
+}
+
+static void rtw_txq_timer(struct timer_list *t)
+{
+	struct rtw_txq *rtwtxq = from_timer(rtwtxq, t, timer);
+	struct rtw_dev *rtwdev = rtwtxq->rtwdev;
+
+	rcu_read_lock();
+	spin_lock_bh(&rtwdev->txq_lock);
+	if (list_empty(&rtwtxq->list))
+		goto out;
+
+	list_del_init(&rtwtxq->list);
+	rtw_txq_drain(rtwdev, rtwtxq);
+
+out:
+	spin_unlock_bh(&rtwdev->txq_lock);
+	rcu_read_unlock();
+}
+
+void rtw_txq_init(struct rtw_dev *rtwdev, struct ieee80211_txq *txq)
+{
+	struct rtw_txq *rtwtxq;
+
+	if (!txq)
+		return;
+
+	rtwtxq = (struct rtw_txq *)txq->drv_priv;
+	rtwtxq->rtwdev = rtwdev;
+	timer_setup(&rtwtxq->timer, rtw_txq_timer, 0);
+	INIT_LIST_HEAD(&rtwtxq->list);
+}
+
+void rtw_txq_cleanup(struct rtw_dev *rtwdev, struct ieee80211_txq *txq)
+{
+	struct rtw_txq *rtwtxq;
+
+	if (!txq)
+		return;
+
+	rtwtxq = (struct rtw_txq *)txq->drv_priv;
+	del_timer_sync(&rtwtxq->timer);
 }
