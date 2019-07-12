@@ -2846,7 +2846,7 @@ static ssize_t ath10k_tx_delay_histo_dump(struct file *file,
 		return -ENOMEM;
 
 	len += scnprintf(buf + len, buf_len - len, "TX delay histogram(ms)\n");
-	for (i = 0; i <= ATH10K_DELAY_STATS_MAX_BIN; i++) {
+	for (i = 0; i < ATH10K_DELAY_STATS_MAX_BIN; i++) {
 		len += scnprintf(buf + len, buf_len - len, "[%4u - %4u]:%8u ",
 				10 * i, 10 * (i + 1), stats_local.counts[i]);
 
