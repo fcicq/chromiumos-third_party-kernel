@@ -149,6 +149,76 @@ static const struct file_operations aqm_ops = {
 	.llseek = default_llseek,
 };
 
+static ssize_t txq_airtime_limit_read(struct file *file,
+				      char __user *user_buf,
+				      size_t count,
+				      loff_t *ppos)
+{
+	struct ieee80211_local *local = file->private_data;
+	char buf[200];
+	int len = 0;
+
+	rcu_read_lock();
+	len = scnprintf(buf, sizeof(buf),
+			"AC	txq_airtime_limit\n"
+			"0	%u\n"
+			"1	%u\n"
+			"2	%u\n"
+			"3	%u\n",
+			local->txq_airtime_limit[0],
+			local->txq_airtime_limit[1],
+			local->txq_airtime_limit[2],
+			local->txq_airtime_limit[3]);
+	rcu_read_unlock();
+
+	return simple_read_from_buffer(user_buf, count, ppos,
+				       buf, len);
+}
+
+static ssize_t txq_airtime_limit_write(struct file *file,
+				       const char __user *user_buf,
+				       size_t count,
+				       loff_t *ppos)
+{
+	struct ieee80211_local *local = file->private_data;
+	char buf[100];
+	size_t len;
+	u32	ac, q_limit;
+	struct sta_info *sta;
+
+	if (count > sizeof(buf))
+		return -EINVAL;
+
+	if (copy_from_user(buf, user_buf, count))
+		return -EFAULT;
+
+	buf[sizeof(buf) - 1] = '\0';
+	len = strlen(buf);
+	if (len > 0 && buf[len - 1] == '\n')
+		buf[len - 1] = 0;
+
+	if (sscanf(buf, "%u %u", &ac, &q_limit) == 2) {
+		if (ac < IEEE80211_NUM_ACS) {
+			local->txq_airtime_limit[ac] = q_limit;
+
+			mutex_lock(&local->sta_mtx);
+			list_for_each_entry(sta, &local->sta_list, list) {
+				sta->airtime[ac].txq_airtime_limit = q_limit;
+			}
+			mutex_unlock(&local->sta_mtx);
+			return count;
+		}
+	}
+	return -EINVAL;
+}
+
+static const struct file_operations txq_airtime_limit_ops = {
+	.write = txq_airtime_limit_write,
+	.read = txq_airtime_limit_read,
+	.open = simple_open,
+	.llseek = default_llseek,
+};
+
 #ifdef CONFIG_PM
 static ssize_t reset_write(struct file *file, const char __user *user_buf,
 			   size_t count, loff_t *ppos)
@@ -382,6 +452,10 @@ void debugfs_hw_add(struct ieee80211_local *local)
 
 	debugfs_create_u16("airtime_flags", 0600,
 			   phyd, &local->airtime_flags);
+
+	DEBUGFS_ADD(txq_airtime_limit);
+	debugfs_create_u32("fw_tx_airtime_limit", 0600,
+			   phyd, &local->fw_tx_airtime_limit);
 
 	statsd = debugfs_create_dir("statistics", phyd);
 
