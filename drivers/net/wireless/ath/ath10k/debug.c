@@ -2803,12 +2803,11 @@ int ath10k_debug_create(struct ath10k *ar)
 	INIT_LIST_HEAD(&ar->debug.fw_stats.peers_extd);
 
 	tx_delay_stats_size = sizeof(struct ath10k_tx_delay_stats) *
-				     IEEE80211_NUM_ACS;
+				     ARRAY_SIZE(ar->debug.tx_delay_stats);
 	pbuf = kzalloc(tx_delay_stats_size, GFP_KERNEL);
 	if (!pbuf)
 		return -ENOMEM;
-
-	for (i = 0; i < IEEE80211_NUM_ACS; i++) {
+	for (i = 0; i < ARRAY_SIZE(ar->debug.tx_delay_stats); i++) {
 		ar->debug.tx_delay_stats[i] = pbuf;
 		pbuf++;
 	}
@@ -2830,6 +2829,28 @@ void ath10k_debug_destroy(struct ath10k *ar)
 	kfree(ar->debug.tx_delay_stats[0]);
 }
 
+/* TX delay stats class names ordered by TID. */
+static const char ath10k_tx_delay_stats_names[][7] = {
+	"AC_BE",
+	"AC_BK",
+	"AC_BK+",
+	"AC_BE+",
+	"AC_VI",
+	"AC_VI+",
+	"AC_VO",
+	"AC_VO+",
+	"TID8",
+	"TID9",
+	"TID10",
+	"TID11",
+	"TID12",
+	"TID13",
+	"TID14",
+	"TID15",
+};
+
+#define ATH10K_TX_DELAY_STATS_NAMES_SIZE ARRAY_SIZE(ath10k_tx_delay_stats_names)
+
 static ssize_t ath10k_tx_delay_stats_dump(struct file *file,
 					  char __user *user_buf,
 					  size_t count, loff_t *ppos)
@@ -2839,10 +2860,8 @@ static ssize_t ath10k_tx_delay_stats_dump(struct file *file,
 	unsigned int len = 0, buf_len = 4096;
 	ssize_t ret_cnt;
 	struct ath10k_tx_delay_stats *stats;
-	u32 ac, bin, total, counter, target, index;
+	u32 tid, bin, total, counter, target, index;
 	u32 percentile[] = {5, 10, 25, 50, 75, 90, 95, 99};
-
-	char *ac_names[IEEE80211_NUM_ACS] = {"VO", "VI", "BE", "BK"};
 
 	buf = kzalloc(buf_len, GFP_KERNEL);
 	if (!buf)
@@ -2852,18 +2871,21 @@ static ssize_t ath10k_tx_delay_stats_dump(struct file *file,
 			 "Frames pending in driver: %d, max: %d\n",
 			 ar->htt.num_pending_tx, ar->atf_max_num_pending_tx);
 
-	for (ac = 0; ac < IEEE80211_NUM_ACS; ac++) {
-		stats =  ar->debug.tx_delay_stats[ac];
+	BUILD_BUG_ON(ATH10K_TX_DELAY_STATS_NAMES_SIZE != IEEE80211_NUM_TIDS);
+	for (tid = 0; tid < IEEE80211_NUM_TIDS; tid++) {
+		stats = ar->debug.tx_delay_stats[tid];
 		total = 0;
 		for (bin = 0; bin <= ATH10K_DELAY_STATS_MAX_BIN; bin++)
 			total += stats->counts[bin];
 
-		/* Skip AC that has no activity to make output more concise. */
+		/* Skip class that has no activity to make output more
+		 * concise.
+		 */
 		if (total == 0)
 			continue;
 		len += scnprintf(buf + len, buf_len - len,
-				 "TX latency stats for AC[%s]: %d frames\n",
-				 ac_names[ac], total);
+				 "TX latency stats for %s: %d frames\n",
+				 ath10k_tx_delay_stats_names[tid], total);
 		for (counter = 0, bin = 0, index = 0;
 		     index < ARRAY_SIZE(percentile); index++) {
 			target = total * percentile[index] / 100;
@@ -2897,7 +2919,8 @@ static ssize_t ath10k_tx_delay_stats_clear(struct file *file,
 		return -EINVAL;
 
 	memset(ar->debug.tx_delay_stats[0], 0,
-	       sizeof(struct ath10k_tx_delay_stats) * IEEE80211_NUM_ACS);
+	       sizeof(struct ath10k_tx_delay_stats) *
+		   ARRAY_SIZE(ar->debug.tx_delay_stats));
 	ar->atf_max_num_pending_tx = 0;
 	return count;
 }
@@ -2970,7 +2993,6 @@ void ath10k_txdelay_debugfs_register(struct ath10k *ar)
 {
 	struct dentry *tx_delay_histo_dir;
 	int i;
-	char *ac[IEEE80211_NUM_ACS] = {"AC_VO", "AC_VI", "AC_BE", "AC_BK"};
 
 	tx_delay_histo_dir = debugfs_create_dir("tx_delay_histogram",
 						ar->debug.debugfs_phy);
@@ -2979,8 +3001,8 @@ void ath10k_txdelay_debugfs_register(struct ath10k *ar)
 			"tx_delay_stats");
 		return;
 	}
-	for (i = 0; i < IEEE80211_NUM_ACS; i++) {
-		debugfs_create_file(ac[i], 0644,
+	for (i = 0; i < ATH10K_TX_DELAY_STATS_NAMES_SIZE; i++) {
+		debugfs_create_file(ath10k_tx_delay_stats_names[i], 0644,
 				    tx_delay_histo_dir,
 				    ar->debug.tx_delay_stats[i],
 				    &fops_tx_delay_histo);

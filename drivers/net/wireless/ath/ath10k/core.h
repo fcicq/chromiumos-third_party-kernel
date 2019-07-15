@@ -615,7 +615,7 @@ struct ath10k_debug {
 	u32 enable_extd_tx_stats;
 	u32 coex_priority_level[ATH10K_MAX_PRIORITY];
 	int ftmr_enabled[ATH10K_FTMR_MAX_NUM_VDEVS];
-	struct ath10k_tx_delay_stats *tx_delay_stats[IEEE80211_NUM_ACS];
+	struct ath10k_tx_delay_stats *tx_delay_stats[IEEE80211_NUM_TIDS];
 };
 
 enum ath10k_state {
