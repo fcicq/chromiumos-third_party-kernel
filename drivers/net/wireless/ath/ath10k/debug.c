@@ -2851,6 +2851,24 @@ static const char ath10k_tx_delay_stats_names[][7] = {
 
 #define ATH10K_TX_DELAY_STATS_NAMES_SIZE ARRAY_SIZE(ath10k_tx_delay_stats_names)
 
+/* Returns start time of the transmit delay histogram stats bin. */
+static inline int ath10k_tx_delay_bin_to_ms(int bin)
+{
+	int bin_ms;
+
+	/* The first two bins span 1ms (i.e. [0, 1), and [1, 2)) are returned
+	 * directly. All other power-of-two bucket ranges are subdivided into
+	 * two bins, with the even numbered bin covering the first half of the
+	 * range and the odd numbered bin offset by 1/2 of the range.
+	 */
+	if (bin < 2)
+		return bin;
+	bin_ms = 1 << (bin / 2);
+	if (bin % 2)
+		bin_ms += bin_ms >> 1;
+	return bin_ms;
+}
+
 static ssize_t ath10k_tx_delay_stats_dump(struct file *file,
 					  char __user *user_buf,
 					  size_t count, loff_t *ppos)
@@ -2875,7 +2893,7 @@ static ssize_t ath10k_tx_delay_stats_dump(struct file *file,
 	for (tid = 0; tid < IEEE80211_NUM_TIDS; tid++) {
 		stats = ar->debug.tx_delay_stats[tid];
 		total = 0;
-		for (bin = 0; bin <= ATH10K_DELAY_STATS_MAX_BIN; bin++)
+		for (bin = 0; bin <= ATH10K_TX_DELAY_STATS_MAX_BIN; bin++)
 			total += stats->counts[bin];
 
 		/* Skip class that has no activity to make output more
@@ -2890,13 +2908,13 @@ static ssize_t ath10k_tx_delay_stats_dump(struct file *file,
 		     index < ARRAY_SIZE(percentile); index++) {
 			target = total * percentile[index] / 100;
 			while ((counter <  target) &&
-			       (bin < ATH10K_DELAY_STATS_MAX_BIN)) {
+			       (bin <= ATH10K_TX_DELAY_STATS_MAX_BIN)) {
 				counter += stats->counts[bin];
 				bin++;
 			}
 			len += scnprintf(buf + len, buf_len - len,
 					 "P%d:\t<%dms\n", percentile[index],
-					 10 * bin);
+					 ath10k_tx_delay_bin_to_ms(bin));
 		}
 	}
 
@@ -2949,15 +2967,16 @@ static ssize_t ath10k_tx_delay_histo_dump(struct file *file,
 		return -ENOMEM;
 
 	len += scnprintf(buf + len, buf_len - len, "TX delay histogram(ms)\n");
-	for (i = 0; i < ATH10K_DELAY_STATS_MAX_BIN; i++) {
-		len += scnprintf(buf + len, buf_len - len, "[%4u - %4u]:%8u ",
-				10 * i, 10 * (i + 1), stats_local.counts[i]);
-
+	for (i = 0; i < ATH10K_TX_DELAY_STATS_MAX_BIN; i++) {
+		len += scnprintf(buf + len, buf_len - len, "[%4u - %4u):%8u ",
+				 ath10k_tx_delay_bin_to_ms(i),
+				 ath10k_tx_delay_bin_to_ms(i + 1),
+				 stats_local.counts[i]);
 		if (i % 5 == 4)
 			len += scnprintf(buf + len, buf_len - len, "\n");
 	}
-	len += scnprintf(buf + len, buf_len - len, "[> 1000]:%8u ",
-				stats_local.counts[i]);
+	len += scnprintf(buf + len, buf_len - len, "[%4d -  inf):%8u ",
+			 ath10k_tx_delay_bin_to_ms(i), stats_local.counts[i]);
 	len += scnprintf(buf + len, buf_len - len, "\n");
 
 	ret_cnt = simple_read_from_buffer(user_buf, count, ppos, buf, len);
