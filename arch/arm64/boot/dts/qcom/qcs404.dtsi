@@ -833,7 +833,7 @@
 			status = "disabled";
 		};
 
-		remoteproc_wcss_pil: remoteproc-wcss-pil {
+		remoteproc_wcss_pil: remoteproc-wcss-pil@7400000 {
 			compatible = "qcom,qcs404-wcss-pil";
 			reg = <0x07400000 0x00104>, <0x07500000 0x4e000>;
 			reg-names = "qdsp6", "q6stop";
