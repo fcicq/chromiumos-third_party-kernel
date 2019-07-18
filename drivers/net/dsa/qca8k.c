@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2009 Felix Fietkau <nbd@nbd.name>
  * Copyright (C) 2011-2012 Gabor Juhos <juhosg@openwrt.org>
- * Copyright (c) 2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015, 2019, The Linux Foundation. All rights reserved.
  * Copyright (c) 2016 John Crispin <john@phrozen.org>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -799,6 +799,8 @@ qca8k_port_enable(struct dsa_switch *ds, int port,
 
 	qca8k_port_set_status(priv, port, 1);
 	priv->port_sts[port].enabled = 1;
+
+	phy->advertising |= (ADVERTISED_Pause | ADVERTISED_Asym_Pause);
 
 	return 0;
 }
