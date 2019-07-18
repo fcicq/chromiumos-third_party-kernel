@@ -313,6 +313,10 @@ static int iwl_init_channel_map(struct device *dev, const struct iwl_cfg *cfg,
 
 		ch_flags = __le16_to_cpup(nvm_ch_flags + ch_idx);
 
+		if (is_5ghz && (cfg->device_family == IWL_DEVICE_FAMILY_9000 &&
+			       !cfg->integrated))
+			ch_flags &= ~NVM_CHANNEL_160MHZ;
+
 		if (is_5ghz && !data->sku_cap_band_52ghz_enable)
 			continue;
 
