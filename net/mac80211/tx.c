@@ -3653,7 +3653,7 @@ struct ieee80211_txq *ieee80211_next_txq(struct ieee80211_hw *hw, u8 ac)
 	if (!head)
 		head = txqi;
 
-	if (txqi->txq.sta) {
+	if (txqi->txq.sta && local->airtime_flags & AIRTIME_USE_TX) {
 		struct sta_info *sta = container_of(txqi->txq.sta,
 						struct sta_info, sta);
 
@@ -3702,9 +3702,7 @@ void __ieee80211_schedule_txq(struct ieee80211_hw *hw,
 		 * get immediately moved to the back of the list on the next
 		 * call to ieee80211_next_txq().
 		 */
-		if (txqi->txq.sta &&
-		    wiphy_ext_feature_isset(local->hw.wiphy,
-					    NL80211_EXT_FEATURE_AIRTIME_FAIRNESS))
+		if (txqi->txq.sta && local->airtime_flags & AIRTIME_USE_TX)
 			list_add(&txqi->schedule_order,
 				 &local->active_txqs[txq->ac]);
 		else
@@ -3754,10 +3752,13 @@ bool ieee80211_txq_may_transmit(struct ieee80211_hw *hw,
 	u8 tid = txq->tid;
 	long	deficit;
 
-	spin_lock_bh(&local->active_txq_lock[ac]);
-
 	if (!txqi->txq.sta)
-		goto out;
+		return true;
+
+	if (!(local->airtime_flags & AIRTIME_USE_TX))
+		return true;
+
+	spin_lock_bh(&local->active_txq_lock[ac]);
 
 	if (list_empty(&txqi->schedule_order))
 		goto out;
