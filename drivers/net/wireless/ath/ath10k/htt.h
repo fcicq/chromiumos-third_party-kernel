@@ -2121,6 +2121,19 @@ struct ath10k_htt_tx_ops {
 				    u8 max_subfrms_amsdu);
 };
 
+static inline int ath10k_htt_h2t_aggr_cfg_msg(struct ath10k_htt *htt,
+					      u8 max_subfrms_ampdu,
+					      u8 max_subfrms_amsdu)
+
+{
+	if (!htt->tx_ops->htt_h2t_aggr_cfg_msg)
+		return -EOPNOTSUPP;
+
+	return htt->tx_ops->htt_h2t_aggr_cfg_msg(htt,
+						 max_subfrms_ampdu,
+						 max_subfrms_amsdu);
+}
+
 struct ath10k_htt_rx_ops {
 	size_t (*htt_get_rx_ring_size)(struct ath10k_htt *htt);
 	void (*htt_config_paddrs_ring)(struct ath10k_htt *htt, void *vaddr);
@@ -2209,9 +2222,6 @@ int ath10k_htt_h2t_ver_req_msg(struct ath10k_htt *htt);
 int ath10k_htt_h2t_stats_req(struct ath10k_htt *htt, u32 mask, u32 reset_mask,
 			     u64 cookie);
 int ath10k_htt_send_rx_ring_cfg_ll(struct ath10k_htt *htt);
-int ath10k_htt_h2t_aggr_cfg_msg(struct ath10k_htt *htt,
-				u8 max_subfrms_ampdu,
-				u8 max_subfrms_amsdu);
 void ath10k_htt_hif_tx_complete(struct ath10k *ar, struct sk_buff *skb);
 int ath10k_htt_tx_fetch_resp(struct ath10k *ar,
 			     __le32 token,
