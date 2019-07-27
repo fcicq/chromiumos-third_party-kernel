@@ -219,14 +219,15 @@ static ssize_t sta_airtime_read(struct file *file, char __user *userbuf,
 	}
 
 	p += scnprintf(p, bufsz + buf - p,
-		"RX: %llu us\nTX: %llu us\nWeight: %u\n",
-		rx_airtime, tx_airtime, sta->airtime_weight);
+		"RX: %llu us\nTX: %llu us\nWeight: %u Total pending tx airtime: %u\n",
+		rx_airtime, tx_airtime, sta->airtime_weight,
+		atomic_read(&sta->local->fw_tx_pending_airtime));
 
 	p += scnprintf(p, bufsz + buf - p,
 		"TID:\t Deficit:\tQueue Limit:\t Queue Depth:\n");
 	for (tid = 0; tid < IEEE80211_NUM_TIDS; tid++) {
 		p += scnprintf(p, bufsz + buf - p,
-			       "%d\t %lld\t %llu\t\t %llu\n",
+			       "%d\t %lld\t\t %llu\t\t %llu\n",
 			       tid,
 			       deficit[tid],
 			       q_limit[tid],
