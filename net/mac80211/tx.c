@@ -3653,7 +3653,7 @@ struct ieee80211_txq *ieee80211_next_txq(struct ieee80211_hw *hw, u8 ac)
 	if (!head)
 		head = txqi;
 
-	if (txqi->txq.sta && local->airtime_flags & AIRTIME_USE_TX) {
+	if (txqi->txq.sta) {
 		struct sta_info *sta = container_of(txqi->txq.sta,
 						struct sta_info, sta);
 
@@ -3662,8 +3662,7 @@ struct ieee80211_txq *ieee80211_next_txq(struct ieee80211_hw *hw, u8 ac)
 		if (deficit < 0)
 			atomic_long_add(sta->airtime_weight,
 					&sta->airtime[tid].deficit);
-		if (deficit < 0 ||
-		    !ieee80211_txq_airtime_limit_check(hw, &txqi->txq)) {
+		if (!ieee80211_txq_airtime_limit_check(hw, &txqi->txq)) {
 			list_move_tail(&txqi->schedule_order,
 				       &local->active_txqs[txqi->txq.ac]);
 			goto begin;
@@ -3729,10 +3728,13 @@ bool ieee80211_txq_airtime_limit_check(struct ieee80211_hw *hw,
 		return true;
 
 	sta = container_of(txq->sta, struct sta_info, sta);
+	if (atomic_long_read(&sta->airtime[txq->tid].deficit) < 0)
+		return false;
+
 	total_pending = atomic_read(&local->fw_tx_pending_airtime);
 	txq_pending = atomic_long_read(&sta->airtime[txq->tid].tx_pending);
 	if (total_pending < local->fw_tx_airtime_limit &&
-	    txq_pending < local->fw_tx_airtime_limit / 2)
+	    txq_pending < local->fw_tx_airtime_limit / 3)
 		return true;
 
 	if (txq_pending > sta->airtime[txq->tid].txq_airtime_limit)
