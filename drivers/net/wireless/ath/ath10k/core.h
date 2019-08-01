@@ -1172,6 +1172,8 @@ struct ath10k {
 
 	const unsigned int *debug_mask;
 	u32	atf_max_num_pending_tx;
+	bool burst_enabled;
+
 	/* must be last */
 	u8 drv_priv[0] __aligned(sizeof(void *));
 };
