@@ -641,3 +641,43 @@
 		drive-strength = <6>;
 	};
 };
+
+&aoss_alert0 {
+	temperature = <100000>;
+};
+
+&q6_hvx_alert0 {
+	temperature = <100000>;
+};
+
+&lpass_alert0 {
+	temperature = <100000>;
+};
+
+&wlan_alert0 {
+	temperature = <100000>;
+};
+
+&cluster_alert1 {
+	temperature = <100000>;
+};
+
+&cpu0_alert1 {
+	temperature = <100000>;
+};
+
+&cpu1_alert1 {
+	temperature = <100000>;
+};
+
+&cpu2_alert1 {
+	temperature = <100000>;
+};
+
+&cpu3_alert1 {
+	temperature = <100000>;
+};
+
+&pms405_alert0 {
+	temperature = <100000>;
+};
