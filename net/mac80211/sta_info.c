@@ -410,7 +410,8 @@ struct sta_info *sta_info_alloc(struct ieee80211_sub_if_data *sdata,
 		 */
 		sta->timer_to_tid[i] = i;
 	}
-	sta->airtime_weight = IEEE80211_DEFAULT_AIRTIME_WEIGHT;
+	sta->airtime_weight = IEEE80211_DEFAULT_AIRTIME_WEIGHT *
+			      hw->weight_multiplier;
 
 	for (i = 0; i < IEEE80211_NUM_ACS; i++) {
 		skb_queue_head_init(&sta->ps_tx_buf[i]);
