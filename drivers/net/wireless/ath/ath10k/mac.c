@@ -4105,12 +4105,6 @@ static u16 ath10k_mac_update_airtime(struct ath10k *ar,
 		/* overhead for media access time and IFS */
 		airtime += IEEE80211_ATF_OVERHEAD_IFS;
 	} else {
-		/* This is mostly for throttle excessive BC/MC frames, and the
-		 * airtime/rate doesn't need be exact. Airtime of BC/MC frames
-		 * in 2G get some discount, which helps prevent very low rate
-		 * frames from being blocked for too long.
-		 */
-		airtime = (pktlen * 8 * (1000 / 100)) / 60; /* 6M */
 		airtime += IEEE80211_ATF_OVERHEAD;
 	}
 	spin_unlock_bh(&ar->data_lock);
