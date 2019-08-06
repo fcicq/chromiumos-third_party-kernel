@@ -58,7 +58,6 @@ struct rockchip_vpu_codec_ops;
  *
  * @enc_offset:			Offset from VPU base to encoder registers.
  * @dec_offset:			Offset from VPU base to decoder registers.
- * @needs_enc_after_dec_war:	Needs dummy encoder.
  * @needs_dpb_map:		Needs dpb reorder mapping.
  * @enc_fmts:			Encoder formats.
  * @num_enc_fmts:		Number of encoder formats.
@@ -72,7 +71,6 @@ struct rockchip_vpu_codec_ops;
 struct rockchip_vpu_variant {
 	unsigned enc_offset;
 	unsigned dec_offset;
-	bool needs_enc_after_dec_war;
 	bool needs_dpb_map;
 	const struct rockchip_vpu_fmt *enc_fmts;
 	unsigned num_enc_fmts;
@@ -190,10 +188,6 @@ enum rockchip_vpu_state {
  * @current_ctx:	Context being currently processed by hardware.
  * @run_wq:		Wait queue to wait for run completion.
  * @watchdog_work:	Delayed work for hardware timeout handling.
- * @dummy_encode_ctx:	Context used to run dummy frame encoding to initialize
- *			encoder hardware state.
- * @dummy_encode_src:	Source buffers used for dummy frame encoding.
- * @dummy_encode_dst:	Desintation buffer used for dummy frame encoding.
  * @was_decoding:	Indicates whether last run context was a decoder.
  */
 struct rockchip_vpu_dev {
@@ -220,9 +214,6 @@ struct rockchip_vpu_dev {
 	struct rockchip_vpu_ctx *current_ctx;
 	wait_queue_head_t run_wq;
 	struct delayed_work watchdog_work;
-	struct rockchip_vpu_ctx *dummy_encode_ctx;
-	struct rockchip_vpu_aux_buf dummy_encode_src[VIDEO_MAX_PLANES];
-	struct rockchip_vpu_aux_buf dummy_encode_dst;
 	bool was_decoding;
 };
 
@@ -679,14 +670,6 @@ static inline struct rockchip_vpu_buf *vb_to_buf(struct vb2_buffer *vb)
 static inline bool rockchip_vpu_ctx_is_encoder(struct rockchip_vpu_ctx *ctx)
 {
 	return ctx->vpu_dst_fmt->codec_mode != RK_VPU_CODEC_NONE;
-}
-
-static inline bool
-rockchip_vpu_ctx_is_dummy_encode(struct rockchip_vpu_ctx *ctx)
-{
-	struct rockchip_vpu_dev *dev = ctx->dev;
-
-	return ctx == dev->dummy_encode_ctx;
 }
 
 static inline unsigned int rockchip_vpu_rounded_luma_size(unsigned int w,

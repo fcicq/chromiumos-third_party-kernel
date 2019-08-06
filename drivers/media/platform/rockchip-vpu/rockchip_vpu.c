@@ -116,30 +116,6 @@ static void rockchip_vpu_flush_done(struct rockchip_vpu_ctx *ctx)
 	v4l2_event_queue_fh(&ctx->fh, &event);
 }
 
-static struct rockchip_vpu_ctx *
-rockchip_vpu_encode_after_decode_war(struct rockchip_vpu_ctx *ctx)
-{
-	struct rockchip_vpu_dev *dev = ctx->dev;
-	struct rockchip_vpu_buf *src;
-
-	/*
-	 * Flush buffer is a no-op, so no need for the workaround.
-	 * Since ctx was dequeued from ready_ctxs list, we know that it has
-	 * at least one buffer in each queue.
-	 */
-	src = list_first_entry(&ctx->src_queue, struct rockchip_vpu_buf, list);
-	if (src == &ctx->flush_buf)
-		return ctx;
-
-	if (!dev->dummy_encode_ctx)
-		return ctx;
-
-	if (dev->was_decoding && rockchip_vpu_ctx_is_encoder(ctx))
-		return dev->dummy_encode_ctx;
-
-	return ctx;
-}
-
 static void rockchip_vpu_try_run(struct rockchip_vpu_dev *dev)
 {
 	struct rockchip_vpu_ctx *ctx = NULL;
@@ -163,20 +139,8 @@ static void rockchip_vpu_try_run(struct rockchip_vpu_dev *dev)
 
 	ctx = list_entry(dev->ready_ctxs.next, struct rockchip_vpu_ctx, list);
 
-	/*
-	 * WAR for corrupted hardware state when encoding directly after
-	 * certain decoding runs.
-	 *
-	 * If previous context was decoding and currently picked one is
-	 * encoding then we need to execute a dummy encode with proper
-	 * settings to reinitialize certain internal hardware state.
-	 */
-	ctx = rockchip_vpu_encode_after_decode_war(ctx);
-
-	if (!rockchip_vpu_ctx_is_dummy_encode(ctx)) {
-		list_del_init(&ctx->list);
-		__rockchip_vpu_dequeue_run_locked(ctx);
-	}
+	list_del_init(&ctx->list);
+	__rockchip_vpu_dequeue_run_locked(ctx);
 
 	dev->current_ctx = ctx;
 
@@ -227,17 +191,15 @@ void rockchip_vpu_run_done(struct rockchip_vpu_ctx *ctx,
 	if (rockchip_vpu_ctx_is_flush(ctx)) {
 		rockchip_vpu_flush_done(ctx);
 	} else {
+		struct vb2_v4l2_buffer *vb2_src = &ctx->run.src->b;
+		struct vb2_v4l2_buffer *vb2_dst = &ctx->run.dst->b;
+
 		if (ctx->run_ops->run_done)
 			ctx->run_ops->run_done(ctx, result);
 
-		if (!rockchip_vpu_ctx_is_dummy_encode(ctx)) {
-			struct vb2_v4l2_buffer *vb2_src = &ctx->run.src->b;
-			struct vb2_v4l2_buffer *vb2_dst = &ctx->run.dst->b;
-
-			vb2_dst->timestamp = vb2_src->timestamp;
-			vb2_buffer_done(&vb2_src->vb2_buf, result);
-			vb2_buffer_done(&vb2_dst->vb2_buf, result);
-		}
+		vb2_dst->timestamp = vb2_src->timestamp;
+		vb2_buffer_done(&vb2_src->vb2_buf, result);
+		vb2_buffer_done(&vb2_dst->vb2_buf, result);
 	}
 
 	dev->current_ctx = NULL;
@@ -664,7 +626,6 @@ static const struct v4l2_file_operations rockchip_vpu_fops = {
 
 /* Supported VPU variants. */
 static const struct of_device_id of_rockchip_vpu_match[] = {
-	{ .compatible = "rockchip,rk3288-vpu", .data = &rk3288_vpu_variant, },
 	{ .compatible = "rockchip,rk3399-vpu", .data = &rk3399_vpu_variant, },
 	{ .compatible = "rockchip,rk3399-vdec", .data = &rk3399_vdec_variant, },
 	{ /* sentinel */ }
@@ -814,24 +775,10 @@ static int rockchip_vpu_probe(struct platform_device *pdev)
 		}
 	}
 
-	if (vpu->variant->needs_enc_after_dec_war) {
-		ret = rockchip_vpu_enc_init_dummy_ctx(vpu);
-		if (ret) {
-			dev_err(&pdev->dev,
-				"Failed to create dummy encode context\n");
-			goto err_dummy_enc;
-		}
-	}
-
 	vpu_debug_leave();
 
 	return 0;
 
-err_dummy_enc:
-	if (vpu->vfd_enc) {
-		video_unregister_device(vpu->vfd_enc);
-		video_device_release(vpu->vfd_enc);
-	}
 err_enc_reg:
 	if (vpu->vfd_dec) {
 		video_unregister_device(vpu->vfd_dec);
@@ -875,8 +822,6 @@ static int rockchip_vpu_remove(struct platform_device *pdev)
 		video_unregister_device(vpu->vfd_dec);
 		video_device_release(vpu->vfd_dec);
 	}
-	if (vpu->variant->needs_enc_after_dec_war)
-		rockchip_vpu_enc_free_dummy_ctx(vpu);
 	v4l2_device_unregister(&vpu->v4l2_dev);
 	vb2_dma_contig_cleanup_ctx(vpu->alloc_ctx_vm);
 	vb2_dma_contig_cleanup_ctx(vpu->alloc_ctx);
