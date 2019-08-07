@@ -96,7 +96,6 @@ static inline bool device_may_wakeup(struct device *dev)
 }
 
 /* drivers/base/power/wakeup.c */
-extern void wakeup_source_prepare(struct wakeup_source *ws, const char *name);
 extern struct wakeup_source *wakeup_source_create(const char *name);
 extern void wakeup_source_drop(struct wakeup_source *ws);
 extern void wakeup_source_destroy(struct wakeup_source *ws);
@@ -131,9 +130,6 @@ static inline bool device_can_wakeup(struct device *dev)
 {
 	return dev->power.can_wakeup;
 }
-
-static inline void wakeup_source_prepare(struct wakeup_source *ws,
-					 const char *name) {}
 
 static inline struct wakeup_source *wakeup_source_create(const char *name)
 {
@@ -214,13 +210,6 @@ static inline int wakeup_register_platform_ops(
 }
 
 #endif /* !CONFIG_PM_SLEEP */
-
-static inline void wakeup_source_init(struct wakeup_source *ws,
-				      const char *name)
-{
-	wakeup_source_prepare(ws, name);
-	wakeup_source_add(ws);
-}
 
 static inline void wakeup_source_trash(struct wakeup_source *ws)
 {
