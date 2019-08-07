@@ -70,6 +70,8 @@ static struct wakeup_source deleted_ws = {
 	.lock =  __SPIN_LOCK_UNLOCKED(deleted_ws.lock),
 };
 
+static DEFINE_IDA(wakeup_ida);
+
 static enum pm_wakeup_type wakeup_source_type;
 
 static struct platform_wakeup_source_ops *platform_wakeup_ops;
@@ -82,6 +84,7 @@ struct wakeup_source *wakeup_source_create(const char *name)
 {
 	struct wakeup_source *ws;
 	const char *ws_name;
+	int id;
 
 	ws = kzalloc(sizeof(*ws), GFP_KERNEL);
 	if (!ws)
@@ -92,8 +95,15 @@ struct wakeup_source *wakeup_source_create(const char *name)
 		goto err_name;
 	ws->name = ws_name;
 
+	id = ida_simple_get(&wakeup_ida, 0, 0, GFP_KERNEL);
+	if (id < 0)
+		goto err_id;
+	ws->id = id;
+
 	return ws;
 
+err_id:
+	kfree_const(ws->name);
 err_name:
 	kfree(ws);
 err_ws:
@@ -158,6 +168,7 @@ void wakeup_source_destroy(struct wakeup_source *ws)
 
 	wakeup_source_drop(ws);
 	wakeup_source_record(ws);
+	ida_simple_remove(&wakeup_ida, ws->id);
 	kfree_const(ws->name);
 	kfree(ws);
 }
@@ -211,16 +222,24 @@ EXPORT_SYMBOL_GPL(wakeup_source_remove);
 
 /**
  * wakeup_source_register - Create wakeup source and add it to the list.
+ * @dev: Device this wakeup source is associated with (or NULL if virtual).
  * @name: Name of the wakeup source to register.
  */
-struct wakeup_source *wakeup_source_register(const char *name)
+struct wakeup_source *wakeup_source_register(struct device *dev,
+					    const char *name)
 {
 	struct wakeup_source *ws;
+	int ret;
 
 	ws = wakeup_source_create(name);
-	if (ws)
+	if (ws) {
+		ret = wakeup_source_sysfs_add(dev, ws);
+		if (ret) {
+			wakeup_source_destroy(ws);
+			return NULL;
+		}
 		wakeup_source_add(ws);
-
+	}
 	return ws;
 }
 EXPORT_SYMBOL_GPL(wakeup_source_register);
@@ -233,6 +252,7 @@ void wakeup_source_unregister(struct wakeup_source *ws)
 {
 	if (ws) {
 		wakeup_source_remove(ws);
+		wakeup_source_sysfs_remove(ws);
 		wakeup_source_destroy(ws);
 	}
 }
@@ -253,7 +273,6 @@ static int device_wakeup_attach(struct device *dev, struct wakeup_source *ws)
 		return -EEXIST;
 	}
 	dev->power.wakeup = ws;
-	ws->dev = dev;
 	spin_unlock_irq(&dev->power.lock);
 	return 0;
 }
@@ -272,7 +291,7 @@ int device_wakeup_enable(struct device *dev)
 	if (!dev || !dev->power.can_wakeup)
 		return -EINVAL;
 
-	ws = wakeup_source_register(dev_name(dev));
+	ws = wakeup_source_register(dev, dev_name(dev));
 	if (!ws)
 		return -ENOMEM;
 
@@ -584,10 +603,10 @@ static void wakeup_source_activate(struct wakeup_source *ws)
 	 * WAKEUP_UNKNOWN or WAKEUP_AUTOMATIC.
 	 */
 	if (wakeup_source_type != WAKEUP_INVALID &&
-	    ws->dev &&
-	    ws->dev->power.wakeup_source_type != WAKEUP_UNKNOWN &&
+	    ws->dev && ws->dev->parent &&
+	    ws->dev->parent->power.wakeup_source_type != WAKEUP_UNKNOWN &&
 	    wakeup_source_type != WAKEUP_USER)
-		wakeup_source_type = ws->dev->power.wakeup_source_type;
+		wakeup_source_type = ws->dev->parent->power.wakeup_source_type;
 
 	ws->active = true;
 	ws->active_count++;
@@ -1170,11 +1189,12 @@ static int __maybe_unused wakeup_find_source(struct device *dev)
 	rcu_read_lock();
 	list_for_each_entry_rcu(ws, &wakeup_sources, entry) {
 		/* Wakeup source must have a device associated with it. */
-		if (!ws->dev)
+		if (!ws->dev || !ws->dev->parent)
 			continue;
-		if (platform_wakeup_ops->match(ws->dev->power.wakeup_data,
-					     plat_data)) {
-			wakeup_source_type = ws->dev->power.wakeup_source_type;
+		if (platform_wakeup_ops->match(
+			ws->dev->parent->power.wakeup_data, plat_data)) {
+			wakeup_source_type =
+				ws->dev->parent->power.wakeup_source_type;
 			dev_info(dev, "System wakeup source: %s\n", ws->name);
 			goto out;
 		}
