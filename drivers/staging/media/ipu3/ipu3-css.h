@@ -187,7 +187,8 @@ bool ipu3_css_is_streaming(struct ipu3_css *css);
 bool ipu3_css_pipe_queue_empty(struct ipu3_css *css, unsigned int pipe);
 
 /******************* css hw *******************/
-int ipu3_css_set_powerup(struct device *dev, void __iomem *base);
+int ipu3_css_set_powerup(struct device *dev, void __iomem *base,
+			 unsigned int freq);
 void ipu3_css_set_powerdown(struct device *dev, void __iomem *base);
 int ipu3_css_irq_ack(struct ipu3_css *css);
 
