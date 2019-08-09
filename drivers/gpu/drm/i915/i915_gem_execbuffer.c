@@ -286,6 +286,8 @@ static void eb_destroy(struct i915_execbuffer *eb)
 		vma->exec_entry = NULL;
 		i915_vma_put(vma);
 	}
+
+	kfree(eb->buckets);
 }
 
 static inline int use_cpu_reloc(struct drm_i915_gem_object *obj)
