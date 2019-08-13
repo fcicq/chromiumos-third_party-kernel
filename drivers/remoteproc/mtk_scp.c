@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 //
-// Copyright (c) 2018 MediaTek Inc.
+// Copyright (c) 2019 MediaTek Inc.
 
 #include <asm/barrier.h>
 #include <linux/clk.h>
@@ -10,9 +10,9 @@
 #include <linux/module.h>
 #include <linux/of_address.h>
 #include <linux/of_platform.h>
-#include <linux/platform_data/mtk_scp.h>
 #include <linux/platform_device.h>
 #include <linux/remoteproc.h>
+#include <linux/remoteproc/mtk_scp.h>
 #include <linux/rpmsg/mtk_rpmsg.h>
 
 #include "mtk_common.h"
@@ -44,8 +44,9 @@ struct platform_device *scp_get_pdev(struct platform_device *pdev)
 }
 EXPORT_SYMBOL_GPL(scp_get_pdev);
 
-static void scp_wdt_handler(struct mtk_scp *scp)
+static void scp_wdt_handler(struct mtk_scp *scp, u32 scp_to_host)
 {
+	dev_err(scp->dev, "SCP watchdog timeout! 0x%x", scp_to_host);
 	rproc_report_crash(scp->rproc, RPROC_WATCHDOG);
 }
 
@@ -65,17 +66,24 @@ static void scp_ipi_handler(struct mtk_scp *scp)
 {
 	struct share_obj *rcv_obj = scp->recv_buf;
 	struct scp_ipi_desc *ipi_desc = scp->ipi_desc;
-	u8 tmp_data[288];
+	u8 tmp_data[SCP_SHARE_BUFFER_SIZE];
+	scp_ipi_handler_t handler;
 
-	if (rcv_obj->id >= SCP_IPI_MAX || !ipi_desc[rcv_obj->id].handler) {
+	if (rcv_obj->len > SCP_SHARE_BUFFER_SIZE) {
+		dev_err(scp->dev, "ipi message too long (len %d, max %d)",
+			rcv_obj->len, SCP_SHARE_BUFFER_SIZE);
+		return;
+	}
+	mutex_lock(&scp->desc_lock);
+	handler = ipi_desc[rcv_obj->id].handler;
+	mutex_unlock(&scp->desc_lock);
+	if (rcv_obj->id >= SCP_IPI_MAX || !handler) {
 		dev_err(scp->dev, "No such ipi id = %d\n", rcv_obj->id);
 		return;
 	}
 
 	memcpy_fromio(tmp_data, &rcv_obj->share_buf, rcv_obj->len);
-	ipi_desc[rcv_obj->id].handler(tmp_data,
-				      rcv_obj->len,
-				      ipi_desc[rcv_obj->id].priv);
+	handler(tmp_data, rcv_obj->len, ipi_desc[rcv_obj->id].priv);
 	scp->ipi_id_ack[rcv_obj->id] = true;
 	wake_up(&scp->ack_wq);
 }
@@ -130,12 +138,10 @@ static irqreturn_t scp_irq_handler(int irq, void *priv)
 	}
 
 	scp_to_host = readl(scp->reg_base + MT8183_SCP_TO_HOST);
-	if (scp_to_host & MT8183_SCP_IPC_INT_BIT) {
+	if (scp_to_host & MT8183_SCP_IPC_INT_BIT)
 		scp_ipi_handler(scp);
-	} else {
-		dev_err(scp->dev, "SCP watchdog timeout! 0x%x", scp_to_host);
-		scp_wdt_handler(scp);
-	}
+	else
+		scp_wdt_handler(scp, scp_to_host);
 
 	/*
 	 * Ensure that all writes to SRAM are committed before another
@@ -231,6 +237,15 @@ static int scp_load(struct rproc *rproc, const struct firmware *fw)
 
 	/* Turn on the power of SCP's SRAM before using it. */
 	writel(0x0, scp->reg_base + MT8183_SCP_SRAM_PDN);
+
+	/*
+	 * Set I-cache and D-cache size before loading SCP FW.
+	 * SCP SRAM logical address may change when cache size setting differs.
+	 */
+	writel(MT8183_SCP_CACHE_CON_WAYEN | MT8183_SCP_CACHESIZE_8KB,
+	       scp->reg_base + MT8183_SCP_CACHE_CON);
+	writel(MT8183_SCP_CACHESIZE_8KB, scp->reg_base + MT8183_SCP_DCACHE_CON);
+
 	ret = scp_elf_load_segments(rproc, fw);
 	clk_disable_unprepare(scp->clk);
 
@@ -241,7 +256,7 @@ static int scp_start(struct rproc *rproc)
 {
 	struct mtk_scp *scp = (struct mtk_scp *)rproc->priv;
 	struct device *dev = scp->dev;
-	struct scp_run *run;
+	struct scp_run *run = &scp->run;
 	int ret;
 
 	ret = clk_prepare_enable(scp->clk);
@@ -250,7 +265,6 @@ static int scp_start(struct rproc *rproc)
 		return ret;
 	}
 
-	run = &scp->run;
 	run->signaled = false;
 
 	scp_reset_deassert(scp);
@@ -287,17 +301,11 @@ static void *scp_da_to_va(struct rproc *rproc, u64 da, int len)
 
 	if (da < scp->sram_size) {
 		offset = da;
-		if (offset >= 0 && ((offset + len) < scp->sram_size))
-			return (__force void *)(scp->sram_base + offset);
-	} else if (da >= scp->sram_size &&
-		   da < (scp->sram_size + MAX_CODE_SIZE)) {
-		offset = da;
-		if (offset >= 0 && (offset + len) < MAX_CODE_SIZE)
-			return scp->cpu_addr + offset;
+		if (offset >= 0 && (offset + len) < scp->sram_size)
+			return scp->sram_base + offset;
 	} else {
 		offset = da - scp->phys_addr;
-		if (offset >= 0 &&
-		    (offset + len) < (scp->dram_size - MAX_CODE_SIZE))
+		if (offset >= 0 && (offset + len) < scp->dram_size)
 			return scp->cpu_addr + offset;
 	}
 
@@ -360,9 +368,9 @@ void *scp_mapping_dm_addr(struct platform_device *pdev, u32 mem_addr)
 EXPORT_SYMBOL_GPL(scp_mapping_dm_addr);
 
 #if SCP_RESERVED_MEM
-phys_addr_t scp_mem_base_phys;
-phys_addr_t scp_mem_base_virt;
-phys_addr_t scp_mem_size;
+static phys_addr_t scp_mem_base_phys;
+static phys_addr_t scp_mem_base_virt;
+static size_t scp_mem_size;
 
 static struct scp_reserve_mblock scp_reserve_mblock[] = {
 	{
@@ -378,19 +386,25 @@ static struct scp_reserve_mblock scp_reserve_mblock[] = {
 		.size = 0x800000, /*8MB*/
 	},
 	{
-		.num = SCP_DIP_MEM_ID,
-		.start_phys = 0x0,
-		.start_virt = 0x0,
-		.size = 0x900000, /*9MB*/
-	},
-	{
 		.num = SCP_MDP_MEM_ID,
 		.start_phys = 0x0,
 		.start_virt = 0x0,
 		.size = 0x600000, /*6MB*/
 	},
 	{
+		.num = SCP_DIP_MEM_ID,
+		.start_phys = 0x0,
+		.start_virt = 0x0,
+		.size = 0x900000, /*9MB*/
+	},
+	{
 		.num = SCP_FD_MEM_ID,
+		.start_phys = 0x0,
+		.start_virt = 0x0,
+		.size = 0x100000, /*1MB*/
+	},
+	{
+		.num = SCP_FD_MEM2_ID,
 		.start_phys = 0x0,
 		.start_virt = 0x0,
 		.size = 0x100000, /*1MB*/
@@ -403,7 +417,7 @@ static int scp_reserve_mem_init(struct mtk_scp *scp)
 	phys_addr_t accumlate_memory_size = 0;
 
 	scp_mem_base_phys = (phys_addr_t) (scp->phys_addr + MAX_CODE_SIZE);
-	scp_mem_size = (phys_addr_t) (scp->dram_size - MAX_CODE_SIZE);
+	scp_mem_size = scp->dram_size - MAX_CODE_SIZE;
 
 	dev_info(scp->dev,
 		 "phys:0x%llx - 0x%llx (0x%llx)\n",
@@ -448,47 +462,37 @@ static int scp_reserve_memory_ioremap(struct mtk_scp *scp)
 	 * or scp_reserve_mblock does not match dts
 	 */
 	WARN_ON(accumlate_memory_size > scp_mem_size);
-#ifdef DEBUG
-	for (id = 0; id < NUMS_MEM_ID; id++) {
-		dev_info(scp->dev,
-			 "[mem_reserve-%d] phys:0x%llx,virt:0x%llx,size:0x%llx\n",
-			 id,
-			 scp_get_reserve_mem_phys(id),
-			 scp_get_reserve_mem_virt(id),
-			 scp_get_reserve_mem_size(id));
-	}
-#endif
 	return 0;
 }
-phys_addr_t scp_get_reserve_mem_phys(enum scp_reserve_mem_id_t id)
+phys_addr_t scp_get_reserved_mem_phys(enum scp_reserve_mem_id_t id)
 {
 	if (id >= SCP_NUMS_MEM_ID) {
 		pr_err("[SCP] no reserve memory for %d", id);
 		return 0;
-	} else
-		return scp_reserve_mblock[id].start_phys;
+	}
+	return scp_reserve_mblock[id].start_phys;
 }
-EXPORT_SYMBOL_GPL(scp_get_reserve_mem_phys);
+EXPORT_SYMBOL_GPL(scp_get_reserved_mem_phys);
 
-phys_addr_t scp_get_reserve_mem_virt(enum scp_reserve_mem_id_t id)
+phys_addr_t scp_get_reserved_mem_virt(enum scp_reserve_mem_id_t id)
 {
 	if (id >= SCP_NUMS_MEM_ID) {
 		pr_err("[SCP] no reserve memory for %d", id);
 		return 0;
-	} else
-		return scp_reserve_mblock[id].start_virt;
+	}
+	return scp_reserve_mblock[id].start_virt;
 }
-EXPORT_SYMBOL_GPL(scp_get_reserve_mem_virt);
+EXPORT_SYMBOL_GPL(scp_get_reserved_mem_virt);
 
-phys_addr_t scp_get_reserve_mem_size(enum scp_reserve_mem_id_t id)
+size_t scp_get_reserved_mem_size(enum scp_reserve_mem_id_t id)
 {
 	if (id >= SCP_NUMS_MEM_ID) {
 		pr_err("[SCP] no reserve memory for %d", id);
 		return 0;
-	} else
-		return scp_reserve_mblock[id].size;
+	}
+	return scp_reserve_mblock[id].size;
 }
-EXPORT_SYMBOL_GPL(scp_get_reserve_mem_size);
+EXPORT_SYMBOL_GPL(scp_get_reserved_mem_size);
 #endif
 
 static int scp_map_memory_region(struct mtk_scp *scp)
@@ -496,6 +500,9 @@ static int scp_map_memory_region(struct mtk_scp *scp)
 	struct device_node *node;
 	struct resource r;
 	int ret;
+#ifdef DEBUG
+	enum scp_reserve_mem_id_t id;
+#endif
 
 	node = of_parse_phandle(scp->dev->of_node, "memory-region", 0);
 	if (!node) {
@@ -521,6 +528,16 @@ static int scp_map_memory_region(struct mtk_scp *scp)
 #if SCP_RESERVED_MEM
 	scp_reserve_mem_init(scp);
 	scp_reserve_memory_ioremap(scp);
+#ifdef DEBUG
+	for (id = 0; id < SCP_NUMS_MEM_ID; id++) {
+		dev_info(scp->dev,
+			 "[mem_reserve-%d] phys:0x%llx,virt:0x%llx,size:0x%llx\n",
+			 id,
+			 scp_get_reserved_mem_phys(id),
+			 scp_get_reserved_mem_virt(id),
+			 scp_get_reserved_mem_size(id));
+	}
+#endif
 #endif
 	return 0;
 }
@@ -626,7 +643,8 @@ static int scp_probe(struct platform_device *pdev)
 		goto free_rproc;
 	}
 
-	mutex_init(&scp->lock);
+	mutex_init(&scp->send_lock);
+	mutex_init(&scp->desc_lock);
 
 	init_waitqueue_head(&scp->run.wq);
 	init_waitqueue_head(&scp->ack_wq);
@@ -650,7 +668,8 @@ static int scp_probe(struct platform_device *pdev)
 
 remove_subdev:
 	scp_remove_rpmsg_subdev(scp);
-	mutex_destroy(&scp->lock);
+	mutex_destroy(&scp->desc_lock);
+	mutex_destroy(&scp->send_lock);
 free_rproc:
 	rproc_free(rproc);
 
@@ -662,6 +681,8 @@ static int scp_remove(struct platform_device *pdev)
 	struct mtk_scp *scp = platform_get_drvdata(pdev);
 
 	scp_remove_rpmsg_subdev(scp);
+	mutex_destroy(&scp->desc_lock);
+	mutex_destroy(&scp->send_lock);
 	rproc_del(scp->rproc);
 	rproc_free(scp->rproc);
 

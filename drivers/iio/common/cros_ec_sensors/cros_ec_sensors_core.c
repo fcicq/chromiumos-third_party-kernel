@@ -114,7 +114,7 @@ int cros_ec_sensors_core_init(struct platform_device *pdev,
 	struct cros_ec_dev *ec = dev_get_drvdata(pdev->dev.parent);
 	struct cros_ec_sensor_platform *sensor_platform = dev_get_platdata(dev);
 	u32 ver_mask = 0;
-	int ret = 0;
+	int ret;
 
 	platform_set_drvdata(pdev, indio_dev);
 
@@ -153,9 +153,10 @@ int cros_ec_sensors_core_init(struct platform_device *pdev,
 
 		state->param.cmd = MOTIONSENSE_CMD_INFO;
 		state->param.info.sensor_num = sensor_platform->sensor_num;
-		if (cros_ec_motion_send_host_cmd(state, 0)) {
+		ret = cros_ec_motion_send_host_cmd(state, 0);
+		if (ret) {
 			dev_warn(dev, "Can not access sensor info\n");
-			return -EIO;
+			return ret;
 		}
 		state->type = state->resp->info.type;
 		state->loc = state->resp->info.location;
@@ -196,7 +197,7 @@ int cros_ec_motion_send_host_cmd(struct cros_ec_sensors_core_state *state,
 
 	ret = cros_ec_cmd_xfer_status(state->ec, state->msg);
 	if (ret < 0)
-		return -EIO;
+		return ret;
 
 	if (ret &&
 	    state->resp != (struct ec_response_motion_sense *)state->msg->data)
@@ -240,11 +241,10 @@ static ssize_t cros_ec_sensors_calibrate(struct iio_dev *indio_dev,
 	ret = strtobool(buf, &calibrate);
 	if (ret < 0)
 		return ret;
-	if (!calibrate)
-		return -EINVAL;
 
 	mutex_lock(&st->cmd_lock);
 	st->param.cmd = MOTIONSENSE_CMD_PERFORM_CALIB;
+	st->param.perform_calib.enable = calibrate;
 	ret = cros_ec_motion_send_host_cmd(st, 0);
 	if (ret != 0) {
 		dev_warn(&indio_dev->dev, "Unable to calibrate sensor: %d\n",
@@ -252,7 +252,7 @@ static ssize_t cros_ec_sensors_calibrate(struct iio_dev *indio_dev,
 	} else {
 		/* Save values */
 		for (i = CROS_EC_SENSOR_X; i < CROS_EC_SENSOR_MAX_AXIS; i++)
-			st->calib[i] = st->resp->perform_calib.offset[i];
+			st->calib[i].offset = st->resp->perform_calib.offset[i];
 	}
 	mutex_unlock(&st->cmd_lock);
 
@@ -573,7 +573,7 @@ int cros_ec_sensors_core_read(struct cros_ec_sensors_core_state *st,
 			  struct iio_chan_spec const *chan,
 			  int *val, int *val2, long mask)
 {
-	int ret = IIO_VAL_INT;
+	int ret;
 
 	switch (mask) {
 	case IIO_CHAN_INFO_SAMP_FREQ:
@@ -581,22 +581,27 @@ int cros_ec_sensors_core_read(struct cros_ec_sensors_core_state *st,
 		st->param.ec_rate.data =
 			EC_MOTION_SENSE_NO_VALUE;
 
-		if (cros_ec_motion_send_host_cmd(st, 0))
-			ret = -EIO;
-		else
-			*val = st->resp->ec_rate.ret;
+		ret = cros_ec_motion_send_host_cmd(st, 0);
+		if (ret)
+			break;
+
+		*val = st->resp->ec_rate.ret;
+		ret = IIO_VAL_INT;
 		break;
 	case IIO_CHAN_INFO_FREQUENCY:
 		st->param.cmd = MOTIONSENSE_CMD_SENSOR_ODR;
 		st->param.sensor_odr.data =
 			EC_MOTION_SENSE_NO_VALUE;
 
-		if (cros_ec_motion_send_host_cmd(st, 0))
-			ret = -EIO;
-		else
-			*val = st->resp->sensor_odr.ret;
+		ret = cros_ec_motion_send_host_cmd(st, 0);
+		if (ret)
+			break;
+
+		*val = st->resp->sensor_odr.ret;
+		ret = IIO_VAL_INT;
 		break;
 	default:
+		ret = -EINVAL;
 		break;
 	}
 
@@ -608,7 +613,7 @@ int cros_ec_sensors_core_write(struct cros_ec_sensors_core_state *st,
 			       struct iio_chan_spec const *chan,
 			       int val, int val2, long mask)
 {
-	int ret = 0;
+	int ret;
 
 	switch (mask) {
 	case IIO_CHAN_INFO_FREQUENCY:
@@ -618,17 +623,16 @@ int cros_ec_sensors_core_write(struct cros_ec_sensors_core_state *st,
 		/* Always roundup, so caller gets at least what it asks for. */
 		st->param.sensor_odr.roundup = 1;
 
-		if (cros_ec_motion_send_host_cmd(st, 0))
-			ret = -EIO;
+		ret = cros_ec_motion_send_host_cmd(st, 0);
 		break;
 	case IIO_CHAN_INFO_SAMP_FREQ:
 		st->param.cmd = MOTIONSENSE_CMD_EC_RATE;
 		st->param.ec_rate.data = val;
 
-		if (cros_ec_motion_send_host_cmd(st, 0))
-			ret = -EIO;
-		else
-			st->curr_sampl_freq = val;
+		ret = cros_ec_motion_send_host_cmd(st, 0);
+		if (ret)
+			break;
+		st->curr_sampl_freq = val;
 		break;
 	default:
 		ret = -EINVAL;

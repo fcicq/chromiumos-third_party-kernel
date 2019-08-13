@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /*
- * Copyright (c) 2018 MediaTek Inc.
+ * Copyright (c) 2019 MediaTek Inc.
  */
 
 #ifndef _MTK_SCP_H
@@ -149,6 +149,7 @@ enum scp_reserve_mem_id_t {
 	SCP_MDP_MEM_ID,
 	SCP_DIP_MEM_ID,
 	SCP_FD_MEM_ID,
+	SCP_FD_MEM2_ID,
 	SCP_NUMS_MEM_ID,
 };
 
@@ -159,9 +160,9 @@ struct scp_reserve_mblock {
 	u64 size;
 };
 
-extern phys_addr_t scp_get_reserve_mem_phys(enum scp_reserve_mem_id_t id);
-extern phys_addr_t scp_get_reserve_mem_virt(enum scp_reserve_mem_id_t id);
-extern phys_addr_t scp_get_reserve_mem_size(enum scp_reserve_mem_id_t id);
+extern phys_addr_t scp_get_reserved_mem_phys(enum scp_reserve_mem_id_t id);
+extern phys_addr_t scp_get_reserved_mem_virt(enum scp_reserve_mem_id_t id);
+extern size_t scp_get_reserved_mem_size(enum scp_reserve_mem_id_t id);
 #endif
 
 #endif /* _MTK_SCP_H */

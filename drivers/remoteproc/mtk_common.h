@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /*
- * Copyright (c) 2018 MediaTek Inc.
+ * Copyright (c) 2019 MediaTek Inc.
  */
 
 #ifndef __RPROC_MTK_COMMON_H
@@ -25,7 +25,14 @@
 #define MT8183_SCP_L1_SRAM_PD		0x4080
 #define MT8183_SCP_TCM_TAIL_SRAM_PD	0x4094
 
-#define SCP_FW_VER_LEN		32
+#define MT8183_SCP_CACHE_SEL(x)		(0x14000 + (x) * 0x3000)
+#define MT8183_SCP_CACHE_CON		MT8183_SCP_CACHE_SEL(0)
+#define MT8183_SCP_DCACHE_CON		MT8183_SCP_CACHE_SEL(1)
+#define MT8183_SCP_CACHESIZE_8KB	BIT(8)
+#define MT8183_SCP_CACHE_CON_WAYEN	BIT(10)
+
+#define SCP_FW_VER_LEN			32
+#define SCP_SHARE_BUFFER_SIZE		288
 
 struct scp_run {
 	u32 signaled;
@@ -51,7 +58,10 @@ struct mtk_scp {
 	struct share_obj *recv_buf;
 	struct share_obj *send_buf;
 	struct scp_run run;
-	struct mutex lock; /* for protecting mtk_scp data structure */
+	/* To prevent multiple ipi_send run concurrently. */
+	struct mutex send_lock;
+	/* For protecting ipi_desc field. */
+	struct mutex desc_lock;
 	struct scp_ipi_desc ipi_desc[SCP_IPI_MAX];
 	bool ipi_id_ack[SCP_IPI_MAX];
 	wait_queue_head_t ack_wq;
@@ -72,9 +82,9 @@ struct mtk_scp {
  * @share_buf:	share buffer data
  */
 struct share_obj {
-	s32 id;
+	u32 id;
 	u32 len;
-	u8 share_buf[288];
+	u8 share_buf[SCP_SHARE_BUFFER_SIZE];
 };
 
 void scp_memcpy_aligned(void *dst, const void *src, unsigned int len);

@@ -31,15 +31,18 @@ static int mtk_reset_assert_set_clr(struct reset_controller_dev *rcdev,
 	unsigned long id)
 {
 	struct mtk_reset *data = container_of(rcdev, struct mtk_reset, rcdev);
-	return regmap_write(data->regmap, data->regofs + ((id / 32) << 4), 1);
+	unsigned int reg = data->regofs + ((id / 32) << 4);
+
+	return regmap_write(data->regmap, reg, 1);
 }
 
 static int mtk_reset_deassert_set_clr(struct reset_controller_dev *rcdev,
 	unsigned long id)
 {
 	struct mtk_reset *data = container_of(rcdev, struct mtk_reset, rcdev);
-	return regmap_write(data->regmap,
-		data->regofs + ((id / 32) << 4) + 0x4, 1);
+	unsigned int reg = data->regofs + ((id / 32) << 4) + 0x4;
+
+	return regmap_write(data->regmap, reg, 1);
 }
 
 static int mtk_reset_assert(struct reset_controller_dev *rcdev,
@@ -76,6 +79,7 @@ static int mtk_reset_set_clr(struct reset_controller_dev *rcdev,
 	unsigned long id)
 {
 	int ret;
+
 	ret = mtk_reset_assert_set_clr(rcdev, id);
 	if (ret)
 		return ret;
@@ -90,11 +94,11 @@ static const struct reset_control_ops mtk_reset_ops = {
 
 static const struct reset_control_ops mtk_reset_ops_set_clr = {
 	.assert = mtk_reset_assert_set_clr,
-		.deassert = mtk_reset_deassert_set_clr,
-		.reset = mtk_reset_set_clr,
+	.deassert = mtk_reset_deassert_set_clr,
+	.reset = mtk_reset_set_clr,
 };
 
-void mtk_register_reset_controller_common(struct device_node *np,
+static void mtk_register_reset_controller_common(struct device_node *np,
 			unsigned int num_regs, int regofs,
 			const struct reset_control_ops *reset_ops)
 {
@@ -141,4 +145,3 @@ void mtk_register_reset_controller_set_clr(struct device_node *np,
 	mtk_register_reset_controller_common(np, num_regs, regofs,
 		&mtk_reset_ops_set_clr);
 }
-

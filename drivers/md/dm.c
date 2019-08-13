@@ -1058,6 +1058,25 @@ static long dm_dax_direct_access(struct dax_device *dax_dev, pgoff_t pgoff,
 	return ret;
 }
 
+static bool dm_dax_supported(struct dax_device *dax_dev, struct block_device *bdev,
+		int blocksize, sector_t start, sector_t len)
+{
+	struct mapped_device *md = dax_get_private(dax_dev);
+	struct dm_table *map;
+	int srcu_idx;
+	bool ret;
+
+	map = dm_get_live_table(md, &srcu_idx);
+	if (!map)
+		return false;
+
+	ret = dm_table_supports_dax(map, device_supports_dax, &blocksize);
+
+	dm_put_live_table(md, srcu_idx);
+
+	return ret;
+}
+
 static size_t dm_dax_copy_from_iter(struct dax_device *dax_dev, pgoff_t pgoff,
 				    void *addr, size_t bytes, struct iov_iter *i)
 {
@@ -1923,7 +1942,7 @@ static struct mapped_device *alloc_dev(int minor)
 	sprintf(md->disk->disk_name, "dm-%d", minor);
 
 	if (IS_ENABLED(CONFIG_DAX_DRIVER)) {
-		dax_dev = alloc_dax(md, md->disk->disk_name, &dm_dax_ops);
+		dax_dev = alloc_dax(md, md->disk->disk_name, &dm_dax_ops, 0);
 		if (!dax_dev)
 			goto bad;
 	}
@@ -3167,6 +3186,7 @@ static const struct block_device_operations dm_blk_dops = {
 
 static const struct dax_operations dm_dax_ops = {
 	.direct_access = dm_dax_direct_access,
+	.dax_supported = dm_dax_supported,
 	.copy_from_iter = dm_dax_copy_from_iter,
 	.copy_to_iter = dm_dax_copy_to_iter,
 };
