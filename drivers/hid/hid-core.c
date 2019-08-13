@@ -1297,7 +1297,7 @@ static void hid_input_field(struct hid_device *hid, struct hid_field *field,
 		}
 
 		if (value[n] >= min && value[n] <= max &&
-		    field->value[n] - min < field->maxusage &&
+		    value[n] - min < field->maxusage &&
 		    field->usage[value[n] - min].hid &&
 		    search(field->value, value[n], count)) {
 			hid_process_event(hid, field, &field->usage[value[n] - min], 1, interrupt);
