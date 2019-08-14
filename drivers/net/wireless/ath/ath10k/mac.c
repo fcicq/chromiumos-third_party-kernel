@@ -1682,7 +1682,7 @@ static int ath10k_mac_setup_prb_tmpl(struct ath10k_vif *arvif)
 	if (!test_bit(WMI_SERVICE_BEACON_OFFLOAD, ar->wmi.svc_map))
 		return 0;
 
-	if (arvif->vdev_type != WMI_VDEV_TYPE_AP)
+	if (arvif->vdev_type == WMI_VDEV_TYPE_AP)
 		return 0;
 
 	 /* For mesh, probe response and beacon share the same template */
