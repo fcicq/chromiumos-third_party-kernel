@@ -543,7 +543,18 @@ begin:
 
 		ct = nf_ct_tuplehash_to_ctrack(h);
 		if (nf_ct_is_expired(ct)) {
-			nf_ct_gc_expired(ct);
+			if (!IS_ENABLED(CONFIG_SHORTCUT_FE) ||
+			    !IS_ENABLED(CONFIG_NET_SCH_ARL))
+				/* Only trigger garbage collection if one or
+				 * both of SFE and ARL are disabled.  Otherwise
+				 * (i.e. both enabled) can lead to circular lock
+				 * dependency when SFE is accelerating a packet
+				 * and also receives flow delete.
+				 * TODO(b/124309202): ARLv2 will eliminate the
+				 * possibility of this recursion. Revert this
+				 * hack once ARLv2 is ported to Linux-v4.14.
+				 */
+				nf_ct_gc_expired(ct);
 			continue;
 		}
 
