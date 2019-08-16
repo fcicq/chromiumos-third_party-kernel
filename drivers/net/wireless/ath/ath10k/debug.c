@@ -3124,6 +3124,63 @@ static const struct file_operations fops_ftm_resp = {
 	.llseek = default_llseek,
 };
 
+static ssize_t ath10k_write_rts_threshold(struct file *file,
+					  const char __user *user_buf,
+					  size_t count, loff_t *ppos)
+{
+	struct ath10k *ar = file->private_data;
+	int rts_threshold, ret = 0;
+	struct ath10k_vif *arvif;
+	struct ieee80211_vif *vif;
+
+	ret = kstrtoint_from_user(user_buf, count, 0, &rts_threshold);
+	if (ret)
+		return ret;
+
+	mutex_lock(&ar->conf_mutex);
+	list_for_each_entry(arvif, &ar->arvifs, list) {
+		vif = arvif->vif;
+		if (vif->type != NL80211_IFTYPE_MESH_POINT) {
+			ar->hw->wiphy->rts_threshold = rts_threshold;
+			ret = ath10k_wmi_vdev_set_param(ar, arvif->vdev_id,
+							ar->wmi.vdev_param->rts_threshold,
+							ar->hw->wiphy->rts_threshold);
+			if (ret) {
+				ath10k_warn(ar,
+					    "Failed to set rts threshold for vdev %d: %d\n",
+					    arvif->vdev_id, ret);
+				break;
+			}
+		}
+	}
+
+	mutex_unlock(&ar->conf_mutex);
+	return count;
+}
+
+static ssize_t ath10k_read_rts_threshold(struct file *file,
+					 char __user *user_buf,
+					 size_t count, loff_t *ppos)
+{
+	struct ath10k *ar = file->private_data;
+	char buf[32];
+	int len = 0;
+
+	mutex_lock(&ar->conf_mutex);
+	len = scnprintf(buf, sizeof(buf) - len, "%d\n",
+			ar->hw->wiphy->rts_threshold);
+	mutex_unlock(&ar->conf_mutex);
+	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
+}
+
+static const struct file_operations fops_rts_threshold = {
+	.read = ath10k_read_rts_threshold,
+	.write = ath10k_write_rts_threshold,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+	.llseek = default_llseek,
+};
+
 int ath10k_debug_register(struct ath10k *ar)
 {
 	ar->debug.debugfs_phy = debugfs_create_dir("ath10k",
@@ -3251,6 +3308,9 @@ int ath10k_debug_register(struct ath10k *ar)
 
 	debugfs_create_file("ftm_resp", 0600,
 			    ar->debug.debugfs_phy, ar, &fops_ftm_resp);
+
+	debugfs_create_file("rts_threshold", 0600,
+			    ar->debug.debugfs_phy, ar, &fops_rts_threshold);
 
 	ath10k_txdelay_debugfs_register(ar);
 
