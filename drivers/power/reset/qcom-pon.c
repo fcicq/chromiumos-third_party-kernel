@@ -13,7 +13,6 @@
 #include <linux/regmap.h>
 
 #define PON_SOFT_RB_SPARE		0x8f
-#define PON_HARD_RB_REG			0x85a
 
 struct pm8916_pon {
 	struct device *dev;
@@ -67,10 +66,6 @@ static int pm8916_pon_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "can't register reboot mode\n");
 		return error;
 	}
-
-	error = regmap_write(pon->regmap, PON_HARD_RB_REG, 0x7);
-	if (error)
-		dev_err(&pdev->dev, "can't register reboot mode to hard reset\n");
 
 	platform_set_drvdata(pdev, pon);
 
