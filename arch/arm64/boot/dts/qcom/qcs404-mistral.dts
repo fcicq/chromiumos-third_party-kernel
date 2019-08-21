@@ -385,13 +385,6 @@
 	pinctrl-1 = <&sdc1_off>;
 };
 
-&soc {
-	restart@4ab000 {
-		compatible = "qcom,pshold";
-		reg = <0x004ab000 0x4>;
-	};
-};
-
 &remoteproc_cdsp {
 	compatible = "qcom,qcs404-cdsp-pil";
 	status = "okay";
