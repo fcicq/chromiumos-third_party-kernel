@@ -4994,15 +4994,9 @@ static int rtltool_ioctl(struct r8152 *tp, struct ifreq *ifr)
 			netif_warn(tp, drv, netdev,
 				   "rtk diag isn't enable\n");
 
-		buffer = kmalloc(my_cmd.data, GFP_KERNEL);
-		if (!buffer) {
-			ret = -ENOMEM;
-			break;
-		}
-
-		if (copy_from_user(buffer, my_cmd.buf, my_cmd.data)) {
-			ret = -EFAULT;
-			kfree(buffer);
+		buffer = memdup_user(my_cmd.buf, my_cmd.data);
+		if (IS_ERR(buffer)) {
+			ret = PTR_ERR(buffer);
 			break;
 		}
 
@@ -5031,15 +5025,9 @@ static int rtltool_ioctl(struct r8152 *tp, struct ifreq *ifr)
 			netif_warn(tp, drv, netdev,
 				   "rtk diag isn't enable\n");
 
-		buffer = kmalloc(my_cmd.data, GFP_KERNEL);
-		if (!buffer) {
-			ret = -ENOMEM;
-			break;
-		}
-
-		if (copy_from_user(buffer, my_cmd.buf, my_cmd.data)) {
-			ret = -EFAULT;
-			kfree(buffer);
+		buffer = memdup_user(my_cmd.buf, my_cmd.data);
+		if (IS_ERR(buffer)) {
+			ret = PTR_ERR(buffer);
 			break;
 		}
 
