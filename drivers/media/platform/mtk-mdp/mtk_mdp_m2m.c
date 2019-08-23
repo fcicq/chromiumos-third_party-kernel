@@ -77,15 +77,6 @@ static const struct mtk_mdp_fmt mtk_mdp_formats[] = {
 		.flags		= MTK_MDP_FMT_FLAG_OUTPUT |
 				  MTK_MDP_FMT_FLAG_CAPTURE,
 	}, {
-		.name		= "YUV420 contig, YCbCr",
-		.pixelformat	= V4L2_PIX_FMT_NV12,
-		.depth		= { 12 },
-		.row_depth	= { 8 },
-		.num_planes	= 1,
-		.num_comp	= 2,
-		.flags		= MTK_MDP_FMT_FLAG_OUTPUT |
-				  MTK_MDP_FMT_FLAG_CAPTURE,
-	}, {
 		.name		= "YUV420 non-contig. 3p, Y/Cb/Cr",
 		.pixelformat	= V4L2_PIX_FMT_YUV420M,
 		.depth		= { 8, 2, 2 },
@@ -475,8 +466,6 @@ static void mtk_mdp_prepare_addr(struct mtk_mdp_ctx *ctx,
 			addr->addr[1] = (dma_addr_t)(addr->addr[0] + pix_size);
 			addr->addr[2] = (dma_addr_t)(addr->addr[1] +
 					(pix_size >> 2));
-		} else if (frame->fmt->pixelformat == V4L2_PIX_FMT_NV12) {
-			addr->addr[1] = (dma_addr_t) (addr->addr[0] + pix_size);
 		} else {
 			dev_err(&ctx->mdp_dev->pdev->dev,
 				"Invalid pixelformat:0x%x\n",
