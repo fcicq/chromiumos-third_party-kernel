@@ -226,14 +226,14 @@ PVRSRV_ERROR SysDmaAllocMem(DMA_ALLOC *psDmaAlloc)
 				psDmaAlloc->sBusAddr.uiAddr,
 				psDmaAlloc->ui64Size));
 	}
-	else if ((page = alloc_pages(GFP_KERNEL, __get_order(psDmaAlloc->ui64Size))))
+	else if ((page = alloc_pages(GFP_KERNEL, get_order(psDmaAlloc->ui64Size))))
 	{
 		psDmaAlloc->pvVirtAddr = SysDmaAcquireKernelAddress(page,
 													  		psDmaAlloc->ui64Size,
 													  		psDmaAlloc->pvOSDevice);
 		if (! psDmaAlloc->pvVirtAddr)
 		{
-			__free_pages(page, __get_order(psDmaAlloc->ui64Size));
+			__free_pages(page, get_order(psDmaAlloc->ui64Size));
 			goto e0;
 		}
 
@@ -292,7 +292,7 @@ void SysDmaFreeMem(DMA_ALLOC *psDmaAlloc)
 		struct page *page = pfn_to_page(dma_to_pfn((struct device *)psDmaAlloc->pvOSDevice, psDmaAlloc->sBusAddr.uiAddr));
 #endif
 
-		__free_pages(page, __get_order(psDmaAlloc->ui64Size));
+		__free_pages(page, get_order(psDmaAlloc->ui64Size));
 		return;
 	}
 
