@@ -81,7 +81,7 @@ struct fiq_debugger_state {
 	struct timer_list sleep_timer;
 	spinlock_t sleep_timer_lock;
 	bool uart_enabled;
-	struct wakeup_source debugger_wake_src;
+	struct wakeup_source *debugger_wake_src;
 	bool console_enable;
 	int current_cpu;
 	atomic_t unhandled_fiq_count;
@@ -562,7 +562,7 @@ static void fiq_debugger_sleep_timer_expired(unsigned long data)
 		state->uart_enabled = false;
 		fiq_debugger_enable_wakeup_irq(state);
 	}
-	__pm_relax(&state->debugger_wake_src);
+	__pm_relax(state->debugger_wake_src);
 	spin_unlock_irqrestore(&state->sleep_timer_lock, flags);
 }
 
@@ -574,7 +574,7 @@ static void fiq_debugger_handle_wakeup(struct fiq_debugger_state *state)
 	if (state->wakeup_irq >= 0 && state->ignore_next_wakeup_irq) {
 		state->ignore_next_wakeup_irq = false;
 	} else if (!state->uart_enabled) {
-		__pm_stay_awake(&state->debugger_wake_src);
+		__pm_stay_awake(state->debugger_wake_src);
 		fiq_debugger_uart_enable(state);
 		state->uart_enabled = true;
 		fiq_debugger_disable_wakeup_irq(state);
@@ -618,7 +618,7 @@ static void fiq_debugger_handle_irq_context(struct fiq_debugger_state *state)
 		unsigned long flags;
 
 		spin_lock_irqsave(&state->sleep_timer_lock, flags);
-		__pm_stay_awake(&state->debugger_wake_src);
+		__pm_stay_awake(state->debugger_wake_src);
 		mod_timer(&state->sleep_timer, jiffies + HZ * 5);
 		spin_unlock_irqrestore(&state->sleep_timer_lock, flags);
 	}
@@ -1059,6 +1059,11 @@ static int fiq_debugger_probe(struct platform_device *pdev)
 	if (fiq >= 0 && !pdata->fiq_enable)
 		return -EINVAL;
 
+	state->debugger_wake_src =
+		wakeup_source_register(&pdev->dev, "serial-debug");
+	if (!state->debugger_wake_src)
+		return -ENOMEM;
+
 	state = kzalloc(sizeof(*state), GFP_KERNEL);
 	state->output.printf = fiq_debugger_printf;
 	setup_timer(&state->sleep_timer, fiq_debugger_sleep_timer_expired,
@@ -1084,8 +1089,6 @@ static int fiq_debugger_probe(struct platform_device *pdev)
 	if (state->wakeup_irq < 0 && fiq_debugger_have_fiq(state))
 		state->no_sleep = true;
 	state->ignore_next_wakeup_irq = !state->no_sleep;
-
-	wakeup_source_init(&state->debugger_wake_src, "serial-debug");
 
 	state->clk = clk_get(&pdev->dev, NULL);
 	if (IS_ERR(state->clk))
@@ -1186,7 +1189,7 @@ err_uart_init:
 		clk_disable(state->clk);
 	if (state->clk)
 		clk_put(state->clk);
-	wakeup_source_trash(&state->debugger_wake_src);
+	wakeup_source_unregister(state->debugger_wake_src);
 	platform_set_drvdata(pdev, NULL);
 	kfree(state);
 	return ret;
