@@ -3220,6 +3220,7 @@ retry:
 		goto retry;
 	}
 
+	low_mem_notify();
 	/* Before OOM, exhaust highatomic_reserve */
 	if (unreserve_highatomic_pageblock(ac, true))
 		goto retry;
