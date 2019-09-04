@@ -109,6 +109,9 @@ static inline int ath10k_hif_tx_sg(struct ath10k *ar, u8 pipe_id,
 static inline int ath10k_hif_diag_read(struct ath10k *ar, u32 address, void *buf,
 				       size_t buf_len)
 {
+	if (!ar->hif.ops->diag_read)
+		return -EOPNOTSUPP;
+
 	return ar->hif.ops->diag_read(ar, address, buf, buf_len);
 }
 
