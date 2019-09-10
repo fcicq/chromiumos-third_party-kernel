@@ -655,24 +655,64 @@
 	temperature = <100000>;
 };
 
+&cluster_alert0 {
+	temperature = <85000>;
+};
+
 &cluster_alert1 {
-	temperature = <100000>;
+	temperature = <90000>;
+};
+
+&cluster_crit {
+	temperature = <105000>;
+};
+
+&cpu0_alert0 {
+	temperature = <85000>;
 };
 
 &cpu0_alert1 {
-	temperature = <100000>;
+	temperature = <90000>;
+};
+
+&cpu0_crit {
+	temperature = <105000>;
+};
+
+&cpu1_alert0 {
+	temperature = <85000>;
 };
 
 &cpu1_alert1 {
-	temperature = <100000>;
+	temperature = <90000>;
+};
+
+&cpu1_crit {
+	temperature = <105000>;
+};
+
+&cpu2_alert0 {
+	temperature = <85000>;
 };
 
 &cpu2_alert1 {
-	temperature = <100000>;
+	temperature = <90000>;
+};
+
+&cpu2_crit {
+	temperature = <105000>;
+};
+
+&cpu3_alert0 {
+	temperature = <85000>;
 };
 
 &cpu3_alert1 {
-	temperature = <100000>;
+	temperature = <90000>;
+};
+
+&cpu3_crit {
+	temperature = <105000>;
 };
 
 &pms405_alert0 {
