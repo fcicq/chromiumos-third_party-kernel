@@ -902,7 +902,6 @@ static void add_files(struct ieee80211_sub_if_data *sdata)
 	DEBUGFS_ADD(txpower);
 	DEBUGFS_ADD(user_power_level);
 	DEBUGFS_ADD(ap_power_level);
-	DEBUGFS_ADD(mc_bc_rx_limit);
 
 	if (sdata->vif.type != NL80211_IFTYPE_MONITOR)
 		add_common_files(sdata);
