@@ -4917,14 +4917,14 @@ static struct ethtool_ops ops = {
 static int rtltool_ioctl(struct r8152 *tp, struct ifreq *ifr)
 {
 	struct net_device *netdev = tp->netdev;
-	struct rtltool_cmd my_cmd, *myptr;
+	struct rtltool_cmd my_cmd, __user *myptr;
 	struct usb_device_info *uinfo;
 	struct usb_device *udev;
 	__le32	ocp_data;
 	void	*buffer;
 	int	ret;
 
-	myptr = (struct rtltool_cmd *)ifr->ifr_data;
+	myptr = (struct rtltool_cmd __user *)ifr->ifr_data;
 	if (copy_from_user(&my_cmd, myptr, sizeof(my_cmd)))
 		return -EFAULT;
 
@@ -4983,7 +4983,8 @@ static int rtltool_ioctl(struct r8152 *tp, struct ifreq *ifr)
 
 		pla_ocp_read(tp, (u16)my_cmd.offset, my_cmd.data, buffer);
 
-		if (copy_to_user(my_cmd.buf, buffer, my_cmd.data))
+		if (copy_to_user((void __user *)my_cmd.buf, buffer,
+				 my_cmd.data))
 			ret = -EFAULT;
 
 		kfree(buffer);
@@ -4994,7 +4995,7 @@ static int rtltool_ioctl(struct r8152 *tp, struct ifreq *ifr)
 			netif_warn(tp, drv, netdev,
 				   "rtk diag isn't enable\n");
 
-		buffer = memdup_user(my_cmd.buf, my_cmd.data);
+		buffer = memdup_user((void __user *)my_cmd.buf, my_cmd.data);
 		if (IS_ERR(buffer)) {
 			ret = PTR_ERR(buffer);
 			break;
@@ -5014,7 +5015,8 @@ static int rtltool_ioctl(struct r8152 *tp, struct ifreq *ifr)
 
 		usb_ocp_read(tp, (u16)my_cmd.offset, my_cmd.data, buffer);
 
-		if (copy_to_user(my_cmd.buf, buffer, my_cmd.data))
+		if (copy_to_user((void __user *)my_cmd.buf, buffer,
+				 my_cmd.data))
 			ret = -EFAULT;
 
 		kfree(buffer);
@@ -5025,7 +5027,7 @@ static int rtltool_ioctl(struct r8152 *tp, struct ifreq *ifr)
 			netif_warn(tp, drv, netdev,
 				   "rtk diag isn't enable\n");
 
-		buffer = memdup_user(my_cmd.buf, my_cmd.data);
+		buffer = memdup_user((void __user *)my_cmd.buf, my_cmd.data);
 		if (IS_ERR(buffer)) {
 			ret = PTR_ERR(buffer);
 			break;
