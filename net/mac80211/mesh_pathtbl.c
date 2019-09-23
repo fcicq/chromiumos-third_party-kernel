@@ -396,8 +396,8 @@ void mesh_path_table_debug_dump(struct ieee80211_sub_if_data *sdata)
 	struct mesh_path *mpath;
 	struct sta_info *next_hop_sta;
 
-	mpath_dbg(sdata, "MESH DUMP PATH TABLE mesh_paths_generation %d \n"
-		  , sdata->u.mesh.mesh_paths_generation);
+	sdata_info(sdata, "MESH DUMP PATH TABLE mesh_paths_generation %d \n"
+		   , sdata->u.mesh.mesh_paths_generation);
 
 	while (1) {
 		rcu_read_lock();
@@ -425,15 +425,15 @@ void mesh_path_table_debug_dump(struct ieee80211_sub_if_data *sdata)
 		is_gate = mpath->is_gate;
 		rcu_read_unlock();
 		if (idx == 0) {
-			mpath_dbg(sdata, "%17s %17s SNO METRIC HOP EXP(M:S) FLAGS      ROOT GATE \n",
-				  "DESTINATION   ", "NEXT_HOP   ");
+			sdata_info(sdata, "%17s %17s SNO METRIC HOP EXP(M:S) FLAGS      ROOT GATE \n",
+				   "DESTINATION   ", "NEXT_HOP   ");
 		}
-		mpath_dbg(sdata, "%pM %pM %3d %6d %3d %5ld:%2ld 0x%8x %4d %4d\n",
-			  dst, mpp, sn, metric, hop_count, exp_time/60000, exp_time%60000, flags, is_root, is_gate);
+		sdata_info(sdata, "%pM %pM %3d %6d %3d %5ld:%2ld 0x%8x %4d %4d\n",
+			   dst, mpp, sn, metric, hop_count, exp_time/60000, exp_time%60000, flags, is_root, is_gate);
 		++idx;
 	}
 	if (idx == 0) {
-		mpath_dbg(sdata, "MESH PATH TABLE is empty \n");
+		sdata_info(sdata, "MESH PATH TABLE is empty \n");
 	}
 }
 
@@ -444,7 +444,7 @@ void mpp_path_table_debug_dump(struct ieee80211_sub_if_data *sdata)
 	u8 dst[ETH_ALEN];
 	u8 mpp[ETH_ALEN];
 
-	mpath_dbg(sdata, "DUMP MPP TABLE mpp_paths_generation %d \n", sdata->u.mesh.mpp_paths_generation);
+	sdata_info(sdata, "DUMP MPP TABLE mpp_paths_generation %d \n", sdata->u.mesh.mpp_paths_generation);
 
 	while (1) {
 		rcu_read_lock();
@@ -456,7 +456,7 @@ void mpp_path_table_debug_dump(struct ieee80211_sub_if_data *sdata)
 		memcpy(dst, mpath->dst, ETH_ALEN);
 		memcpy(mpp, mpath->mpp, ETH_ALEN);
 		rcu_read_unlock();
-		mpath_dbg(sdata, "dst %pM mpp %pM \n", dst, mpp);
+		sdata_info(sdata, "dst %pM mpp %pM \n", dst, mpp);
 		++idx;
 	}
 }
@@ -625,7 +625,7 @@ out:
 
 	if (paths_deactivated > 0)
 		sdata_info(sta->sdata, " MESH MPL the link to %pM is broken and %d path deactivated \n",
-			  sta->addr, paths_deactivated);
+			   sta->addr, paths_deactivated);
 }
 
 static void mesh_path_free_rcu(struct mesh_table *tbl,
@@ -693,7 +693,7 @@ out:
 	rhashtable_walk_exit(&iter);
 
 	if (nexthop_deleted) {
-		mpath_dbg(sta->sdata, " MESH MPU %d entries deleted becuase the link to %pM is lost \n",
+		sdata_info(sta->sdata, " MESH MPU %d entries deleted becuase the link to %pM is lost \n",
 		nexthop_deleted, sta->addr);
 		mesh_path_table_debug_dump(sta->sdata);
 	}
@@ -993,11 +993,11 @@ out:
 
 	if (expired_deleted) {
 		if (sdata->u.mesh.mesh_paths == tbl) {
-			mpath_dbg(sdata, "MESH MPU %d entries expired and deleted \n",
+			sdata_info(sdata, "MESH MPU %d entries expired and deleted \n",
 			expired_deleted);
 			mesh_path_table_debug_dump(sdata);
 		} else {
-			mpath_dbg(sdata, "MESH MPPU %d entries expired and deleted \n",
+			sdata_info(sdata, "MESH MPPU %d entries expired and deleted \n",
 			expired_deleted);
 			mpp_path_table_debug_dump(sdata);
 		}
