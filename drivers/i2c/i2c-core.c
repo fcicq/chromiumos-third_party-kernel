@@ -208,8 +208,10 @@ static void i2c_acpi_register_device(struct i2c_adapter *adapter,
 {
 	struct i2c_client *client;
 
-	adev->power.flags.ignore_parent = true;
+	if (strncmp("i2c-6", dev_name(&adapter->dev), 5) == 0)
+		msleep(2000);
 
+	adev->power.flags.ignore_parent = true;
 	/* Allow device property to enable probing before init */
 	if (!acpi_dev_get_property(adev, "linux,probed", ACPI_TYPE_ANY, NULL)) {
 		unsigned short addrs[] = { info->addr, I2C_CLIENT_END };

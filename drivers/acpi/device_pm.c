@@ -24,6 +24,7 @@
 #include <linux/pm_qos.h>
 #include <linux/pm_domain.h>
 #include <linux/pm_runtime.h>
+#include <linux/delay.h>
 
 #include "internal.h"
 
@@ -222,6 +223,8 @@ int acpi_device_set_power(struct acpi_device *device, int state)
 		}
 		result = acpi_dev_pm_explicit_set(device, ACPI_STATE_D0);
 	}
+	if (strncmp(device->pnp.bus_id, "H05C", 4) == 0)
+		msleep(2000);
 
  end:
 	if (result) {
