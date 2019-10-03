@@ -246,7 +246,7 @@ int acpi_lid_open(void)
 }
 EXPORT_SYMBOL(acpi_lid_open);
 
-static int acpi_lid_send_state(struct acpi_device *device)
+static int acpi_lid_send_state(struct acpi_device *device, bool signal_wakeup)
 {
 	struct acpi_button *button = acpi_driver_data(device);
 	unsigned long long state;
@@ -261,7 +261,7 @@ static int acpi_lid_send_state(struct acpi_device *device)
 	input_report_switch(button->input, SW_LID, !state);
 	input_sync(button->input);
 
-	if (state)
+	if (state && signal_wakeup)
 		pm_wakeup_event(&device->dev, 0);
 
 	ret = blocking_notifier_call_chain(&acpi_lid_notifier, state, device);
@@ -290,7 +290,7 @@ static void acpi_button_notify(struct acpi_device *device, u32 event)
 	case ACPI_BUTTON_NOTIFY_STATUS:
 		input = button->input;
 		if (button->type == ACPI_BUTTON_TYPE_LID) {
-			acpi_lid_send_state(device);
+			acpi_lid_send_state(device, true);
 		} else {
 			int keycode;
 
@@ -335,7 +335,7 @@ static int acpi_button_resume(struct device *dev)
 
 	button->suspended = false;
 	if (button->type == ACPI_BUTTON_TYPE_LID)
-		return acpi_lid_send_state(device);
+		return acpi_lid_send_state(device, false);
 	return 0;
 }
 #endif
@@ -416,7 +416,7 @@ static int acpi_button_add(struct acpi_device *device)
 	if (error)
 		goto err_remove_fs;
 	if (button->type == ACPI_BUTTON_TYPE_LID) {
-		acpi_lid_send_state(device);
+		acpi_lid_send_state(device, false);
 		/*
 		 * This assumes there's only one lid device, or if there are
 		 * more we only care about the last one...

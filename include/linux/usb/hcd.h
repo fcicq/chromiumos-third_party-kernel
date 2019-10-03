@@ -70,6 +70,12 @@ struct giveback_urb_bh {
 	struct usb_host_endpoint *completing_ep;
 };
 
+enum usb_dev_authorize_policy {
+	USB_DEVICE_AUTHORIZE_NONE	= 0,
+	USB_DEVICE_AUTHORIZE_ALL	= 1,
+	USB_DEVICE_AUTHORIZE_INTERNAL	= 2,
+};
+
 struct usb_hcd {
 
 	/*
@@ -115,7 +121,6 @@ struct usb_hcd {
 #define HCD_FLAG_RH_RUNNING		5	/* root hub is running? */
 #define HCD_FLAG_DEAD			6	/* controller has died? */
 #define HCD_FLAG_INTF_AUTHORIZED	7	/* authorize interfaces? */
-#define HCD_FLAG_DEV_AUTHORIZED		8	/* authorize devices? */
 
 	/* The flags can be tested using these macros; they are likely to
 	 * be slightly faster than test_bit().
@@ -140,8 +145,7 @@ struct usb_hcd {
 	 * or they require explicit user space authorization; this bit is
 	 * settable through /sys/class/usb_host/X/authorized_default
 	 */
-#define HCD_DEV_AUTHORIZED(hcd) \
-	((hcd)->flags & (1U << HCD_FLAG_DEV_AUTHORIZED))
+	enum usb_dev_authorize_policy dev_policy;
 
 	/* Flags that get set only during HCD registration or removal. */
 	unsigned		rh_registered:1;/* is root hub registered? */
@@ -313,6 +317,7 @@ struct hc_driver {
 	int	(*bus_suspend)(struct usb_hcd *);
 	int	(*bus_resume)(struct usb_hcd *);
 	int	(*start_port_reset)(struct usb_hcd *, unsigned port_num);
+	unsigned long	(*get_resuming_ports)(struct usb_hcd *);
 
 		/* force handover of high-speed port to full-speed companion */
 	void	(*relinquish_port)(struct usb_hcd *, int);

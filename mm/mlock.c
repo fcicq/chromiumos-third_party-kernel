@@ -90,7 +90,6 @@ void mlock_vma_page(struct page *page)
 			putback_lru_page(page);
 	}
 }
-EXPORT_SYMBOL_GPL(mlock_vma_page);
 
 /*
  * Isolate a page from LRU with optional get_page() pin.
@@ -205,7 +204,6 @@ unlock_out:
 out:
 	return nr_pages - 1;
 }
-EXPORT_SYMBOL_GPL(munlock_vma_page);
 
 /*
  * convert get_user_pages() return value to posix mlock() error
@@ -506,6 +504,7 @@ static int mlock_fixup(struct vm_area_struct *vma, struct vm_area_struct **prev,
 	int nr_pages;
 	int ret = 0;
 	int lock = !!(newflags & VM_LOCKED);
+	vm_flags_t old_flags = vma->vm_flags;
 
 	if (newflags == vma->vm_flags || (vma->vm_flags & VM_SPECIAL) ||
 	    is_vm_hugetlb_page(vma) || vma == get_gate_vma(current->mm))
@@ -540,6 +539,8 @@ success:
 	nr_pages = (end - start) >> PAGE_SHIFT;
 	if (!lock)
 		nr_pages = -nr_pages;
+	else if (old_flags & VM_LOCKED)
+		nr_pages = 0;
 	mm->locked_vm += nr_pages;
 
 	/*

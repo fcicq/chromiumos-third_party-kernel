@@ -310,13 +310,18 @@ static inline u32 enc_in_img_ctrl(struct rockchip_vpu_ctx *ctx)
 static void rk3399_vpu_vp8e_set_buffers(struct rockchip_vpu_dev *vpu,
 					struct rockchip_vpu_ctx *ctx)
 {
+	const u32 src_addr_regs[] = { VEPU_REG_ADDR_IN_LUMA,
+				      VEPU_REG_ADDR_IN_CB,
+				      VEPU_REG_ADDR_IN_CR };
 	const struct rk3399_vp8e_reg_params *params =
 		(struct rk3399_vp8e_reg_params *)ctx->run.vp8e.reg_params;
+	struct v4l2_pix_format_mplane *src_fmt = &ctx->src_fmt;
 	dma_addr_t ref_buf_dma, rec_buf_dma;
 	dma_addr_t stream_dma;
 	size_t rounded_size;
 	dma_addr_t dst_dma;
 	size_t dst_size;
+	int i;
 
 	vpu_debug_enter();
 
@@ -397,24 +402,17 @@ static void rk3399_vpu_vp8e_set_buffers(struct rockchip_vpu_dev *vpu,
 				VEPU_REG_ADDR_REC_CHROMA);
 
 	/* Source buffer. */
-	if (rockchip_vpu_ctx_is_dummy_encode(ctx)) {
-		vepu_write_relaxed(vpu, vpu->dummy_encode_src[PLANE_Y].dma,
-					VEPU_REG_ADDR_IN_LUMA);
-		vepu_write_relaxed(vpu, vpu->dummy_encode_src[PLANE_CB].dma,
-					VEPU_REG_ADDR_IN_CB);
-		vepu_write_relaxed(vpu, vpu->dummy_encode_src[PLANE_CR].dma,
-					VEPU_REG_ADDR_IN_CR);
-	} else {
+	/*
+	 * TODO(crbug.com/901264): The way to pass an offset within a DMA-buf
+	 * is not defined in V4L2 specification, so we abuse data_offset
+	 * for now. Fix it when we have the right interface, including
+	 * any necessary validation and potential alignment issues.
+	 */
+	for (i = 0; i < src_fmt->num_planes; ++i)
 		vepu_write_relaxed(vpu, vb2_dma_contig_plane_dma_addr(
-					&ctx->run.src->b.vb2_buf, PLANE_Y),
-					VEPU_REG_ADDR_IN_LUMA);
-		vepu_write_relaxed(vpu, vb2_dma_contig_plane_dma_addr(
-					&ctx->run.src->b.vb2_buf, PLANE_CB),
-					VEPU_REG_ADDR_IN_CB);
-		vepu_write_relaxed(vpu, vb2_dma_contig_plane_dma_addr(
-					&ctx->run.src->b.vb2_buf, PLANE_CR),
-					VEPU_REG_ADDR_IN_CR);
-	}
+				   &ctx->run.src->b.vb2_buf, i) +
+				ctx->run.src->b.vb2_buf.planes[i].data_offset,
+				   src_addr_regs[i]);
 
 	/* Source parameters. */
 	vepu_write_relaxed(vpu, enc_in_img_ctrl(ctx),

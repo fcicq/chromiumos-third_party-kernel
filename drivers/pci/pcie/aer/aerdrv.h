@@ -32,6 +32,10 @@
 					PCI_ERR_UNC_MALF_TLP)
 
 #define AER_MAX_MULTI_ERR_DEVICES	5	/* Not likely to have more */
+
+#define AER_MAX_TYPEOF_COR_ERRS		16	/* as per PCI_ERR_COR_STATUS */
+#define AER_MAX_TYPEOF_UNCOR_ERRS	26	/* as per PCI_ERR_UNCOR_STATUS*/
+
 struct aer_err_info {
 	struct pci_dev *dev[AER_MAX_MULTI_ERR_DEVICES];
 	int error_dev_num;
@@ -110,6 +114,12 @@ void aer_isr(struct work_struct *work);
 void aer_print_error(struct pci_dev *dev, struct aer_err_info *info);
 void aer_print_port_info(struct pci_dev *dev, struct aer_err_info *info);
 irqreturn_t aer_irq(int irq, void *context);
+extern void pci_dev_aer_stats_incr(struct pci_dev *pdev,
+				   struct aer_err_info *info);
+extern void pci_rootport_aer_stats_incr(struct pci_dev *pdev,
+					struct aer_err_source *e_src);
+extern const char *aer_correctable_error_string[AER_MAX_TYPEOF_COR_ERRS];
+extern const char *aer_uncorrectable_error_string[AER_MAX_TYPEOF_UNCOR_ERRS];
 
 #ifdef CONFIG_ACPI_APEI
 int pcie_aer_get_firmware_first(struct pci_dev *pci_dev);

@@ -14,6 +14,7 @@
 
 #include <linux/delay.h>
 #include <linux/interrupt.h>
+#include <linux/iopoll.h>
 #include <linux/module.h>
 #include <linux/pci.h>
 #include <linux/pm_runtime.h>
@@ -515,7 +516,9 @@ static int cio2_hw_init(struct cio2_device *cio2, struct cio2_queue *q)
 static void cio2_hw_exit(struct cio2_device *cio2, struct cio2_queue *q)
 {
 	void __iomem *base = cio2->base;
-	unsigned int i, maxloops = 1000;
+	unsigned int i;
+	u32 val, mask;
+	int ret;
 
 	/* Disable CSI receiver and MIPI backend devices */
 	writel(0, q->csi_rx_base + CIO2_REG_IRQCTRL_MASK);
@@ -523,24 +526,42 @@ static void cio2_hw_exit(struct cio2_device *cio2, struct cio2_queue *q)
 	writel(0, q->csi_rx_base + CIO2_REG_CSIRX_ENABLE);
 	writel(0, q->csi_rx_base + CIO2_REG_MIPIBE_ENABLE);
 
-	/* Halt DMA */
-	writel(0, base + CIO2_REG_CDMAC0(CIO2_DMA_CHAN));
-	do {
-		if (readl(base + CIO2_REG_CDMAC0(CIO2_DMA_CHAN)) &
-		    CIO2_CDMAC0_DMA_HALTED)
-			break;
-		usleep_range(1000, 2000);
-	} while (--maxloops);
-	if (!maxloops)
-		dev_err(&cio2->pci_dev->dev,
-			"DMA %i can not be halted\n", CIO2_DMA_CHAN);
-
+	/*
+	 * FrameOpen bits should be 0 after normal abort
+	 * Otherwise, try to abort frame processing by force
+	 */
+	mask = 0;
 	for (i = 0; i < CIO2_NUM_PORTS; i++) {
 		writel(readl(base + CIO2_REG_PXM_FRF_CFG(i)) |
 		       CIO2_PXM_FRF_CFG_ABORT, base + CIO2_REG_PXM_FRF_CFG(i));
 		writel(readl(base + CIO2_REG_PBM_FOPN_ABORT) |
 		       CIO2_PBM_FOPN_ABORT(i), base + CIO2_REG_PBM_FOPN_ABORT);
+		mask |= CIO2_PBM_FOPN_FRAMEOPEN(i);
 	}
+
+	ret = readl_poll_timeout(base + CIO2_REG_PBM_FOPN_ABORT, val,
+				 !(val & mask), 20, 2000);
+	if (ret) {
+		dev_warn(&cio2->pci_dev->dev,
+			 "frames normal abort timeout, try to abort by force");
+		for (i = 0; i < CIO2_NUM_PORTS; i++) {
+			writel(readl(base + CIO2_REG_PBM_FOPN_ABORT) |
+			       CIO2_PBM_FOPN_FORCE_ABORT(i),
+			       base + CIO2_REG_PBM_FOPN_ABORT);
+		}
+	}
+
+	/* Halt DMA */
+	val = readl(base + CIO2_REG_CDMAC0(CIO2_DMA_CHAN));
+	writel(val & ~CIO2_CDMAC0_DMA_EN,
+	       base + CIO2_REG_CDMAC0(CIO2_DMA_CHAN));
+	ret = readl_poll_timeout(base + CIO2_REG_CDMAC0(CIO2_DMA_CHAN), val,
+				 (val & CIO2_CDMAC0_DMA_HALTED), 20, 2000);
+	if (ret)
+		dev_err(&cio2->pci_dev->dev,
+			"DMA %i can not be halted\n", CIO2_DMA_CHAN);
+
+	synchronize_irq(cio2->pci_dev->irq);
 }
 
 static void cio2_buffer_done(struct cio2_device *cio2, unsigned int dma_chan)
@@ -1035,12 +1056,12 @@ static void cio2_vb2_stop_streaming(struct vb2_queue *vq)
 	struct cio2_queue *q = vb2q_to_cio2_queue(vq);
 	struct cio2_device *cio2 = vb2_get_drv_priv(vq);
 
+	cio2_hw_exit(cio2, q);
+
 	if (v4l2_subdev_call(q->sensor, video, s_stream, 0))
 		dev_err(&cio2->pci_dev->dev,
 			"failed to stop sensor streaming\n");
 
-	cio2_hw_exit(cio2, q);
-	synchronize_irq(cio2->pci_dev->irq);
 	cio2_vb2_return_all_buffers(q, VB2_BUF_STATE_ERROR);
 	media_entity_pipeline_stop(&q->vdev.entity);
 	pm_runtime_put(&cio2->pci_dev->dev);
@@ -1987,7 +2008,6 @@ static int __maybe_unused cio2_suspend(struct device *dev)
 
 	/* Stop stream */
 	cio2_hw_exit(cio2, q);
-	synchronize_irq(pci_dev->irq);
 
 	pm_runtime_force_suspend(dev);
 

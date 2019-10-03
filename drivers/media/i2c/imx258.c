@@ -1,15 +1,5 @@
-/*
- * Copyright (c) 2018 Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License version
- * 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- */
+// SPDX-License-Identifier: GPL-2.0
+// Copyright (C) 2018 Intel Corporation
 
 #include <linux/acpi.h>
 #include <linux/delay.h>
@@ -19,10 +9,6 @@
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-device.h>
 #include <asm/unaligned.h>
-
-#ifndef V4L2_CID_DIGITAL_GAIN
-#define V4L2_CID_DIGITAL_GAIN V4L2_CID_GAIN
-#endif
 
 #define IMX258_REG_VALUE_08BIT		1
 #define IMX258_REG_VALUE_16BIT		2
@@ -36,7 +22,6 @@
 #define IMX258_CHIP_ID			0x0258
 
 /* V_TIMING internal */
-#define IMX258_REG_VTS			0x0340
 #define IMX258_VTS_30FPS		0x0c98
 #define IMX258_VTS_30FPS_2K		0x0638
 #define IMX258_VTS_30FPS_VGA		0x034c
@@ -71,13 +56,17 @@
 #define IMX258_REG_B_DIGITAL_GAIN	0x0212
 #define IMX258_REG_GB_DIGITAL_GAIN	0x0214
 #define IMX258_DGTL_GAIN_MIN		0
-#define IMX258_DGTL_GAIN_MAX		4096   /* Max = 0xFFF */
+#define IMX258_DGTL_GAIN_MAX		4096	/* Max = 0xFFF */
 #define IMX258_DGTL_GAIN_DEFAULT	1024
-#define IMX258_DGTL_GAIN_STEP           1
+#define IMX258_DGTL_GAIN_STEP		1
+
+/* Test Pattern Control */
+#define IMX258_REG_TEST_PATTERN		0x0600
 
 /* Orientation */
-#define REG_MIRROR_FLIP_CONTROL	0x0101
+#define REG_MIRROR_FLIP_CONTROL		0x0101
 #define REG_CONFIG_MIRROR_FLIP		0x03
+#define REG_CONFIG_FLIP_TEST_PATTERN	0x02
 
 struct imx258_reg {
 	u16 address;
@@ -510,10 +499,10 @@ static const struct imx258_reg mode_1048_780_regs[] = {
 
 static const char * const imx258_test_pattern_menu[] = {
 	"Disabled",
-	"Vertical Color Bar Type 1",
-	"Vertical Color Bar Type 2",
-	"Vertical Color Bar Type 3",
-	"Vertical Color Bar Type 4"
+	"Solid Colour",
+	"Eight Vertical Colour Bars",
+	"Colour Bars With Fade to Grey",
+	"Pseudorandom Sequence (PN9)",
 };
 
 /* Configurations for supported link frequencies */
@@ -680,7 +669,7 @@ static int imx258_write_reg(struct imx258 *imx258, u16 reg, u32 len, u32 val)
 
 /* Write a list of registers */
 static int imx258_write_regs(struct imx258 *imx258,
-			      const struct imx258_reg *regs, u32 len)
+			     const struct imx258_reg *regs, u32 len)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&imx258->sd);
 	unsigned int i;
@@ -773,16 +762,20 @@ static int imx258_set_ctrl(struct v4l2_ctrl *ctrl)
 		ret = imx258_update_digital_gain(imx258, IMX258_REG_VALUE_16BIT,
 				ctrl->val);
 		break;
-	case V4L2_CID_VBLANK:
-		/*
-		 * Auto Frame Length Line Control is enabled by default.
-		 * Not need control Vblank Register.
-		 */
+	case V4L2_CID_TEST_PATTERN:
+		ret = imx258_write_reg(imx258, IMX258_REG_TEST_PATTERN,
+				IMX258_REG_VALUE_16BIT,
+				ctrl->val);
+		ret = imx258_write_reg(imx258, REG_MIRROR_FLIP_CONTROL,
+				IMX258_REG_VALUE_08BIT,
+				!ctrl->val ? REG_CONFIG_MIRROR_FLIP :
+				REG_CONFIG_FLIP_TEST_PATTERN);
 		break;
 	default:
 		dev_info(&client->dev,
 			 "ctrl(id:0x%x,val:0x%x) is not handled\n",
 			 ctrl->id, ctrl->val);
+		ret = -EINVAL;
 		break;
 	}
 
@@ -809,8 +802,8 @@ static int imx258_enum_mbus_code(struct v4l2_subdev *sd,
 }
 
 static int imx258_enum_frame_size(struct v4l2_subdev *sd,
-				   struct v4l2_subdev_pad_config *cfg,
-				   struct v4l2_subdev_frame_size_enum *fse)
+				  struct v4l2_subdev_pad_config *cfg,
+				  struct v4l2_subdev_frame_size_enum *fse)
 {
 	if (fse->index >= ARRAY_SIZE(supported_modes))
 		return -EINVAL;
@@ -827,7 +820,7 @@ static int imx258_enum_frame_size(struct v4l2_subdev *sd,
 }
 
 static void imx258_update_pad_format(const struct imx258_mode *mode,
-				      struct v4l2_subdev_format *fmt)
+				     struct v4l2_subdev_format *fmt)
 {
 	fmt->format.width = mode->width;
 	fmt->format.height = mode->height;
@@ -836,8 +829,8 @@ static void imx258_update_pad_format(const struct imx258_mode *mode,
 }
 
 static int __imx258_get_pad_format(struct imx258 *imx258,
-				     struct v4l2_subdev_pad_config *cfg,
-				     struct v4l2_subdev_format *fmt)
+				   struct v4l2_subdev_pad_config *cfg,
+				   struct v4l2_subdev_format *fmt)
 {
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY)
 		fmt->format = *v4l2_subdev_get_try_format(&imx258->sd, cfg,
@@ -849,8 +842,8 @@ static int __imx258_get_pad_format(struct imx258 *imx258,
 }
 
 static int imx258_get_pad_format(struct v4l2_subdev *sd,
-				  struct v4l2_subdev_pad_config *cfg,
-				  struct v4l2_subdev_format *fmt)
+				 struct v4l2_subdev_pad_config *cfg,
+				 struct v4l2_subdev_format *fmt)
 {
 	struct imx258 *imx258 = to_imx258(sd);
 	int ret;
@@ -863,8 +856,8 @@ static int imx258_get_pad_format(struct v4l2_subdev *sd,
 }
 
 static int imx258_set_pad_format(struct v4l2_subdev *sd,
-		       struct v4l2_subdev_pad_config *cfg,
-		       struct v4l2_subdev_format *fmt)
+				 struct v4l2_subdev_pad_config *cfg,
+				 struct v4l2_subdev_format *fmt)
 {
 	struct imx258 *imx258 = to_imx258(sd);
 	const struct imx258_mode *mode;
@@ -880,8 +873,8 @@ static int imx258_set_pad_format(struct v4l2_subdev *sd,
 	/* Only one raw bayer(GBRG) order is supported */
 	fmt->format.code = MEDIA_BUS_FMT_SGRBG10_1X10;
 
-	mode = v4l2_find_nearest_size(
-		supported_modes, ARRAY_SIZE(supported_modes), width, height,
+	mode = v4l2_find_nearest_size(supported_modes,
+		ARRAY_SIZE(supported_modes), width, height,
 		fmt->format.width, fmt->format.height);
 	imx258_update_pad_format(mode, fmt);
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
@@ -942,7 +935,7 @@ static int imx258_start_streaming(struct imx258 *imx258)
 
 	/* Set Orientation be 180 degree */
 	ret = imx258_write_reg(imx258, REG_MIRROR_FLIP_CONTROL,
-				IMX258_REG_VALUE_08BIT, REG_CONFIG_MIRROR_FLIP);
+			       IMX258_REG_VALUE_08BIT, REG_CONFIG_MIRROR_FLIP);
 	if (ret) {
 		dev_err(&client->dev, "%s failed to set orientation\n",
 			__func__);
@@ -1064,7 +1057,7 @@ static int imx258_identify_module(struct imx258 *imx258)
 	u32 val;
 
 	ret = imx258_read_reg(imx258, IMX258_REG_CHIP_ID,
-			       IMX258_REG_VALUE_16BIT, &val);
+			      IMX258_REG_VALUE_16BIT, &val);
 	if (ret) {
 		dev_err(&client->dev, "failed to read chip id %x\n",
 			IMX258_CHIP_ID);
@@ -1105,7 +1098,6 @@ static int imx258_init_controls(struct imx258 *imx258)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&imx258->sd);
 	struct v4l2_ctrl_handler *ctrl_hdlr;
-	s64 exposure_max;
 	s64 vblank_def;
 	s64 vblank_min;
 	s64 pixel_rate_min;
@@ -1146,6 +1138,9 @@ static int imx258_init_controls(struct imx258 *imx258)
 				IMX258_VTS_MAX - imx258->cur_mode->height, 1,
 				vblank_def);
 
+	if (imx258->vblank)
+		imx258->vblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+
 	imx258->hblank = v4l2_ctrl_new_std(
 				ctrl_hdlr, &imx258_ctrl_ops, V4L2_CID_HBLANK,
 				IMX258_PPL_DEFAULT - imx258->cur_mode->width,
@@ -1156,7 +1151,6 @@ static int imx258_init_controls(struct imx258 *imx258)
 	if (imx258->hblank)
 		imx258->hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
-	exposure_max = imx258->cur_mode->vts_def - 8;
 	imx258->exposure = v4l2_ctrl_new_std(
 				ctrl_hdlr, &imx258_ctrl_ops,
 				V4L2_CID_EXPOSURE, IMX258_EXPOSURE_MIN,
@@ -1211,6 +1205,14 @@ static int imx258_probe(struct i2c_client *client)
 	if (val != 19200000)
 		return -EINVAL;
 
+	/*
+	 * Check that the device is mounted upside down. The driver only
+	 * supports a single pixel order right now.
+	 */
+	ret = device_property_read_u32(&client->dev, "rotation", &val);
+	if (ret || val != 180)
+		return -EINVAL;
+
 	imx258 = devm_kzalloc(&client->dev, sizeof(*imx258), GFP_KERNEL);
 	if (!imx258)
 		return -ENOMEM;
@@ -1237,10 +1239,10 @@ static int imx258_probe(struct i2c_client *client)
 
 	/* Initialize source pad */
 	imx258->pad.flags = MEDIA_PAD_FL_SOURCE;
+
 	ret = media_entity_init(&imx258->sd.entity, 1, &imx258->pad, 0);
-	if (ret) {
+	if (ret)
 		goto error_handler_free;
-	}
 
 	ret = v4l2_async_register_subdev_sensor_common(&imx258->sd);
 	if (ret < 0)

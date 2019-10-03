@@ -2,6 +2,7 @@
 #define ARCH_X86_KVM_X86_H
 
 #include <linux/kvm_host.h>
+#include <asm/pvclock.h>
 #include "kvm_cache_regs.h"
 
 #define MSR_IA32_CR_PAT_DEFAULT  0x0007040600070406ULL
@@ -164,11 +165,11 @@ int kvm_inject_realmode_interrupt(struct kvm_vcpu *vcpu, int irq, int inc_eip);
 
 void kvm_write_tsc(struct kvm_vcpu *vcpu, struct msr_data *msr);
 
-int kvm_read_guest_virt(struct x86_emulate_ctxt *ctxt,
+int kvm_read_guest_virt(struct kvm_vcpu *vcpu,
 	gva_t addr, void *val, unsigned int bytes,
 	struct x86_exception *exception);
 
-int kvm_write_guest_virt_system(struct x86_emulate_ctxt *ctxt,
+int kvm_write_guest_virt_system(struct kvm_vcpu *vcpu,
 	gva_t addr, void *val, unsigned int bytes,
 	struct x86_exception *exception);
 
@@ -192,4 +193,25 @@ extern unsigned int min_timer_period_us;
 extern unsigned int lapic_timer_advance_ns;
 
 extern struct static_key kvm_no_apic_vcpu;
+
+static inline u64 nsec_to_cycles(struct kvm_vcpu *vcpu, u64 nsec)
+{
+	return pvclock_scale_delta(nsec, vcpu->arch.virtual_tsc_mult,
+				   vcpu->arch.virtual_tsc_shift);
+}
+
+/* Same "calling convention" as do_div:
+ * - divide (n << 32) by base
+ * - put result in n
+ * - return remainder
+ */
+#define do_shl32_div32(n, base)					\
+	({							\
+	    u32 __quot, __rem;					\
+	    asm("divl %2" : "=a" (__quot), "=d" (__rem)		\
+			: "rm" (base), "0" (0), "1" ((u32) n));	\
+	    n = __quot;						\
+	    __rem;						\
+	 })
+
 #endif

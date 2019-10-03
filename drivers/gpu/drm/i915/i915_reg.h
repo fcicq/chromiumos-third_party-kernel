@@ -3539,35 +3539,47 @@ enum {
 #define EDP_PSR_CTL				_MMIO(dev_priv->psr_mmio_base + 0)
 #define   EDP_PSR_ENABLE			(1<<31)
 #define   BDW_PSR_SINGLE_FRAME			(1<<30)
+#define   EDP_PSR_RESTORE_PSR_ACTIVE_CTX_MASK	(1<<29) /* SW can't modify */
 #define   EDP_PSR_LINK_STANDBY			(1<<27)
 #define   EDP_PSR_MIN_LINK_ENTRY_TIME_MASK	(3<<25)
 #define   EDP_PSR_MIN_LINK_ENTRY_TIME_8_LINES	(0<<25)
 #define   EDP_PSR_MIN_LINK_ENTRY_TIME_4_LINES	(1<<25)
 #define   EDP_PSR_MIN_LINK_ENTRY_TIME_2_LINES	(2<<25)
 #define   EDP_PSR_MIN_LINK_ENTRY_TIME_0_LINES	(3<<25)
-#define   EDP_PSR_MAX_SLEEP_TIME_MASK           (0x1f<<20)
 #define   EDP_PSR_MAX_SLEEP_TIME_SHIFT		20
 #define   EDP_PSR_SKIP_AUX_EXIT			(1<<12)
 #define   EDP_PSR_TP1_TP2_SEL			(0<<11)
 #define   EDP_PSR_TP1_TP3_SEL			(1<<11)
-#define   EDP_PSR_TP2_TP3_TIME_MASK             (3<<8)
+#define   EDP_PSR_CRC_ENABLE			(1 << 10) /* BDW+ */
 #define   EDP_PSR_TP2_TP3_TIME_500us		(0<<8)
 #define   EDP_PSR_TP2_TP3_TIME_100us		(1<<8)
 #define   EDP_PSR_TP2_TP3_TIME_2500us		(2<<8)
 #define   EDP_PSR_TP2_TP3_TIME_0us		(3<<8)
-#define   EDP_PSR_TP1_TIME_MASK                 (0x3<<4)
 #define   EDP_PSR_TP1_TIME_500us		(0<<4)
 #define   EDP_PSR_TP1_TIME_100us		(1<<4)
 #define   EDP_PSR_TP1_TIME_2500us		(2<<4)
 #define   EDP_PSR_TP1_TIME_0us			(3<<4)
-#define   EDP_PSR_IDLE_FRAME_MASK               (0xf<<0)
 #define   EDP_PSR_IDLE_FRAME_SHIFT		0
 
+/* Bspec claims those aren't shifted but stay at 0x64800 */
+#define EDP_PSR_IMR				_MMIO(0x64834)
+#define EDP_PSR_IIR				_MMIO(0x64838)
+#define   EDP_PSR_ERROR(trans)			(1 << (((trans) * 8 + 10) & 31))
+#define   EDP_PSR_POST_EXIT(trans)		(1 << (((trans) * 8 + 9) & 31))
+#define   EDP_PSR_PRE_ENTRY(trans)		(1 << (((trans) * 8 + 8) & 31))
+
 #define EDP_PSR_AUX_CTL				_MMIO(dev_priv->psr_mmio_base + 0x10)
+#define   EDP_PSR_AUX_CTL_TIME_OUT_MASK		(3 << 26)
+#define   EDP_PSR_AUX_CTL_MESSAGE_SIZE_MASK	(0x1f << 20)
+#define   EDP_PSR_AUX_CTL_PRECHARGE_2US_MASK	(0xf << 16)
+#define   EDP_PSR_AUX_CTL_ERROR_INTERRUPT	(1 << 11)
+#define   EDP_PSR_AUX_CTL_BIT_CLOCK_2X_MASK	(0x7ff)
+
 #define EDP_PSR_AUX_DATA(i)			_MMIO(dev_priv->psr_mmio_base + 0x14 + (i) * 4) /* 5 registers */
 
-#define EDP_PSR_STATUS_CTL			_MMIO(dev_priv->psr_mmio_base + 0x40)
+#define EDP_PSR_STATUS				_MMIO(dev_priv->psr_mmio_base + 0x40)
 #define   EDP_PSR_STATUS_STATE_MASK		(7<<29)
+#define   EDP_PSR_STATUS_STATE_SHIFT		29
 #define   EDP_PSR_STATUS_STATE_IDLE		(0<<29)
 #define   EDP_PSR_STATUS_STATE_SRDONACK		(1<<29)
 #define   EDP_PSR_STATUS_STATE_SRDENT		(2<<29)
@@ -3593,17 +3605,19 @@ enum {
 #define EDP_PSR_PERF_CNT		_MMIO(dev_priv->psr_mmio_base + 0x44)
 #define   EDP_PSR_PERF_CNT_MASK		0xffffff
 
-#define EDP_PSR_DEBUG_CTL		_MMIO(dev_priv->psr_mmio_base + 0x60)
+#define EDP_PSR_DEBUG				_MMIO(dev_priv->psr_mmio_base + 0x60) /* PSR_MASK on SKL+ */
 #define   EDP_PSR_DEBUG_MASK_MAX_SLEEP         (1<<28)
 #define   EDP_PSR_DEBUG_MASK_LPSP              (1<<27)
 #define   EDP_PSR_DEBUG_MASK_MEMUP             (1<<26)
 #define   EDP_PSR_DEBUG_MASK_HPD               (1<<25)
 #define   EDP_PSR_DEBUG_MASK_DISP_REG_WRITE    (1<<16)
-#define   EDP_PSR_DEBUG_EXIT_ON_PIXEL_UNDERRUN (1<<15)
+#define   EDP_PSR_DEBUG_EXIT_ON_PIXEL_UNDERRUN (1<<15) /* SKL+ */
 
 #define EDP_PSR2_CTL			_MMIO(0x6f900)
 #define   EDP_PSR2_ENABLE		(1<<31)
 #define   EDP_SU_TRACK_ENABLE		(1<<30)
+#define   EDP_Y_COORDINATE_VALID	(1<<26) /* GLK and CNL+ */
+#define   EDP_Y_COORDINATE_ENABLE	(1<<25) /* GLK and CNL+ */
 #define   EDP_MAX_SU_DISABLE_TIME(t)	((t)<<20)
 #define   EDP_MAX_SU_DISABLE_TIME_MASK	(0x1f<<20)
 #define   EDP_PSR2_TP2_TIME_500us	(0<<8)
@@ -3613,10 +3627,34 @@ enum {
 #define   EDP_PSR2_TP2_TIME_MASK	(3<<8)
 #define   EDP_PSR2_FRAME_BEFORE_SU_SHIFT 4
 #define   EDP_PSR2_FRAME_BEFORE_SU_MASK	(0xf<<4)
-#define   EDP_PSR2_IDLE_MASK		0xf
 #define   EDP_PSR2_FRAME_BEFORE_SU(a)	((a)<<4)
+#define   EDP_PSR2_IDLE_FRAME_MASK	0xf
+#define   EDP_PSR2_IDLE_FRAME_SHIFT	0
 
-#define EDP_PSR2_STATUS_CTL            _MMIO(0x6f940)
+#define _PSR_EVENT_TRANS_A			0x60848
+#define _PSR_EVENT_TRANS_B			0x61848
+#define _PSR_EVENT_TRANS_C			0x62848
+#define _PSR_EVENT_TRANS_D			0x63848
+#define _PSR_EVENT_TRANS_EDP			0x6F848
+#define PSR_EVENT(trans)			_MMIO_TRANS2(trans, _PSR_EVENT_TRANS_A)
+#define  PSR_EVENT_PSR2_WD_TIMER_EXPIRE		(1 << 17)
+#define  PSR_EVENT_PSR2_DISABLED		(1 << 16)
+#define  PSR_EVENT_SU_DIRTY_FIFO_UNDERRUN	(1 << 15)
+#define  PSR_EVENT_SU_CRC_FIFO_UNDERRUN		(1 << 14)
+#define  PSR_EVENT_GRAPHICS_RESET		(1 << 12)
+#define  PSR_EVENT_PCH_INTERRUPT		(1 << 11)
+#define  PSR_EVENT_MEMORY_UP			(1 << 10)
+#define  PSR_EVENT_FRONT_BUFFER_MODIFY		(1 << 9)
+#define  PSR_EVENT_WD_TIMER_EXPIRE		(1 << 8)
+#define  PSR_EVENT_PIPE_REGISTERS_UPDATE	(1 << 6)
+#define  PSR_EVENT_REGISTER_UPDATE		(1 << 5)
+#define  PSR_EVENT_HDCP_ENABLE			(1 << 4)
+#define  PSR_EVENT_KVMR_SESSION_ENABLE		(1 << 3)
+#define  PSR_EVENT_VBI_ENABLE			(1 << 2)
+#define  PSR_EVENT_LPSP_MODE_EXIT		(1 << 1)
+#define  PSR_EVENT_PSR_DISABLE			(1 << 0)
+
+#define EDP_PSR2_STATUS			_MMIO(0x6f940)
 #define EDP_PSR2_STATUS_STATE_MASK     (0xf<<28)
 #define EDP_PSR2_STATUS_STATE_SHIFT    28
 
@@ -5435,6 +5473,9 @@ enum {
 #define IVB_CURSOR_B_OFFSET 0x71080
 #define IVB_CURSOR_C_OFFSET 0x72080
 
+#define _CUR_SURLIVE		0x700AC
+#define CUR_SURLIVE(pipe)	_CURSOR2(pipe, _CUR_SURLIVE)
+
 /* Display A control */
 #define _DSPACNTR				0x70180
 #define   DISPLAY_PLANE_ENABLE			(1<<31)
@@ -6306,6 +6347,7 @@ enum {
 #define DE_PCH_EVENT_IVB		(1<<28)
 #define DE_DP_A_HOTPLUG_IVB		(1<<27)
 #define DE_AUX_CHANNEL_A_IVB		(1<<26)
+#define DE_EDP_PSR_INT_HSW		(1<<19)
 #define DE_SPRITEC_FLIP_DONE_IVB	(1<<14)
 #define DE_PLANEC_FLIP_DONE_IVB		(1<<13)
 #define DE_PIPEC_VBLANK_IVB		(1<<10)
@@ -6418,6 +6460,7 @@ enum {
 #define GEN8_DE_MISC_IIR _MMIO(0x44468)
 #define GEN8_DE_MISC_IER _MMIO(0x4446c)
 #define  GEN8_DE_MISC_GSE		(1 << 27)
+#define  GEN8_DE_EDP_PSR		(1 << 19)
 
 #define GEN8_PCU_ISR _MMIO(0x444e0)
 #define GEN8_PCU_IMR _MMIO(0x444e4)
@@ -6468,6 +6511,7 @@ enum {
 #define CHICKEN_TRANS_A         0x420c0
 #define CHICKEN_TRANS_B         0x420c4
 #define CHICKEN_TRANS(trans) _MMIO_TRANS(trans, CHICKEN_TRANS_A, CHICKEN_TRANS_B)
+#define  VSC_DATA_SEL_SOFTWARE_CONTROL	(1<<25) /* GLK and CNL+ */
 #define PSR2_VSC_ENABLE_PROG_HEADER    (1<<12)
 #define PSR2_ADD_VERTICAL_LINE_COUNT   (1<<15)
 
@@ -6477,6 +6521,7 @@ enum {
 #define  DISP_FBC_WM_DIS		(1<<15)
 #define DISP_ARB_CTL2	_MMIO(0x45004)
 #define  DISP_DATA_PARTITION_5_6	(1<<6)
+#define  DISP_IPC_ENABLE		(1<<3)
 #define DBUF_CTL	_MMIO(0x45008)
 #define  DBUF_POWER_REQUEST		(1<<31)
 #define  DBUF_POWER_STATE		(1<<30)

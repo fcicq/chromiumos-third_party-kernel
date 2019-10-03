@@ -194,6 +194,8 @@
 #define     RKVDEC_ERR_PKT_NUM(x)			(((x) & 0x3fff) << 16)
 #define RKVDEC_REG_H264_ERR_E			0x134
 #define     RKVDEC_H264_ERR_EN_HIGHBITS(x)		((x) & 0x3fffffff)
+#define RKVDEC_REG_PREF_LUMA_CACHE_COMMAND	0x410
+#define RKVDEC_REG_PREF_CHR_CACHE_COMMAND	0x450
 
 #define	SEQ_PARAMETER_SET_ID_OFF				FIELD(0, 0)
 #define SEQ_PARAMETER_SET_ID_LEN				4

@@ -6,6 +6,8 @@
 #include <linux/types.h>
 #include <linux/nodemask.h>
 #include <uapi/linux/oom.h>
+#include <linux/sched.h> /* MMF_* */
+#include <linux/mm.h> /* VM_FAULT* */
 
 struct zonelist;
 struct notifier_block;
@@ -22,6 +24,9 @@ struct oom_control {
 
 	/* Used to determine mempolicy */
 	nodemask_t *nodemask;
+
+	/* Memory cgroup in which oom is invoked, or NULL for global oom */
+	struct mem_cgroup *memcg;
 
 	/* Used to determine cpuset and node locality requirement */
 	const gfp_t gfp_mask;
@@ -72,6 +77,50 @@ static inline bool oom_task_origin(const struct task_struct *p)
 
 extern void mark_oom_victim(struct task_struct *tsk);
 
+#ifdef CONFIG_MMU
+extern void wake_oom_reaper(struct task_struct *tsk);
+#else
+static inline void wake_oom_reaper(struct task_struct *tsk)
+{
+}
+#endif
+
+static inline bool tsk_is_oom_victim(struct task_struct * tsk)
+{
+	return tsk->signal->oom_mm;
+}
+
+/*
+ * Use this helper if tsk->mm != mm and the victim mm needs a special
+ * handling. This is guaranteed to stay true after once set.
+ */
+static inline bool mm_is_oom_victim(struct mm_struct *mm)
+{
+	return test_bit(MMF_OOM_VICTIM, &mm->flags);
+}
+
+/*
+ * Checks whether a page fault on the given mm is still reliable.
+ * This is no longer true if the oom reaper started to reap the
+ * address space which is reflected by MMF_UNSTABLE flag set in
+ * the mm. At that moment any !shared mapping would lose the content
+ * and could cause a memory corruption (zero pages instead of the
+ * original content).
+ *
+ * User should call this before establishing a page table entry for
+ * a !shared mapping and under the proper page table lock.
+ *
+ * Return 0 when the PF is safe VM_FAULT_SIGBUS otherwise.
+ */
+static inline int check_stable_address_space(struct mm_struct *mm)
+{
+	if (unlikely(test_bit(MMF_UNSTABLE, &mm->flags)))
+		return VM_FAULT_SIGBUS;
+	return 0;
+}
+
+void __oom_reap_task_mm(struct mm_struct *mm);
+
 extern unsigned long oom_badness(struct task_struct *p,
 		struct mem_cgroup *memcg, const nodemask_t *nodemask,
 		unsigned long totalpages);
@@ -80,11 +129,10 @@ extern int oom_kills_count(void);
 extern void note_oom_kill(void);
 extern void oom_kill_process(struct oom_control *oc, struct task_struct *p,
 			     unsigned int points, unsigned long totalpages,
-			     struct mem_cgroup *memcg, const char *message);
+			     const char *message);
 
 extern void check_panic_on_oom(struct oom_control *oc,
-			       enum oom_constraint constraint,
-			       struct mem_cgroup *memcg);
+			       enum oom_constraint constraint);
 
 extern enum oom_scan_t oom_scan_process_thread(struct oom_control *oc,
 		struct task_struct *task, unsigned long totalpages);
@@ -97,21 +145,12 @@ extern int register_oom_notifier(struct notifier_block *nb);
 extern int unregister_oom_notifier(struct notifier_block *nb);
 
 extern bool oom_killer_disabled;
-extern bool oom_killer_disable(void);
+extern bool oom_killer_disable(signed long timeout);
 extern void oom_killer_enable(void);
 
 extern struct task_struct *find_lock_task_mm(struct task_struct *p);
 
-static inline bool task_will_free_mem(struct task_struct *task)
-{
-	/*
-	 * A coredumping process may sleep for an extended period in exit_mm(),
-	 * so the oom killer cannot assume that the process will promptly exit
-	 * and release memory.
-	 */
-	return (task->flags & PF_EXITING) &&
-		!(task->signal->flags & SIGNAL_GROUP_COREDUMP);
-}
+bool task_will_free_mem(struct task_struct *task);
 
 /* sysctls */
 extern int sysctl_oom_dump_tasks;

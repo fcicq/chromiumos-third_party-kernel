@@ -165,6 +165,8 @@ static void qxl_dirty_update(struct qxl_fbdev *qfbdev,
 	schedule_work(&qdev->fb_work);
 }
 
+#ifdef CONFIG_DRM_FBDEV_EMULATION
+
 static void qxl_deferred_io(struct fb_info *info,
 			    struct list_head *pagelist)
 {
@@ -193,6 +195,7 @@ static struct fb_deferred_io qxl_defio = {
 	.delay		= QXL_DIRTY_DELAY,
 	.deferred_io	= qxl_deferred_io,
 };
+#endif
 
 static void qxl_fb_fillrect(struct fb_info *info,
 			    const struct fb_fillrect *rect)
@@ -418,8 +421,10 @@ static int qxlfb_create(struct qxl_fbdev *qfbdev,
 		goto out_destroy_fbi;
 	}
 
+#ifdef CONFIG_DRM_FBDEV_EMULATION
 	info->fbdefio = &qxl_defio;
 	fb_deferred_io_init(info);
+#endif
 
 	qdev->fbdev_info = info;
 	qdev->fbdev_qfb = &qfbdev->qfb;

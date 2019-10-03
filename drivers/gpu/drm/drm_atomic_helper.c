@@ -542,6 +542,7 @@ drm_atomic_helper_check_modeset(struct drm_device *dev,
 	struct drm_connector *connector;
 	struct drm_connector_state *connector_state;
 	int i, ret;
+	unsigned connectors_mask = 0;
 
 	for_each_crtc_in_state(state, crtc, crtc_state, i) {
 		if (!drm_mode_equal(&crtc->state->mode, &crtc_state->mode)) {
@@ -572,6 +573,8 @@ drm_atomic_helper_check_modeset(struct drm_device *dev,
 		return ret;
 
 	for_each_connector_in_state(state, connector, connector_state, i) {
+		const struct drm_connector_helper_funcs *funcs = connector->helper_private;
+
 		/*
 		 * This only sets crtc->mode_changed for routing changes,
 		 * drivers must set crtc->mode_changed themselves when connector
@@ -581,6 +584,19 @@ drm_atomic_helper_check_modeset(struct drm_device *dev,
 					       connector_state);
 		if (ret)
 			return ret;
+		if (connector->state->crtc) {
+			crtc_state = drm_atomic_get_existing_crtc_state(state,
+									connector->state->crtc);
+			if (connector->state->link_status !=
+			    connector_state->link_status)
+				crtc_state->connectors_changed = true;
+		}
+		if (funcs->atomic_check)
+			ret = funcs->atomic_check(connector, connector_state);
+		if (ret)
+			return ret;
+
+		connectors_mask += BIT(i);
 	}
 
 	/*
@@ -628,6 +644,22 @@ drm_atomic_helper_check_modeset(struct drm_device *dev,
 
 			return -EINVAL;
 		}
+	}
+
+	/*
+	 * Iterate over all connectors again, to make sure atomic_check()
+	 * has been called on them when a modeset is forced.
+	 */
+	for_each_connector_in_state(state, connector, connector_state, i) {
+		const struct drm_connector_helper_funcs *funcs = connector->helper_private;
+
+		if (connectors_mask & BIT(i))
+			continue;
+
+		if (funcs->atomic_check)
+			ret = funcs->atomic_check(connector, connector_state);
+		if (ret)
+			return ret;
 	}
 
 	ret = mode_valid(state);
@@ -1340,7 +1372,10 @@ static int drm_atomic_add_implicit_fences(struct drm_device *dev,
 		return -ENOMEM;
 
 	for_each_plane_in_state(state, plane, plane_state, i) {
-		WARN_ON(plane_state->fence);
+		/* No implicit fencing if explicit fence is attached. */
+		if (plane_state->fence)
+			continue;
+
 		/* If fb is not changing or new fb is NULL. */
 		if (plane->state->fb == plane_state->fb || !plane_state->fb)
 			continue;
@@ -1394,6 +1429,10 @@ static int drm_atomic_add_implicit_fences(struct drm_device *dev,
 	}
 
 	for_each_plane_in_state(state, plane, plane_state, i) {
+		/* No implicit fencing if explicit fence is attached. */
+		if (plane_state->fence)
+			continue;
+
 		/* If fb is not changing or new fb is NULL. */
 		if (plane->state->fb == plane_state->fb || !plane_state->fb)
 			continue;
@@ -2075,6 +2114,8 @@ void drm_atomic_helper_swap_state(struct drm_atomic_state *state,
 	struct drm_plane *plane;
 	struct drm_plane_state *plane_state, *old_plane_state;
 	struct drm_crtc_commit *commit;
+	struct drm_private_obj *obj;
+	struct drm_private_state *old_obj_state, *new_obj_state;
 
 	if (stall) {
 		for_each_crtc_in_state(state, crtc, crtc_state, i) {
@@ -2128,6 +2169,16 @@ void drm_atomic_helper_swap_state(struct drm_atomic_state *state,
 		plane->state->state = state;
 		swap(state->planes[i].state, plane->state);
 		plane->state->state = NULL;
+	}
+
+	for_each_oldnew_private_obj_in_state(state, obj, old_obj_state, new_obj_state, i) {
+		WARN_ON(obj->state != old_obj_state);
+
+		old_obj_state->state = state;
+		new_obj_state->state = NULL;
+
+		state->private_objs[i].state = old_obj_state;
+		obj->state = new_obj_state;
 	}
 }
 EXPORT_SYMBOL(drm_atomic_helper_swap_state);
@@ -2331,6 +2382,8 @@ static int update_output_state(struct drm_atomic_state *state,
 								NULL);
 			if (ret)
 				return ret;
+			/* Make sure legacy setCrtc always re-trains */
+			conn_state->link_status = DRM_LINK_STATUS_GOOD;
 		}
 	}
 
@@ -2373,6 +2426,12 @@ static int update_output_state(struct drm_atomic_state *state,
  * @set: mode set configuration
  *
  * Provides a default crtc set_config handler using the atomic driver interface.
+ *
+ * NOTE: For backwards compatibility with old userspace this automatically
+ * resets the "link-status" property to GOOD, to force any link
+ * re-training. The SETCRTC ioctl does not define whether an update does
+ * need a full modeset or just a plane update, hence we're allowed to do
+ * that. See also drm_mode_connector_set_link_status_property().
  *
  * Returns:
  * Returns 0 on success, negative errno numbers on failure.
@@ -3621,3 +3680,18 @@ backoff:
 	goto retry;
 }
 EXPORT_SYMBOL(drm_atomic_helper_legacy_gamma_set);
+
+/**
+ * __drm_atomic_helper_private_duplicate_state - copy atomic private state
+ * @obj: CRTC object
+ * @state: new private object state
+ *
+ * Copies atomic state from a private objects's current state and resets inferred values.
+ * This is useful for drivers that subclass the private state.
+ */
+void __drm_atomic_helper_private_obj_duplicate_state(struct drm_private_obj *obj,
+						     struct drm_private_state *state)
+{
+	memcpy(state, obj->state, sizeof(*state));
+}
+EXPORT_SYMBOL(__drm_atomic_helper_private_obj_duplicate_state);

@@ -434,7 +434,7 @@ parse_general_definitions(struct drm_i915_private *dev_priv,
 	}
 }
 
-static const union child_device_config *
+static const struct child_device_config *
 child_device_ptr(const struct bdb_general_definitions *p_defs, int i)
 {
 	return (const void *) &p_defs->devices[i * p_defs->child_dev_size];
@@ -446,7 +446,7 @@ parse_sdvo_device_mapping(struct drm_i915_private *dev_priv,
 {
 	struct sdvo_device_mapping *p_mapping;
 	const struct bdb_general_definitions *p_defs;
-	const struct old_child_dev_config *child; /* legacy */
+	const struct child_device_config *child;
 	int i, child_device_num, count;
 	u16	block_size;
 
@@ -461,7 +461,7 @@ parse_sdvo_device_mapping(struct drm_i915_private *dev_priv,
 	 * device size matches that of the *legacy* child device config
 	 * struct. Thus, SDVO mapping will be skipped for newer VBT.
 	 */
-	if (p_defs->child_dev_size != sizeof(*child)) {
+	if (p_defs->child_dev_size != LEGACY_CHILD_DEVICE_CONFIG_SIZE) {
 		DRM_DEBUG_KMS("Unsupported child device size for SDVO mapping.\n");
 		return;
 	}
@@ -472,7 +472,7 @@ parse_sdvo_device_mapping(struct drm_i915_private *dev_priv,
 		p_defs->child_dev_size;
 	count = 0;
 	for (i = 0; i < child_device_num; i++) {
-		child = &child_device_ptr(p_defs, i)->old;
+		child = child_device_ptr(p_defs, i);
 		if (!child->device_type) {
 			/* skip the device block if device type is invalid */
 			continue;
@@ -552,6 +552,7 @@ parse_driver_features(struct drm_i915_private *dev_priv,
 	 */
 	if (!driver->drrs_enabled)
 		dev_priv->vbt.drrs_type = DRRS_NOT_SUPPORTED;
+	dev_priv->vbt.psr.enable = driver->psr_enabled;
 }
 
 static void
@@ -559,7 +560,7 @@ parse_edp(struct drm_i915_private *dev_priv, const struct bdb_header *bdb)
 {
 	const struct bdb_edp *edp;
 	const struct edp_power_seq *edp_pps;
-	const struct edp_link_params *edp_link_params;
+	const struct edp_fast_link_params *edp_link_params;
 	int panel_type = dev_priv->vbt.panel_type;
 
 	edp = find_section(bdb, BDB_EDP);
@@ -583,7 +584,7 @@ parse_edp(struct drm_i915_private *dev_priv, const struct bdb_header *bdb)
 
 	/* Get the eDP sequencing and link info */
 	edp_pps = &edp->power_seqs[panel_type];
-	edp_link_params = &edp->link_params[panel_type];
+	edp_link_params = &edp->fast_link_params[panel_type];
 
 	dev_priv->vbt.edp.pps = *edp_pps;
 
@@ -740,7 +741,7 @@ parse_psr(struct drm_i915_private *dev_priv, const struct bdb_header *bdb)
 			dev_priv->vbt.psr.tp2_tp3_wakeup_time_us = 100;
 			break;
 		case 3:
-			dev_priv->vbt.psr.tp1_wakeup_time_us = 0;
+			dev_priv->vbt.psr.tp2_tp3_wakeup_time_us = 0;
 			break;
 		default:
 			DRM_DEBUG_KMS("VBT tp2_tp3 wakeup time value %d is outside range[0-3], defaulting to max value 2500us\n",
@@ -1125,7 +1126,7 @@ static void sanitize_aux_ch(struct drm_i915_private *dev_priv,
 static void parse_ddi_port(struct drm_i915_private *dev_priv, enum port port,
 			   const struct bdb_header *bdb)
 {
-	union child_device_config *it, *child = NULL;
+	struct child_device_config *it, *child = NULL;
 	struct ddi_vbt_port_info *info = &dev_priv->vbt.ddi_port_info[port];
 	uint8_t hdmi_level_shift;
 	int i, j;
@@ -1150,7 +1151,7 @@ static void parse_ddi_port(struct drm_i915_private *dev_priv, enum port port,
 			if (dvo_ports[port][j] == -1)
 				break;
 
-			if (it->common.dvo_port == dvo_ports[port][j]) {
+			if (it->dvo_port == dvo_ports[port][j]) {
 				if (child) {
 					DRM_DEBUG_KMS("More than one child device for port %c in VBT.\n",
 						      port_name(port));
@@ -1163,14 +1164,14 @@ static void parse_ddi_port(struct drm_i915_private *dev_priv, enum port port,
 	if (!child)
 		return;
 
-	aux_channel = child->common.aux_channel;
-	ddc_pin = child->common.ddc_pin;
+	aux_channel = child->aux_channel;
+	ddc_pin = child->ddc_pin;
 
-	is_dvi = child->common.device_type & DEVICE_TYPE_TMDS_DVI_SIGNALING;
-	is_dp = child->common.device_type & DEVICE_TYPE_DISPLAYPORT_OUTPUT;
-	is_crt = child->common.device_type & DEVICE_TYPE_ANALOG_OUTPUT;
-	is_hdmi = is_dvi && (child->common.device_type & DEVICE_TYPE_NOT_HDMI_OUTPUT) == 0;
-	is_edp = is_dp && (child->common.device_type & DEVICE_TYPE_INTERNAL_CONNECTOR);
+	is_dvi = child->device_type & DEVICE_TYPE_TMDS_DVI_SIGNALING;
+	is_dp = child->device_type & DEVICE_TYPE_DISPLAYPORT_OUTPUT;
+	is_crt = child->device_type & DEVICE_TYPE_ANALOG_OUTPUT;
+	is_hdmi = is_dvi && (child->device_type & DEVICE_TYPE_NOT_HDMI_OUTPUT) == 0;
+	is_edp = is_dp && (child->device_type & DEVICE_TYPE_INTERNAL_CONNECTOR);
 
 	if (port == PORT_A && is_dvi) {
 		DRM_DEBUG_KMS("VBT claims port A supports DVI%s, ignoring\n",
@@ -1216,7 +1217,7 @@ static void parse_ddi_port(struct drm_i915_private *dev_priv, enum port port,
 
 	if (bdb->version >= 158) {
 		/* The VBT HDMI level shift values match the table we have. */
-		hdmi_level_shift = child->raw[7] & 0xF;
+		hdmi_level_shift = child->hdmi_level_shifter_value;
 		DRM_DEBUG_KMS("VBT HDMI level shift for port %c: %d\n",
 			      port_name(port),
 			      hdmi_level_shift);
@@ -1224,11 +1225,11 @@ static void parse_ddi_port(struct drm_i915_private *dev_priv, enum port port,
 	}
 
 	/* Parse the I_boost config for SKL and above */
-	if (bdb->version >= 196 && child->common.iboost) {
-		info->dp_boost_level = translate_iboost(child->common.iboost_level & 0xF);
+	if (bdb->version >= 196 && child->iboost) {
+		info->dp_boost_level = translate_iboost(child->dp_iboost_level);
 		DRM_DEBUG_KMS("VBT (e)DP boost level for port %c: %d\n",
 			      port_name(port), info->dp_boost_level);
-		info->hdmi_boost_level = translate_iboost(child->common.iboost_level >> 4);
+		info->hdmi_boost_level = translate_iboost(child->hdmi_iboost_level);
 		DRM_DEBUG_KMS("VBT HDMI boost level for port %c: %d\n",
 			      port_name(port), info->hdmi_boost_level);
 	}
@@ -1257,8 +1258,8 @@ parse_device_mapping(struct drm_i915_private *dev_priv,
 		     const struct bdb_header *bdb)
 {
 	const struct bdb_general_definitions *p_defs;
-	const union child_device_config *p_child;
-	union child_device_config *child_dev_ptr;
+	const struct child_device_config *p_child;
+	struct child_device_config *child_dev_ptr;
 	int i, child_device_num, count;
 	u8 expected_size;
 	u16 block_size;
@@ -1273,15 +1274,16 @@ parse_device_mapping(struct drm_i915_private *dev_priv,
 	} else if (bdb->version < 109) {
 		expected_size = 27;
 	} else if (bdb->version < 195) {
-		BUILD_BUG_ON(sizeof(struct old_child_dev_config) != 33);
-		expected_size = sizeof(struct old_child_dev_config);
+		expected_size = LEGACY_CHILD_DEVICE_CONFIG_SIZE;
 	} else if (bdb->version == 195) {
 		expected_size = 37;
-	} else if (bdb->version <= 197) {
+	} else if (bdb->version <= 215) {
 		expected_size = 38;
+	} else if (bdb->version <= 216) {
+		expected_size = 39;
 	} else {
-		expected_size = 38;
-		BUILD_BUG_ON(sizeof(*p_child) < 38);
+		expected_size = sizeof(*p_child);
+		BUILD_BUG_ON(sizeof(*p_child) < 39);
 		DRM_DEBUG_DRIVER("Expected child device config size for VBT version %u not known; assuming %u\n",
 				 bdb->version, expected_size);
 	}
@@ -1292,7 +1294,7 @@ parse_device_mapping(struct drm_i915_private *dev_priv,
 			  p_defs->child_dev_size, expected_size, bdb->version);
 
 	/* The legacy sized child device config is the minimum we need. */
-	if (p_defs->child_dev_size < sizeof(struct old_child_dev_config)) {
+	if (p_defs->child_dev_size < LEGACY_CHILD_DEVICE_CONFIG_SIZE) {
 		DRM_DEBUG_KMS("Child device config size %u is too small.\n",
 			      p_defs->child_dev_size);
 		return;
@@ -1307,7 +1309,7 @@ parse_device_mapping(struct drm_i915_private *dev_priv,
 	/* get the number of child device that is present */
 	for (i = 0; i < child_device_num; i++) {
 		p_child = child_device_ptr(p_defs, i);
-		if (!p_child->common.device_type) {
+		if (!p_child->device_type) {
 			/* skip the device block if device type is invalid */
 			continue;
 		}
@@ -1327,7 +1329,7 @@ parse_device_mapping(struct drm_i915_private *dev_priv,
 	count = 0;
 	for (i = 0; i < child_device_num; i++) {
 		p_child = child_device_ptr(p_defs, i);
-		if (!p_child->common.device_type) {
+		if (!p_child->device_type) {
 			/* skip the device block if device type is invalid */
 			continue;
 		}
@@ -1349,12 +1351,12 @@ parse_device_mapping(struct drm_i915_private *dev_priv,
 		 */
 		if (bdb->version < 196) {
 			/* Set default values for bits added from v196 */
-			child_dev_ptr->common.iboost = 0;
-			child_dev_ptr->common.hpd_invert = 0;
+			child_dev_ptr->iboost = 0;
+			child_dev_ptr->hpd_invert = 0;
 		}
 
 		if (bdb->version < 192)
-			child_dev_ptr->common.lspcon = 0;
+			child_dev_ptr->lspcon = 0;
 	}
 	return;
 }
@@ -1546,7 +1548,7 @@ intel_bios_init(struct drm_i915_private *dev_priv)
  */
 bool intel_bios_is_tv_present(struct drm_i915_private *dev_priv)
 {
-	union child_device_config *p_child;
+	const struct child_device_config *child;
 	int i;
 
 	if (!dev_priv->vbt.int_tv_support)
@@ -1556,11 +1558,11 @@ bool intel_bios_is_tv_present(struct drm_i915_private *dev_priv)
 		return true;
 
 	for (i = 0; i < dev_priv->vbt.child_dev_num; i++) {
-		p_child = dev_priv->vbt.child_dev + i;
+		child = dev_priv->vbt.child_dev + i;
 		/*
 		 * If the device type is not TV, continue.
 		 */
-		switch (p_child->old.device_type) {
+		switch (child->device_type) {
 		case DEVICE_TYPE_INT_TV:
 		case DEVICE_TYPE_TV:
 		case DEVICE_TYPE_TV_SVIDEO_COMPOSITE:
@@ -1571,7 +1573,7 @@ bool intel_bios_is_tv_present(struct drm_i915_private *dev_priv)
 		/* Only when the addin_offset is non-zero, it is regarded
 		 * as present.
 		 */
-		if (p_child->old.addin_offset)
+		if (child->addin_offset)
 			return true;
 	}
 
@@ -1588,14 +1590,14 @@ bool intel_bios_is_tv_present(struct drm_i915_private *dev_priv)
  */
 bool intel_bios_is_lvds_present(struct drm_i915_private *dev_priv, u8 *i2c_pin)
 {
+	const struct child_device_config *child;
 	int i;
 
 	if (!dev_priv->vbt.child_dev_num)
 		return true;
 
 	for (i = 0; i < dev_priv->vbt.child_dev_num; i++) {
-		union child_device_config *uchild = dev_priv->vbt.child_dev + i;
-		struct old_child_dev_config *child = &uchild->old;
+		child = dev_priv->vbt.child_dev + i;
 
 		/* If the device type is not LFP, continue.
 		 * We have to check both the new identifiers as well as the
@@ -1637,6 +1639,7 @@ bool intel_bios_is_lvds_present(struct drm_i915_private *dev_priv, u8 *i2c_pin)
  */
 bool intel_bios_is_port_present(struct drm_i915_private *dev_priv, enum port port)
 {
+	const struct child_device_config *child;
 	static const struct {
 		u16 dp, hdmi;
 	} port_mapping[] = {
@@ -1655,12 +1658,12 @@ bool intel_bios_is_port_present(struct drm_i915_private *dev_priv, enum port por
 		return false;
 
 	for (i = 0; i < dev_priv->vbt.child_dev_num; i++) {
-		const union child_device_config *p_child =
-			&dev_priv->vbt.child_dev[i];
-		if ((p_child->common.dvo_port == port_mapping[port].dp ||
-		     p_child->common.dvo_port == port_mapping[port].hdmi) &&
-		    (p_child->common.device_type & (DEVICE_TYPE_TMDS_DVI_SIGNALING |
-						    DEVICE_TYPE_DISPLAYPORT_OUTPUT)))
+		child = dev_priv->vbt.child_dev + i;
+
+		if ((child->dvo_port == port_mapping[port].dp ||
+		     child->dvo_port == port_mapping[port].hdmi) &&
+		    (child->device_type & (DEVICE_TYPE_TMDS_DVI_SIGNALING |
+					   DEVICE_TYPE_DISPLAYPORT_OUTPUT)))
 			return true;
 	}
 
@@ -1676,7 +1679,7 @@ bool intel_bios_is_port_present(struct drm_i915_private *dev_priv, enum port por
  */
 bool intel_bios_is_port_edp(struct drm_i915_private *dev_priv, enum port port)
 {
-	union child_device_config *p_child;
+	const struct child_device_config *child;
 	static const short port_mapping[] = {
 		[PORT_B] = DVO_PORT_DPB,
 		[PORT_C] = DVO_PORT_DPC,
@@ -1689,10 +1692,10 @@ bool intel_bios_is_port_edp(struct drm_i915_private *dev_priv, enum port port)
 		return false;
 
 	for (i = 0; i < dev_priv->vbt.child_dev_num; i++) {
-		p_child = dev_priv->vbt.child_dev + i;
+		child = dev_priv->vbt.child_dev + i;
 
-		if (p_child->common.dvo_port == port_mapping[port] &&
-		    (p_child->common.device_type & DEVICE_TYPE_eDP_BITS) ==
+		if (child->dvo_port == port_mapping[port] &&
+		    (child->device_type & DEVICE_TYPE_eDP_BITS) ==
 		    (DEVICE_TYPE_eDP & DEVICE_TYPE_eDP_BITS))
 			return true;
 	}
@@ -1700,7 +1703,7 @@ bool intel_bios_is_port_edp(struct drm_i915_private *dev_priv, enum port port)
 	return false;
 }
 
-static bool child_dev_is_dp_dual_mode(const union child_device_config *p_child,
+static bool child_dev_is_dp_dual_mode(const struct child_device_config *child,
 				      enum port port)
 {
 	static const struct {
@@ -1719,16 +1722,16 @@ static bool child_dev_is_dp_dual_mode(const union child_device_config *p_child,
 	if (port == PORT_A || port >= ARRAY_SIZE(port_mapping))
 		return false;
 
-	if ((p_child->common.device_type & DEVICE_TYPE_DP_DUAL_MODE_BITS) !=
+	if ((child->device_type & DEVICE_TYPE_DP_DUAL_MODE_BITS) !=
 	    (DEVICE_TYPE_DP_DUAL_MODE & DEVICE_TYPE_DP_DUAL_MODE_BITS))
 		return false;
 
-	if (p_child->common.dvo_port == port_mapping[port].dp)
+	if (child->dvo_port == port_mapping[port].dp)
 		return true;
 
 	/* Only accept a HDMI dvo_port as DP++ if it has an AUX channel */
-	if (p_child->common.dvo_port == port_mapping[port].hdmi &&
-	    p_child->common.aux_channel != 0)
+	if (child->dvo_port == port_mapping[port].hdmi &&
+	    child->aux_channel != 0)
 		return true;
 
 	return false;
@@ -1737,13 +1740,13 @@ static bool child_dev_is_dp_dual_mode(const union child_device_config *p_child,
 bool intel_bios_is_port_dp_dual_mode(struct drm_i915_private *dev_priv,
 				     enum port port)
 {
+	const struct child_device_config *child;
 	int i;
 
 	for (i = 0; i < dev_priv->vbt.child_dev_num; i++) {
-		const union child_device_config *p_child =
-			&dev_priv->vbt.child_dev[i];
+		child = dev_priv->vbt.child_dev + i;
 
-		if (child_dev_is_dp_dual_mode(p_child, port))
+		if (child_dev_is_dp_dual_mode(child, port))
 			return true;
 	}
 
@@ -1760,17 +1763,17 @@ bool intel_bios_is_port_dp_dual_mode(struct drm_i915_private *dev_priv,
 bool intel_bios_is_dsi_present(struct drm_i915_private *dev_priv,
 			       enum port *port)
 {
-	union child_device_config *p_child;
+	const struct child_device_config *child;
 	u8 dvo_port;
 	int i;
 
 	for (i = 0; i < dev_priv->vbt.child_dev_num; i++) {
-		p_child = dev_priv->vbt.child_dev + i;
+		child = dev_priv->vbt.child_dev + i;
 
-		if (!(p_child->common.device_type & DEVICE_TYPE_MIPI_OUTPUT))
+		if (!(child->device_type & DEVICE_TYPE_MIPI_OUTPUT))
 			continue;
 
-		dvo_port = p_child->common.dvo_port;
+		dvo_port = child->dvo_port;
 
 		switch (dvo_port) {
 		case DVO_PORT_MIPIA:
@@ -1800,16 +1803,19 @@ bool
 intel_bios_is_port_hpd_inverted(struct drm_i915_private *dev_priv,
 				enum port port)
 {
+	const struct child_device_config *child;
 	int i;
 
 	if (WARN_ON_ONCE(!IS_BROXTON(dev_priv)))
 		return false;
 
 	for (i = 0; i < dev_priv->vbt.child_dev_num; i++) {
-		if (!dev_priv->vbt.child_dev[i].common.hpd_invert)
+		child = dev_priv->vbt.child_dev + i;
+
+		if (!child->hpd_invert)
 			continue;
 
-		switch (dev_priv->vbt.child_dev[i].common.dvo_port) {
+		switch (child->dvo_port) {
 		case DVO_PORT_DPA:
 		case DVO_PORT_HDMIA:
 			if (port == PORT_A)

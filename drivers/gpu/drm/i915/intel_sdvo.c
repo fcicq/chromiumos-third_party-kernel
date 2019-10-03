@@ -1011,7 +1011,8 @@ static bool intel_sdvo_set_avi_infoframe(struct intel_sdvo *intel_sdvo,
 	ssize_t len;
 
 	ret = drm_hdmi_avi_infoframe_from_display_mode(&frame.avi,
-						       &pipe_config->base.adjusted_mode);
+						       &pipe_config->base.adjusted_mode,
+						       false);
 	if (ret < 0) {
 		DRM_ERROR("couldn't fill AVI infoframe\n");
 		return false;
@@ -1359,6 +1360,8 @@ static void intel_sdvo_get_config(struct intel_encoder *encoder,
 	u32 flags = 0, sdvox;
 	u8 val;
 	bool ret;
+
+	pipe_config->output_types |= BIT(INTEL_OUTPUT_SDVO);
 
 	sdvox = I915_READ(intel_sdvo->sdvo_reg);
 

@@ -74,6 +74,8 @@
 #define     VEPU_REG_VP8_LF_MODE_DELTA_SPLITMV(x)	(((x) & 0x7f) << 16)
 #define     VEPU_REG_VP8_LF_MODE_DELTA_ZEROMV(x)	(((x) & 0x7f) << 8)
 #define     VEPU_REG_VP8_LF_MODE_DELTA_NEWMV(x)		(((x) & 0x7f) << 0)
+#define VEPU_REG_JPEG_LUMA_QUAT(i)		(0x000 + ((i) * 0x4))
+#define VEPU_REG_JPEG_CHROMA_QUAT(i)		(0x040 + ((i) * 0x4))
 #define VEPU_REG_INTRA_SLICE_BITMAP(i)		(0x0b0 + ((i) * 0x4))
 #define VEPU_REG_ADDR_VP8_DCT_PART(i)		(0x0b0 + ((i) * 0x4))
 #define VEPU_REG_INTRA_AREA_CTRL		0x0b8
@@ -554,7 +556,8 @@
 #define VDPU_REG_VP8_ADDR_REF2_5(i)		(0x218 + ((i) * 0x4))
 #define     VDPU_REG_VP8_GREF_SIGN_BIAS			BIT(0)
 #define     VDPU_REG_VP8_AREF_SIGN_BIAS			BIT(0)
-#define VDPU_REG_VP8_DCT_BASE(i)		(0x230 + ((i) * 0x4))
+#define VDPU_REG_VP8_DCT_BASE(i)		\
+		(0x230 + ((((i) < 5) ? (i) : ((i) + 1)) * 0x4))
 #define VDPU_REG_VP8_ADDR_CTRL_PART		0x244
 #define VDPU_REG_VP8_ADDR_REF1			0x250
 #define VDPU_REG_VP8_SEGMENT_VAL		0x254

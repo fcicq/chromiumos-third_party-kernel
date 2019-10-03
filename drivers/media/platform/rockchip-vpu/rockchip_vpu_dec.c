@@ -158,6 +158,14 @@ static struct rockchip_vpu_control controls[] = {
 		.elem_size = sizeof(struct v4l2_ctrl_vp9_entropy),
 		.can_store = true,
 	},
+	{
+		.id = V4L2_CID_MPEG_VIDEO_VP9_PROFILE,
+		.type = V4L2_CTRL_TYPE_MENU,
+		.minimum = V4L2_MPEG_VIDEO_VP9_PROFILE_0,
+		.maximum = V4L2_MPEG_VIDEO_VP9_PROFILE_0,
+		.default_value = V4L2_MPEG_VIDEO_VP9_PROFILE_0,
+		.menu_skip_mask = 0,
+	},
 };
 
 static inline void *get_ctrl_ptr(struct rockchip_vpu_ctx *ctx, unsigned id)
@@ -293,14 +301,31 @@ static int vidioc_g_fmt(struct file *file, void *priv, struct v4l2_format *f)
 	return 0;
 }
 
-static void calculate_plane_sizes(const struct rockchip_vpu_fmt *src_fmt,
-				  const struct rockchip_vpu_fmt *dst_fmt,
-				  struct v4l2_pix_format_mplane *pix_fmt_mp)
+static void adjust_dst_sizes(struct rockchip_vpu_ctx *ctx,
+			     struct v4l2_pix_format_mplane *pix_fmt_mp)
 {
 	unsigned int dim_width, dim_height, align;
-	int i;
 
-	if (src_fmt->fourcc == V4L2_PIX_FMT_VP9_FRAME) {
+	/* Limit to hardware min/max. */
+	pix_fmt_mp->width = clamp(pix_fmt_mp->width,
+			ctx->vpu_src_fmt->frmsize.min_width,
+			ctx->vpu_src_fmt->frmsize.max_width);
+	pix_fmt_mp->height = clamp(pix_fmt_mp->height,
+			ctx->vpu_src_fmt->frmsize.min_height,
+			ctx->vpu_src_fmt->frmsize.max_height);
+
+	/* Round up to macroblocks. */
+	if (ctx->vpu_src_fmt->fourcc == V4L2_PIX_FMT_VP9_FRAME) {
+		pix_fmt_mp->width = round_up(pix_fmt_mp->width, SB_DIM);
+		pix_fmt_mp->height =
+			round_up(pix_fmt_mp->height, SB_DIM);
+	} else {
+		pix_fmt_mp->width = round_up(pix_fmt_mp->width, MB_DIM);
+		pix_fmt_mp->height =
+			round_up(pix_fmt_mp->height, MB_DIM);
+	}
+
+	if (ctx->vpu_src_fmt->fourcc == V4L2_PIX_FMT_VP9_FRAME) {
 		dim_width = SB_WIDTH(pix_fmt_mp->width);
 		dim_height = SB_HEIGHT(pix_fmt_mp->height);
 		align = 64;
@@ -310,25 +335,9 @@ static void calculate_plane_sizes(const struct rockchip_vpu_fmt *src_fmt,
 		align = 16;
 	}
 
-	vpu_debug(0, "CAPTURE codec mode: %d\n", dst_fmt->codec_mode);
 	vpu_debug(0, "fmt - w: %d, h: %d, block - w: %d, h: %d\n",
 		  pix_fmt_mp->width, pix_fmt_mp->height,
 		  dim_width, dim_height);
-
-	for (i = 0; i < dst_fmt->num_planes; ++i) {
-		pix_fmt_mp->plane_fmt[i].bytesperline =
-			dim_width * align * dst_fmt->depth[i] / 8;
-		pix_fmt_mp->plane_fmt[i].sizeimage =
-			pix_fmt_mp->plane_fmt[i].bytesperline
-			* dim_height * align;
-
-		/*
-		 * All of multiplanar formats we support have chroma
-		 * planes subsampled by 2.
-		 */
-		if (i != 0)
-			pix_fmt_mp->plane_fmt[i].sizeimage /= 2;
-	}
 }
 
 static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
@@ -347,8 +356,8 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 
 		fmt = find_format(dev, pix_fmt_mp->pixelformat, true);
 		if (!fmt) {
-			vpu_err("failed to try output format\n");
-			return -EINVAL;
+			fmt = ctx->vpu_src_fmt;
+			pix_fmt_mp->pixelformat = fmt->fourcc;
 		}
 
 		if (pix_fmt_mp->plane_fmt[0].sizeimage == 0) {
@@ -364,37 +373,15 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 
 		fmt = find_format(dev, pix_fmt_mp->pixelformat, false);
 		if (!fmt) {
-			vpu_err("failed to try capture format\n");
-			return -EINVAL;
+			fmt = ctx->vpu_dst_fmt;
+			pix_fmt_mp->pixelformat = fmt->fourcc;
 		}
 
-		if (fmt->num_planes != pix_fmt_mp->num_planes) {
-			vpu_err("plane number mismatches on capture format\n");
-			return -EINVAL;
-		}
+		pix_fmt_mp->num_planes = fmt->num_mplanes;
 
-		/* Limit to hardware min/max. */
-		pix_fmt_mp->width = clamp(pix_fmt_mp->width,
-				ctx->vpu_src_fmt->frmsize.min_width,
-				ctx->vpu_src_fmt->frmsize.max_width);
-		pix_fmt_mp->height = clamp(pix_fmt_mp->height,
-				ctx->vpu_src_fmt->frmsize.min_height,
-				ctx->vpu_src_fmt->frmsize.max_height);
-
-		/* Round up to macroblocks. */
-		if (ctx->vpu_src_fmt->fourcc == V4L2_PIX_FMT_VP9_FRAME) {
-			pix_fmt_mp->width = round_up(pix_fmt_mp->width, SB_DIM);
-			pix_fmt_mp->height =
-				round_up(pix_fmt_mp->height, SB_DIM);
-		} else {
-			pix_fmt_mp->width = round_up(pix_fmt_mp->width, MB_DIM);
-			pix_fmt_mp->height =
-				round_up(pix_fmt_mp->height, MB_DIM);
-		}
-
+		adjust_dst_sizes(ctx, pix_fmt_mp);
 		/* Fill in remaining fields. */
-		calculate_plane_sizes(ctx->vpu_src_fmt, ctx->vpu_dst_fmt,
-				      pix_fmt_mp);
+		rockchip_vpu_update_planes(ctx->vpu_dst_fmt, pix_fmt_mp);
 		break;
 
 	default:
@@ -410,19 +397,19 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 static void reset_dst_fmt(struct rockchip_vpu_ctx *ctx)
 {
 	struct rockchip_vpu_dev *vpu = ctx->dev;
-	const struct rockchip_vpu_fmt *vpu_src_fmt = ctx->vpu_src_fmt;
 	struct v4l2_pix_format_mplane *dst_fmt = &ctx->dst_fmt;
 
 	ctx->vpu_dst_fmt = get_def_fmt(vpu, false);
 
 	memset(dst_fmt, 0, sizeof(*dst_fmt));
 
-	dst_fmt->width = vpu_src_fmt->frmsize.min_width;
-	dst_fmt->height = vpu_src_fmt->frmsize.min_height;
+	dst_fmt->width = ctx->src_fmt.width;
+	dst_fmt->height = ctx->src_fmt.height;
 	dst_fmt->pixelformat = ctx->vpu_dst_fmt->fourcc;
-	dst_fmt->num_planes = ctx->vpu_dst_fmt->num_planes;
+	dst_fmt->num_planes = ctx->vpu_dst_fmt->num_mplanes;
 
-	calculate_plane_sizes(vpu_src_fmt, ctx->vpu_dst_fmt, dst_fmt);
+	adjust_dst_sizes(ctx, dst_fmt);
+	rockchip_vpu_update_planes(ctx->vpu_dst_fmt, dst_fmt);
 }
 
 static int vidioc_s_fmt(struct file *file, void *priv, struct v4l2_format *f)
@@ -840,6 +827,7 @@ static int rockchip_vpu_dec_s_ctrl(struct v4l2_ctrl *ctrl)
 	case V4L2_CID_MPEG_VIDEO_VP9_DECODE_PARAM:
 	case V4L2_CID_MPEG_VIDEO_VP9_FRAME_HDR:
 	case V4L2_CID_MPEG_VIDEO_VP9_ENTROPY:
+	case V4L2_CID_MPEG_VIDEO_VP9_PROFILE:
 		/* These controls are used directly. */
 		break;
 
@@ -921,7 +909,7 @@ static int rockchip_vpu_queue_setup(struct vb2_queue *vq,
 
 	switch (vq->type) {
 	case V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE:
-		*plane_count = ctx->vpu_src_fmt->num_planes;
+		*plane_count = ctx->vpu_src_fmt->num_mplanes;
 
 		if (*buf_count < 1)
 			*buf_count = 1;
@@ -935,7 +923,7 @@ static int rockchip_vpu_queue_setup(struct vb2_queue *vq,
 		break;
 
 	case V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE:
-		*plane_count = ctx->vpu_dst_fmt->num_planes;
+		*plane_count = ctx->vpu_dst_fmt->num_mplanes;
 
 		if (*buf_count < 1)
 			*buf_count = 1;
@@ -1018,7 +1006,7 @@ static int rockchip_vpu_buf_prepare(struct vb2_buffer *vb)
 		break;
 
 	case V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE:
-		for (i = 0; i < ctx->vpu_dst_fmt->num_planes; ++i) {
+		for (i = 0; i < ctx->vpu_dst_fmt->num_mplanes; ++i) {
 			vpu_debug(4, "plane %d size: %ld, sizeimage: %u\n", i,
 					vb2_plane_size(vb, i),
 					ctx->dst_fmt.plane_fmt[i].sizeimage);
@@ -1031,7 +1019,7 @@ static int rockchip_vpu_buf_prepare(struct vb2_buffer *vb)
 			}
 		}
 
-		if (i != ctx->vpu_dst_fmt->num_planes)
+		if (i != ctx->vpu_dst_fmt->num_mplanes)
 			ret = -EINVAL;
 		break;
 

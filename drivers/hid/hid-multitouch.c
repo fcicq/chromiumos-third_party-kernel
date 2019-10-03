@@ -166,6 +166,7 @@ static void mt_post_parse(struct mt_device *td);
 #define MT_CLS_GENERALTOUCH_PWT_TENFINGERS	0x0109
 #define MT_CLS_VTL				0x0110
 #define MT_CLS_GOOGLE				0x0111
+#define MT_CLS_WALLABY				0x0112
 
 #define MT_DEFAULT_MAXCONTACT	10
 #define MT_MAX_MAXCONTACT	250
@@ -289,6 +290,12 @@ static struct mt_class mt_classes[] = {
 			MT_QUIRK_SLOT_IS_CONTACTID |
 			MT_QUIRK_HOVERING
 	},
+	{ .name = MT_CLS_WALLABY,
+		.quirks = MT_QUIRK_ALWAYS_VALID |
+			MT_QUIRK_IGNORE_DUPLICATES |
+			MT_QUIRK_HOVERING |
+			MT_QUIRK_CONTACT_CNT_ACCURATE,
+		.export_all_inputs = true },
 	{ }
 };
 
@@ -347,7 +354,8 @@ static void mt_get_feature(struct hid_device *hdev, struct hid_report *report)
 	 */
 	if (!(hdev->quirks & HID_QUIRK_NO_INIT_REPORTS))
 		return;
-	if (td->mtclass.name != MT_CLS_WIN_8)
+	if (td->mtclass.name != MT_CLS_WIN_8 &&
+			td->mtclass.name != MT_CLS_WALLABY)
 		return;
 
 	buf = hid_alloc_report_buf(report, GFP_KERNEL);
@@ -527,7 +535,8 @@ static int mt_touch_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 			mt_store_field(usage, td, hi);
 			return 1;
 		case HID_DG_CONFIDENCE:
-			if (cls->name == MT_CLS_WIN_8 &&
+			if ((cls->name == MT_CLS_WIN_8 ||
+			     cls->name == MT_CLS_WALLABY) &&
 			    (field->application == HID_DG_TOUCHPAD ||
 				field->application == HID_DG_TOUCHSCREEN)) {
 				cls->quirks |= MT_QUIRK_CONFIDENCE;
@@ -1623,6 +1632,11 @@ static const struct hid_device_id mt_devices[] = {
 	{ .driver_data = MT_CLS_VTL,
 		MT_USB_DEVICE(USB_VENDOR_ID_VTL,
 			USB_DEVICE_ID_VTL_MULTITOUCH_FF3F) },
+
+	/* Wallaby devices */
+	{ .driver_data = MT_CLS_WALLABY,
+		HID_DEVICE(BUS_BLUETOOTH, HID_GROUP_MULTITOUCH_WIN_8,
+			0x03f6, 0xa001) },
 
 	/* Wistron panels */
 	{ .driver_data = MT_CLS_NSMU,

@@ -1749,6 +1749,16 @@ config TEST_RHASHTABLE
 
 	  If unsure, say N.
 
+config TEST_HASH
+	tristate "Perform selftest on hash functions"
+	default n
+	help
+	  Enable this option to test the kernel's siphash (<linux/siphash.h>)
+	  hash functions on boot (or module load).
+
+	  This is intended to help people writing architecture-specific
+	  optimized versions.  If unsure, say N.
+
 endmenu # runtime tests
 
 config PROVIDE_OHCI1394_DMA_INIT
@@ -1891,14 +1901,6 @@ config TEST_STATIC_KEYS
 	  Test the static key interfaces.
 
 	  If unsure, say N.
-
-config TEST_MODULE
-	tristate "Test module loading with 'hello world' module"
-	depends on m
-	help
-	  This builds the "test_module" module that emits "Hello, world"
-	  on printk when loaded. It is designed to be used for basic
-	  evaluation of the module loading subsystem.
 
 source "samples/Kconfig"
 

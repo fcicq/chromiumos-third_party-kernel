@@ -41,9 +41,11 @@
 #include <linux/kthread.h>
 #include <linux/freezer.h>
 #include <linux/memcontrol.h>
+#include <linux/page_idle.h>
 #include <linux/delayacct.h>
 #include <linux/sysctl.h>
 #include <linux/oom.h>
+#include <linux/pagevec.h>
 #include <linux/prefetch.h>
 #include <linux/printk.h>
 
@@ -908,7 +910,7 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 				      unsigned long *ret_nr_congested,
 				      unsigned long *ret_nr_writeback,
 				      unsigned long *ret_nr_immediate,
-				      bool force_reclaim)
+				      bool skip_reference_check)
 {
 	LIST_HEAD(ret_pages);
 	LIST_HEAD(free_pages);
@@ -926,7 +928,7 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 		struct address_space *mapping;
 		struct page *page;
 		int may_enter_fs;
-		enum page_references references = PAGEREF_RECLAIM_CLEAN;
+		enum page_references references = PAGEREF_RECLAIM;
 		bool dirty, writeback;
 
 		cond_resched();
@@ -938,7 +940,6 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 			goto keep;
 
 		VM_BUG_ON_PAGE(PageActive(page), page);
-		VM_BUG_ON_PAGE(page_zone(page) != zone, page);
 
 		sc->nr_scanned++;
 
@@ -1017,7 +1018,7 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 			/* Case 1 above */
 			if (current_is_kswapd() &&
 			    PageReclaim(page) &&
-			    test_bit(ZONE_WRITEBACK, &zone->flags)) {
+			    (zone && test_bit(ZONE_WRITEBACK, &zone->flags))) {
 				nr_immediate++;
 				goto keep_locked;
 
@@ -1049,7 +1050,7 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 			}
 		}
 
-		if (!force_reclaim)
+		if (!skip_reference_check)
 			references = page_check_references(page, sc);
 
 		switch (references) {
@@ -1102,8 +1103,9 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 			 * if many dirty pages have been encountered.
 			 */
 			if (page_is_file_cache(page) &&
-					(!current_is_kswapd() ||
-					 !test_bit(ZONE_DIRTY, &zone->flags))) {
+				(!current_is_kswapd() ||
+				!(zone &&
+					test_bit(ZONE_DIRTY, &zone->flags)))) {
 				/*
 				 * Immediately reclaim when written back.
 				 * Similar in principal to deactivate_page()
@@ -1281,6 +1283,66 @@ unsigned long reclaim_clean_pages_from_list(struct zone *zone,
 	return ret;
 }
 
+#ifdef CONFIG_PROCESS_RECLAIM
+unsigned long reclaim_pages(struct list_head *page_list)
+{
+	int i;
+	unsigned long dummy1, dummy2, dummy3, dummy4, dummy5;
+	unsigned long nr_reclaimed = 0;
+	struct page *page;
+	unsigned long nr_isolated[2][MAX_NR_ZONES] = {{0, 0},};
+	struct pglist_data *pgdat = NODE_DATA(0);
+	struct zone *zone;
+	struct scan_control sc = {
+		.gfp_mask = GFP_KERNEL,
+		.priority = DEF_PRIORITY,
+		.may_writepage = 1,
+		.may_unmap = 1,
+		.may_swap = 1,
+	};
+
+	if (list_empty(page_list))
+		return 0;
+
+	list_for_each_entry(page, page_list, lru) {
+		ClearPageActive(page);
+		test_and_clear_page_young(page);
+		/* XXX: It could be multiple node in other config */
+		WARN_ON_ONCE(pgdat != page_zone(page)->zone_pgdat);
+		if (!page_is_file_cache(page))
+			nr_isolated[0][page_zone_id(page)] +=
+				hpage_nr_pages(page);
+		else
+			nr_isolated[1][page_zone_id(page)] +=
+				hpage_nr_pages(page);
+	}
+
+	for (i = 0; i < MAX_NR_ZONES; i++) {
+		zone = pgdat->node_zones + i;
+		mod_zone_page_state(zone, NR_ISOLATED_ANON, nr_isolated[0][i]);
+		mod_zone_page_state(zone, NR_ISOLATED_FILE, nr_isolated[1][i]);
+	}
+
+	nr_reclaimed = shrink_page_list(page_list, NULL, &sc,
+			TTU_UNMAP|TTU_IGNORE_ACCESS,
+			&dummy1, &dummy2, &dummy3, &dummy4, &dummy5, true);
+
+	while (!list_empty(page_list)) {
+		page = lru_to_page(page_list);
+		list_del(&page->lru);
+		putback_lru_page(page);
+	}
+
+	for (i = 0; i < MAX_NR_ZONES; i++) {
+		zone = pgdat->node_zones + i;
+		mod_zone_page_state(zone, NR_ISOLATED_ANON, -nr_isolated[0][i]);
+		mod_zone_page_state(zone, NR_ISOLATED_FILE, -nr_isolated[1][i]);
+	}
+
+	return nr_reclaimed;
+}
+#endif
+
 /*
  * Attempt to remove the specified page from its LRU.  Only take this page
  * if it is of the appropriate PageActive status.  Pages which are being
@@ -1342,7 +1404,7 @@ int __isolate_lru_page(struct page *page, isolate_mode_t mode)
 				return ret;
 
 			mapping = page_mapping(page);
-			migrate_dirty = mapping && mapping->a_ops->migratepage;
+			migrate_dirty = !mapping || mapping->a_ops->migratepage;
 			unlock_page(page);
 			if (!migrate_dirty)
 				return ret;
@@ -1971,9 +2033,6 @@ static int file_is_low(struct lruvec *lruvec)
 	struct zone *zone = lruvec_zone(lruvec);
 	u64 pages_min = min_filelist_kbytes >> (PAGE_SHIFT - 10);
 
-	if (!mem_cgroup_disabled())
-		return false;
-
 	pages_min *= zone->managed_pages;
 	do_div(pages_min, totalram_pages);
 
@@ -2049,9 +2108,10 @@ static void get_scan_count(struct lruvec *lruvec, int swappiness,
 
 	/*
 	 * Do not scan file pages when swap is allowed by __GFP_IO and
-	 * file page count is low.
+	 * it's global reclaim and file page count is low.
 	 */
-	if ((sc->gfp_mask & __GFP_IO) && file_is_low(lruvec)) {
+	if ((sc->gfp_mask & __GFP_IO) && global_reclaim(sc) &&
+	    file_is_low(lruvec)) {
 		scan_balance = SCAN_ANON;
 		goto out;
 	}
@@ -3891,17 +3951,16 @@ int page_evictable(struct page *page)
 	return ret;
 }
 
-#ifdef CONFIG_SHMEM
 /**
- * check_move_unevictable_pages - check pages for evictability and move to appropriate zone lru list
- * @pages:	array of pages to check
- * @nr_pages:	number of pages to check
+ * check_move_unevictable_pages - check pages for evictability and move to
+ * appropriate zone lru list
+ * @pvec: pagevec with lru pages to check
  *
- * Checks pages for evictability and moves them to the appropriate lru list.
- *
- * This function is only used for SysV IPC SHM_UNLOCK.
+ * Checks pages for evictability, if an evictable page is in the unevictable
+ * lru list, moves it to the appropriate evictable lru list. This function
+ * should be only used for lru pages.
  */
-void check_move_unevictable_pages(struct page **pages, int nr_pages)
+void check_move_unevictable_pages(struct pagevec *pvec)
 {
 	struct lruvec *lruvec;
 	struct zone *zone = NULL;
@@ -3909,8 +3968,8 @@ void check_move_unevictable_pages(struct page **pages, int nr_pages)
 	int pgrescued = 0;
 	int i;
 
-	for (i = 0; i < nr_pages; i++) {
-		struct page *page = pages[i];
+	for (i = 0; i < pvec->nr; i++) {
+		struct page *page = pvec->pages[i];
 		struct zone *pagezone;
 
 		pgscanned++;
@@ -3943,4 +4002,4 @@ void check_move_unevictable_pages(struct page **pages, int nr_pages)
 		spin_unlock_irq(&zone->lru_lock);
 	}
 }
-#endif /* CONFIG_SHMEM */
+EXPORT_SYMBOL_GPL(check_move_unevictable_pages);

@@ -16,7 +16,8 @@ drm-y       :=	drm_auth.o drm_bufs.o drm_cache.o \
 		drm_framebuffer.o drm_connector.o drm_blend.o \
 		drm_encoder.o drm_mode_object.o drm_property.o \
 		drm_plane.o drm_color_mgmt.o drm_print.o \
-		drm_mode_config.o
+		drm_mode_config.o \
+		drm_syncobj.o
 
 drm-$(CONFIG_DRM_LIB_RANDOM) += lib/drm_random.o
 drm-$(CONFIG_COMPAT) += drm_ioc32.o
@@ -87,7 +88,7 @@ obj-$(CONFIG_DRM_TEGRA) += tegra/
 obj-$(CONFIG_DRM_STI) += sti/
 obj-$(CONFIG_DRM_IMX) += imx/
 obj-$(CONFIG_DRM_MEDIATEK) += mediatek/
-obj-$(CONFIG_DRM_POWERVR_ROGUE_1_9) += img-rogue/1.9/
+obj-$(CONFIG_DRM_POWERVR_ROGUE_1_10) += img-rogue/1.10/
 obj-y			+= i2c/
 obj-y			+= panel/
 obj-y			+= bridge/

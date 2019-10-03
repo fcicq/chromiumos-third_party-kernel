@@ -753,7 +753,7 @@ static int snd_ni_control_init_val(struct usb_mixer_interface *mixer,
 		return err;
 	}
 
-	kctl->private_value |= (value << 24);
+	kctl->private_value |= ((unsigned int)value << 24);
 	return 0;
 }
 
@@ -914,7 +914,7 @@ static int snd_ftu_eff_switch_init(struct usb_mixer_interface *mixer,
 	if (err < 0)
 		return err;
 
-	kctl->private_value |= value[0] << 24;
+	kctl->private_value |= (unsigned int)value[0] << 24;
 	return 0;
 }
 
@@ -1720,6 +1720,24 @@ static int snd_microii_controls_create(struct usb_mixer_interface *mixer)
 	return 0;
 }
 
+static int snd_jabra_controls_tweak(struct usb_mixer_interface *mixer)
+{
+	struct usb_mixer_elem_list *list;
+	struct usb_mixer_elem_info *cval;
+	int unitids[] = { 2 /* Playback */, 5 /* Capture */ };
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(unitids); i++)
+		for (list = mixer->id_elems[unitids[i]]; list;
+					list = list->next_id_elem) {
+			cval = (struct usb_mixer_elem_info *)list;
+			cval->cache_disabled = 1;
+			cval->cached = 0; /* invalidate current cached value */
+		}
+
+	return 0;
+}
+
 int snd_usb_mixer_apply_create_quirk(struct usb_mixer_interface *mixer)
 {
 	int err = 0;
@@ -1771,6 +1789,11 @@ int snd_usb_mixer_apply_create_quirk(struct usb_mixer_interface *mixer)
 
 	case USB_ID(0x0dba, 0x1000): /* Digidesign Mbox 1 */
 		err = snd_mbox1_create_sync_switch(mixer);
+		break;
+
+	case USB_ID(0x0b0e, 0x0412): /* Jabra Speakerphone 410 */
+	case USB_ID(0x0b0e, 0x0420): /* Jabra Speakerphone 510 */
+		err = snd_jabra_controls_tweak(mixer);
 		break;
 
 	case USB_ID(0x17cc, 0x1011): /* Traktor Audio 6 */

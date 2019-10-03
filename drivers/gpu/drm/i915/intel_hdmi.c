@@ -452,11 +452,13 @@ static void intel_hdmi_set_avi_infoframe(struct drm_encoder *encoder,
 {
 	struct intel_hdmi *intel_hdmi = enc_to_intel_hdmi(encoder);
 	struct intel_crtc *intel_crtc = to_intel_crtc(encoder->crtc);
+	bool is_hdmi2_sink = false;
 	union hdmi_infoframe frame;
 	int ret;
 
 	ret = drm_hdmi_avi_infoframe_from_display_mode(&frame.avi,
-						       adjusted_mode);
+						       adjusted_mode,
+						       is_hdmi2_sink);
 	if (ret < 0) {
 		DRM_ERROR("couldn't fill AVI infoframe\n");
 		return;
@@ -1178,6 +1180,8 @@ static void intel_hdmi_get_config(struct intel_encoder *encoder,
 	u32 tmp, flags = 0;
 	int dotclock;
 
+	pipe_config->output_types |= BIT(INTEL_OUTPUT_HDMI);
+
 	tmp = I915_READ(intel_hdmi->hdmi_reg);
 
 	if (tmp & SDVO_HSYNC_ACTIVE_HIGH)
@@ -1734,6 +1738,8 @@ intel_hdmi_set_edid(struct drm_connector *connector, bool force)
 		connected = true;
 	}
 
+	cec_notifier_set_phys_addr_from_edid(intel_hdmi->cec_notifier, edid);
+
 	return connected;
 }
 
@@ -1780,6 +1786,9 @@ intel_hdmi_detect(struct drm_connector *connector, bool force)
 		status = connector_status_disconnected;
 
 	intel_display_power_put(dev_priv, POWER_DOMAIN_GMBUS);
+
+	if (status != connector_status_connected)
+		cec_notifier_phys_addr_invalidate(intel_hdmi->cec_notifier);
 
 	return status;
 }
@@ -2054,6 +2063,9 @@ static void intel_hdmi_destroy(struct drm_connector *connector)
 		cancel_work_sync(&intel_connector->hdcp_prop_work);
 	}
 
+	if (intel_attached_hdmi(connector)->cec_notifier)
+		cec_notifier_put(intel_attached_hdmi(connector)->cec_notifier);
+
 	kfree(intel_connector->detect_edid);
 	drm_connector_cleanup(connector);
 	kfree(connector);
@@ -2236,6 +2248,11 @@ void intel_hdmi_init_connector(struct intel_digital_port *intel_dig_port,
 		u32 temp = I915_READ(PEG_BAND_GAP_DATA);
 		I915_WRITE(PEG_BAND_GAP_DATA, (temp & ~0xf) | 0xd);
 	}
+
+	intel_hdmi->cec_notifier = cec_notifier_get_conn(dev->dev,
+							 port_identifier(port));
+	if (!intel_hdmi->cec_notifier)
+		DRM_DEBUG_KMS("CEC notifier get failed\n");
 }
 
 void intel_hdmi_init(struct drm_i915_private *dev_priv,

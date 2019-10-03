@@ -248,6 +248,18 @@ config COMPACTION
 	help
 	  Allows the compaction of memory for the allocation of huge pages.
 
+config PROCESS_RECLAIM
+	bool "Enable process reclaim"
+	depends on PROC_FS
+	default n
+	help
+	 It allows to reclaim pages of the process by /proc/pid/reclaim.
+
+	 (echo file > /proc/PID/reclaim) reclaims file-backed pages only.
+	 (echo anon > /proc/PID/reclaim) reclaims anonymous pages only.
+	 (echo all > /proc/PID/reclaim) reclaims all pages.
+
+	 Any other value is ignored.
 #
 # support for page migration
 #
@@ -697,3 +709,15 @@ config LOW_MEM_NOTIFY
 	  is meant to be used in systems with no or very little swap space.  In
 	  the presence of large swap space, the system is likely to become
 	  unusable before the OOM killer is triggered.
+
+config MM_METRICS
+	bool "Collect additional memory statistics"
+	help
+	  Collect swap refault distances (seconds), swap read latencies and direct
+	  reclaim latencies (nanoseconds). They are provided userspace via
+	  /sys/kernel/debug/mm_metrics/{swap_refault,swap_latency,reclaim_latency}
+	  in histograms.
+	default n
+
+config ARCH_USES_HIGH_VMA_FLAGS
+	bool

@@ -44,7 +44,7 @@ static int esdfs_create(struct inode *dir, struct dentry *dentry,
 	lower_dentry = lower_path.dentry;
 	lower_parent_dentry = lock_parent(lower_dentry);
 
-	esdfs_set_lower_mode(ESDFS_SB(dir->i_sb), &mode);
+	esdfs_set_lower_mode(ESDFS_SB(dir->i_sb), ESDFS_I(dir), &mode);
 
 	lower_inode = esdfs_lower_inode(dir);
 	err = vfs_create(lower_inode, lower_dentry, mode, want_excl);
@@ -151,8 +151,7 @@ static int esdfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 	lower_parent_dentry = lock_parent(lower_dentry);
 
 	mode |= S_IFDIR;
-	esdfs_set_lower_mode(ESDFS_SB(dir->i_sb), &mode);
-
+	esdfs_set_lower_mode(ESDFS_SB(dir->i_sb), ESDFS_I(dir), &mode);
 	err = vfs_mkdir(lower_parent_dentry->d_inode, lower_dentry, mode);
 	if (err)
 		goto out;
@@ -241,10 +240,19 @@ static int esdfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	int mask;
 	const struct cred *creds;
 
+	if (test_opt(sbi, SPECIAL_DOWNLOAD)) {
+		if ((ESDFS_I(old_dir)->tree == ESDFS_TREE_DOWNLOAD
+			|| ESDFS_I(new_dir)->tree == ESDFS_TREE_DOWNLOAD)
+			&& ESDFS_I(old_dir)->tree != ESDFS_I(new_dir)->tree)
+			return -EXDEV;
+	}
+
 	if (test_opt(sbi, GID_DERIVATION)) {
 		if (ESDFS_I(old_dir)->userid != ESDFS_I(new_dir)->userid
-			|| (ESDFS_I(old_dir)->tree == ESDFS_TREE_ANDROID_OBB
-			&& ESDFS_I(old_dir)->tree != ESDFS_I(new_dir)->tree))
+			|| ((ESDFS_I(old_dir)->under_obb
+			|| ESDFS_I(new_dir)->under_obb)
+			&& ESDFS_I(old_dir)->under_obb
+				!= ESDFS_I(new_dir)->under_obb))
 			return -EXDEV;
 	}
 	creds = esdfs_override_creds(sbi, ESDFS_I(new_dir), &mask);

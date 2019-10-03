@@ -64,6 +64,11 @@
 /* AUX CH addresses */
 /* DPCD */
 #define DP_DPCD_REV                         0x000
+# define DP_DPCD_REV_10                     0x10
+# define DP_DPCD_REV_11                     0x11
+# define DP_DPCD_REV_12                     0x12
+# define DP_DPCD_REV_13                     0x13
+# define DP_DPCD_REV_14                     0x14
 
 #define DP_MAX_LINK_RATE                    0x001
 
@@ -118,6 +123,7 @@
 # define DP_DPCD_DISPLAY_CONTROL_CAPABLE     (1 << 3) /* edp v1.2 or higher */
 
 #define DP_TRAINING_AUX_RD_INTERVAL         0x00e   /* XXX 1.2? */
+# define DP_TRAINING_AUX_RD_MASK            0x7F    /* XXX 1.2? */
 
 #define DP_ADAPTER_CAP			    0x00f   /* 1.2 */
 # define DP_FORCE_LOAD_SENSE_CAP	    (1 << 0)
@@ -182,6 +188,7 @@
 #define DP_PSR_SUPPORT                      0x070   /* XXX 1.2? */
 # define DP_PSR_IS_SUPPORTED                1
 # define DP_PSR2_IS_SUPPORTED		    2	    /* eDP 1.4 */
+# define DP_PSR2_WITH_Y_COORD_IS_SUPPORTED  3	    /* eDP 1.4a */
 
 #define DP_PSR_CAPS                         0x071   /* XXX 1.2? */
 # define DP_PSR_NO_TRAIN_ON_EXIT            1
@@ -229,6 +236,7 @@
 # define DP_LINK_BW_1_62		    0x06
 # define DP_LINK_BW_2_7			    0x0a
 # define DP_LINK_BW_5_4			    0x14    /* 1.2 */
+# define DP_LINK_BW_8_1			    0x1e    /* 1.4 */
 
 #define DP_LANE_COUNT_SET	            0x101
 # define DP_LANE_COUNT_MASK		    0x0f
@@ -346,6 +354,7 @@
 # define DP_PSR_FRAME_CAPTURE		    (1 << 3)
 # define DP_PSR_SELECTIVE_UPDATE	    (1 << 4)
 # define DP_PSR_IRQ_HPD_WITH_CRC_ERRORS     (1 << 5)
+# define DP_PSR_ENABLE_PSR2		    (1 << 6) /* eDP 1.4a */
 
 #define DP_ADAPTER_CTRL			    0x1a0
 # define DP_ADAPTER_CTRL_FORCE_LOAD_SENSE   (1 << 0)
@@ -417,6 +426,63 @@
 #define DP_TEST_LANE_COUNT		    0x220
 
 #define DP_TEST_PATTERN			    0x221
+# define DP_NO_TEST_PATTERN                 0x0
+# define DP_COLOR_RAMP                      0x1
+# define DP_BLACK_AND_WHITE_VERTICAL_LINES  0x2
+# define DP_COLOR_SQUARE                    0x3
+
+#define DP_TEST_H_TOTAL_HI                  0x222
+#define DP_TEST_H_TOTAL_LO                  0x223
+
+#define DP_TEST_V_TOTAL_HI                  0x224
+#define DP_TEST_V_TOTAL_LO                  0x225
+
+#define DP_TEST_H_START_HI                  0x226
+#define DP_TEST_H_START_LO                  0x227
+
+#define DP_TEST_V_START_HI                  0x228
+#define DP_TEST_V_START_LO                  0x229
+
+#define DP_TEST_HSYNC_HI                    0x22A
+# define DP_TEST_HSYNC_POLARITY             (1 << 7)
+# define DP_TEST_HSYNC_WIDTH_HI_MASK        (127 << 0)
+#define DP_TEST_HSYNC_WIDTH_LO              0x22B
+
+#define DP_TEST_VSYNC_HI                    0x22C
+# define DP_TEST_VSYNC_POLARITY             (1 << 7)
+# define DP_TEST_VSYNC_WIDTH_HI_MASK        (127 << 0)
+#define DP_TEST_VSYNC_WIDTH_LO              0x22D
+
+#define DP_TEST_H_WIDTH_HI                  0x22E
+#define DP_TEST_H_WIDTH_LO                  0x22F
+
+#define DP_TEST_V_HEIGHT_HI                 0x230
+#define DP_TEST_V_HEIGHT_LO                 0x231
+
+#define DP_TEST_MISC0                       0x232
+# define DP_TEST_SYNC_CLOCK                 (1 << 0)
+# define DP_TEST_COLOR_FORMAT_MASK          (3 << 1)
+# define DP_TEST_COLOR_FORMAT_SHIFT         1
+# define DP_COLOR_FORMAT_RGB                (0 << 1)
+# define DP_COLOR_FORMAT_YCbCr422           (1 << 1)
+# define DP_COLOR_FORMAT_YCbCr444           (2 << 1)
+# define DP_TEST_DYNAMIC_RANGE_CEA          (1 << 3)
+# define DP_TEST_YCBCR_COEFFICIENTS         (1 << 4)
+# define DP_YCBCR_COEFFICIENTS_ITU601       (0 << 4)
+# define DP_YCBCR_COEFFICIENTS_ITU709       (1 << 4)
+# define DP_TEST_BIT_DEPTH_MASK             (7 << 5)
+# define DP_TEST_BIT_DEPTH_SHIFT            5
+# define DP_TEST_BIT_DEPTH_6                (0 << 5)
+# define DP_TEST_BIT_DEPTH_8                (1 << 5)
+# define DP_TEST_BIT_DEPTH_10               (2 << 5)
+# define DP_TEST_BIT_DEPTH_12               (3 << 5)
+# define DP_TEST_BIT_DEPTH_16               (4 << 5)
+
+#define DP_TEST_MISC1                       0x233
+# define DP_TEST_REFRESH_DENOMINATOR        (1 << 0)
+# define DP_TEST_INTERLACED                 (1 << 1)
+
+#define DP_TEST_REFRESH_RATE_NUMERATOR      0x234
 
 #define DP_TEST_CRC_R_CR		    0x240
 #define DP_TEST_CRC_G_Y			    0x242
@@ -576,6 +642,15 @@
 # define DP_MAX_RESYNC_FRAME_COUNT_SHIFT		0
 # define DP_LAST_ACTUAL_SYNCHRONIZATION_LATENCY_MASK	(0xf << 4)
 # define DP_LAST_ACTUAL_SYNCHRONIZATION_LATENCY_SHIFT	4
+
+#define DP_LAST_RECEIVED_PSR_SDP	    0x200a /* eDP 1.2 */
+# define DP_PSR_STATE_BIT		    (1 << 0) /* eDP 1.2 */
+# define DP_UPDATE_RFB_BIT		    (1 << 1) /* eDP 1.2 */
+# define DP_CRC_VALID_BIT		    (1 << 2) /* eDP 1.2 */
+# define DP_SU_VALID			    (1 << 3) /* eDP 1.4 */
+# define DP_FIRST_SCAN_LINE_SU_REGION	    (1 << 4) /* eDP 1.4 */
+# define DP_LAST_SCAN_LINE_SU_REGION	    (1 << 5) /* eDP 1.4 */
+# define DP_Y_COORDINATE_VALID		    (1 << 6) /* eDP 1.4a */
 
 #define DP_RECEIVER_ALPM_STATUS		    0x200b  /* eDP 1.4 */
 # define DP_ALPM_LOCK_TIMEOUT_ERROR	    (1 << 0)

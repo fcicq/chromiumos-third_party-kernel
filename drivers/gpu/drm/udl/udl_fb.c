@@ -78,6 +78,7 @@ static uint16_t rgb16(uint32_t col)
 }
 #endif
 
+#ifdef CONFIG_DRM_FBDEV_EMULATION
 /*
  * NOTE: fb_defio.c is holding info->fbdefio.mutex
  *   Touching ANY framebuffer memory that triggers a page fault
@@ -139,6 +140,7 @@ error:
 		    >> 10)), /* Kcycles */
 		   &udl->cpu_kcycles_used);
 }
+#endif
 
 int udl_handle_damage(struct udl_framebuffer *fb, int x, int y,
 		      int width, int height)
@@ -341,12 +343,13 @@ static int udl_fb_open(struct fb_info *info, int user)
 
 	ufbdev->fb_count++;
 
+#ifdef CONFIG_DRM_FBDEV_EMULATION
 	if (fb_defio && (info->fbdefio == NULL)) {
 		/* enable defio at last moment if not disabled by client */
 
 		struct fb_deferred_io *fbdefio;
 
-		fbdefio = kmalloc(sizeof(struct fb_deferred_io), GFP_KERNEL);
+		fbdefio = kzalloc(sizeof(struct fb_deferred_io), GFP_KERNEL);
 
 		if (fbdefio) {
 			fbdefio->delay = DL_DEFIO_WRITE_DELAY;
@@ -356,6 +359,7 @@ static int udl_fb_open(struct fb_info *info, int user)
 		info->fbdefio = fbdefio;
 		fb_deferred_io_init(info);
 	}
+#endif
 
 	pr_notice("open /dev/fb%d user=%d fb_info=%p count=%d\n",
 		  info->node, user, info, ufbdev->fb_count);
@@ -373,12 +377,14 @@ static int udl_fb_release(struct fb_info *info, int user)
 
 	ufbdev->fb_count--;
 
+#ifdef CONFIG_DRM_FBDEV_EMULATION
 	if ((ufbdev->fb_count == 0) && (info->fbdefio)) {
 		fb_deferred_io_cleanup(info);
 		kfree(info->fbdefio);
 		info->fbdefio = NULL;
 		info->fbops->fb_mmap = udl_fb_mmap;
 	}
+#endif
 
 	pr_warn("released /dev/fb%d user=%d count=%d\n",
 		info->node, user, ufbdev->fb_count);

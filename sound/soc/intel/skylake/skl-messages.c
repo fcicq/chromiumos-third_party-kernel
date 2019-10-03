@@ -54,24 +54,6 @@ static int skl_free_dma_buf(struct device *dev, struct snd_dma_buffer *dmab)
 	return 0;
 }
 
-#define NOTIFICATION_PARAM_ID 3
-#define NOTIFICATION_MASK 0xf
-
-/* disable notfication for underruns/overruns from firmware module */
-static void skl_dsp_enable_notification(struct skl_sst *ctx, bool enable)
-{
-	struct notification_mask mask;
-	struct skl_ipc_large_config_msg	msg = {0};
-
-	mask.notify = NOTIFICATION_MASK;
-	mask.enable = enable;
-
-	msg.large_param_id = NOTIFICATION_PARAM_ID;
-	msg.param_data_size = sizeof(mask);
-
-	skl_ipc_set_large_config(&ctx->ipc, &msg, (u32 *)&mask);
-}
-
 static int skl_dsp_setup_spib(struct device *dev, unsigned int size,
 				int stream_tag, int enable)
 {
@@ -415,7 +397,6 @@ int skl_resume_dsp(struct skl *skl)
 	if (ret < 0)
 		return ret;
 
-	skl_dsp_enable_notification(skl->skl_sst, false);
 	return ret;
 }
 
@@ -1146,7 +1127,7 @@ int skl_delete_pipe(struct skl_sst *ctx, struct skl_pipe *pipe)
 	dev_dbg(ctx->dev, "%s: pipe = %d\n", __func__, pipe->ppl_id);
 
 	/* If pipe is started, do stop the pipe in FW. */
-	if (pipe->state > SKL_PIPE_STARTED) {
+	if (pipe->state >= SKL_PIPE_STARTED) {
 		ret = skl_set_pipe_state(ctx, pipe, PPL_PAUSED);
 		if (ret < 0) {
 			dev_err(ctx->dev, "Failed to stop pipeline\n");

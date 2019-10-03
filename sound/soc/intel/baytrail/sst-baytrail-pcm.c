@@ -421,7 +421,8 @@ static int sst_byt_pcm_dev_suspend_late(struct device *dev)
 		return ret;
 	}
 
-	priv_data->restore_stream = true;
+	if (priv_data)
+		priv_data->restore_stream = true;
 
 	return ret;
 }

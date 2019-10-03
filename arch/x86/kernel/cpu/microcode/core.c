@@ -201,7 +201,7 @@ void load_ucode_ap(void)
 	}
 }
 
-int __init save_microcode_in_initrd(void)
+static int __init save_microcode_in_initrd(void)
 {
 	struct cpuinfo_x86 *c = &boot_cpu_data;
 
@@ -498,7 +498,7 @@ static enum ucode_state microcode_init_cpu(int cpu, bool refresh_fw)
 	enum ucode_state ustate;
 	struct ucode_cpu_info *uci = ucode_cpu_info + cpu;
 
-	if (uci && uci->valid)
+	if (uci->valid)
 		return UCODE_OK;
 
 	if (collect_cpu_info(cpu))
@@ -649,7 +649,7 @@ int __init microcode_init(void)
 	struct cpuinfo_x86 *c = &boot_cpu_data;
 	int error;
 
-	if (paravirt_enabled() || dis_ucode_ldr)
+	if (dis_ucode_ldr)
 		return -EINVAL;
 
 	if (c->x86_vendor == X86_VENDOR_INTEL)
@@ -717,4 +717,5 @@ int __init microcode_init(void)
 	return error;
 
 }
+fs_initcall(save_microcode_in_initrd);
 late_initcall(microcode_init);

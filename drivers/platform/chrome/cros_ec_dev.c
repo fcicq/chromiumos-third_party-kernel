@@ -43,9 +43,6 @@ static const struct attribute_group *cros_ec_groups[] = {
 #if IS_ENABLED(CONFIG_MFD_CROS_EC_PD_UPDATE)
 	&cros_ec_pd_attr_group,
 #endif
-#if IS_ENABLED(CONFIG_CROS_EC_SYSFS_USB)
-	&cros_ec_usb_attr_group,
-#endif
 #if IS_ENABLED(CONFIG_CHARGER_CROS_USB_PD)
 	&cros_usb_pd_charger_attr_group,
 #endif
@@ -395,7 +392,7 @@ static void __remove(struct device *dev)
 	kfree(ec);
 }
 
-static int cros_ec_check_features(struct cros_ec_dev *ec, int feature)
+int cros_ec_check_features(struct cros_ec_dev *ec, int feature)
 {
 	if (ec->features[0] == -1U && ec->features[1] == -1U) {
 		/* features bitmap not read yet */
@@ -424,6 +421,7 @@ static int cros_ec_check_features(struct cros_ec_dev *ec, int feature)
 
 	return ec->features[feature / 32] & EC_FEATURE_MASK_0(feature);
 }
+EXPORT_SYMBOL_GPL(cros_ec_check_features);
 
 static const struct mfd_cell cros_usb_pd_charger_devs[] = {
 	{
@@ -636,6 +634,40 @@ static void cros_ec_rtc_register(struct cros_ec_dev *ec)
 		dev_err(ec->dev, "failed to add cros-ec-rtc device: %d\n", ret);
 }
 
+static const struct mfd_cell cros_ec_cec_devs[] = {
+	{
+		.name = "cros-ec-cec",
+		.id   = -1,
+	},
+};
+
+static void cros_ec_cec_register(struct cros_ec_dev *ec)
+{
+	int ret;
+
+	ret = mfd_add_devices(ec->dev, 0, cros_ec_cec_devs,
+			      ARRAY_SIZE(cros_ec_cec_devs),
+			      NULL, 0, NULL);
+	if (ret)
+		dev_err(ec->dev, "failed to add cros-ec-cec device: %d\n", ret);
+}
+
+static const struct mfd_cell ec_throttler_cells[] = {
+	{ .name = "cros-ec-throttler" }
+};
+
+static void cros_ec_throttler_register(struct cros_ec_dev *ec)
+{
+	int ret;
+
+	ret = mfd_add_devices(ec->dev, 0, ec_throttler_cells,
+			      ARRAY_SIZE(ec_throttler_cells),
+			      NULL, 0, NULL);
+	if (ret)
+		dev_err(ec->dev,
+			"failed to add cros-ec-throttler device: %d\n", ret);
+}
+
 static int ec_device_probe(struct platform_device *pdev)
 {
 	int retval = -ENOMEM;
@@ -655,6 +687,15 @@ static int ec_device_probe(struct platform_device *pdev)
 	ec->features[1] = -1U; /* Not cached yet */
 	device_initialize(&ec->class_dev);
 	cdev_init(&ec->cdev, &fops);
+
+	/*
+	 * ACPI attaches the firmware node of the parent to the platform
+	 * devices. If the parent firmware node has a valid wakeup flag, ACPI
+	 * marks this platform device also as wake capable.  But this platform
+	 * device by itself cannot wake the system up. Mark the wake capability
+	 * to false.
+	 */
+	device_set_wakeup_capable(dev, false);
 
 	/* check whether this is actually a Fingerprint MCU rather than an EC */
 	if (cros_ec_check_features(ec, EC_FEATURE_FINGERPRINT)) {
@@ -719,6 +760,13 @@ static int ec_device_probe(struct platform_device *pdev)
 	/* check whether this EC instance has RTC host command support */
 	if (cros_ec_check_features(ec, EC_FEATURE_RTC))
 		cros_ec_rtc_register(ec);
+
+	/* check whether this EC instance has CEC command support */
+	if (cros_ec_check_features(ec, EC_FEATURE_CEC))
+		cros_ec_cec_register(ec);
+
+	if (IS_ENABLED(CONFIG_CROS_EC_THROTTLER))
+		cros_ec_throttler_register(ec);
 
 	/* Take control of the lightbar from the EC. */
 	lb_manual_suspend_ctrl(ec, 1);

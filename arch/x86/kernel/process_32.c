@@ -55,6 +55,8 @@
 #include <asm/switch_to.h>
 #include <asm/vm86.h>
 
+#include "process.h"
+
 asmlinkage void ret_from_fork(void) __asm__("ret_from_fork");
 asmlinkage void ret_from_kernel_thread(void) __asm__("ret_from_kernel_thread");
 
@@ -133,17 +135,20 @@ int copy_thread_tls(unsigned long clone_flags, unsigned long sp,
 	unsigned long arg, struct task_struct *p, unsigned long tls)
 {
 	struct pt_regs *childregs = task_pt_regs(p);
+	struct fork_frame *fork_frame = container_of(childregs, struct fork_frame, regs);
+	struct inactive_task_frame *frame = &fork_frame->frame;
 	struct task_struct *tsk;
 	int err;
 
-	p->thread.sp = (unsigned long) childregs;
+	frame->bp = 0;
+	p->thread.sp = (unsigned long) fork_frame;
 	p->thread.sp0 = (unsigned long) (childregs+1);
 	memset(p->thread.ptrace_bps, 0, sizeof(p->thread.ptrace_bps));
 
 	if (unlikely(p->flags & PF_KTHREAD)) {
 		/* kernel thread */
 		memset(childregs, 0, sizeof(struct pt_regs));
-		p->thread.ip = (unsigned long) ret_from_kernel_thread;
+		frame->ret_addr = (unsigned long) ret_from_kernel_thread;
 		task_user_gs(p) = __KERNEL_STACK_CANARY;
 		childregs->ds = __USER_DS;
 		childregs->es = __USER_DS;
@@ -161,7 +166,7 @@ int copy_thread_tls(unsigned long clone_flags, unsigned long sp,
 	if (sp)
 		childregs->sp = sp;
 
-	p->thread.ip = (unsigned long) ret_from_fork;
+	frame->ret_addr = (unsigned long) ret_from_fork;
 	task_user_gs(p) = get_user_gs(current_pt_regs());
 
 	p->thread.io_bitmap_ptr = NULL;
@@ -279,12 +284,7 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 	if (get_kernel_rpl() && unlikely(prev->iopl != next->iopl))
 		set_iopl_mask(next->iopl);
 
-	/*
-	 * Now maybe handle debug registers and/or IO bitmaps
-	 */
-	if (unlikely(task_thread_info(prev_p)->flags & _TIF_WORK_CTXSW_PREV ||
-		     task_thread_info(next_p)->flags & _TIF_WORK_CTXSW_NEXT))
-		__switch_to_xtra(prev_p, next_p, tss);
+	switch_to_extra(prev_p, next_p);
 
 	/*
 	 * Leave lazy mode, flushing any hypercalls made here.

@@ -153,6 +153,57 @@ struct __drm_connnectors_state {
 	struct drm_connector_state *state, *old_state, *new_state;
 };
 
+struct drm_private_obj;
+struct drm_private_state;
+
+/**
+ * struct drm_private_state_funcs - atomic state functions for private objects
+ *
+ * These hooks are used by atomic helpers to create, swap and destroy states of
+ * private objects. The structure itself is used as a vtable to identify the
+ * associated private object type. Each private object type that needs to be
+ * added to the atomic states is expected to have an implementation of these
+ * hooks and pass a pointer to it's drm_private_state_funcs struct to
+ * drm_atomic_get_private_obj_state().
+ */
+struct drm_private_state_funcs {
+	/**
+	 * @atomic_duplicate_state:
+	 *
+	 * Duplicate the current state of the private object and return it. It
+	 * is an error to call this before obj->state has been initialized.
+	 *
+	 * RETURNS:
+	 *
+	 * Duplicated atomic state or NULL when obj->state is not
+	 * initialized or allocation failed.
+	 */
+	struct drm_private_state *(*atomic_duplicate_state)(struct drm_private_obj *obj);
+
+	/**
+	 * @atomic_destroy_state:
+	 *
+	 * Frees the private object state created with @atomic_duplicate_state.
+	 */
+	void (*atomic_destroy_state)(struct drm_private_obj *obj,
+				     struct drm_private_state *state);
+};
+
+struct drm_private_obj {
+	struct drm_private_state *state;
+
+	const struct drm_private_state_funcs *funcs;
+};
+
+struct drm_private_state {
+	struct drm_atomic_state *state;
+};
+
+struct __drm_private_objs_state {
+	struct drm_private_obj *ptr;
+	struct drm_private_state *state, *old_state, *new_state;
+};
+
 /**
  * struct drm_atomic_state - the global state object for atomic updates
  * @ref: count of all references to this state (will not be freed until zero)
@@ -164,6 +215,8 @@ struct __drm_connnectors_state {
  * @crtcs: pointer to array of CRTC pointers
  * @num_connector: size of the @connectors and @connector_states arrays
  * @connectors: pointer to array of structures with per-connector data
+ * @num_private_objs: size of the @private_objs array
+ * @private_objs: pointer to array of private object pointers
  * @acquire_ctx: acquire context for this atomic modeset state update
  */
 struct drm_atomic_state {
@@ -177,6 +230,8 @@ struct drm_atomic_state {
 	struct __drm_crtcs_state *crtcs;
 	int num_connector;
 	struct __drm_connnectors_state *connectors;
+	int num_private_objs;
+	struct __drm_private_objs_state *private_objs;
 
 	struct drm_modeset_acquire_ctx *acquire_ctx;
 
@@ -250,6 +305,15 @@ int drm_atomic_connector_set_property(struct drm_connector *connector,
 		struct drm_connector_state *state, struct drm_property *property,
 		uint64_t val);
 
+void drm_atomic_private_obj_init(struct drm_private_obj *obj,
+				 struct drm_private_state *state,
+				 const struct drm_private_state_funcs *funcs);
+void drm_atomic_private_obj_fini(struct drm_private_obj *obj);
+
+struct drm_private_state * __must_check
+drm_atomic_get_private_obj_state(struct drm_atomic_state *state,
+				 struct drm_private_obj *obj);
+
 /**
  * drm_atomic_get_existing_crtc_state - get crtc state, if it exists
  * @state: global atomic state object
@@ -257,6 +321,9 @@ int drm_atomic_connector_set_property(struct drm_connector *connector,
  *
  * This function returns the crtc state for the given crtc, or NULL
  * if the crtc is not part of the global atomic state.
+ *
+ * This function is deprecated, @drm_atomic_get_old_crtc_state or
+ * @drm_atomic_get_new_crtc_state should be used instead.
  */
 static inline struct drm_crtc_state *
 drm_atomic_get_existing_crtc_state(struct drm_atomic_state *state,
@@ -266,12 +333,44 @@ drm_atomic_get_existing_crtc_state(struct drm_atomic_state *state,
 }
 
 /**
+ * drm_atomic_get_old_crtc_state - get old crtc state, if it exists
+ * @state: global atomic state object
+ * @crtc: crtc to grab
+ *
+ * This function returns the old crtc state for the given crtc, or
+ * NULL if the crtc is not part of the global atomic state.
+ */
+static inline struct drm_crtc_state *
+drm_atomic_get_old_crtc_state(struct drm_atomic_state *state,
+			      struct drm_crtc *crtc)
+{
+	return state->crtcs[drm_crtc_index(crtc)].old_state;
+}
+/**
+ * drm_atomic_get_new_crtc_state - get new crtc state, if it exists
+ * @state: global atomic state object
+ * @crtc: crtc to grab
+ *
+ * This function returns the new crtc state for the given crtc, or
+ * NULL if the crtc is not part of the global atomic state.
+ */
+static inline struct drm_crtc_state *
+drm_atomic_get_new_crtc_state(struct drm_atomic_state *state,
+			      struct drm_crtc *crtc)
+{
+	return state->crtcs[drm_crtc_index(crtc)].new_state;
+}
+
+/**
  * drm_atomic_get_existing_plane_state - get plane state, if it exists
  * @state: global atomic state object
  * @plane: plane to grab
  *
  * This function returns the plane state for the given plane, or NULL
  * if the plane is not part of the global atomic state.
+ *
+ * This function is deprecated, @drm_atomic_get_old_plane_state or
+ * @drm_atomic_get_new_plane_state should be used instead.
  */
 static inline struct drm_plane_state *
 drm_atomic_get_existing_plane_state(struct drm_atomic_state *state,
@@ -281,12 +380,45 @@ drm_atomic_get_existing_plane_state(struct drm_atomic_state *state,
 }
 
 /**
+ * drm_atomic_get_old_plane_state - get plane state, if it exists
+ * @state: global atomic state object
+ * @plane: plane to grab
+ *
+ * This function returns the old plane state for the given plane, or
+ * NULL if the plane is not part of the global atomic state.
+ */
+static inline struct drm_plane_state *
+drm_atomic_get_old_plane_state(struct drm_atomic_state *state,
+			       struct drm_plane *plane)
+{
+	return state->planes[drm_plane_index(plane)].old_state;
+}
+
+/**
+ * drm_atomic_get_new_plane_state - get plane state, if it exists
+ * @state: global atomic state object
+ * @plane: plane to grab
+ *
+ * This function returns the new plane state for the given plane, or
+ * NULL if the plane is not part of the global atomic state.
+ */
+static inline struct drm_plane_state *
+drm_atomic_get_new_plane_state(struct drm_atomic_state *state,
+			       struct drm_plane *plane)
+{
+	return state->planes[drm_plane_index(plane)].new_state;
+}
+
+/**
  * drm_atomic_get_existing_connector_state - get connector state, if it exists
  * @state: global atomic state object
  * @connector: connector to grab
  *
  * This function returns the connector state for the given connector,
  * or NULL if the connector is not part of the global atomic state.
+ *
+ * This function is deprecated, @drm_atomic_get_old_connector_state or
+ * @drm_atomic_get_new_connector_state should be used instead.
  */
 static inline struct drm_connector_state *
 drm_atomic_get_existing_connector_state(struct drm_atomic_state *state,
@@ -298,6 +430,46 @@ drm_atomic_get_existing_connector_state(struct drm_atomic_state *state,
 		return NULL;
 
 	return state->connectors[index].state;
+}
+
+/**
+ * drm_atomic_get_old_connector_state - get connector state, if it exists
+ * @state: global atomic state object
+ * @connector: connector to grab
+ *
+ * This function returns the old connector state for the given connector,
+ * or NULL if the connector is not part of the global atomic state.
+ */
+static inline struct drm_connector_state *
+drm_atomic_get_old_connector_state(struct drm_atomic_state *state,
+				   struct drm_connector *connector)
+{
+	int index = drm_connector_index(connector);
+
+	if (index >= state->num_connector)
+		return NULL;
+
+	return state->connectors[index].old_state;
+}
+
+/**
+ * drm_atomic_get_new_connector_state - get connector state, if it exists
+ * @state: global atomic state object
+ * @connector: connector to grab
+ *
+ * This function returns the new connector state for the given connector,
+ * or NULL if the connector is not part of the global atomic state.
+ */
+static inline struct drm_connector_state *
+drm_atomic_get_new_connector_state(struct drm_atomic_state *state,
+				   struct drm_connector *connector)
+{
+	int index = drm_connector_index(connector);
+
+	if (index >= state->num_connector)
+		return NULL;
+
+	return state->connectors[index].new_state;
 }
 
 /**
@@ -478,6 +650,65 @@ int drm_atomic_debugfs_cleanup(struct drm_minor *minor);
 	     (new_plane_state) = (__state)->planes[__i].new_state, 1);	\
 	     (__i)++)							\
 		for_each_if (plane)
+
+/**
+ * for_each_oldnew_private_obj_in_state - iterate over all private objects in an atomic update
+ * @__state: &struct drm_atomic_state pointer
+ * @obj: &struct drm_private_obj iteration cursor
+ * @old_obj_state: &struct drm_private_state iteration cursor for the old state
+ * @new_obj_state: &struct drm_private_state iteration cursor for the new state
+ * @__i: int iteration cursor, for macro-internal use
+ *
+ * This iterates over all private objects in an atomic update, tracking both
+ * old and new state. This is useful in places where the state delta needs
+ * to be considered, for example in atomic check functions.
+ */
+#define for_each_oldnew_private_obj_in_state(__state, obj, old_obj_state, new_obj_state, __i) \
+	for ((__i) = 0; \
+	     (__i) < (__state)->num_private_objs && \
+		     ((obj) = (__state)->private_objs[__i].ptr, \
+		      (old_obj_state) = (__state)->private_objs[__i].old_state,	\
+		      (new_obj_state) = (__state)->private_objs[__i].new_state, 1); \
+	     (__i)++) \
+		for_each_if (obj)
+
+/**
+ * for_each_old_private_obj_in_state - iterate over all private objects in an atomic update
+ * @__state: &struct drm_atomic_state pointer
+ * @obj: &struct drm_private_obj iteration cursor
+ * @old_obj_state: &struct drm_private_state iteration cursor for the old state
+ * @__i: int iteration cursor, for macro-internal use
+ *
+ * This iterates over all private objects in an atomic update, tracking only
+ * the old state. This is useful in disable functions, where we need the old
+ * state the hardware is still in.
+ */
+#define for_each_old_private_obj_in_state(__state, obj, old_obj_state, __i) \
+	for ((__i) = 0; \
+	     (__i) < (__state)->num_private_objs && \
+		     ((obj) = (__state)->private_objs[__i].ptr, \
+		      (old_obj_state) = (__state)->private_objs[__i].old_state, 1); \
+	     (__i)++) \
+		for_each_if (obj)
+
+/**
+ * for_each_new_private_obj_in_state - iterate over all private objects in an atomic update
+ * @__state: &struct drm_atomic_state pointer
+ * @obj: &struct drm_private_obj iteration cursor
+ * @new_obj_state: &struct drm_private_state iteration cursor for the new state
+ * @__i: int iteration cursor, for macro-internal use
+ *
+ * This iterates over all private objects in an atomic update, tracking only
+ * the new state. This is useful in enable functions, where we need the new state the
+ * hardware should be in when the atomic commit operation has completed.
+ */
+#define for_each_new_private_obj_in_state(__state, obj, new_obj_state, __i) \
+	for ((__i) = 0; \
+	     (__i) < (__state)->num_private_objs && \
+		     ((obj) = (__state)->private_objs[__i].ptr, \
+		      (new_obj_state) = (__state)->private_objs[__i].new_state, 1); \
+	     (__i)++) \
+		for_each_if (obj)
 
 /**
  * drm_atomic_crtc_needs_modeset - compute combined modeset need
