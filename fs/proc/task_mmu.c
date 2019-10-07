@@ -1648,7 +1648,7 @@ regular_page:
 			continue;
 
 		page = vm_normal_page(vma, addr, ptent);
-		if (!page)
+		if (!page || !PageLRU(page))
 			continue;
 
 		if (PageTransCompound(page))  {
@@ -1746,7 +1746,7 @@ regular_page:
 			continue;
 
 		page = vm_normal_page(vma, addr, ptent);
-		if (!page)
+		if (!page || !PageLRU(page))
 			continue;
 
 		if (PageTransCompound(page)) {
@@ -1774,9 +1774,6 @@ regular_page:
 		}
 
 		VM_BUG_ON_PAGE(PageTransCompound(page), page);
-
-		if (!PageLRU(page))
-			continue;
 
 		if (page_mapcount(page) > 1)
 			continue;
