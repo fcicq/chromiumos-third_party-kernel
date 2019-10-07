@@ -1601,7 +1601,6 @@ static int deactivate_pte_range(pmd_t *pmd, unsigned long addr,
 	spinlock_t *ptl;
 	struct page *page;
 	struct vm_area_struct *vma = walk->vma;
-	struct mm_struct *mm = vma->vm_mm;
 	unsigned long next = pmd_addr_end(addr, end);
 
 	if (pmd_trans_huge_lock(pmd, vma, &ptl) == 1) {
@@ -1651,29 +1650,6 @@ regular_page:
 		if (!page || !PageLRU(page))
 			continue;
 
-		if (PageTransCompound(page))  {
-			if (page_mapcount(page) != 1)
-				break;
-			get_page(page);
-			if (!trylock_page(page)) {
-				put_page(page);
-				break;
-			}
-			pte_unmap_unlock(orig_pte, ptl);
-			if (split_huge_page(page)) {
-				unlock_page(page);
-				put_page(page);
-				pte_offset_map_lock(mm, pmd, addr, &ptl);
-				break;
-			}
-			unlock_page(page);
-			put_page(page);
-			pte = pte_offset_map_lock(mm, pmd, addr, &ptl);
-			pte--;
-			addr -= PAGE_SIZE;
-			continue;
-		}
-
 		VM_BUG_ON_PAGE(PageTransCompound(page), page);
 
 		if (page_mapcount(page) > 1)
@@ -1697,7 +1673,6 @@ static int reclaim_pte_range(pmd_t *pmd, unsigned long addr,
 	struct page *page;
 	int isolated = 0;
 	struct vm_area_struct *vma = walk->vma;
-	struct mm_struct *mm = vma->vm_mm;
 	unsigned long next = pmd_addr_end(addr, end);
 
 	if (pmd_trans_huge_lock(pmd, vma, &ptl) == 1) {
@@ -1748,30 +1723,6 @@ regular_page:
 		page = vm_normal_page(vma, addr, ptent);
 		if (!page || !PageLRU(page))
 			continue;
-
-		if (PageTransCompound(page)) {
-			if (page_mapcount(page) != 1)
-				break;
-			get_page(page);
-			if (!trylock_page(page)) {
-				put_page(page);
-				break;
-			}
-			pte_unmap_unlock(orig_pte, ptl);
-
-			if (split_huge_page(page)) {
-				unlock_page(page);
-				put_page(page);
-				pte_offset_map_lock(mm, pmd, addr, &ptl);
-				break;
-			}
-			unlock_page(page);
-			put_page(page);
-			pte = pte_offset_map_lock(mm, pmd, addr, &ptl);
-			pte--;
-			addr -= PAGE_SIZE;
-			continue;
-		}
 
 		VM_BUG_ON_PAGE(PageTransCompound(page), page);
 
