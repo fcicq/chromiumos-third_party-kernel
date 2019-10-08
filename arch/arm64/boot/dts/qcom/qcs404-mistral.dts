@@ -82,7 +82,7 @@
 		regulator-max-microvolt = <1387500>;
 		regulator-ramp-delay = <500>;
 		regulator-always-on;
-		fcs,suspend-voltage-selector = <1>;
+		fcs,suspend-voltage-selector = <0>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&apps_buck_en>, <&apps_mode_sel>;
 	};
@@ -255,7 +255,7 @@
 	apps_mode_sel: apps-mode-sel {
 		pins = "gpio6";
 		function = "normal";
-		output-low;
+		output-high;
 	};
 
 	pms405_sleepclk2_pin: pms405_sleepclk2_pin {
