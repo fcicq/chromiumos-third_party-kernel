@@ -474,6 +474,14 @@ static void rk3288_vp8d_cfg_parts(struct rk3288_vpu_ctx *ctx)
 	vdpu_write_relaxed(vpu, (mb_offset_bytes & (~DEC_8190_ALIGN_MASK))
 				+ src_dma, VDPU_REG_ADDR_REF(13));
 
+	/*
+	 * It seems like the hardware does something wrong in calculating a
+	 * macroblock size from VDPU_REG_DEC_CTRL2 and VDPU_REG_DEC_CTRL6, which
+	 * requires this extra increment in VDPU_REG_DEC_CTRL6 to work around
+	 * it.
+	 */
+	mb_size++;
+
 	/* mb data start bits */
 	reg.base = VDPU_REG_DEC_CTRL2;
 	reg.mask = 0x3f;
