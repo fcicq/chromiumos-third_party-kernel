@@ -21,8 +21,10 @@
 #include <linux/of_net.h>
 #include <linux/of_platform.h>
 #include <linux/if_bridge.h>
+#include <linux/delay.h>
 #include <linux/mdio.h>
 #include <linux/etherdevice.h>
+#include <linux/debugfs.h>
 
 #include "qca8k.h"
 
@@ -479,10 +481,6 @@ qca8k_port_set_status(struct qca8k_priv *priv, int port, int enable)
 {
 	u32 mask = QCA8K_PORT_STATUS_TXMAC | QCA8K_PORT_STATUS_RXMAC;
 
-	/* Port 0 and 6 have no internal PHY */
-	if ((port > 0) && (port < 6))
-		mask |= QCA8K_PORT_STATUS_LINK_AUTO;
-
 	if (enable)
 		qca8k_reg_set(priv, QCA8K_REG_PORT_STATUS(port), mask);
 	else
@@ -490,25 +488,217 @@ qca8k_port_set_status(struct qca8k_priv *priv, int port, int enable)
 }
 
 static int
-qca8k_setup(struct dsa_switch *ds)
+qca8k_phy_read(struct dsa_switch *ds, int phy, int regnum)
+{
+	struct qca8k_priv *priv = (struct qca8k_priv *)ds->priv;
+
+	return mdiobus_read(priv->bus, phy, regnum);
+}
+
+static int
+qca8k_phy_write(struct dsa_switch *ds, int phy, int regnum, u16 val)
+{
+	struct qca8k_priv *priv = (struct qca8k_priv *)ds->priv;
+
+	return mdiobus_write(priv->bus, phy, regnum, val);
+}
+
+static int
+qca8k_phy_dbg_read(struct dsa_switch *ds, int phy, int regnum)
+{
+	struct qca8k_priv *priv = (struct qca8k_priv *)ds->priv;
+	struct mii_bus *bus = priv->bus;
+	int val;
+
+	mutex_lock(&bus->mdio_lock);
+	bus->write(bus, phy, QCA8K_MII_DBG_ADDR, regnum);
+	val = bus->read(bus, phy, QCA8K_MII_DBG_DATA);
+	mutex_unlock(&bus->mdio_lock);
+
+	return val;
+}
+
+static int
+qca8k_phy_dbg_write(struct dsa_switch *ds, int phy,
+		    int regnum, u16 val)
+{
+	struct qca8k_priv *priv = (struct qca8k_priv *)ds->priv;
+	struct mii_bus *bus = priv->bus;
+
+	mutex_lock(&bus->mdio_lock);
+	bus->write(bus, phy, QCA8K_MII_DBG_ADDR, regnum);
+	bus->write(bus, phy, QCA8K_MII_DBG_DATA, val);
+	mutex_unlock(&bus->mdio_lock);
+
+	return 0;
+}
+
+static int
+qca8k_phy_mmd_write(struct dsa_switch *ds, int phy,
+		    int regnum, u16 val)
+{
+	struct qca8k_priv *priv = (struct qca8k_priv *)ds->priv;
+	struct mii_bus *bus = priv->bus;
+
+	mutex_lock(&bus->mdio_lock);
+	bus->write(bus, phy, QCA8K_MII_MMD_ADDR, regnum);
+	bus->write(bus, phy, QCA8K_MII_MMD_DATA, val);
+	mutex_unlock(&bus->mdio_lock);
+
+	return 0;
+}
+
+static int
+qca8k_phy_mmd_read(struct dsa_switch *ds, int phy,
+		   int regnum)
+{
+	struct qca8k_priv *priv = (struct qca8k_priv *)ds->priv;
+	struct mii_bus *bus = priv->bus;
+	int val;
+
+	mutex_lock(&bus->mdio_lock);
+	bus->write(bus, phy, QCA8K_MII_MMD_ADDR, regnum);
+	val = bus->read(bus, phy, QCA8K_MII_MMD_DATA);
+	mutex_unlock(&bus->mdio_lock);
+
+	return val;
+}
+
+static int
+qca8k_qm_error_check(struct qca8k_priv *priv)
+{
+	u32 value, qm_err_int;
+
+	value = qca8k_read(priv, QCA8K_GLOBAL_INT1);
+	qm_err_int = value & QCA8K_QM_ERR_INT;
+
+	if (qm_err_int)
+		return 1;
+
+	qca8k_write(priv, QCA8K_REG_QM_DEBUG_ADDR, 0x0);
+	value = qca8k_read(priv, QCA8K_REG_QM_DEBUG_VALUE);
+
+	return value;
+}
+
+static void
+qca8k_phy_powerdown(struct qca8k_priv *priv)
+{
+	int i;
+	u16 phy_val;
+	struct mii_bus *bus;
+
+	bus = priv->bus;
+
+	for (i = 0; i < QCA8K_NUM_PHYS; i++) {
+		mdiobus_write(bus, i, MII_BMCR, BMCR_PDOWN);
+
+		phy_val = qca8k_phy_dbg_read(priv->ds, i,
+					     QCA8K_PHY_DEBUG_GREEN);
+		phy_val &= (~(QCA8K_PHY_GATE_CLK_IN1000));
+		qca8k_phy_dbg_write(priv->ds, i, QCA8K_PHY_DEBUG_GREEN,
+				    phy_val);
+
+		/* PHY will stop the tx clock for a while when link is down
+		 *	1. bit13 = 0, speed up link down tx_clk
+		 *	2. bit10 = 0, speed up speed mode change to 2'b10 tx_clk
+		 */
+		phy_val = qca8k_phy_dbg_read(priv->ds, i,
+					     QCA8K_PHY_DEBUG_HIB_CTRL);
+		phy_val &= ~(QCA8K_PHY_HIB_CTRL_SEL_RST_80U |
+				QCA8K_PHY_HIB_CTRL_EN_ANY_CHANGE);
+		qca8k_phy_dbg_write(priv->ds, i,
+				    QCA8K_PHY_DEBUG_HIB_CTRL, phy_val);
+	}
+}
+
+static void
+qca8k_hw_soft_reset(struct qca8k_priv *priv)
+{
+	u32 value = 0;
+
+	value = qca8k_read(priv, QCA8K_REG_MASK_CTRL);
+	value |= QCA8K_CTRL_RESET;
+	qca8k_write(priv, QCA8K_REG_MASK_CTRL, value);
+	/*Need wait reset done*/
+	do {
+		usleep_range(10, 20);
+		value = qca8k_read(priv, QCA8K_REG_MASK_CTRL);
+	} while (value & QCA8K_CTRL_RESET);
+	do {
+		usleep_range(10, 20);
+		value = qca8k_read(priv, QCA8K_GLOBAL_INT0);
+	} while ((value & QCA8K_GLOBAL_INITIALIZED_STATUS) !=
+			QCA8K_GLOBAL_INITIALIZED_STATUS);
+}
+
+static int
+qca8k_phy_poll_reset(struct mii_bus *bus)
+{
+	unsigned int sleep_msecs = 20;
+	int ret, elapsed, i;
+
+	for (elapsed = sleep_msecs; elapsed <= 600;
+	      elapsed += sleep_msecs) {
+		msleep(sleep_msecs);
+		for (i = 0; i < QCA8K_NUM_PHYS; i++) {
+			ret = mdiobus_read(bus, i, MII_BMCR);
+			if (ret < 0)
+				return ret;
+			if (ret & BMCR_RESET)
+				break;
+			if (i == QCA8K_NUM_PHYS - 1) {
+				usleep_range(1000, 2000);
+				return 0;
+			}
+		}
+	}
+	return -ETIMEDOUT;
+}
+
+static void
+qca8k_phy_fixup(struct qca8k_priv *priv, int phy_addr)
+{
+	qca8k_phy_mmd_write(priv->ds, phy_addr, 0x7, 0x3c);
+	qca8k_phy_mmd_write(priv->ds, phy_addr, 0x4007, 0x0);
+	qca8k_phy_mmd_write(priv->ds, phy_addr, 0x3, 0x800d);
+	qca8k_phy_mmd_write(priv->ds, phy_addr, 0x4003, 0x803f);
+
+	qca8k_phy_dbg_write(priv->ds, phy_addr, 0x3d, 0x6860);
+	qca8k_phy_dbg_write(priv->ds, phy_addr, 0x5, 0x2c46);
+	qca8k_phy_dbg_write(priv->ds, phy_addr, 0x3c, 0x6000);
+}
+
+static void
+qca8k_phy_init(struct qca8k_priv *priv)
+{
+	int i;
+	struct mii_bus *bus;
+	u32 adv = ADVERTISE_ALL | ADVERTISE_PAUSE_CAP | ADVERTISE_PAUSE_ASYM;
+
+	bus = priv->bus;
+	for (i = 0; i < QCA8K_NUM_PHYS; i++) {
+		/* phy fixup */
+		qca8k_phy_fixup(priv, i);
+
+		/* initialize the port itself */
+		mdiobus_write(bus, i, MII_ADVERTISE, adv);
+
+		mdiobus_write(bus, i, MII_CTRL1000,
+			      ADVERTISE_1000FULL | BIT(10));
+
+		mdiobus_write(bus, i, MII_BMCR, BMCR_RESET | BMCR_ANENABLE);
+	}
+
+	qca8k_phy_poll_reset(bus);
+}
+
+static int
+qca8k_hw_init(struct dsa_switch *ds)
 {
 	struct qca8k_priv *priv = (struct qca8k_priv *)ds->priv;
 	int ret, i, phy_mode = -1;
 	u32 mask;
-
-	/* Make sure that port 0 is the cpu port */
-	if (!dsa_is_cpu_port(ds, 0)) {
-		pr_err("port 0 is not the CPU port\n");
-		return -EINVAL;
-	}
-
-	mutex_init(&priv->reg_mutex);
-
-	/* Start by setting up the register mapping */
-	priv->regmap = devm_regmap_init(ds->dev, NULL, priv,
-					&qca8k_regmap_config);
-	if (IS_ERR(priv->regmap))
-		pr_warn("regmap initialization failed");
 
 	/* Initialize CPU port pad mode (xMII type, delays...) */
 	phy_mode = of_get_phy_mode(ds->dst->cpu_dp->dn);
@@ -529,6 +719,9 @@ qca8k_setup(struct dsa_switch *ds)
 	qca8k_port_set_status(priv, QCA8K_CPU_PORT, 1);
 	priv->port_sts[QCA8K_CPU_PORT].enabled = 1;
 
+	/* Disable AZ */
+	qca8k_write(priv, QCA8K_REG_EEE_CTRL, 0);
+
 	/* Enable MIB counters */
 	qca8k_mib_init(priv);
 
@@ -545,7 +738,7 @@ qca8k_setup(struct dsa_switch *ds)
 	/* Disable MAC by default on all user ports */
 	for (i = 1; i < QCA8K_NUM_PORTS; i++)
 		if (ds->enabled_port_mask & BIT(i))
-			qca8k_port_set_status(priv, i, 0);
+			qca8k_write(priv, QCA8K_REG_PORT_STATUS(i), BIT(12));
 
 	/* Forward all unknown frames to CPU port for Linux processing */
 	qca8k_write(priv, QCA8K_REG_GLOBAL_FW_CTRL1,
@@ -592,17 +785,182 @@ qca8k_setup(struct dsa_switch *ds)
 	return 0;
 }
 
+static int
+qca8k_setup(struct dsa_switch *ds)
+{
+	struct qca8k_priv *priv = (struct qca8k_priv *)ds->priv;
+	int ret;
+
+	/* Make sure that port 0 is the cpu port */
+	if (!dsa_is_cpu_port(ds, 0)) {
+		pr_err("port 0 is not the CPU port\n");
+		return -EINVAL;
+	}
+
+	mutex_init(&priv->reg_mutex);
+
+	/* Start by setting up the register mapping */
+	priv->regmap = devm_regmap_init(ds->dev, NULL, priv,
+					&qca8k_regmap_config);
+	if (IS_ERR(priv->regmap))
+		pr_warn("regmap initialization failed");
+
+	qca8k_phy_powerdown(priv);
+	qca8k_hw_soft_reset(priv);
+	ret = qca8k_hw_init(ds);
+	if (ret)
+		return ret;
+	qca8k_phy_init(priv);
+
+	return 0;
+}
+
+static int
+qca8k_qm_err_recovery(struct qca8k_priv *priv)
+{
+	qca8k_phy_powerdown(priv);
+	qca8k_hw_soft_reset(priv);
+	qca8k_hw_init(priv->ds);
+	qca8k_phy_init(priv);
+
+	return 0;
+}
+
+static int qca8k_force_mac_status(struct qca8k_priv *priv,
+				  u32 port_id, bool link_en)
+{
+	u32 reg, value;
+
+	if (port_id < 1 || port_id > 5)
+		return -1;
+
+	reg = QCA8K_REG_PORT_STATUS(port_id);
+	value = qca8k_read(priv, reg);
+	if (link_en)
+		value |= QCA8K_PORT_STATUS_LINK_AUTO;
+	else
+		value &= (~(QCA8K_PORT_STATUS_LINK_AUTO));
+	qca8k_write(priv, reg, value);
+
+	return 0;
+}
+
 static void
-qca8k_adjust_link(struct dsa_switch *ds, int port, struct phy_device *phy)
+qca8k_phy_manu_ctrl_en(struct qca8k_priv *priv,
+		       int phy_addr, bool enable)
+{
+	u16 phy_val = 0;
+
+	phy_val = qca8k_phy_dbg_read(priv->ds, phy_addr, QCA8K_PHY_DEBUG_0);
+	if (enable)
+		phy_val |= QCA8K_PHY_MANU_CTRL_EN;
+	else
+		phy_val &= (~QCA8K_PHY_MANU_CTRL_EN);
+	qca8k_phy_dbg_write(priv->ds, phy_addr, QCA8K_PHY_DEBUG_0, phy_val);
+}
+
+static int
+qca8k_get_qm_status(struct qca8k_priv *priv, u32 port_id, u32 *qm_buffer)
+{
+	u32 reg;
+	u32 qm_val;
+
+	if (port_id < 0 || port_id > 6) {
+		*qm_buffer = 0;
+		return -1;
+	}
+
+	if (port_id < 4) {
+		reg = QCA8K_REG_QM_PORT0_3_QNUM;
+		qca8k_write(priv, QCA8K_REG_QM_DEBUG_ADDR, reg);
+		qm_val = qca8k_read(priv, QCA8K_REG_QM_DEBUG_VALUE);
+		/* every 8 bits for each port */
+		*qm_buffer = (qm_val >> (port_id * 8)) & 0xFF;
+	} else {
+		reg = QCA8K_REG_QM_PORT4_6_QNUM;
+		qca8k_write(priv, QCA8K_REG_QM_DEBUG_ADDR, reg);
+		qm_val = qca8k_read(priv, QCA8K_REG_QM_DEBUG_VALUE);
+		/* every 8 bits for each port */
+		*qm_buffer = (qm_val >> ((port_id - 4) * 8)) & 0xFF;
+	}
+
+	return 0;
+}
+
+static int
+qca8k_force_mac_speed_duplex(struct qca8k_priv *priv,
+			     u32 port_id, u32 speed, u32 duplex)
+{
+	u32 reg, value;
+
+	reg = QCA8K_REG_PORT_STATUS(port_id);
+	value = qca8k_read(priv, reg);
+	value &= ~(QCA8K_PORT_STATUS_DUPLEX |
+			QCA8K_PORT_STATUS_SPEED);
+	value |= speed;
+	if (duplex == QCA8K_DUPLEX_FULL)
+		value |= QCA8K_PORT_STATUS_DUPLEX;
+	qca8k_write(priv, reg, value);
+
+	return 0;
+}
+
+static void
+qca8k_link_sync_function(struct qca8k_priv *priv, int port,
+			 struct phy_device *phy)
+{
+	u32 value = 0;
+	u32 qm_buffer = 0;
+
+	/* if QM error, then do SW recovery, check link the next time */
+	value = qca8k_qm_error_check(priv);
+	if (value) {
+		qca8k_qm_err_recovery(priv);
+		return;
+	}
+
+	/* Up --> Down */
+	if (!phy->link) {
+		/* LINK_EN disable(MAC force mode) */
+		qca8k_force_mac_status(priv, port, false);
+
+		qca8k_phy_manu_ctrl_en(priv, phy->mdio.addr, false);
+
+		/* Check queue buffer */
+		qca8k_get_qm_status(priv, port, &qm_buffer);
+		if (qm_buffer == 0) {
+			qca8k_force_mac_speed_duplex(priv, port,
+						     QCA8K_PORT_SPEED_1000M,
+						      QCA8K_DUPLEX_FULL);
+		}
+	} else {
+		/* Down --> Up */
+		qca8k_get_qm_status(priv, port, &qm_buffer);
+		if (qm_buffer) {
+			qca8k_qm_err_recovery(priv);
+			return;
+		}
+		qca8k_force_mac_speed_duplex(priv, port,
+					     phy->speed,
+					     phy->duplex);
+		usleep_range(100, 200);
+		qca8k_force_mac_status(priv, port, true);
+
+		if (phy->speed == QCA8K_PORT_SPEED_100M) {
+			/* PHY is link up 100M */
+			qca8k_phy_manu_ctrl_en(priv, phy->mdio.addr,
+					       true);
+		}
+	}
+
+}
+
+static void
+qca8k_cpuport_setup(struct dsa_switch *ds, int port, struct phy_device *phy)
 {
 	struct qca8k_priv *priv = ds->priv;
 	u32 reg;
 
-	/* Force fixed-link setting for CPU port, skip others. */
-	if (!phy_is_pseudo_fixed_link(phy))
-		return;
-
-	/* Set port speed */
 	switch (phy->speed) {
 	case 10:
 		reg = QCA8K_PORT_STATUS_SPEED_10;
@@ -624,8 +982,7 @@ qca8k_adjust_link(struct dsa_switch *ds, int port, struct phy_device *phy)
 		reg |= QCA8K_PORT_STATUS_DUPLEX;
 
 	/* Force flow control */
-	if (dsa_is_cpu_port(ds, port))
-		reg |= QCA8K_PORT_STATUS_RXFLOW | QCA8K_PORT_STATUS_TXFLOW;
+	reg |= QCA8K_PORT_STATUS_RXFLOW | QCA8K_PORT_STATUS_TXFLOW;
 
 	/* Force link down before changing MAC options */
 	qca8k_port_set_status(priv, port, 0);
@@ -633,20 +990,20 @@ qca8k_adjust_link(struct dsa_switch *ds, int port, struct phy_device *phy)
 	qca8k_port_set_status(priv, port, 1);
 }
 
-static int
-qca8k_phy_read(struct dsa_switch *ds, int phy, int regnum)
+static void
+qca8k_adjust_link(struct dsa_switch *ds, int port, struct phy_device *phy)
 {
-	struct qca8k_priv *priv = (struct qca8k_priv *)ds->priv;
+	struct qca8k_priv *priv = ds->priv;
 
-	return mdiobus_read(priv->bus, phy, regnum);
-}
+	/* Force fixed-link setting for CPU port. */
+	if (phy_is_pseudo_fixed_link(phy) && dsa_is_cpu_port(ds, port)) {
+		qca8k_cpuport_setup(ds, port, phy);
+		return;
+	}
 
-static int
-qca8k_phy_write(struct dsa_switch *ds, int phy, int regnum, u16 val)
-{
-	struct qca8k_priv *priv = (struct qca8k_priv *)ds->priv;
-
-	return mdiobus_write(priv->bus, phy, regnum, val);
+	mutex_lock(&priv->link_lock);
+	qca8k_link_sync_function(priv, port, phy);
+	mutex_unlock(&priv->link_lock);
 }
 
 static void
@@ -797,10 +1154,14 @@ qca8k_port_enable(struct dsa_switch *ds, int port,
 {
 	struct qca8k_priv *priv = (struct qca8k_priv *)ds->priv;
 
-	qca8k_port_set_status(priv, port, 1);
+	if (dsa_is_cpu_port(ds, port))
+		qca8k_port_set_status(priv, port, 1);
 	priv->port_sts[port].enabled = 1;
 
 	phy->advertising |= (ADVERTISED_Pause | ADVERTISED_Asym_Pause);
+
+	if (!dsa_is_cpu_port(ds, port))
+		genphy_restart_aneg(phy);
 
 	return 0;
 }
@@ -901,11 +1262,226 @@ static const struct dsa_switch_ops qca8k_switch_ops = {
 	.port_fdb_dump		= qca8k_port_fdb_dump,
 };
 
+static ssize_t qca8k_phy_read_reg_get(struct file *fp,
+				      char __user *ubuf,
+				      size_t sz, loff_t *ppos)
+{
+	struct qca8k_priv *priv = fp->private_data;
+	char lbuf[40];
+
+	if (!priv)
+		return -EFAULT;
+
+	snprintf(lbuf, sizeof(lbuf), "reg_val: 0x%x\n",
+		 priv->reg_val);
+
+	return simple_read_from_buffer(ubuf, sz, ppos,
+					lbuf, strlen(lbuf));
+}
+
+static ssize_t qca8k_phy_read_reg_set(struct file *fp,
+				      const char __user *ubuf,
+				      size_t sz, loff_t *ppos)
+{
+	struct qca8k_priv *priv = fp->private_data;
+	char lbuf[32];
+	size_t lbuf_size;
+	char *options = lbuf;
+	char *this_opt;
+	u32 phy_addr, type, reg_addr;
+	int val = 0;
+
+	if (!priv)
+		return -EFAULT;
+
+	lbuf_size = min(sz, (sizeof(lbuf) - 1));
+	if (copy_from_user(lbuf, ubuf, lbuf_size))
+		return -EFAULT;
+	lbuf[lbuf_size] = 0;
+
+	this_opt = strsep(&options, " ");
+	if (!this_opt)
+		goto fail;
+
+	kstrtouint(this_opt, 0, &phy_addr);
+	if ((options - lbuf) >= (lbuf_size - 1))
+		goto fail;
+
+	this_opt = strsep(&options, " ");
+	if (!this_opt)
+		goto fail;
+
+	kstrtouint(this_opt, 0, &type);
+	if ((options - lbuf) >= (lbuf_size - 1))
+		goto fail;
+
+	this_opt = strsep(&options, " ");
+	if (!this_opt)
+		goto fail;
+
+	kstrtouint(this_opt, 0, &reg_addr);
+
+	if (phy_addr > (QCA8K_NUM_PHYS - 1))
+		goto fail;
+
+	if (type > QCA8K_PHY_MMD7)
+		goto fail;
+
+	switch (type) {
+	case QCA8K_PHY_MII:
+		val = qca8k_phy_read(priv->ds, phy_addr, reg_addr);
+		break;
+	case QCA8K_PHY_DBG:
+		val = qca8k_phy_dbg_read(priv->ds, phy_addr, reg_addr);
+		break;
+	case QCA8K_PHY_MMD3:
+		qca8k_phy_mmd_write(priv->ds, phy_addr, 3, reg_addr);
+		val = qca8k_phy_mmd_read(priv->ds, phy_addr, 0x4003);
+		break;
+	case QCA8K_PHY_MMD7:
+		qca8k_phy_mmd_write(priv->ds, phy_addr, 7, reg_addr);
+		val = qca8k_phy_mmd_read(priv->ds, phy_addr, 0x4007);
+		break;
+	default:
+		break;
+	}
+
+	priv->reg_val = (u32)val;
+	return lbuf_size;
+
+fail:
+	pr_err("Format: phy_addr type reg_addr\n");
+	return -EINVAL;
+}
+
+static ssize_t qca8k_phy_write_reg_set(struct file *fp,
+				       const char __user *ubuf,
+				       size_t sz, loff_t *ppos)
+{
+	struct qca8k_priv *priv = (struct qca8k_priv *)fp->private_data;
+	char lbuf[32];
+	size_t lbuf_size;
+	char *options = lbuf;
+	char *this_opt;
+	u32 phy_addr, type, reg_addr, val;
+
+	if (!priv)
+		return -EFAULT;
+
+	lbuf_size = min(sz, (sizeof(lbuf) - 1));
+	if (copy_from_user(lbuf, ubuf, lbuf_size))
+		return -EFAULT;
+	lbuf[lbuf_size] = 0;
+
+	this_opt = strsep(&options, " ");
+	if (!this_opt)
+		goto fail;
+
+	kstrtouint(this_opt, 0, &phy_addr);
+	if ((options - lbuf) >= (lbuf_size - 1))
+		goto fail;
+
+	this_opt = strsep(&options, " ");
+	if (!this_opt)
+		goto fail;
+
+	kstrtouint(this_opt, 0, &type);
+	if ((options - lbuf) >= (lbuf_size - 1))
+		goto fail;
+
+	this_opt = strsep(&options, " ");
+	if (!this_opt)
+		goto fail;
+
+	kstrtouint(this_opt, 0, &reg_addr);
+	if ((options - lbuf) >= (lbuf_size - 1))
+		goto fail;
+
+	this_opt = strsep(&options, " ");
+	if (!this_opt)
+		goto fail;
+
+	kstrtouint(this_opt, 0, &val);
+
+	if (phy_addr > (QCA8K_NUM_PHYS - 1))
+		return -EINVAL;
+
+	if (type > QCA8K_PHY_MMD7)
+		return -EINVAL;
+
+	switch (type) {
+	case QCA8K_PHY_MII:
+		qca8k_phy_write(priv->ds, phy_addr, reg_addr, val);
+		break;
+	case QCA8K_PHY_DBG:
+		qca8k_phy_dbg_write(priv->ds, phy_addr, reg_addr, val);
+		break;
+	case QCA8K_PHY_MMD3:
+		qca8k_phy_mmd_write(priv->ds, phy_addr, 3, reg_addr);
+		qca8k_phy_mmd_write(priv->ds, phy_addr, 0x4003, val);
+		break;
+	case QCA8K_PHY_MMD7:
+		qca8k_phy_mmd_write(priv->ds, phy_addr, 7, reg_addr);
+		qca8k_phy_mmd_write(priv->ds, phy_addr, 0x4007, val);
+		break;
+	default:
+		break;
+	}
+
+	return lbuf_size;
+
+fail:
+	pr_err("Format: phy_addr type reg_addr value\n");
+	return -EINVAL;
+}
+
+static const struct file_operations qca8k_phy_write_reg_ops = {
+	.open = simple_open,
+	.write = qca8k_phy_write_reg_set,
+	.llseek = no_llseek,
+};
+
+static const struct file_operations qca8k_phy_read_reg_ops = {
+	.open = simple_open,
+	.read = qca8k_phy_read_reg_get,
+	.write = qca8k_phy_read_reg_set,
+	.llseek = no_llseek,
+};
+
+static int
+qca8k_init_debugfs_entries(struct qca8k_priv *priv)
+{
+	priv->top_dentry = debugfs_create_dir("qca8k", NULL);
+	if (!priv->top_dentry)
+		return -ENOMEM;
+
+	priv->phy_write_dentry = debugfs_create_file("phy-write-reg", 0600,
+						     priv->top_dentry,
+						     priv,
+						     &qca8k_phy_write_reg_ops);
+	if (!priv->phy_write_dentry)
+		goto fail;
+
+	priv->phy_read_dentry = debugfs_create_file("phy-read-reg", 0600,
+						    priv->top_dentry,
+						    priv,
+						    &qca8k_phy_read_reg_ops);
+	if (!priv->phy_read_dentry)
+		goto fail;
+
+	return 0;
+
+fail:
+	debugfs_remove_recursive(priv->top_dentry);
+	return -ENOMEM;
+}
+
 static int
 qca8k_sw_probe(struct mdio_device *mdiodev)
 {
 	struct qca8k_priv *priv;
 	u32 id;
+	int ret;
 
 	/* allocate the private data struct so that we can probe the switches
 	 * ID register
@@ -933,7 +1509,13 @@ qca8k_sw_probe(struct mdio_device *mdiodev)
 	mutex_init(&priv->reg_mutex);
 	dev_set_drvdata(&mdiodev->dev, priv);
 
-	return dsa_register_switch(priv->ds);
+	mutex_init(&priv->link_lock);
+
+	ret = dsa_register_switch(priv->ds);
+	if (!ret)
+		qca8k_init_debugfs_entries(priv);
+
+	return ret;
 }
 
 static void
@@ -944,6 +1526,8 @@ qca8k_sw_remove(struct mdio_device *mdiodev)
 
 	for (i = 0; i < QCA8K_NUM_PORTS; i++)
 		qca8k_port_set_status(priv, i, 0);
+
+	debugfs_remove_recursive(priv->top_dentry);
 
 	dsa_unregister_switch(priv->ds);
 }
