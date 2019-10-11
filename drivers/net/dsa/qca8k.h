@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2009 Felix Fietkau <nbd@nbd.name>
  * Copyright (C) 2011-2012 Gabor Juhos <juhosg@openwrt.org>
- * Copyright (c) 2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015, 2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -19,6 +19,8 @@
 #include <linux/delay.h>
 #include <linux/regmap.h>
 
+#define BITS(_s, _n)	(((1UL << (_n)) - 1) << _s)
+
 #define QCA8K_NUM_PORTS					7
 
 #define PHY_ID_QCA8337					0x004dd036
@@ -30,6 +32,7 @@
 
 /* Global control registers */
 #define QCA8K_REG_MASK_CTRL				0x000
+#define QCA8K_CTRL_RESET				BIT(31)
 #define   QCA8K_MASK_CTRL_ID_M				0xff
 #define   QCA8K_MASK_CTRL_ID_S				8
 #define QCA8K_REG_PORT0_PAD_CTRL			0x004
@@ -43,6 +46,9 @@
 #define   QCA8K_MAX_DELAY				3
 #define   QCA8K_PORT_PAD_RGMII_RX_DELAY_EN		BIT(24)
 #define   QCA8K_PORT_PAD_SGMII_EN			BIT(7)
+#define QCA8K_GLOBAL_INT0				0x20
+#define QCA8K_GLOBAL_INT1				0x24
+#define   QCA8K_QM_ERR_INT				BIT(14)
 #define QCA8K_REG_MODULE_EN				0x030
 #define   QCA8K_MODULE_EN_MIB				BIT(0)
 #define QCA8K_REG_MIB					0x034
@@ -136,12 +142,60 @@
 #define QCA8K_HROUTER_PBASED_CONTROL2			0xe0c
 #define QCA8K_HNAT_CONTROL				0xe38
 
+#define QCA8K_REG_QM_DEBUG_ADDR		0x820
+#define QCA8K_REG_QM_DEBUG_VALUE		0x824
+#define   QCA8K_REG_QM_PORT0_3_QNUM		0x1d
+#define   QCA8K_REG_QM_PORT4_6_QNUM		0x1e
+
 /* MIB registers */
 #define QCA8K_PORT_MIB_COUNTER(_i)			(0x1000 + (_i) * 0x100)
 
 /* QCA specific MII registers */
-#define MII_ATH_MMD_ADDR				0x0d
-#define MII_ATH_MMD_DATA				0x0e
+#define QCA8K_MII_MMD_ADDR		0xd
+#define QCA8K_MII_MMD_DATA		0xe
+#define QCA8K_MII_DBG_ADDR		0x1d
+#define QCA8K_MII_DBG_DATA		0x1e
+
+#define QCA8K_PHY_SPEC_STATUS 0x11
+#define   QCA8K_PHY_SPEC_STATUS_LINK		BIT(10)
+#define   QCA8K_PHY_SPEC_STATUS_DUPLEX	BIT(13)
+#define   QCA8K_PHY_SPEC_STATUS_SPEED		BITS(14, 2)
+
+#define QCA8K_PHY_DEBUG_0   0
+#define QCA8K_PHY_MANU_CTRL_EN  BIT(12)
+
+#define QCA8K_PHY_DEBUG_GREEN   0x3d
+#define QCA8K_PHY_GATE_CLK_IN1000   BIT(6)
+
+#define QCA8K_PHY_DEBUG_HIB_CTRL   0x0b
+#define QCA8K_PHY_HIB_CTRL_SEL_RST_80U	BIT(10)
+#define QCA8K_PHY_HIB_CTRL_EN_ANY_CHANGE	BIT(13)
+
+#define QCA8K_GLOBAL_INT0_ACL_INI_INT        BIT(29)
+#define QCA8K_GLOBAL_INT0_LOOKUP_INI_INT     BIT(28)
+#define QCA8K_GLOBAL_INT0_QM_INI_INT         BIT(27)
+#define QCA8K_GLOBAL_INT0_MIB_INI_INT        BIT(26)
+#define QCA8K_GLOBAL_INT0_OFFLOAD_INI_INT    BIT(25)
+#define QCA8K_GLOBAL_INT0_HARDWARE_INI_DONE  BIT(24)
+
+#define QCA8K_GLOBAL_INITIALIZED_STATUS			\
+			(					\
+			QCA8K_GLOBAL_INT0_ACL_INI_INT |		\
+			QCA8K_GLOBAL_INT0_LOOKUP_INI_INT |	\
+			QCA8K_GLOBAL_INT0_QM_INI_INT |		\
+			QCA8K_GLOBAL_INT0_MIB_INI_INT |		\
+			QCA8K_GLOBAL_INT0_OFFLOAD_INI_INT |	\
+			QCA8K_GLOBAL_INT0_HARDWARE_INI_DONE	\
+			)
+
+#define QCA8K_NUM_PHYS	5
+
+enum {
+	QCA8K_PHY_MII = 0,
+	QCA8K_PHY_DBG,
+	QCA8K_PHY_MMD3,
+	QCA8K_PHY_MMD7,
+};
 
 enum {
 	QCA8K_PORT_SPEED_10M = 0,
@@ -158,6 +212,11 @@ enum qca8k_fdb_cmd {
 	QCA8K_FDB_SEARCH = 7,
 };
 
+enum {
+	QCA8K_DUPLEX_HALF = 0,
+	QCA8K_DUPLEX_FULL = 1,
+};
+
 struct ar8xxx_port_status {
 	int enabled;
 };
@@ -169,6 +228,11 @@ struct qca8k_priv {
 	struct dsa_switch *ds;
 	struct mutex reg_mutex;
 	struct device *dev;
+	struct mutex link_lock; /* lock for link adjust */
+	struct dentry *top_dentry;
+	struct dentry *phy_write_dentry;
+	struct dentry *phy_read_dentry;
+	u32 reg_val;
 };
 
 struct qca8k_mib_desc {
