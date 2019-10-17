@@ -324,18 +324,3 @@ void ath10k_peer_unmap_event(struct ath10k_htt *htt,
 exit:
 	spin_unlock_bh(&ar->data_lock);
 }
-
-int ath10k_cipher_find(struct ath10k *ar,
-		       struct ath10k_peer *peer)
-{
-	int i;
-
-	lockdep_assert_held(&ar->data_lock);
-
-	for (i = 0; i <= ATH10K_MAX_KEY_INDEX ; i++) {
-		if (peer->keys[i])
-			return peer->keys[i]->cipher;
-	}
-
-	return -EINVAL;
-}
