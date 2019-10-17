@@ -96,8 +96,6 @@
 /* Default Airtime weight multipler (Tuned for multiclient performance) */
 #define ATH10K_AIRTIME_WEIGHT_MULTIPLIER  4
 
-#define ATH10K_MAX_KEY_INDEX 3
-
 struct ath10k;
 
 enum ath10k_bus {

@@ -25,7 +25,6 @@
 #include "wmi-tlv.h"
 #include "p2p.h"
 #include "testmode.h"
-#include "txrx.h"
 #include <linux/bitfield.h>
 
 /***************/
@@ -3156,15 +3155,12 @@ ath10k_wmi_tlv_op_gen_mgmt_tx_send(struct ath10k *ar, struct sk_buff *msdu,
 	struct wmi_tlv_mgmt_tx_cmd *cmd;
 	struct ieee80211_hdr *hdr;
 	struct ath10k_vif *arvif;
-	struct ath10k_peer *peer;
 	u32 buf_len = msdu->len;
 	struct wmi_tlv *tlv;
 	struct sk_buff *skb;
 	int len, desc_id;
 	u32 vdev_id;
 	void *ptr;
-	const u8 *peer_addr;
-	int cipher;
 
 	if (!cb->vif)
 		return ERR_PTR(-EINVAL);
@@ -3184,29 +3180,8 @@ ath10k_wmi_tlv_op_gen_mgmt_tx_send(struct ath10k *ar, struct sk_buff *msdu,
 	     ieee80211_is_deauth(hdr->frame_control) ||
 	     ieee80211_is_disassoc(hdr->frame_control)) &&
 	     ieee80211_has_protected(hdr->frame_control)) {
-		peer_addr = hdr->addr1;
-
-		spin_lock_bh(&ar->data_lock);
-		peer = ath10k_peer_find(ar, arvif->vdev_id, peer_addr);
-		spin_unlock_bh(&ar->data_lock);
-
-		if (!peer) {
-			ath10k_warn(ar, "failed to tx mgmt pkt for non-existent peer %pM\n",
-				    peer_addr);
-			return ERR_PTR(-EINVAL);
-		}
-
-		cipher = ath10k_cipher_find(ar, peer);
-		switch (cipher) {
-		case WLAN_CIPHER_SUITE_GCMP:
-		case WLAN_CIPHER_SUITE_GCMP_256:
-			skb_put(msdu, IEEE80211_GCMP_MIC_LEN);
-			buf_len += IEEE80211_GCMP_MIC_LEN;
-			break;
-		default:
-			skb_put(msdu, IEEE80211_CCMP_MIC_LEN);
-			buf_len += IEEE80211_CCMP_MIC_LEN;
-		}
+		skb_put(msdu, IEEE80211_CCMP_MIC_LEN);
+		buf_len += IEEE80211_CCMP_MIC_LEN;
 	}
 
 	buf_len = min_t(u32, buf_len, WMI_TLV_MGMT_TX_FRAME_MAX_LEN);
