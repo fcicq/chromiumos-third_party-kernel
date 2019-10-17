@@ -353,6 +353,7 @@ static int skl_ipc_process_notification(struct sst_generic_ipc *ipc,
 		struct skl_ipc_header header)
 {
 	struct skl_sst *skl = container_of(ipc, struct skl_sst, ipc);
+	static unsigned long j;
 
 	if (IPC_GLB_NOTIFY_MSG_TYPE(header.primary)) {
 		switch (IPC_GLB_NOTIFY_TYPE(header.primary)) {
@@ -362,12 +363,17 @@ static int skl_ipc_process_notification(struct sst_generic_ipc *ipc,
 			break;
 
 		case IPC_GLB_NOTIFY_RESOURCE_EVENT:
-			dev_err(ipc->dev, "MCPS Budget Violation: %x\n",
+			/*Print trace on first instance and for every minute*/
+			if (printk_timed_ratelimit(&j, 60000)) {
+				dev_err(ipc->dev, "MCPS Budget Violation: %x\n",
 						header.primary);
+			}
 			break;
 
 		case IPC_GLB_NOTIFY_FW_READY:
 			skl->boot_complete = true;
+			/* reset timer on every FW load */
+			j = 0;
 			wake_up(&skl->boot_wait);
 			break;
 
