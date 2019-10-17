@@ -34,7 +34,5 @@ void ath10k_peer_map_event(struct ath10k_htt *htt,
 			   struct htt_peer_map_event *ev);
 void ath10k_peer_unmap_event(struct ath10k_htt *htt,
 			     struct htt_peer_unmap_event *ev);
-int ath10k_cipher_find(struct ath10k *ar,
-		       struct ath10k_peer *peer);
 
 #endif
