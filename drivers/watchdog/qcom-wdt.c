@@ -1,4 +1,4 @@
-/* Copyright (c) 2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014, 2019 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -12,6 +12,7 @@
  */
 #include <linux/clk.h>
 #include <linux/delay.h>
+#include <linux/device.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -50,6 +51,7 @@ struct qcom_wdt {
 	unsigned long		rate;
 	void __iomem		*base;
 	const u32		*layout;
+	cpumask_t		alive_mask;
 };
 
 static void __iomem *wdt_addr(struct qcom_wdt *wdt, enum wdt_reg reg)
@@ -61,6 +63,33 @@ static inline
 struct qcom_wdt *to_qcom_wdt(struct watchdog_device *wdd)
 {
 	return container_of(wdd, struct qcom_wdt, wdd);
+}
+
+static void keep_alive_response(void *info)
+{
+	int cpu = smp_processor_id();
+	struct qcom_wdt *wdt = (struct qcom_wdt *)info;
+
+	cpumask_set_cpu(cpu, &wdt->alive_mask);
+	/* Make sure alive mask is cleared and set in order */
+	smp_mb();
+}
+
+/*
+ * If this function does not return, it implies one of the
+ * cpus is not responding
+ */
+static void ping_other_cpus(struct qcom_wdt *wdt)
+{
+	int cpu;
+
+	cpumask_clear(&wdt->alive_mask);
+	/* Make sure alive mask is cleared and set in order */
+	smp_mb();
+	for_each_online_cpu(cpu) {
+		smp_call_function_single(cpu, keep_alive_response,
+						wdt, 1);
+	}
 }
 
 static int qcom_wdt_start(struct watchdog_device *wdd)
@@ -86,6 +115,9 @@ static int qcom_wdt_stop(struct watchdog_device *wdd)
 static int qcom_wdt_ping(struct watchdog_device *wdd)
 {
 	struct qcom_wdt *wdt = to_qcom_wdt(wdd);
+
+	/* ping other CPUs here */
+	ping_other_cpus(wdt);
 
 	writel(1, wdt_addr(wdt, WDT_RST));
 	return 0;
@@ -203,6 +235,8 @@ static int qcom_wdt_probe(struct platform_device *pdev)
 		ret = -EINVAL;
 		goto err_clk_unprepare;
 	}
+
+	cpumask_clear(&wdt->alive_mask);
 
 	wdt->wdd.info = &qcom_wdt_info;
 	wdt->wdd.ops = &qcom_wdt_ops;
