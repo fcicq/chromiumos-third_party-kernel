@@ -508,6 +508,8 @@ evdi_painter_connect(struct evdi_device *evdi,
 
 	EVDI_DEBUG("(dev=%d) Process is trying to connect\n",
 		   evdi->dev_index);
+	EVDI_DEBUG("(dev=%d) Process has master: %d\n",
+		   evdi->dev_index, drm_is_current_master(file));
 	evdi_log_process();
 
 	if (edid_length < sizeof(struct edid)) {
