@@ -45,8 +45,8 @@ static cpumask_t tlb_flush_pending;
 static u32 get_cpu_asid_bits(void)
 {
 	u32 asid;
-	int fld = cpuid_feature_extract_field(read_cpuid(ID_AA64MMFR0_EL1),
-						ID_AA64MMFR0_ASID_SHIFT);
+	int fld = cpuid_feature_extract_unsigned_field(read_cpuid(ID_AA64MMFR0_EL1),
+						       ID_AA64MMFR0_ASID_SHIFT);
 
 	switch (fld) {
 	default:
