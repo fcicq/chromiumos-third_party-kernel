@@ -13,6 +13,7 @@
 #include <drm/drmP.h>
 #include <drm/drm_crtc_helper.h>
 #include "udl_drv.h"
+#include "udl_cursor.h"
 
 /* -BULK_SIZE as per usb-skeleton. Can we get full page and avoid overhead? */
 #define BULK_SIZE 512
@@ -29,7 +30,7 @@
 static int udl_parse_vendor_descriptor(struct drm_device *dev,
 				       struct usb_device *usbdev)
 {
-	struct udl_device *udl = dev->dev_private;
+	struct udl_device *udl = to_udl(dev);
 	char *desc;
 	char *buf;
 	char *desc_end;
@@ -165,7 +166,7 @@ void udl_urb_completion(struct urb *urb)
 
 static void udl_free_urb_list(struct drm_device *dev)
 {
-	struct udl_device *udl = dev->dev_private;
+	struct udl_device *udl = to_udl(dev);
 	int count = udl->urbs.count;
 	struct list_head *node;
 	struct urb_node *unode;
@@ -198,7 +199,7 @@ static void udl_free_urb_list(struct drm_device *dev)
 
 static int udl_alloc_urb_list(struct drm_device *dev, int count, size_t size)
 {
-	struct udl_device *udl = dev->dev_private;
+	struct udl_device *udl = to_udl(dev);
 	struct urb *urb;
 	struct urb_node *unode;
 	char *buf;
@@ -262,7 +263,7 @@ retry:
 
 struct urb *udl_get_urb(struct drm_device *dev)
 {
-	struct udl_device *udl = dev->dev_private;
+	struct udl_device *udl = to_udl(dev);
 	int ret = 0;
 	struct list_head *entry;
 	struct urb_node *unode;
@@ -295,7 +296,7 @@ error:
 
 int udl_submit_urb(struct drm_device *dev, struct urb *urb, size_t len)
 {
-	struct udl_device *udl = dev->dev_private;
+	struct udl_device *udl = to_udl(dev);
 	int ret;
 
 	BUG_ON(len > udl->urbs.size);
@@ -310,20 +311,12 @@ int udl_submit_urb(struct drm_device *dev, struct urb *urb, size_t len)
 	return ret;
 }
 
-int udl_driver_load(struct drm_device *dev, unsigned long flags)
+int udl_init(struct udl_device *udl)
 {
-	struct usb_device *udev = (void*)flags;
-	struct udl_device *udl;
+	struct drm_device *dev = &udl->drm;
 	int ret = -ENOMEM;
 
 	DRM_DEBUG("\n");
-	udl = kzalloc(sizeof(struct udl_device), GFP_KERNEL);
-	if (!udl)
-		return -ENOMEM;
-
-	udl->udev = udev;
-	udl->ddev = dev;
-	dev->dev_private = udl;
 
 	mutex_init(&udl->gem_lock);
 
@@ -342,6 +335,10 @@ int udl_driver_load(struct drm_device *dev, unsigned long flags)
 	}
 
 	DRM_DEBUG("\n");
+	ret = udl_cursor_alloc(&udl->cursor);
+	if (ret)
+		goto err;
+
 	ret = udl_modeset_init(dev);
 	if (ret)
 		goto err;
@@ -350,19 +347,15 @@ int udl_driver_load(struct drm_device *dev, unsigned long flags)
 	if (ret)
 		goto err;
 
-	ret = drm_vblank_init(dev, 1);
-	if (ret)
-		goto err_fb;
-
 	drm_kms_helper_poll_init(dev);
 
 	return 0;
-err_fb:
-	udl_fbdev_cleanup(dev);
+
 err:
 	if (udl->urbs.count)
 		udl_free_urb_list(dev);
-	kfree(udl);
+	if (udl->cursor)
+		udl_cursor_free(udl->cursor);
 	DRM_ERROR("%d\n", ret);
 	return ret;
 }
@@ -373,16 +366,17 @@ int udl_drop_usb(struct drm_device *dev)
 	return 0;
 }
 
-void udl_driver_unload(struct drm_device *dev)
+void udl_fini(struct drm_device *dev)
 {
-	struct udl_device *udl = dev->dev_private;
+	struct udl_device *udl = to_udl(dev);
 
 	drm_kms_helper_poll_fini(dev);
 
 	if (udl->urbs.count)
 		udl_free_urb_list(dev);
 
+	if (udl->cursor)
+		udl_cursor_free(udl->cursor);
+
 	udl_fbdev_cleanup(dev);
-	udl_modeset_cleanup(dev);
-	kfree(udl);
 }

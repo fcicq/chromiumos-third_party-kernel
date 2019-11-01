@@ -149,6 +149,9 @@ int udl_gem_vmap(struct udl_gem_object *obj)
 	int page_count = obj->base.size / PAGE_SIZE;
 	int ret;
 
+	if (obj->vmapping)
+		return 0;
+
 	if (obj->base.import_attach) {
 		obj->vmapping = dma_buf_vmap(obj->base.import_attach->dmabuf);
 		if (!obj->vmapping)
@@ -203,7 +206,7 @@ int udl_gem_mmap(struct drm_file *file, struct drm_device *dev,
 {
 	struct udl_gem_object *gobj;
 	struct drm_gem_object *obj;
-	struct udl_device *udl = dev->dev_private;
+	struct udl_device *udl = to_udl(dev);
 	int ret = 0;
 
 	mutex_lock(&udl->gem_lock);
@@ -224,7 +227,7 @@ int udl_gem_mmap(struct drm_file *file, struct drm_device *dev,
 	*offset = drm_vma_node_offset_addr(&gobj->base.vma_node);
 
 out:
-	drm_gem_object_put(&gobj->base);
+	drm_gem_object_put_unlocked(&gobj->base);
 unlock:
 	mutex_unlock(&udl->gem_lock);
 	return ret;

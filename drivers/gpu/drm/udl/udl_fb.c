@@ -20,6 +20,7 @@
 #include <drm/drm_crtc.h>
 #include <drm/drm_crtc_helper.h>
 #include "udl_drv.h"
+#include "udl_cursor.h"
 
 #include <drm/drm_fb_helper.h>
 
@@ -82,7 +83,7 @@ int udl_handle_damage(struct udl_framebuffer *fb, int x, int y,
 		      int width, int height)
 {
 	struct drm_device *dev = fb->base.dev;
-	struct udl_device *udl = dev->dev_private;
+	struct udl_device *udl = to_udl(dev);
 	int i, ret;
 	char *cmd;
 	cycles_t start_cycles, end_cycles;
@@ -91,6 +92,7 @@ int udl_handle_damage(struct udl_framebuffer *fb, int x, int y,
 	struct urb *urb;
 	int aligned_x;
 	int log_bpp;
+	struct udl_cursor *cursor_copy = NULL;
 
 	BUG_ON(!is_power_of_2(fb->base.format->cpp[0]));
 	log_bpp = __ffs(fb->base.format->cpp[0]);
@@ -98,16 +100,10 @@ int udl_handle_damage(struct udl_framebuffer *fb, int x, int y,
 	if (!fb->active_16)
 		return 0;
 
-	if (!fb->obj->vmapping) {
-		ret = udl_gem_vmap(fb->obj);
-		if (ret == -ENOMEM) {
-			DRM_ERROR("failed to vmap fb\n");
-			return 0;
-		}
-		if (!fb->obj->vmapping) {
-			DRM_ERROR("failed to vmapping\n");
-			return 0;
-		}
+	ret = udl_gem_vmap(fb->obj);
+	if (ret) {
+		DRM_ERROR("failed to vmap fb\n");
+		return 0;
 	}
 
 	aligned_x = DL_ALIGN_DOWN(x, sizeof(unsigned long));
@@ -126,14 +122,21 @@ int udl_handle_damage(struct udl_framebuffer *fb, int x, int y,
 		return 0;
 	cmd = urb->transfer_buffer;
 
+	mutex_lock(&dev->struct_mutex);
+	if (udl_cursor_alloc(&cursor_copy) == 0)
+		udl_cursor_copy(cursor_copy, udl->cursor);
+	mutex_unlock(&dev->struct_mutex);
+
 	for (i = y; i < y + height ; i++) {
 		const int line_offset = fb->base.pitches[0] * i;
 		const int byte_offset = line_offset + (x << log_bpp);
 		const int dev_byte_offset = (fb->base.width * i + x) << log_bpp;
+		struct udl_cursor_hline cursor_hline;
+		udl_cursor_get_hline(cursor_copy, x, i, &cursor_hline);
 		if (udl_render_hline(dev, log_bpp, &urb,
 				     (char *) fb->obj->vmapping,
 				     &cmd, byte_offset, dev_byte_offset,
-				     width << log_bpp,
+				     width << log_bpp, &cursor_hline,
 				     &bytes_identical, &bytes_sent))
 			goto error;
 	}
@@ -150,6 +153,8 @@ int udl_handle_damage(struct udl_framebuffer *fb, int x, int y,
 		udl_urb_completion(urb);
 
 error:
+	if (cursor_copy)
+		udl_cursor_free(cursor_copy);
 	atomic_add(bytes_sent, &udl->bytes_sent);
 	atomic_add(bytes_identical, &udl->bytes_identical);
 	atomic_add((width * height) << log_bpp, &udl->bytes_rendered);
@@ -210,10 +215,10 @@ static int udl_fb_open(struct fb_info *info, int user)
 {
 	struct udl_fbdev *ufbdev = info->par;
 	struct drm_device *dev = ufbdev->ufb.base.dev;
-	struct udl_device *udl = dev->dev_private;
+	struct udl_device *udl = to_udl(dev);
 
 	/* If the USB device is gone, we don't accept new opens */
-	if (drm_dev_is_unplugged(udl->ddev))
+	if (drm_dev_is_unplugged(&udl->drm))
 		return -ENODEV;
 
 	ufbdev->fb_count++;
@@ -441,7 +446,7 @@ static void udl_fbdev_destroy(struct drm_device *dev,
 
 int udl_fbdev_init(struct drm_device *dev)
 {
-	struct udl_device *udl = dev->dev_private;
+	struct udl_device *udl = to_udl(dev);
 	int bpp_sel = fb_bpp;
 	struct udl_fbdev *ufbdev;
 	int ret;
@@ -480,7 +485,7 @@ free:
 
 void udl_fbdev_cleanup(struct drm_device *dev)
 {
-	struct udl_device *udl = dev->dev_private;
+	struct udl_device *udl = to_udl(dev);
 	if (!udl->fbdev)
 		return;
 
@@ -491,7 +496,7 @@ void udl_fbdev_cleanup(struct drm_device *dev)
 
 void udl_fbdev_unplug(struct drm_device *dev)
 {
-	struct udl_device *udl = dev->dev_private;
+	struct udl_device *udl = to_udl(dev);
 	struct udl_fbdev *ufbdev;
 	if (!udl->fbdev)
 		return;

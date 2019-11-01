@@ -58,12 +58,18 @@ module_param_named(disable_hugepages,
 MODULE_PARM_DESC(disable_hugepages,
 		 "Disable VFIO IOMMU support for IOMMU hugepages.");
 
+static unsigned int dma_entry_limit __read_mostly = U16_MAX;
+module_param_named(dma_entry_limit, dma_entry_limit, uint, 0644);
+MODULE_PARM_DESC(dma_entry_limit,
+		 "Maximum number of user DMA mappings per container (65535).");
+
 struct vfio_iommu {
 	struct list_head	domain_list;
 	struct vfio_domain	*external_domain; /* domain for external user */
 	struct mutex		lock;
 	struct rb_root		dma_list;
 	struct blocking_notifier_head notifier;
+	unsigned int		dma_avail;
 	bool			v2;
 	bool			nesting;
 };
@@ -663,12 +669,13 @@ unpin_exit:
 }
 
 static long vfio_sync_unpin(struct vfio_dma *dma, struct vfio_domain *domain,
-				struct list_head *regions)
+			    struct list_head *regions,
+			    struct iommu_iotlb_gather *iotlb_gather)
 {
 	long unlocked = 0;
 	struct vfio_regions *entry, *next;
 
-	iommu_tlb_sync(domain->domain);
+	iommu_tlb_sync(domain->domain, iotlb_gather);
 
 	list_for_each_entry_safe(entry, next, regions, list) {
 		unlocked += vfio_unpin_pages_remote(dma,
@@ -698,18 +705,19 @@ static size_t unmap_unpin_fast(struct vfio_domain *domain,
 			       struct vfio_dma *dma, dma_addr_t *iova,
 			       size_t len, phys_addr_t phys, long *unlocked,
 			       struct list_head *unmapped_list,
-			       int *unmapped_cnt)
+			       int *unmapped_cnt,
+			       struct iommu_iotlb_gather *iotlb_gather)
 {
 	size_t unmapped = 0;
 	struct vfio_regions *entry = kzalloc(sizeof(*entry), GFP_KERNEL);
 
 	if (entry) {
-		unmapped = iommu_unmap_fast(domain->domain, *iova, len);
+		unmapped = iommu_unmap_fast(domain->domain, *iova, len,
+					    iotlb_gather);
 
 		if (!unmapped) {
 			kfree(entry);
 		} else {
-			iommu_tlb_range_add(domain->domain, *iova, unmapped);
 			entry->iova = *iova;
 			entry->phys = phys;
 			entry->len  = unmapped;
@@ -725,8 +733,8 @@ static size_t unmap_unpin_fast(struct vfio_domain *domain,
 	 * or in case of errors.
 	 */
 	if (*unmapped_cnt >= VFIO_IOMMU_TLB_SYNC_MAX || !unmapped) {
-		*unlocked += vfio_sync_unpin(dma, domain,
-					     unmapped_list);
+		*unlocked += vfio_sync_unpin(dma, domain, unmapped_list,
+					     iotlb_gather);
 		*unmapped_cnt = 0;
 	}
 
@@ -757,6 +765,7 @@ static long vfio_unmap_unpin(struct vfio_iommu *iommu, struct vfio_dma *dma,
 	dma_addr_t iova = dma->iova, end = dma->iova + dma->size;
 	struct vfio_domain *domain, *d;
 	LIST_HEAD(unmapped_region_list);
+	struct iommu_iotlb_gather iotlb_gather;
 	int unmapped_region_cnt = 0;
 	long unlocked = 0;
 
@@ -781,6 +790,7 @@ static long vfio_unmap_unpin(struct vfio_iommu *iommu, struct vfio_dma *dma,
 		cond_resched();
 	}
 
+	iommu_iotlb_gather_init(&iotlb_gather);
 	while (iova < end) {
 		size_t unmapped, len;
 		phys_addr_t phys, next;
@@ -809,7 +819,8 @@ static long vfio_unmap_unpin(struct vfio_iommu *iommu, struct vfio_dma *dma,
 		 */
 		unmapped = unmap_unpin_fast(domain, dma, &iova, len, phys,
 					    &unlocked, &unmapped_region_list,
-					    &unmapped_region_cnt);
+					    &unmapped_region_cnt,
+					    &iotlb_gather);
 		if (!unmapped) {
 			unmapped = unmap_unpin_slow(domain, dma, &iova, len,
 						    phys, &unlocked);
@@ -820,8 +831,10 @@ static long vfio_unmap_unpin(struct vfio_iommu *iommu, struct vfio_dma *dma,
 
 	dma->iommu_mapped = false;
 
-	if (unmapped_region_cnt)
-		unlocked += vfio_sync_unpin(dma, domain, &unmapped_region_list);
+	if (unmapped_region_cnt) {
+		unlocked += vfio_sync_unpin(dma, domain, &unmapped_region_list,
+					    &iotlb_gather);
+	}
 
 	if (do_accounting) {
 		vfio_lock_acct(dma, -unlocked, true);
@@ -836,6 +849,7 @@ static void vfio_remove_dma(struct vfio_iommu *iommu, struct vfio_dma *dma)
 	vfio_unlink_dma(iommu, dma);
 	put_task_struct(dma->task);
 	kfree(dma);
+	iommu->dma_avail++;
 }
 
 static unsigned long vfio_pgsize_bitmap(struct vfio_iommu *iommu)
@@ -878,7 +892,7 @@ static int vfio_dma_do_unmap(struct vfio_iommu *iommu,
 		return -EINVAL;
 	if (!unmap->size || unmap->size & mask)
 		return -EINVAL;
-	if (unmap->iova + unmap->size < unmap->iova ||
+	if (unmap->iova + unmap->size - 1 < unmap->iova ||
 	    unmap->size > SIZE_MAX)
 		return -EINVAL;
 
@@ -1110,12 +1124,18 @@ static int vfio_dma_do_map(struct vfio_iommu *iommu,
 		goto out_unlock;
 	}
 
+	if (!iommu->dma_avail) {
+		ret = -ENOSPC;
+		goto out_unlock;
+	}
+
 	dma = kzalloc(sizeof(*dma), GFP_KERNEL);
 	if (!dma) {
 		ret = -ENOMEM;
 		goto out_unlock;
 	}
 
+	iommu->dma_avail--;
 	dma->iova = iova;
 	dma->vaddr = vaddr;
 	dma->prot = prot;
@@ -1612,6 +1632,7 @@ static void *vfio_iommu_type1_open(unsigned long arg)
 
 	INIT_LIST_HEAD(&iommu->domain_list);
 	iommu->dma_list = RB_ROOT;
+	iommu->dma_avail = dma_entry_limit;
 	mutex_init(&iommu->lock);
 	BLOCKING_INIT_NOTIFIER_HEAD(&iommu->notifier);
 

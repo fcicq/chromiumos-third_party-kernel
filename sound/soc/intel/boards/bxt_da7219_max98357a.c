@@ -16,7 +16,6 @@
  * GNU General Public License for more details.
  */
 
-#include <asm/cpu_device_id.h>
 #include <linux/input.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
@@ -25,16 +24,17 @@
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
 #include <sound/soc.h>
+#include <sound/soc-acpi.h>
 #include "../../codecs/hdac_hdmi.h"
 #include "../../codecs/da7219.h"
 #include "../../codecs/da7219-aad.h"
+#include "../common/soc-intel-quirks.h"
 
 #define BXT_DIALOG_CODEC_DAI	"da7219-hifi"
 #define BXT_MAXIM_CODEC_DAI	"HiFi"
 #define DUAL_CHANNEL		2
 #define QUAD_CHANNEL		4
 
-static struct snd_soc_card *audio_card;
 static struct snd_soc_jack broxton_headset;
 static struct snd_soc_jack broxton_hdmi[3];
 
@@ -46,6 +46,13 @@ struct bxt_hdmi_pcm {
 
 struct bxt_card_private {
 	struct list_head hdmi_pcm_list;
+};
+
+static struct snd_soc_dai_link_component platform_component[] = {
+	{
+		/* name might be overridden during probe */
+		.name = "0000:00:1f.3"
+	}
 };
 
 enum {
@@ -185,13 +192,19 @@ static int broxton_ssp_fixup(struct snd_soc_pcm_runtime *rtd,
 static int broxton_da7219_codec_init(struct snd_soc_pcm_runtime *rtd)
 {
 	int ret;
-	struct snd_soc_jack *jack;
 	struct snd_soc_dai *codec_dai = rtd->codec_dai;
 	struct snd_soc_component *component = rtd->codec_dai->component;
+	int clk_freq;
 
 	/* Configure sysclk for codec */
-	ret = snd_soc_dai_set_sysclk(codec_dai, DA7219_CLKSRC_MCLK, 19200000,
+	if (soc_intel_is_cml())
+		clk_freq = 24000000;
+	else
+		clk_freq = 19200000;
+
+	ret = snd_soc_dai_set_sysclk(codec_dai, DA7219_CLKSRC_MCLK, clk_freq,
 				     SND_SOC_CLOCK_IN);
+
 	if (ret) {
 		dev_err(rtd->dev, "can't set codec sysclk configuration\n");
 		return ret;
@@ -210,12 +223,13 @@ static int broxton_da7219_codec_init(struct snd_soc_pcm_runtime *rtd)
 		return ret;
 	}
 
-	jack = &broxton_headset;
-	snd_jack_set_key(jack->jack, SND_JACK_BTN_0, KEY_PLAYPAUSE);
-	snd_jack_set_key(jack->jack, SND_JACK_BTN_1, KEY_VOICECOMMAND);
-	snd_jack_set_key(jack->jack, SND_JACK_BTN_2, KEY_VOLUMEUP);
-	snd_jack_set_key(jack->jack, SND_JACK_BTN_3, KEY_VOLUMEDOWN);
-	da7219_aad_jack_det(component, jack);
+	snd_jack_set_key(broxton_headset.jack, SND_JACK_BTN_0, KEY_PLAYPAUSE);
+	snd_jack_set_key(broxton_headset.jack, SND_JACK_BTN_1, KEY_VOLUMEUP);
+	snd_jack_set_key(broxton_headset.jack, SND_JACK_BTN_2, KEY_VOLUMEDOWN);
+	snd_jack_set_key(broxton_headset.jack, SND_JACK_BTN_3,
+			 KEY_VOICECOMMAND);
+
+	da7219_aad_jack_det(component, &broxton_headset);
 
 	snd_soc_dapm_ignore_suspend(&rtd->card->dapm, "SoC DMIC");
 
@@ -284,7 +298,6 @@ static const struct snd_pcm_hw_constraint_list constraints_channels_quad = {
 static int bxt_fe_startup(struct snd_pcm_substream *substream)
 {
 	struct snd_pcm_runtime *runtime = substream->runtime;
-	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 
 	/*
 	 * On this platform for PCM device we support,
@@ -292,15 +305,14 @@ static int bxt_fe_startup(struct snd_pcm_substream *substream)
 	 * stereo
 	 * 16 bit audio
 	 */
-	if (!strstr(rtd->cpu_dai->name, "HDMI")) {
-		runtime->hw.channels_max = DUAL_CHANNEL;
-		snd_pcm_hw_constraint_list(runtime, 0,
-					   SNDRV_PCM_HW_PARAM_CHANNELS,
+
+	runtime->hw.channels_max = DUAL_CHANNEL;
+	snd_pcm_hw_constraint_list(runtime, 0, SNDRV_PCM_HW_PARAM_CHANNELS,
 					   &constraints_channels);
 
-		runtime->hw.formats = SNDRV_PCM_FMTBIT_S16_LE;
-		snd_pcm_hw_constraint_msbits(runtime, 0, 16, 16);
-	}
+	runtime->hw.formats = SNDRV_PCM_FMTBIT_S16_LE;
+	snd_pcm_hw_constraint_msbits(runtime, 0, 16, 16);
+
 	snd_pcm_hw_constraint_list(runtime, 0,
 				SNDRV_PCM_HW_PARAM_RATE, &constraints_rates);
 
@@ -310,8 +322,6 @@ static int bxt_fe_startup(struct snd_pcm_substream *substream)
 static const struct snd_soc_ops broxton_da7219_fe_ops = {
 	.startup = bxt_fe_startup,
 };
-
-#define geminilake_hdmi_fe_ops broxton_da7219_fe_ops
 
 static int broxton_dmic_fixup(struct snd_soc_pcm_runtime *rtd,
 			struct snd_pcm_hw_params *params)
@@ -377,132 +387,181 @@ static const struct snd_soc_ops broxton_refcap_ops = {
 };
 
 /* broxton digital audio interface glue - connects codec <--> CPU */
+SND_SOC_DAILINK_DEF(dummy,
+	DAILINK_COMP_ARRAY(COMP_DUMMY()));
+
+SND_SOC_DAILINK_DEF(system,
+	DAILINK_COMP_ARRAY(COMP_CPU("System Pin")));
+
+SND_SOC_DAILINK_DEF(system2,
+	DAILINK_COMP_ARRAY(COMP_CPU("System Pin2")));
+
+SND_SOC_DAILINK_DEF(reference,
+	DAILINK_COMP_ARRAY(COMP_CPU("Reference Pin")));
+
+SND_SOC_DAILINK_DEF(dmic,
+	DAILINK_COMP_ARRAY(COMP_CPU("DMIC Pin")));
+
+SND_SOC_DAILINK_DEF(hdmi1,
+	DAILINK_COMP_ARRAY(COMP_CPU("HDMI1 Pin")));
+
+SND_SOC_DAILINK_DEF(hdmi2,
+	DAILINK_COMP_ARRAY(COMP_CPU("HDMI2 Pin")));
+
+SND_SOC_DAILINK_DEF(hdmi3,
+	DAILINK_COMP_ARRAY(COMP_CPU("HDMI3 Pin")));
+
+ /* Back End DAI */
+SND_SOC_DAILINK_DEF(ssp5_pin,
+	DAILINK_COMP_ARRAY(COMP_CPU("SSP5 Pin")));
+SND_SOC_DAILINK_DEF(ssp5_codec,
+	DAILINK_COMP_ARRAY(COMP_CODEC("MX98357A:00",
+				      BXT_MAXIM_CODEC_DAI)));
+
+SND_SOC_DAILINK_DEF(ssp1_pin,
+	DAILINK_COMP_ARRAY(COMP_CPU("SSP1 Pin")));
+SND_SOC_DAILINK_DEF(ssp1_codec,
+	DAILINK_COMP_ARRAY(COMP_CODEC("i2c-DLGS7219:00",
+				      BXT_DIALOG_CODEC_DAI)));
+
+SND_SOC_DAILINK_DEF(dmic_pin,
+	DAILINK_COMP_ARRAY(COMP_CPU("DMIC01 Pin")));
+
+SND_SOC_DAILINK_DEF(dmic16k_pin,
+	DAILINK_COMP_ARRAY(COMP_CPU("DMIC16k Pin")));
+
+SND_SOC_DAILINK_DEF(dmic_codec,
+	DAILINK_COMP_ARRAY(COMP_CODEC("dmic-codec", "dmic-hifi")));
+
+SND_SOC_DAILINK_DEF(idisp1_pin,
+	DAILINK_COMP_ARRAY(COMP_CPU("iDisp1 Pin")));
+SND_SOC_DAILINK_DEF(idisp1_codec,
+	DAILINK_COMP_ARRAY(COMP_CODEC("ehdaudio0D2", "intel-hdmi-hifi1")));
+
+SND_SOC_DAILINK_DEF(idisp2_pin,
+	DAILINK_COMP_ARRAY(COMP_CPU("iDisp2 Pin")));
+SND_SOC_DAILINK_DEF(idisp2_codec,
+	DAILINK_COMP_ARRAY(COMP_CODEC("ehdaudio0D2",
+				      "intel-hdmi-hifi2")));
+
+SND_SOC_DAILINK_DEF(idisp3_pin,
+	DAILINK_COMP_ARRAY(COMP_CPU("iDisp3 Pin")));
+SND_SOC_DAILINK_DEF(idisp3_codec,
+	DAILINK_COMP_ARRAY(COMP_CODEC("ehdaudio0D2",
+				      "intel-hdmi-hifi3")));
+
+SND_SOC_DAILINK_DEF(platform,
+	DAILINK_COMP_ARRAY(COMP_PLATFORM("0000:00:0e.0")));
+
 static struct snd_soc_dai_link broxton_dais[] = {
 	/* Front End DAI links */
 	[BXT_DPCM_AUDIO_PB] =
 	{
 		.name = "Bxt Audio Port",
 		.stream_name = "Audio",
-		.cpu_dai_name = "System Pin",
-		.platform_name = "0000:00:0e.0",
 		.dynamic = 1,
-		.codec_name = "snd-soc-dummy",
-		.codec_dai_name = "snd-soc-dummy-dai",
 		.nonatomic = 1,
 		.init = broxton_da7219_fe_init,
 		.trigger = {
 			SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
 		.dpcm_playback = 1,
 		.ops = &broxton_da7219_fe_ops,
+		SND_SOC_DAILINK_REG(system, dummy, platform),
 	},
 	[BXT_DPCM_AUDIO_CP] =
 	{
 		.name = "Bxt Audio Capture Port",
 		.stream_name = "Audio Record",
-		.cpu_dai_name = "System Pin",
-		.platform_name = "0000:00:0e.0",
 		.dynamic = 1,
-		.codec_name = "snd-soc-dummy",
-		.codec_dai_name = "snd-soc-dummy-dai",
 		.nonatomic = 1,
 		.trigger = {
 			SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
 		.dpcm_capture = 1,
 		.ops = &broxton_da7219_fe_ops,
+		SND_SOC_DAILINK_REG(system, dummy, platform),
+	},
+	[BXT_DPCM_AUDIO_HS_PB] = {
+		.name = "Bxt Audio Headset Playback",
+		.stream_name = "Headset Playback",
+		.dynamic = 1,
+		.nonatomic = 1,
+		.trigger = {
+			SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
+		.dpcm_playback = 1,
+		.ops = &broxton_da7219_fe_ops,
+		SND_SOC_DAILINK_REG(system2, dummy, platform),
 	},
 	[BXT_DPCM_AUDIO_REF_CP] =
 	{
 		.name = "Bxt Audio Reference cap",
 		.stream_name = "Refcap",
-		.cpu_dai_name = "Reference Pin",
-		.codec_name = "snd-soc-dummy",
-		.codec_dai_name = "snd-soc-dummy-dai",
-		.platform_name = "0000:00:0e.0",
 		.init = NULL,
 		.dpcm_capture = 1,
 		.nonatomic = 1,
 		.dynamic = 1,
 		.ops = &broxton_refcap_ops,
+		SND_SOC_DAILINK_REG(reference, dummy, platform),
 	},
 	[BXT_DPCM_AUDIO_DMIC_CP] =
 	{
 		.name = "Bxt Audio DMIC cap",
 		.stream_name = "dmiccap",
-		.cpu_dai_name = "DMIC Pin",
-		.codec_name = "snd-soc-dummy",
-		.codec_dai_name = "snd-soc-dummy-dai",
-		.platform_name = "0000:00:0e.0",
 		.init = NULL,
 		.dpcm_capture = 1,
 		.nonatomic = 1,
 		.dynamic = 1,
 		.ops = &broxton_dmic_ops,
+		SND_SOC_DAILINK_REG(dmic, dummy, platform),
 	},
 	[BXT_DPCM_AUDIO_HDMI1_PB] =
 	{
 		.name = "Bxt HDMI Port1",
 		.stream_name = "Hdmi1",
-		.cpu_dai_name = "HDMI1 Pin",
-		.codec_name = "snd-soc-dummy",
-		.codec_dai_name = "snd-soc-dummy-dai",
-		.platform_name = "0000:00:0e.0",
 		.dpcm_playback = 1,
 		.init = NULL,
 		.nonatomic = 1,
 		.dynamic = 1,
+		SND_SOC_DAILINK_REG(hdmi1, dummy, platform),
 	},
 	[BXT_DPCM_AUDIO_HDMI2_PB] =
 	{
 		.name = "Bxt HDMI Port2",
 		.stream_name = "Hdmi2",
-		.cpu_dai_name = "HDMI2 Pin",
-		.codec_name = "snd-soc-dummy",
-		.codec_dai_name = "snd-soc-dummy-dai",
-		.platform_name = "0000:00:0e.0",
 		.dpcm_playback = 1,
 		.init = NULL,
 		.nonatomic = 1,
 		.dynamic = 1,
+		SND_SOC_DAILINK_REG(hdmi2, dummy, platform),
 	},
 	[BXT_DPCM_AUDIO_HDMI3_PB] =
 	{
 		.name = "Bxt HDMI Port3",
 		.stream_name = "Hdmi3",
-		.cpu_dai_name = "HDMI3 Pin",
-		.codec_name = "snd-soc-dummy",
-		.codec_dai_name = "snd-soc-dummy-dai",
-		.platform_name = "0000:00:0e.0",
 		.dpcm_playback = 1,
 		.init = NULL,
 		.nonatomic = 1,
 		.dynamic = 1,
+		SND_SOC_DAILINK_REG(hdmi3, dummy, platform),
 	},
 	/* Back End DAI links */
 	{
 		/* SSP5 - Codec */
 		.name = "SSP5-Codec",
 		.id = 0,
-		.cpu_dai_name = "SSP5 Pin",
-		.platform_name = "0000:00:0e.0",
 		.no_pcm = 1,
-		.codec_name = "MX98357A:00",
-		.codec_dai_name = BXT_MAXIM_CODEC_DAI,
 		.dai_fmt = SND_SOC_DAIFMT_I2S |
 			SND_SOC_DAIFMT_NB_NF |
 			SND_SOC_DAIFMT_CBS_CFS,
 		.ignore_pmdown_time = 1,
 		.be_hw_params_fixup = broxton_ssp_fixup,
 		.dpcm_playback = 1,
+		SND_SOC_DAILINK_REG(ssp5_pin, ssp5_codec, platform),
 	},
 	{
 		/* SSP1 - Codec */
 		.name = "SSP1-Codec",
 		.id = 1,
-		.cpu_dai_name = "SSP1 Pin",
-		.platform_name = "0000:00:0e.0",
 		.no_pcm = 1,
-		.codec_name = "i2c-DLGS7219:00",
-		.codec_dai_name = BXT_DIALOG_CODEC_DAI,
 		.init = broxton_da7219_codec_init,
 		.dai_fmt = SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF |
 			SND_SOC_DAIFMT_CBS_CFS,
@@ -510,261 +569,50 @@ static struct snd_soc_dai_link broxton_dais[] = {
 		.be_hw_params_fixup = broxton_ssp_fixup,
 		.dpcm_playback = 1,
 		.dpcm_capture = 1,
+		SND_SOC_DAILINK_REG(ssp1_pin, ssp1_codec, platform),
 	},
 	{
 		.name = "dmic01",
 		.id = 2,
-		.cpu_dai_name = "DMIC01 Pin",
-		.codec_name = "dmic-codec",
-		.codec_dai_name = "dmic-hifi",
-		.platform_name = "0000:00:0e.0",
 		.ignore_suspend = 1,
 		.be_hw_params_fixup = broxton_dmic_fixup,
 		.dpcm_capture = 1,
 		.no_pcm = 1,
+		SND_SOC_DAILINK_REG(dmic_pin, dmic_codec, platform),
 	},
 	{
 		.name = "iDisp1",
 		.id = 3,
-		.cpu_dai_name = "iDisp1 Pin",
-		.codec_name = "ehdaudio0D2",
-		.codec_dai_name = "intel-hdmi-hifi1",
-		.platform_name = "0000:00:0e.0",
 		.init = broxton_hdmi_init,
 		.dpcm_playback = 1,
 		.no_pcm = 1,
+		SND_SOC_DAILINK_REG(idisp1_pin, idisp1_codec, platform),
 	},
 	{
 		.name = "iDisp2",
 		.id = 4,
-		.cpu_dai_name = "iDisp2 Pin",
-		.codec_name = "ehdaudio0D2",
-		.codec_dai_name = "intel-hdmi-hifi2",
-		.platform_name = "0000:00:0e.0",
 		.init = broxton_hdmi_init,
 		.dpcm_playback = 1,
 		.no_pcm = 1,
+		SND_SOC_DAILINK_REG(idisp2_pin, idisp2_codec, platform),
 	},
 	{
 		.name = "iDisp3",
 		.id = 5,
-		.cpu_dai_name = "iDisp3 Pin",
-		.codec_name = "ehdaudio0D2",
-		.codec_dai_name = "intel-hdmi-hifi3",
-		.platform_name = "0000:00:0e.0",
 		.init = broxton_hdmi_init,
 		.dpcm_playback = 1,
 		.no_pcm = 1,
-	},
-};
-
-/* geminilake digital audio interface glue - connects codec <--> CPU */
-static struct snd_soc_dai_link geminilake_dais[] = {
-	/* Front End DAI links */
-	[BXT_DPCM_AUDIO_PB] = {
-		.name = "Bxt Audio Port",
-		.stream_name = "Audio",
-		.cpu_dai_name = "System Pin",
-		.platform_name = "0000:00:0e.0",
-		.dynamic = 1,
-		.codec_name = "snd-soc-dummy",
-		.codec_dai_name = "snd-soc-dummy-dai",
-		.nonatomic = 1,
-		.init = broxton_da7219_fe_init,
-		.trigger = {
-			SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
-		.dpcm_playback = 1,
-		.ops = &broxton_da7219_fe_ops,
-	},
-	[BXT_DPCM_AUDIO_CP] = {
-		.name = "Bxt Audio Capture Port",
-		.stream_name = "Audio Record",
-		.cpu_dai_name = "System Pin",
-		.platform_name = "0000:00:0e.0",
-		.dynamic = 1,
-		.codec_name = "snd-soc-dummy",
-		.codec_dai_name = "snd-soc-dummy-dai",
-		.nonatomic = 1,
-		.trigger = {
-			SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
-		.dpcm_capture = 1,
-		.ops = &broxton_da7219_fe_ops,
-	},
-	[BXT_DPCM_AUDIO_HS_PB] = {
-		.name = "Bxt Audio Headset Playback",
-		.stream_name = "Headset Playback",
-		.cpu_dai_name = "System Pin2",
-		.platform_name = "0000:00:0e.0",
-		.codec_name = "snd-soc-dummy",
-		.codec_dai_name = "snd-soc-dummy-dai",
-		.dpcm_playback = 1,
-		.nonatomic = 1,
-		.dynamic = 1,
-		.ops = &broxton_da7219_fe_ops,
-	},
-	[BXT_DPCM_AUDIO_REF_CP] = {
-		.name = "Bxt Audio Reference cap",
-		.stream_name = "Refcap",
-		.cpu_dai_name = "Reference Pin",
-		.codec_name = "snd-soc-dummy",
-		.codec_dai_name = "snd-soc-dummy-dai",
-		.platform_name = "0000:00:0e.0",
-		.init = NULL,
-		.dpcm_capture = 1,
-		.nonatomic = 1,
-		.dynamic = 1,
-		.ops = &broxton_refcap_ops,
-	},
-	[BXT_DPCM_AUDIO_DMIC_CP] = {
-		.name = "Bxt Audio DMIC cap",
-		.stream_name = "dmiccap",
-		.cpu_dai_name = "DMIC Pin",
-		.codec_name = "snd-soc-dummy",
-		.codec_dai_name = "snd-soc-dummy-dai",
-		.platform_name = "0000:00:0e.0",
-		.init = NULL,
-		.dpcm_capture = 1,
-		.nonatomic = 1,
-		.dynamic = 1,
-		.ops = &broxton_dmic_ops,
-	},
-	[BXT_DPCM_AUDIO_HDMI1_PB] = {
-		.name = "Bxt HDMI Port1",
-		.stream_name = "Hdmi1",
-		.cpu_dai_name = "HDMI1 Pin",
-		.codec_name = "snd-soc-dummy",
-		.codec_dai_name = "snd-soc-dummy-dai",
-		.platform_name = "0000:00:0e.0",
-		.dpcm_playback = 1,
-		.init = NULL,
-		.trigger = {
-			SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
-		.nonatomic = 1,
-		.dynamic = 1,
-		.ops = &geminilake_hdmi_fe_ops,
-	},
-	[BXT_DPCM_AUDIO_HDMI2_PB] =	{
-		.name = "Bxt HDMI Port2",
-		.stream_name = "Hdmi2",
-		.cpu_dai_name = "HDMI2 Pin",
-		.codec_name = "snd-soc-dummy",
-		.codec_dai_name = "snd-soc-dummy-dai",
-		.platform_name = "0000:00:0e.0",
-		.dpcm_playback = 1,
-		.init = NULL,
-		.trigger = {
-			SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
-		.nonatomic = 1,
-		.dynamic = 1,
-		.ops = &geminilake_hdmi_fe_ops,
-	},
-	[BXT_DPCM_AUDIO_HDMI3_PB] =	{
-		.name = "Bxt HDMI Port3",
-		.stream_name = "Hdmi3",
-		.cpu_dai_name = "HDMI3 Pin",
-		.codec_name = "snd-soc-dummy",
-		.codec_dai_name = "snd-soc-dummy-dai",
-		.platform_name = "0000:00:0e.0",
-		.trigger = {
-			SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
-		.dpcm_playback = 1,
-		.init = NULL,
-		.nonatomic = 1,
-		.dynamic = 1,
-		.ops = &geminilake_hdmi_fe_ops,
-	},
-	/* Back End DAI links */
-	{
-		/* SSP1 - Codec */
-		.name = "SSP1-Codec",
-		.id = 0,
-		.cpu_dai_name = "SSP1 Pin",
-		.platform_name = "0000:00:0e.0",
-		.no_pcm = 1,
-		.codec_name = "MX98357A:00",
-		.codec_dai_name = BXT_MAXIM_CODEC_DAI,
-		.dai_fmt = SND_SOC_DAIFMT_I2S |
-			SND_SOC_DAIFMT_NB_NF |
-			SND_SOC_DAIFMT_CBS_CFS,
-		.ignore_pmdown_time = 1,
-		.be_hw_params_fixup = broxton_ssp_fixup,
-		.dpcm_playback = 1,
+		SND_SOC_DAILINK_REG(idisp3_pin, idisp3_codec, platform),
 	},
 	{
-		/* SSP2 - Codec */
-		.name = "SSP2-Codec",
-		.id = 1,
-		.cpu_dai_name = "SSP2 Pin",
-		.platform_name = "0000:00:0e.0",
-		.no_pcm = 1,
-		.codec_name = "i2c-DLGS7219:00",
-		.codec_dai_name = BXT_DIALOG_CODEC_DAI,
-		.init = broxton_da7219_codec_init,
-		.dai_fmt = SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF |
-			SND_SOC_DAIFMT_CBS_CFS,
-		.ignore_pmdown_time = 1,
-		.be_hw_params_fixup = broxton_ssp_fixup,
-		.dpcm_playback = 1,
-		.dpcm_capture = 1,
-	},
-	{
-		.name = "dmic01",
-		.id = 2,
-		.cpu_dai_name = "DMIC01 Pin",
-		.codec_name = "dmic-codec",
-		.codec_dai_name = "dmic-hifi",
-		.platform_name = "0000:00:0e.0",
-		.ignore_suspend = 1,
+		.name = "dmic16k",
+		.id = 6,
 		.be_hw_params_fixup = broxton_dmic_fixup,
 		.dpcm_capture = 1,
 		.no_pcm = 1,
-	},
-	{
-		.name = "iDisp1",
-		.id = 3,
-		.cpu_dai_name = "iDisp1 Pin",
-		.codec_name = "ehdaudio0D2",
-		.codec_dai_name = "intel-hdmi-hifi1",
-		.platform_name = "0000:00:0e.0",
-		.init = broxton_hdmi_init,
-		.dpcm_playback = 1,
-		.no_pcm = 1,
-	},
-	{
-		.name = "iDisp2",
-		.id = 4,
-		.cpu_dai_name = "iDisp2 Pin",
-		.codec_name = "ehdaudio0D2",
-		.codec_dai_name = "intel-hdmi-hifi2",
-		.platform_name = "0000:00:0e.0",
-		.init = broxton_hdmi_init,
-		.dpcm_playback = 1,
-		.no_pcm = 1,
-	},
-	{
-		.name = "iDisp3",
-		.id = 5,
-		.cpu_dai_name = "iDisp3 Pin",
-		.codec_name = "ehdaudio0D2",
-		.codec_dai_name = "intel-hdmi-hifi3",
-		.platform_name = "0000:00:0e.0",
-		.init = broxton_hdmi_init,
-		.dpcm_playback = 1,
-		.no_pcm = 1,
+		SND_SOC_DAILINK_REG(dmic16k_pin, dmic_codec, platform),
 	},
 };
-
-static int is_geminilake(void)
-{
-	static const struct x86_cpu_id cpu_ids[] = {
-		{ X86_VENDOR_INTEL, 6, 0x7A }, /* Geminilake CPU_ID */
-		{}
-	};
-
-	if (x86_match_cpu(cpu_ids))
-		return true;
-	return false;
-}
 
 #define NAME_SIZE	32
 static int bxt_card_late_probe(struct snd_soc_card *card)
@@ -775,12 +623,12 @@ static int bxt_card_late_probe(struct snd_soc_card *card)
 	int err, i = 0;
 	char jack_name[NAME_SIZE];
 
-	if (is_geminilake())
+	if (soc_intel_is_glk())
 		snd_soc_dapm_add_routes(&card->dapm, gemini_map,
-				ARRAY_SIZE(gemini_map));
+					ARRAY_SIZE(gemini_map));
 	else
 		snd_soc_dapm_add_routes(&card->dapm, broxton_map,
-				ARRAY_SIZE(broxton_map));
+					ARRAY_SIZE(broxton_map));
 
 	list_for_each_entry(pcm, &ctx->hdmi_pcm_list, head) {
 		component = pcm->codec_dai->component;
@@ -808,7 +656,7 @@ static int bxt_card_late_probe(struct snd_soc_card *card)
 }
 
 /* broxton audio machine driver for SPT + da7219 */
-static struct snd_soc_card bxt_audio_card_da7219_m98357a = {
+static struct snd_soc_card broxton_audio_card = {
 	.name = "bxtda7219max",
 	.owner = THIS_MODULE,
 	.dai_link = broxton_dais,
@@ -823,25 +671,12 @@ static struct snd_soc_card bxt_audio_card_da7219_m98357a = {
 	.late_probe = bxt_card_late_probe,
 };
 
-/* geminilake audio machine driver for SPT + DA7219 */
-static struct snd_soc_card glk_audio_card_da7219_m98357a = {
-	.name = "glkda7219max",
-	.owner = THIS_MODULE,
-	.dai_link = geminilake_dais,
-	.num_links = ARRAY_SIZE(geminilake_dais),
-	.controls = broxton_controls,
-	.num_controls = ARRAY_SIZE(broxton_controls),
-	.dapm_widgets = broxton_widgets,
-	.num_dapm_widgets = ARRAY_SIZE(broxton_widgets),
-	.dapm_routes = audio_map,
-	.num_dapm_routes = ARRAY_SIZE(audio_map),
-	.fully_routed = true,
-	.late_probe = bxt_card_late_probe,
-};
-
 static int broxton_audio_probe(struct platform_device *pdev)
 {
 	struct bxt_card_private *ctx;
+	struct snd_soc_acpi_mach *mach;
+	const char *platform_name;
+	int ret;
 
 	ctx = devm_kzalloc(&pdev->dev, sizeof(*ctx), GFP_KERNEL);
 	if (!ctx)
@@ -849,26 +684,65 @@ static int broxton_audio_probe(struct platform_device *pdev)
 
 	INIT_LIST_HEAD(&ctx->hdmi_pcm_list);
 
-	audio_card =
-		(struct snd_soc_card *)pdev->id_entry->driver_data;
+	broxton_audio_card.dev = &pdev->dev;
+	snd_soc_card_set_drvdata(&broxton_audio_card, ctx);
+	if (soc_intel_is_glk()) {
+		unsigned int i;
 
-	audio_card->dev = &pdev->dev;
-	snd_soc_card_set_drvdata(audio_card, ctx);
+		broxton_audio_card.name = "glkda7219max";
+		/* Fixup the SSP entries for geminilake */
+		for (i = 0; i < ARRAY_SIZE(broxton_dais); i++) {
+			/* MAXIM_CODEC is connected to SSP1. */
+			if (!strcmp(broxton_dais[i].codecs->dai_name,
+				    BXT_MAXIM_CODEC_DAI)) {
+				broxton_dais[i].name = "SSP1-Codec";
+				broxton_dais[i].cpus->dai_name = "SSP1 Pin";
+			}
+			/* DIALOG_CODE is connected to SSP2 */
+			else if (!strcmp(broxton_dais[i].codecs->dai_name,
+					 BXT_DIALOG_CODEC_DAI)) {
+				broxton_dais[i].name = "SSP2-Codec";
+				broxton_dais[i].cpus->dai_name = "SSP2 Pin";
+			}
+		}
+	} else if (soc_intel_is_cml()) {
+		unsigned int i;
 
-	return devm_snd_soc_register_card(&pdev->dev, audio_card);
+		broxton_audio_card.name = "cmlda7219max";
+
+		for (i = 0; i < ARRAY_SIZE(broxton_dais); i++) {
+			/* MAXIM_CODEC is connected to SSP1. */
+			if (!strcmp(broxton_dais[i].codecs->dai_name,
+					BXT_MAXIM_CODEC_DAI)) {
+				broxton_dais[i].name = "SSP1-Codec";
+				broxton_dais[i].cpus->dai_name = "SSP1 Pin";
+			}
+			/* DIALOG_CODEC is connected to SSP0 */
+			else if (!strcmp(broxton_dais[i].codecs->dai_name,
+					BXT_DIALOG_CODEC_DAI)) {
+				broxton_dais[i].name = "SSP0-Codec";
+				broxton_dais[i].cpus->dai_name = "SSP0 Pin";
+			}
+			broxton_dais[i].platforms = platform_component;
+		}
+	}
+
+	/* override plaform name, if required */
+	mach = (&pdev->dev)->platform_data;
+	platform_name = mach->mach_params.platform;
+
+	ret = snd_soc_fixup_dai_links_platform_name(&broxton_audio_card,
+						    platform_name);
+	if (ret)
+		return ret;
+
+	return devm_snd_soc_register_card(&pdev->dev, &broxton_audio_card);
 }
 
 static const struct platform_device_id bxt_board_ids[] = {
-	{
-		.name = "bxt_da7219_max98357a",
-		.driver_data =
-			(kernel_ulong_t)&bxt_audio_card_da7219_m98357a,
-	},
-	{
-		.name = "glk_da7219_max98357a",
-		.driver_data =
-			(kernel_ulong_t)&glk_audio_card_da7219_m98357a,
-	},
+	{ .name = "bxt_da7219_max98357a" },
+	{ .name = "glk_da7219_max98357a" },
+	{ .name = "cml_da7219_max98357a" },
 	{ }
 };
 
@@ -889,6 +763,8 @@ MODULE_AUTHOR("Rohit Ainapure <rohit.m.ainapure@intel.com>");
 MODULE_AUTHOR("Harsha Priya <harshapriya.n@intel.com>");
 MODULE_AUTHOR("Conrad Cooke <conrad.cooke@intel.com>");
 MODULE_AUTHOR("Naveen Manohar <naveen.m@intel.com>");
+MODULE_AUTHOR("Mac Chiang <mac.chiang@intel.com>");
 MODULE_LICENSE("GPL v2");
 MODULE_ALIAS("platform:bxt_da7219_max98357a");
 MODULE_ALIAS("platform:glk_da7219_max98357a");
+MODULE_ALIAS("platform:cml_da7219_max98357a");

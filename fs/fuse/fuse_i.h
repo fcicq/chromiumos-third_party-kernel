@@ -371,9 +371,6 @@ struct fuse_req {
 	/** Inode used in the request or NULL */
 	struct inode *inode;
 
-	/** Path used for completing d_canonical_path */
-	struct path *canonical_path;
-
 	/** AIO control block */
 	struct fuse_io_priv *io;
 
@@ -390,6 +387,9 @@ struct fuse_req {
 struct fuse_iqueue {
 	/** Connection established */
 	unsigned connected;
+
+	/** Lock protecting accesses to members of this structure */
+	spinlock_t lock;
 
 	/** Readers of the connection are waiting on this */
 	wait_queue_head_t waitq;
@@ -752,7 +752,7 @@ void fuse_sync_release(struct fuse_file *ff, int flags);
 /**
  * Send RELEASE or RELEASEDIR request
  */
-void fuse_release_common(struct file *file, int opcode);
+void fuse_release_common(struct file *file, bool isdir);
 
 /**
  * Send FSYNC or FSYNCDIR request
