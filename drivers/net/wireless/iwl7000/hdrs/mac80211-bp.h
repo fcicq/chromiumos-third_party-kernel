@@ -1195,14 +1195,14 @@ static inline void iwl7000_convert_sinfo(struct backport_sinfo *bpsinfo,
 #endif
 #if CFG80211_VERSION >= KERNEL_VERSION(3,16,0)
 	COPY(expected_throughput);
+	COPY(rx_beacon);
+	COPY(rx_beacon_signal_avg);
 #endif
 #if CFG80211_VERSION >= KERNEL_VERSION(4,18,0)
 	COPY(ack_signal);
 	COPY(avg_ack_signal);
 #endif
 #if CFG80211_VERSION >= KERNEL_VERSION(4,0,0)
-	COPY(rx_beacon);
-	COPY(rx_beacon_signal_avg);
 	MCPY(pertid);
 	COPY(filled);
 #else
@@ -1250,6 +1250,8 @@ static inline void iwl7000_convert_sinfo(struct backport_sinfo *bpsinfo,
 #endif
 #if CFG80211_VERSION >= KERNEL_VERSION(3,16,0)
 	FLAG(EXPECTED_THROUGHPUT);
+	FLAG(BEACON_RX);
+	FLAG(BEACON_SIGNAL_AVG);
 #endif
 #undef RENAMED_FLAG
 #undef FLAG
